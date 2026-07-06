@@ -2,6 +2,17 @@
 
 First manual v0.1 harness run against [`weston-uribe-portfolio`](https://github.com/weston-uribe/weston-uribe-portfolio).
 
+## Current status
+
+| Item | State |
+|------|-------|
+| Implementation | Complete — commit `1a4a4e3` on `feat/portfolio-github-link` |
+| PR | **Open** — [#1](https://github.com/weston-uribe/weston-uribe-portfolio/pull/1) |
+| Validation | Lint, build, manual inspection, and Vercel preview — **passed** |
+| Merge | **Awaiting** PM/product review and engineering/code review |
+
+Vercel preview: https://weston-uribe-portfolio-git-feat-portfo-f948b1-kinterra-team-url.vercel.app
+
 ## Why this was chosen as the first v0.1 harness test
 
 - **Small, bounded scope** — one product surface (contact or footer), one outbound link, easy to eval.
@@ -30,10 +41,13 @@ First manual v0.1 harness run against [`weston-uribe-portfolio`](https://github.
 | File | Status |
 |------|--------|
 | [`linear-issue.md`](linear-issue.md) | Defined |
-| [`implementation-plan.md`](implementation-plan.md) | Preliminary — requires repo inspection before execution |
-| [`eval-scorecard.md`](eval-scorecard.md) | Criteria defined; scores pending implementation |
-| [`pr-readiness-report.md`](pr-readiness-report.md) | Placeholder — fill after implementation |
+| [`implementation-plan.md`](implementation-plan.md) | Execution complete — contact section placement confirmed in PR |
+| [`eval-scorecard.md`](eval-scorecard.md) | Scored — all Pass; PM sign-off pending |
+| [`pr-readiness-report.md`](pr-readiness-report.md) | Complete — ready for review, not merged |
 
 ## Next step
 
-Open `/Users/weston/Code/weston-uribe-portfolio` in Cursor, approve the implementation plan after repo inspection, execute the change, then complete the scorecard and PR readiness report in this folder.
+1. PM/product review on [Vercel preview](https://weston-uribe-portfolio-git-feat-portfo-f948b1-kinterra-team-url.vercel.app) and [PR #1](https://github.com/weston-uribe/weston-uribe-portfolio/pull/1).
+2. Engineering/code review on the three-file diff.
+3. Merge decision after both gates pass.
+4. Add retrospective to `docs/research/` after merge (or after review feedback).
