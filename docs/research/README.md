@@ -13,6 +13,13 @@ Capture what works and what fails when running the harness loop manually—befor
 - Target repo-specific notes (e.g. portfolio conventions)
 - Comparisons of tool options (Linear vs GitHub Issues, etc.)
 
+## Entries
+
+| ID | Topic | Status |
+|----|-------|--------|
+| [001](001-manual-run-retrospective.md) | Manual harness run 001 (portfolio GitHub link) | Complete |
+| [002](002-linear-cursor-integration-smoke-test.md) | Native Cursor ↔ Linear integration smoke test (WES-6) | Complete |
+
 ## v0.1 status
 
-**Empty.** No research notes yet. The first entry should come from a manual run against [`weston-uribe-portfolio`](https://github.com/weston-uribe/weston-uribe-portfolio).
+Research notes from manual runs and integration spikes. Skills and automation remain deferred per [`skills/README.md`](../../skills/README.md).
