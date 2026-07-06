@@ -1,22 +1,24 @@
 # PR readiness report: Add GitHub link to portfolio contact or footer
 
-<!-- Run 001 — post-implementation readiness. Based on templates/pr-readiness-report.md -->
+<!-- Run 001 — merged and deployed. Based on templates/pr-readiness-report.md -->
 
 ## Summary
 
-PR [#1](https://github.com/weston-uribe/weston-uribe-portfolio/pull/1) adds a GitHub contact card to the portfolio contact section so hiring managers can open the public repo (`weston-uribe/weston-uribe-portfolio`) directly from the site. Card order is Email → LinkedIn → GitHub → Resume; the section renders as a balanced 2×2 grid from the `md` breakpoint upward. Implementation touched three files; lint, build, manual inspection, and Vercel preview checks all passed.
+PR [#1](https://github.com/weston-uribe/weston-uribe-portfolio/pull/1) added a GitHub contact card to the portfolio contact section so hiring managers can open the public repo (`weston-uribe-portfolio`) directly from the site. Card order: Email → LinkedIn → GitHub → Resume; balanced 2×2 grid from `md` breakpoint upward. Squash-merged to `main`; production deployment succeeded.
 
-**Status:** Ready for PM/product review and engineering/code review. **Not merged.**
+**Status:** **Merged and deployed.**
 
 ## Issue and plan links
 
 - Issue: [`linear-issue.md`](linear-issue.md)
 - Implementation plan: [`implementation-plan.md`](implementation-plan.md)
-- Branch: `feat/portfolio-github-link`
-- PR: https://github.com/weston-uribe/weston-uribe-portfolio/pull/1 (#1)
-- Commit: `1a4a4e3406bc9e8e7f86c85fc2660ad71263e92a` — Add GitHub contact link
+- Branch: `feat/portfolio-github-link` (kept on local and origin)
+- PR: https://github.com/weston-uribe/weston-uribe-portfolio/pull/1 (#1) — **merged** (squash)
+- Feature commit: `1a4a4e3406bc9e8e7f86c85fc2660ad71263e92a` — Add GitHub contact link
+- Main commit (post-merge): `9a58a7e283b1bee07fc33894174830e2578e08b5`
 - Portfolio repo: https://github.com/weston-uribe/weston-uribe-portfolio
-- Vercel preview: https://weston-uribe-portfolio-git-feat-portfo-f948b1-kinterra-team-url.vercel.app
+- Vercel preview (pre-merge): https://weston-uribe-portfolio-git-feat-portfo-f948b1-kinterra-team-url.vercel.app
+- Production deployment: https://vercel.com/kinterra-team-url/weston-uribe-portfolio/8TPFTiY79nviGt95rwFWMi2DVeqq — **success**
 
 ## Scope check
 
@@ -41,8 +43,8 @@ PR [#1](https://github.com/weston-uribe/weston-uribe-portfolio/pull/1) adds a Gi
 | New tab + rel attributes | Done | `target="_blank"`, `rel="noopener noreferrer"` |
 | Visual consistency | Done | Matches card pattern; inline SVG like LinkedIn |
 | Accessible link | Done | Manual contact-section inspection passed |
-| Resume / LinkedIn / email unchanged | Done | Verified on preview |
-| Lint and build pass | Done | Both passed |
+| Resume / LinkedIn / email unchanged | Done | Verified on preview and production |
+| Lint and build pass | Done | Both passed pre-merge |
 
 ## Validation results
 
@@ -51,39 +53,40 @@ PR [#1](https://github.com/weston-uribe/weston-uribe-portfolio/pull/1) adds a Gi
 | Lint / typecheck | **Pass** | `npm run lint` — passed |
 | Dev server / build | **Pass** | `npm run build` — passed |
 | Manual UI review (contact section) | **Pass** | Manual contact-section inspection — passed |
-| Vercel preview | **Pass** | Vercel check — success; [preview URL](https://weston-uribe-portfolio-git-feat-portfo-f948b1-kinterra-team-url.vercel.app) |
+| Vercel preview | **Pass** | Pre-merge preview check — success |
+| Production deployment | **Pass** | [Deployment](https://vercel.com/kinterra-team-url/weston-uribe-portfolio/8TPFTiY79nviGt95rwFWMi2DVeqq) — success |
 
 ## Eval scorecard
 
-See [`eval-scorecard.md`](eval-scorecard.md) — all criteria **Pass**; PM sign-off pending.
+See [`eval-scorecard.md`](eval-scorecard.md) — all criteria **Pass**; PM/product sign-off **complete**.
 
-## Risks
+## Risks (resolved)
 
-| Risk | Severity | Mitigation |
-|------|----------|------------|
-| Lucide `Github` icon unavailable; inline SVG used instead | Low | Matches `LinkedInIcon` pattern; lint/build pass; preview looks consistent |
-| Merge before PM review | Medium | Explicit gate: awaiting product approval before merge |
-| Preview URL is branch-specific | Low | Re-verify on production after merge |
+| Risk | Outcome |
+|------|---------|
+| Lucide `Github` icon unavailable; inline SVG used | Accepted — shipped; no post-merge issues reported |
+| Merge before PM review | Resolved — PM approved; squash merged |
+| Preview-only validation | Resolved — production deployment succeeded |
 
-## Open questions
+## Open questions (closed or deferred)
 
-- Does PM approve GitHub card copy/label and placement order (Email → LinkedIn → GitHub → Resume)?
-- Any hiring-manager feedback on 2×2 grid vs single-row layout on tablet widths?
-- Should footer also link to GitHub in a future issue, or is contact-only sufficient?
+- **GitHub card placement order** — Approved as shipped (Email → LinkedIn → GitHub → Resume).
+- **Footer GitHub link** — Deferred; contact-only sufficient for v0.1 run scope.
+- **Mobile explicit check** — Inferred from responsive grid; note for future runs (see retrospective).
 
 ## Reviewer checklist
 
-- [ ] Product intent satisfied — hiring managers can reach the repo from the site
-- [ ] No obvious regressions on contact section or footer
-- [ ] Copy / UX acceptable for hiring-manager audience
-- [ ] Ready for engineering code review
-- [ ] Preview reviewed on desktop and mobile
+- [x] Product intent satisfied — hiring managers can reach the repo from the site
+- [x] No obvious regressions on contact section or footer
+- [x] Copy / UX acceptable for hiring-manager audience
+- [x] Engineering code review complete
+- [x] Merged and deployed to production
 
 ## Recommendation
 
-- [x] **Ready for review** — PM/product review and engineering/code review
-- [ ] **Not ready**
-- [ ] **Merged** — PR #1 remains **open**; do not merge until human approval
+- [ ] Ready for review
+- [ ] Not ready
+- [x] **Merged and deployed** — PR #1 squash-merged; production deployment successful
 
 Prepared by: Harness run 001 (manual v0.1)  
-Date: 2026-07-06
+Date: 2026-07-06 (completion update)

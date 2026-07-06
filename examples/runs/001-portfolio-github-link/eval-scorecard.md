@@ -1,6 +1,6 @@
 # Eval scorecard: Add GitHub link to portfolio contact or footer
 
-<!-- Run 001 — scored after implementation. Based on templates/eval-scorecard.md -->
+<!-- Run 001 — complete; merged and deployed. Based on templates/eval-scorecard.md -->
 
 ## Run metadata
 
@@ -9,8 +9,10 @@
 | Issue | [`linear-issue.md`](linear-issue.md) |
 | Target repo | `weston-uribe/weston-uribe-portfolio` |
 | Target local path | `/Users/weston/Code/weston-uribe-portfolio` |
-| Branch / PR | `feat/portfolio-github-link` / [PR #1](https://github.com/weston-uribe/weston-uribe-portfolio/pull/1) |
-| Commit | `1a4a4e3406bc9e8e7f86c85fc2660ad71263e92a` — Add GitHub contact link |
+| Branch / PR | `feat/portfolio-github-link` / [PR #1](https://github.com/weston-uribe/weston-uribe-portfolio/pull/1) — **merged** |
+| Feature commit | `1a4a4e3406bc9e8e7f86c85fc2660ad71263e92a` — Add GitHub contact link |
+| Main commit (post-merge) | `9a58a7e283b1bee07fc33894174830e2578e08b5` |
+| Production deployment | [Success](https://vercel.com/kinterra-team-url/weston-uribe-portfolio/8TPFTiY79nviGt95rwFWMi2DVeqq) |
 | Agent / executor | Cursor (manual v0.1 loop) |
 | Date | 2026-07-06 |
 
@@ -27,37 +29,35 @@
 
 | # | Criterion | Score | Evidence |
 |---|-----------|-------|----------|
-| 1 | GitHub link exists and points to `https://github.com/weston-uribe/weston-uribe-portfolio` | **Pass** | GitHub card in contact section; URL exactly `https://github.com/weston-uribe/weston-uribe-portfolio` (commit `1a4a4e3`, `lib/portfolio/content.ts`) |
-| 2 | Link is visually consistent with existing contact/social links | **Pass** | GitHub card follows same card pattern as Email, LinkedIn, Resume; card order Email → LinkedIn → GitHub → Resume; 2×2 grid from `md` breakpoint. Icon deviation: inline GitHub SVG used instead of Lucide `Github` (not in `lucide-react@^1.20.0`) — matches existing `LinkedInIcon` inline SVG pattern; acceptable for visual consistency and build correctness |
-| 3 | Link is accessible (keyboard focus, visible name or aria-label, sufficient contrast) | **Pass** | Manual contact-section inspection passed; card uses same interactive pattern as sibling contact cards |
-| 4 | No existing contact, resume, or LinkedIn behavior breaks | **Pass** | Email, LinkedIn, and Resume behavior preserved per manual inspection and Vercel preview check |
-| 5 | `npm run lint` passes | **Pass** | `npm run lint` — passed |
-| 6 | `npm run build` passes | **Pass** | `npm run build` — passed |
-| 7 | Scope stayed narrow — no unrelated file changes | **Pass** | Three files only: `components/custom/portfolio/contact-section.tsx`, `lib/portfolio/content.ts`, `lib/constants/breakpoints.ts` |
-| 8 | Matches acceptance criteria from issue (placement, new tab, mobile check) | **Pass** | Contact section only (issue allowed contact or footer); `target="_blank"` with `rel="noopener noreferrer"`; grid/layout verified on preview |
+| 1 | GitHub link exists and points to `https://github.com/weston-uribe/weston-uribe-portfolio` | **Pass** | Shipped on `main`; live in contact section |
+| 2 | Link is visually consistent with existing contact/social links | **Pass** | Card pattern; inline GitHub SVG (Lucide unavailable) — accepted at merge |
+| 3 | Link is accessible (keyboard focus, visible name or aria-label, sufficient contrast) | **Pass** | Manual inspection; no post-merge accessibility issues reported |
+| 4 | No existing contact, resume, or LinkedIn behavior breaks | **Pass** | Verified pre-merge and post-deploy |
+| 5 | `npm run lint` passes | **Pass** | Pre-merge |
+| 6 | `npm run build` passes | **Pass** | Pre-merge |
+| 7 | Scope stayed narrow — no unrelated file changes | **Pass** | Three files only |
+| 8 | Matches acceptance criteria from issue (placement, new tab, mobile check) | **Pass** | Contact section; production deployment success |
 
 ## Known deviation (acceptable)
 
 | Deviation | Resolution |
 |-----------|------------|
-| Planned Lucide `Github` icon unavailable in `lucide-react@^1.20.0` | Inline GitHub SVG added, consistent with `LinkedInIcon` pattern; lint and build pass; no visual regression observed on preview |
+| Planned Lucide `Github` icon unavailable in `lucide-react@^1.20.0` | Inline GitHub SVG; merged and deployed without issue |
 
 ## Summary
 
-- **Overall readiness:** Ready for PM/product review and engineering/code review — **not merged**
+- **Overall readiness:** **Complete** — merged, deployed, PM/product sign-off recorded
 - **Blocking failures:** None
-
-**PM/product review:** Final human approval before merge is **still pending**. This scorecard reflects automated and manual validation only.
 
 ## Human sign-off
 
-- [ ] PM / owner reviewed scorecard
-- Sign-off: _______________
-- Date: _______________
+- [x] PM / owner reviewed scorecard
+- Sign-off: Weston Uribe (PM/product)
+- Date: 2026-07-06
 
 ## Follow-ups
 
-Template or process improvements discovered during this eval:
+Carried to [`docs/research/001-manual-run-retrospective.md`](../../docs/research/001-manual-run-retrospective.md):
 
-- Document icon/library availability checks in implementation plan when reusing Lucide names
-- Confirm whether mobile viewport was explicitly checked or inferred from responsive grid — consider explicit mobile row in validation plan for future UI runs
+- Add icon/library availability check to implementation plan template
+- Add explicit mobile viewport step to validation plan for UI runs
