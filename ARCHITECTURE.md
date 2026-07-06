@@ -16,17 +16,21 @@ flowchart LR
   humanGate --> futureAuto[FutureAutomationLayer]
 ```
 
+Planning is **optional** in the target Linear workflow. Low-risk issues may bypass planning and go directly from intake to execution. See [`docs/architecture/linear-automation-state-machine.md`](docs/architecture/linear-automation-state-machine.md).
+
 ## Components
 
 ### Issue intake
 
 **Purpose:** Capture product intent in a structured, reviewable issue before any code is written.
 
-**v0.1:** Manual. Use [`templates/linear-issue.md`](templates/linear-issue.md). Issues may live in Linear, GitHub Issues, or a markdown file—Linear is the planned control plane, not a v0.1 dependency.
+**v0.1:** Manual. Use [`templates/linear-issue.md`](templates/linear-issue.md). Issues may live in Linear, GitHub Issues, or a markdown file—Linear is the planned control plane; native Cursor ↔ Linear triggering was smoke-tested once, not production automation.
 
 **Inputs:** Problem statement, user context, acceptance criteria, out-of-scope boundaries.
 
-**Outputs:** A single issue artifact that an implementation plan can reference.
+**Outputs:** A single issue artifact that an implementation plan or direct build can reference.
+
+**Labels (planned):** `requires-plan` — must go through planning; `skip-plan` — may go directly to Ready for Build.
 
 ---
 
@@ -48,7 +52,7 @@ flowchart LR
 
 **v0.1:** Manual. Open target repo in Cursor; point agent at relevant `AGENTS.md`, architecture docs, and issue/plan files. MCP tools are **optional** context providers—not assumptions.
 
-**Inputs:** Target repo path, issue, plan draft.
+**Inputs:** Target repo path, issue, plan draft (if planning ran).
 
 **Outputs:** Scoped Cursor session with explicit out-of-scope paths.
 
@@ -56,13 +60,17 @@ flowchart LR
 
 ### Implementation planning
 
-**Purpose:** Produce a human-reviewable plan before code changes.
+**Purpose:** Produce a human-reviewable plan before code changes when scope or risk warrants it.
 
 **v0.1:** Manual. Use [`templates/implementation-plan.md`](templates/implementation-plan.md). Agent may draft; human approves.
 
+**Planned:** Planning Agent posts durable plan comment in Linear, then moves issue to Ready for Build.
+
 **Inputs:** Issue, repo context.
 
-**Outputs:** Plan listing approach, files, risks, validation steps, rollback.
+**Outputs:** Plan listing approach, files, risks, validation steps, rollback—stored as a Linear comment (durable), not session memory.
+
+**Optional:** Small, low-risk, well-scoped issues may skip this step per planning policy in the state machine doc.
 
 ---
 
@@ -72,9 +80,11 @@ flowchart LR
 
 **v0.1:** **Cursor** (local agent). No cloud agents, no unattended runs.
 
-**Inputs:** Approved implementation plan.
+**Planned:** Implementation Agent triggered from Linear **Ready for Build** via router automation.
 
-**Outputs:** Code/doc changes in a feature branch; no merge without human gate.
+**Inputs:** Linear issue; plan comment if `requires-plan`; otherwise issue body and acceptance criteria.
+
+**Outputs:** Code/doc changes in a feature branch; PR opened; no merge without human gate.
 
 ---
 
@@ -106,11 +116,13 @@ flowchart LR
 
 **Purpose:** Ensure PM and engineering judgment remain in the loop.
 
-**v0.1:** Required at plan approval, pre-PR, and merge. No automation bypasses these gates.
+**v0.1:** Required at pre-PR, PM review, engineering review, and merge. No automation bypasses these gates.
+
+**Note:** `Plan Review` is **not** part of the default active workflow. If the status exists in Linear, it is deprecated/reserved—not routed by automations.
 
 **Inputs:** Readiness report, preview URL (when available).
 
-**Outputs:** Approved or rejected with feedback; feedback may spawn a follow-up issue.
+**Outputs:** Approved or rejected with feedback; feedback may spawn revision loop (Needs Revision → Revising → PM Review).
 
 ---
 
@@ -120,16 +132,88 @@ flowchart LR
 
 **v0.1:** **Not implemented.** See [`skills/README.md`](skills/README.md).
 
+**Next spike (planned):** Single **router** Cursor Automation on Linear status change—not many independent automations. First spike: planning-only or docs-only; no full autonomous build loop.
+
+**State machine:** [`docs/architecture/linear-automation-state-machine.md`](docs/architecture/linear-automation-state-machine.md)
+
+**ADR:** [`docs/decisions/0003-automation-state-machine-and-auto-model-policy.md`](docs/decisions/0003-automation-state-machine-and-auto-model-policy.md)
+
+---
+
+## Linear automation (planned)
+
+Native Cursor ↔ Linear assignment/mention was smoke-tested once. Status-triggered automations are **planned**, not live.
+
+### Default status flow
+
+```text
+Backlog → Ready for Planning → Planning → Ready for Build → Building
+  → PR Open → PM Review → Engineering Review → Merged / Deployed
+```
+
+**Bypass (optional planning):** Backlog → Ready for Build → Building → …
+
+**Revision loop:** PM Review → Needs Revision → Revising → PM Review
+
+**Exceptions:** Blocked, Canceled, Duplicate — automations exit without action.
+
+### Router-first design
+
+The first automation inspects status and labels, then:
+
+| Status | Flow |
+|--------|------|
+| Ready for Planning | Planning Agent |
+| Ready for Build | Implementation Agent |
+| Needs Revision | Revision Agent |
+| Other | Exit with no changes |
+
+### Agent roles (planned)
+
+| Role | Trigger | Primary durable output |
+|------|---------|------------------------|
+| Router Agent | Status change | Route or exit |
+| Planning Agent | Ready for Planning | Plan comment in Linear |
+| Implementation Agent | Ready for Build | Branch, PR, Linear comment |
+| Revision Agent | Needs Revision | Commits, revision comment |
+| Merge/Deployment Reporter | Merged / Deployed | Final links comment |
+
+Full role contracts: [`docs/architecture/linear-automation-state-machine.md`](docs/architecture/linear-automation-state-machine.md).
+
+---
+
+## Cursor model policy
+
+Every Cursor agent, cloud agent, or automation in this harness must use the Cursor model setting **`Auto`**.
+
+- Do **not** configure named models (Composer, GPT-5.5, Claude, or any explicit model).
+- Docs and prompts should allow changing the model setting later; **`Auto`** is the current default and only allowed setting.
+- If an automation cannot be configured with `Auto`, do not create it yet.
+- Reports should mention the model setting used when relevant.
+
+---
+
+## Durable context principle
+
+| Principle | Detail |
+|-----------|--------|
+| Durable state required | Linear comments, GitHub PR/commits, branch, Vercel preview URLs |
+| Session reuse optional | Happy-path optimization when Cursor supports it |
+| Fresh agent recovery | New agent must reconstruct context from durable artifacts only |
+| No hidden memory | Session memory is never the source of truth |
+
+Agents must not advance Linear status unless the required durable artifact exists (plan comment, PR link, etc.).
+
 ---
 
 ## Platform roles
 
 | Platform | Role | v0.1 status |
 |----------|------|-------------|
-| **Cursor** | Execution environment for scoped AI-assisted implementation | Active (manual) |
-| **Linear** | Planned PM control plane for issues and status | Planned |
-| **GitHub** | Planned PR and code review layer | Planned (manual PRs OK) |
-| **Vercel previews** | Planned product review layer for UI work | Planned |
+| **Cursor** | Execution environment for scoped AI-assisted implementation | Active (manual); Automations **planned** |
+| **Linear** | PM control plane for issues and status | Statuses/labels configured manually; router automation **planned** |
+| **GitHub** | PR and code review layer | Manual PRs OK; agent-opened PRs **planned** |
+| **Vercel previews** | Product review layer for UI work | Planned |
 | **MCP / tools** | Optional context providers (docs, analytics, etc.) | Optional, not required |
 
 ## Design principles
@@ -138,3 +222,5 @@ flowchart LR
 2. **Modular boundaries** — each component has clear inputs/outputs for later wiring.
 3. **Honest maturity labels** — distinguish implemented vs planned in every doc.
 4. **Human gates by default** — automation augments review; it does not replace it.
+5. **Router before fan-out** — one status-triggered automation that exits early beats many overlapping triggers.
+6. **Auto model only** — no named model lock-in during early spikes.

@@ -2,13 +2,40 @@
 
 Phased delivery for the agentic product development harness. Each phase adds capability only after the previous loop is proven manually.
 
-**Current phase: v0.1**
+**Current phase: Cursor Automations trigger spike**
+
+---
+
+## Cursor Automations trigger spike (current)
+
+**Goal:** Document and validate a status-triggered router automation on Linear issues before any full build loop.
+
+**Already done:**
+- Manual v0.1 loop proven on portfolio (see [`examples/runs/001-portfolio-github-link/`](examples/runs/001-portfolio-github-link/))
+- Linear statuses and labels updated manually to match [`docs/architecture/linear-automation-state-machine.md`](docs/architecture/linear-automation-state-machine.md)
+- Native Cursor ↔ Linear integration smoke-tested once — see [`docs/research/002-linear-cursor-integration-smoke-test.md`](docs/research/002-linear-cursor-integration-smoke-test.md)
+- ADR accepted: [`docs/decisions/0003-automation-state-machine-and-auto-model-policy.md`](docs/decisions/0003-automation-state-machine-and-auto-model-policy.md)
+
+**This phase includes:**
+- Status-triggered **router** Cursor Automation (one automation, not many)
+- Router inspects issue status/labels and exits without action on unsupported states
+- First automation scope: **planning-only or docs-only**
+- All agents/automations use Cursor model setting **`Auto` only**
+
+**Not included yet:**
+- Full autonomous build loop (Backlog → PR → merge without human gates)
+- Multiple independent automations per status
+- Named model configuration per role
+- Skills or reusable automation templates beyond the spike
+- Merge/deployment reporter automation
 
 ---
 
 ## v0.1 — Manual Cursor loop
 
 **Goal:** Prove one end-to-end product issue → Cursor implementation → human review loop using docs and templates only.
+
+**Status:** Completed for first portfolio run; artifacts in [`examples/runs/001-portfolio-github-link/`](examples/runs/001-portfolio-github-link/).
 
 **Deliverables:**
 - README, ROADMAP, ARCHITECTURE, AGENTS
@@ -19,10 +46,10 @@ Phased delivery for the agentic product development harness. Each phase adds cap
 
 **Not included yet:**
 - Automated eval runners
-- Linear API integration
+- Production Linear automation
 - GitHub Actions or PR bots
-- Cloud agents
-- Cursor skills or automations
+- Cloud agents (beyond one smoke test)
+- Cursor skills
 - UI or control plane
 
 ---
@@ -46,12 +73,13 @@ Phased delivery for the agentic product development harness. Each phase adds cap
 
 ## v0.3 — Linear control plane
 
-**Goal:** Use Linear (or Linear-style issues) as the PM source of truth for intake, status, and traceability.
+**Goal:** Use Linear as the PM source of truth for intake, status, and traceability—with optional planning and router-based automations.
 
 **Deliverables:**
-- Issue template aligned with Linear fields
-- Documented issue → plan → PR linking convention
-- Optional: export/import scripts or MCP-assisted issue bootstrap
+- Issue template aligned with Linear fields and labels (`requires-plan`, `skip-plan`)
+- Documented issue → plan comment → PR linking convention
+- Router automation operational for planning and build triggers
+- Durable context verified: fresh agent can resume from Linear + GitHub alone
 
 **Not included yet:**
 - Full bidirectional Linear sync
@@ -68,11 +96,12 @@ Phased delivery for the agentic product development harness. Each phase adds cap
 - PR readiness report tied to preview URL
 - Review checklist for hiring-manager / PM audience
 - Documented branch and PR naming conventions
+- Revision loop automation (Needs Revision → Revising → PM Review)
 
 **Not included yet:**
-- Auto-open PRs from agent runs
+- Auto-merge
 - Preview comment bots
-- Merge automation
+- Unattended deployment
 
 ---
 
