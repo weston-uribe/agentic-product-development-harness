@@ -44,7 +44,19 @@ function mergeComment() {
 }
 
 describe("merge idempotency", () => {
-  it("skips when merge marker exists", () => {
+  it("skips when merge marker exists and PR is merged", () => {
+    const result = checkMergeIdempotency(
+      config,
+      { id: "1", identifier: "WES-13", status: "Ready to Merge", teamId: "t" },
+      [{ id: "c1", body: mergeComment() }],
+      prUrl,
+      true,
+      false,
+    );
+    expect(result.skip).toBe(true);
+  });
+
+  it("retries when merge marker exists but PR is still open", () => {
     const result = checkMergeIdempotency(
       config,
       { id: "1", identifier: "WES-13", status: "Ready to Merge", teamId: "t" },
@@ -53,7 +65,8 @@ describe("merge idempotency", () => {
       false,
       false,
     );
-    expect(result.skip).toBe(true);
+    expect(result.skip).toBe(false);
+    expect(result.reason).toContain("recovery");
   });
 
   it("allows recovery when PR merged without marker", () => {

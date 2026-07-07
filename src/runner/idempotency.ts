@@ -349,10 +349,17 @@ export function checkMergeIdempotency(
     prUrl,
   );
 
-  if (hasMergeMarker) {
+  if (hasMergeMarker && prAlreadyMerged) {
     return {
       skip: true,
       reason: "duplicate_phase_completed: merge marker already exists for PR",
+    };
+  }
+
+  if (hasMergeMarker && !prAlreadyMerged) {
+    return {
+      skip: false,
+      reason: "recovery: merge marker exists but PR is still open",
     };
   }
 
