@@ -16,7 +16,7 @@ Product managers draft issues in a **normal ChatGPT thread**—no Custom GPT req
 
 1. Open [`prompts/issue-intake-chatgpt.md`](../prompts/issue-intake-chatgpt.md)
 2. Copy the **entire file** into a new ChatGPT conversation
-3. Answer the upfront intake form (eight fields in one reply when possible)
+3. Answer the upfront intake form (**Linear project first**; target repo optional when project metadata includes `Harness metadata: Target repo: ...`)
 4. Review the **Linear issue package** and readiness assessment
 5. Approve creation; ChatGPT creates the issue if Linear access is available in that thread, otherwise copy-paste into Linear manually
 6. Set the **status** field on the issue per the recommendation (not in the description)
@@ -89,9 +89,23 @@ Authoritative parser: [`src/linear/parser.ts`](../src/linear/parser.ts)
 
 Template: [`templates/linear-issue.md`](../templates/linear-issue.md)
 
-Required sections:
+**Project-first intake:** assign the issue to a Linear project mapped in [`harness.config.json`](../harness.config.json) `repos[].linearProjects`. The runner resolves target repo from project when `## Target repo` is absent.
 
-- `## Target repo` (or project/team mapping in `harness.config.json`)
+| Linear project (WES) | Resolved target repo |
+|----------------------|----------------------|
+| Portfolio | `weston-uribe/weston-uribe-portfolio` |
+| Agentic Product Development Harness | `weston-uribe/agentic-product-development-harness` |
+
+Project descriptions may include:
+
+```text
+Harness metadata:
+Target repo: owner/repo
+```
+
+Required description sections:
+
+- `## Target repo` (include when known — derived from project metadata or PM override)
 - `## Task`
 - `## Acceptance criteria` (≥1 `-` bullet)
 - `## Out of scope` (≥1 `-` bullet)

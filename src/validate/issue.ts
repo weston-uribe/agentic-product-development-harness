@@ -38,7 +38,7 @@ function buildRepairInstructions(
   if (result.resolverError) {
     if (result.resolverError.classification === "missing_target_repo") {
       repairs.push(
-        "Add ## Target repo, a Target repo: line under ## Context and links, or assign the issue to a mapped Linear project/team.",
+        "Assign the issue to a mapped Linear project (see harness.config.json linearProjects) or add ## Target repo / Target repo: under ## Context and links.",
       );
     } else if (result.resolverError.classification === "unknown_repo_denied") {
       repairs.push(
@@ -84,8 +84,15 @@ function buildRoutingNotes(
   narrowIssue: boolean,
   hasPlanningMarker: boolean,
   intendedPhase: IntendedPhase | null,
+  resolutionSource: IssueValidationResult["resolutionSource"],
 ): string[] {
   const notes: string[] = [];
+
+  if (resolutionSource === "project") {
+    notes.push("Target repo derived from Linear project mapping.");
+  } else if (resolutionSource === "team") {
+    notes.push("Target repo derived from Linear team mapping.");
+  }
 
   if (validForPlanning) {
     notes.push("Set Linear status to Ready for Planning to run the planning phase.");
@@ -161,6 +168,7 @@ export function computeIssueValidation(
     narrowIssue,
     hasPlanningMarker,
     intendedPhase,
+    resolutionSource,
   );
 
   const base = {

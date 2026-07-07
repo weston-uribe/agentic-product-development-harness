@@ -22,16 +22,17 @@ For PM self-service intake, use the canonical ChatGPT prompt — see [ChatGPT pa
 
 ### Upfront form (default)
 
-Ask for **all eight fields in one message**:
+Ask for **all fields in one message**:
 
-1. Product/repo or target system
-2. Desired outcome
-3. Current problem / current behavior
-4. Requested change
-5. Acceptance criteria or observable success
-6. Out of scope / what not to change
-7. Validation expectations (optional — "none known" OK)
-8. Initial Linear status preference: Backlog | Ready for Planning | Ready for Build | Draft only
+1. **Linear project** (primary) — e.g. Portfolio, Agentic Product Development Harness
+2. **Target repo** (optional override) — only when project metadata does not include `Harness metadata: Target repo: ...`
+3. Desired outcome
+4. Current problem / current behavior
+5. Requested change
+6. Acceptance criteria or observable success
+7. Out of scope / what not to change
+8. Validation expectations (optional — "none known" OK)
+9. Initial Linear status preference: Backlog | Ready for Planning | Ready for Build | Draft only
 
 **Defaults:** status → Backlog; do not finalize for Linear paste until the operator approves the package.
 
@@ -64,7 +65,18 @@ Recommend **Linear status** (not a description section):
 
 ### Labels (optional)
 
-Suggest e.g. `requires-plan`, `skip-plan`, `harness`, target repo id — clearly marked optional. Runner does not enforce labels.
+Use only **existing** WES team labels. Suggest: `portfolio` / `harness` by project; `requires-plan` + `planning-agent` for Ready for Planning; `skip-plan` + `implementation-agent` for Ready for Build; `Feature`/`Improvement`/`Bug` when obvious. Runner does not enforce labels.
+
+### Project metadata
+
+Read Linear project description for:
+
+```text
+Harness metadata:
+Target repo: owner/repo
+```
+
+Copy derived repo into `## Target repo` in the issue description.
 
 ## Narrow-issue thresholds (build-direct)
 
@@ -84,9 +96,10 @@ Produce this artifact when intake is complete:
 ## Linear issue package
 
 **Title:** ...
+**Linear project:** ...
 **Recommended status:** Backlog | Ready for Planning | Ready for Build
 **Optional labels:** ... (or "none")
-**Target repo:** owner/repo
+**Target repo:** owner/repo (derived or override)
 
 ### Readiness assessment
 - Valid for planning: yes/no — reason
@@ -105,7 +118,7 @@ Apply the readiness assessment algorithm from [`prompts/issue-intake-chatgpt.md`
 
 Required sections (level-2 headers, case-insensitive):
 
-- `## Target repo`
+- `## Target repo` — include when known; may be derived from Linear project metadata
 - `## Task` (preferred; `## Problem` is a parser fallback)
 - `## Acceptance criteria` — at least one `-` bullet
 - `## Out of scope` — at least one `-` bullet

@@ -117,6 +117,22 @@ describe("validateIssueFromFile", () => {
     expect(result.validForPlanning).toBe(true);
     expect(result.resolutionSource).toBe("explicit");
   });
+
+  it("validates project-only fixture without target repo section", async () => {
+    const result = await validateIssueFromFile(
+      path.join(fixturesDir, "valid-project-only.md"),
+      testConfig,
+    );
+
+    expect(result.validForPlanning).toBe(true);
+    expect(result.resolutionSource).toBe("project");
+    expect(result.targetRepo).toBe(
+      "https://github.com/weston-uribe/weston-uribe-portfolio",
+    );
+    expect(result.routingNotes).toContain(
+      "Target repo derived from Linear project mapping.",
+    );
+  });
 });
 
 describe("computeIssueValidation intended phase", () => {
