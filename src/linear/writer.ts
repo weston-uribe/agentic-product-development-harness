@@ -3,8 +3,10 @@ import type { LinearIssueSnapshot } from "./client.js";
 import { resolveWorkflowStateId } from "./states.js";
 import {
   formatHarnessCommentFooter,
+  formatHandoffComment,
   formatImplementationComment,
   formatPlanningComment,
+  type HandoffCommentFooterInput,
   type HarnessCommentFooterInput,
   type ImplementationCommentFooterInput,
 } from "./comments.js";
@@ -87,15 +89,29 @@ export async function postImplementationComment(
   return postIssueComment(client, issueId, body);
 }
 
+export async function postHandoffComment(
+  client: LinearClient,
+  issueId: string,
+  summaryBody: string,
+  footer: HandoffCommentFooterInput,
+): Promise<string> {
+  const body = formatHandoffComment(summaryBody, footer);
+  return postIssueComment(client, issueId, body);
+}
+
 export async function postErrorComment(
   client: LinearClient,
   issueId: string,
   message: string,
-  footer: ImplementationCommentFooterInput,
-  phase: "planning" | "implementation" = "planning",
+  footer: HandoffCommentFooterInput,
+  phase: "planning" | "implementation" | "handoff" = "planning",
 ): Promise<string> {
   const header =
-    phase === "implementation" ? "## Implementation error" : "## Harness planning error";
+    phase === "handoff"
+      ? "## Handoff error"
+      : phase === "implementation"
+        ? "## Implementation error"
+        : "## Harness planning error";
   const body = `${header}\n\n${message}\n\n${formatHarnessCommentFooter(footer)}`;
   return postIssueComment(client, issueId, body);
 }

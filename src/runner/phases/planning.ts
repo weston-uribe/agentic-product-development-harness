@@ -131,6 +131,9 @@ export async function executePlanningPhase(
       prUrl: null,
       previewUrl: null,
       validationSummary: null,
+      changedFiles: null,
+      checkSummary: null,
+      previousImplementationRunId: null,
       model: preflight.config ? resolveModelId(preflight.config) : null,
     };
     return writeFinalManifest(
@@ -223,6 +226,9 @@ export async function executePlanningPhase(
         prUrl: null,
         previewUrl: null,
         validationSummary: null,
+        changedFiles: null,
+        checkSummary: null,
+        previousImplementationRunId: null,
         model,
       };
       return writeFinalManifest(
@@ -385,6 +391,9 @@ export async function executePlanningPhase(
     prUrl: null,
     previewUrl: null,
     validationSummary: null,
+    changedFiles: null,
+    checkSummary: null,
+    previousImplementationRunId: null,
     model,
   };
 

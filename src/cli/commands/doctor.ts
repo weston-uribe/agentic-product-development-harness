@@ -1,7 +1,9 @@
+import "dotenv/config";
 import { access, constants, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { Cursor } from "@cursor/sdk";
 import { loadConfig, validateRepoClosure } from "../../config/load-config.js";
+import { pingGitHub } from "../../github/client.js";
 import { pingLinear } from "../../linear/client.js";
 import { EXIT_CONFIG, EXIT_SUCCESS } from "../exit-codes.js";
 
@@ -120,12 +122,28 @@ export async function runDoctor(options: DoctorOptions): Promise<number> {
     });
   }
 
-  checks.push({
-    label: "GITHUB_TOKEN",
-    ok: true,
-    skipped: true,
-    detail: "skipped (Milestone 3+)",
-  });
+  if (process.env.GITHUB_TOKEN) {
+    try {
+      const login = await pingGitHub(process.env.GITHUB_TOKEN);
+      checks.push({
+        label: "GITHUB_TOKEN set",
+        ok: true,
+        detail: `authenticated as ${login}`,
+      });
+    } catch (error) {
+      checks.push({
+        label: "GITHUB_TOKEN set",
+        ok: false,
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    }
+  } else {
+    checks.push({
+      label: "GITHUB_TOKEN set",
+      ok: false,
+      detail: "required for handoff runs (Milestone 4+)",
+    });
+  }
 
   for (const check of checks) {
     const icon = check.skipped ? "○" : check.ok ? "✓" : "✗";

@@ -1,4 +1,4 @@
-export type RunPhase = "planning" | "implementation" | "none";
+export type RunPhase = "planning" | "implementation" | "handoff" | "none";
 
 export type FinalOutcome = "success" | "failed" | "skipped" | "duplicate";
 
@@ -20,6 +20,13 @@ export type ErrorClassification =
   | "branch_without_pr"
   | "wrong_target_repo"
   | "wrong_pr_target"
+  | "github_auth_failure"
+  | "github_api_failure"
+  | "missing_implementation_marker"
+  | "missing_pr_url"
+  | "pr_closed"
+  | "preview_not_found"
+  | "checks_failing"
   | null;
 
 export interface RunManifest {
@@ -45,6 +52,9 @@ export interface RunManifest {
   prUrl: string | null;
   previewUrl: string | null;
   validationSummary: string | null;
+  changedFiles: string[] | null;
+  checkSummary: string | null;
+  previousImplementationRunId: string | null;
   model: string | null;
 }
 
@@ -59,6 +69,7 @@ export type RunEventName =
   | "phase_inferred"
   | "idempotency_skip"
   | "planning_comment_loaded"
+  | "implementation_comment_loaded"
   | "linear_status_changed"
   | "linear_comment_posted"
   | "cursor_agent_created"
@@ -70,6 +81,11 @@ export type RunEventName =
   | "git_result_captured"
   | "pr_captured"
   | "validation_completed"
+  | "github_pr_inspected"
+  | "preview_poll_started"
+  | "preview_captured"
+  | "preview_not_found"
+  | "handoff_comment_posted"
   | "run_finished";
 
 export interface RunEvent {

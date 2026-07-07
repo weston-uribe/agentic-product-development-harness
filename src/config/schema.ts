@@ -32,6 +32,7 @@ const linearConfigSchema = z.object({
     .object({
       planning: z.array(z.string()).optional(),
       implementation: z.array(z.string()).optional(),
+      handoff: z.array(z.string()).optional(),
     })
     .optional(),
   transitionalStatuses: z
@@ -55,6 +56,11 @@ const implementationConfigSchema = z.object({
   branchPrefix: z.string().min(1).default(DEFAULT_IMPLEMENTATION_BRANCH_PREFIX),
 });
 
+const handoffConfigSchema = z.object({
+  allowPmReviewWithoutPreview: z.boolean().optional(),
+  previewRequiredForSuccess: z.boolean().optional(),
+});
+
 export const harnessConfigSchema = z
   .object({
     version: z.literal(1),
@@ -64,6 +70,7 @@ export const harnessConfigSchema = z
     linear: linearConfigSchema.optional(),
     planning: planningConfigSchema.optional(),
     implementation: implementationConfigSchema.optional(),
+    handoff: handoffConfigSchema.optional(),
     watch: z
       .object({
         pollIntervalSeconds: z.number().positive().optional(),

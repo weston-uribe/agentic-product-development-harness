@@ -56,6 +56,26 @@ export function getPlanningCommentLoadedPath(runDirectory: string): string {
   return path.join(runDirectory, "linear", "planning-comment-loaded.md");
 }
 
+export function getImplementationCommentLoadedPath(runDirectory: string): string {
+  return path.join(runDirectory, "linear", "implementation-comment-loaded.md");
+}
+
+export function getHandoffCommentPath(runDirectory: string): string {
+  return path.join(runDirectory, "linear", "handoff-comment.md");
+}
+
+export function getGithubPrPath(runDirectory: string): string {
+  return path.join(runDirectory, "github", "pr.json");
+}
+
+export function getGithubChecksPath(runDirectory: string): string {
+  return path.join(runDirectory, "github", "checks.json");
+}
+
+export function getVercelDeploymentPath(runDirectory: string): string {
+  return path.join(runDirectory, "vercel", "deployment.json");
+}
+
 export function getCommentsWrittenPath(runDirectory: string): string {
   return path.join(runDirectory, "linear", "comments-written.md");
 }

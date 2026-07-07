@@ -31,6 +31,9 @@ describe("manifest writer", () => {
       prUrl: null,
       previewUrl: null,
       validationSummary: null,
+      changedFiles: null,
+      checkSummary: null,
+      previousImplementationRunId: null,
       model: null,
     };
 

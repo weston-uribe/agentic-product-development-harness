@@ -7,7 +7,8 @@
     "teamKey": "WES",
     "eligibleStatuses": {
       "planning": ["Ready for Planning"],
-      "implementation": ["Ready for Build"]
+      "implementation": ["Ready for Build"],
+      "handoff": ["PR Open"]
     },
     "transitionalStatuses": {
       "planningInProgress": "Planning",
@@ -24,6 +25,14 @@
   "implementation": {
     "timeoutSeconds": 3600,
     "branchPrefix": "cursor"
+  },
+  "handoff": {
+    "allowPmReviewWithoutPreview": true,
+    "previewRequiredForSuccess": false
+  },
+  "preview": {
+    "pollTimeoutSeconds": 300,
+    "pollIntervalSeconds": 15
   },
   "repos": [
     {

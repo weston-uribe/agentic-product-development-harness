@@ -37,3 +37,13 @@ export class ImplementationError extends PhaseError {
     this.name = "ImplementationError";
   }
 }
+
+export class HandoffError extends PhaseError {
+  constructor(
+    classification: NonNullable<import("../types/run.js").ErrorClassification>,
+    message: string,
+  ) {
+    super(classification, message, null);
+    this.name = "HandoffError";
+  }
+}

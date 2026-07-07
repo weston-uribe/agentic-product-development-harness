@@ -25,3 +25,7 @@ export function getEligiblePlanningStatuses(config: HarnessConfig): string[] {
 export function getEligibleImplementationStatuses(config: HarnessConfig): string[] {
   return config.linear?.eligibleStatuses?.implementation ?? ["Ready for Build"];
 }
+
+export function getEligibleHandoffStatuses(config: HarnessConfig): string[] {
+  return config.linear?.eligibleStatuses?.handoff ?? ["PR Open"];
+}

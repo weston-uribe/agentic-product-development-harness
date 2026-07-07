@@ -57,6 +57,9 @@ export async function executeDryRun(options: DryRunOptions): Promise<DryRunResul
       prUrl: null,
       previewUrl: null,
       validationSummary: null,
+      changedFiles: null,
+      checkSummary: null,
+      previousImplementationRunId: null,
       model,
     };
     await writeManifest(preflight.context.runDirectory, manifest);
@@ -99,6 +102,9 @@ export async function executeDryRun(options: DryRunOptions): Promise<DryRunResul
     prUrl: null,
     previewUrl: null,
     validationSummary: null,
+    changedFiles: null,
+    checkSummary: null,
+    previousImplementationRunId: null,
     model,
   };
 

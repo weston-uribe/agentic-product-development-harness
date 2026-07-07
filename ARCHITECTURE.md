@@ -82,9 +82,25 @@ Planning is **optional** in the target Linear workflow. Low-risk issues may bypa
 
 **Planned:** Implementation Agent triggered from Linear **Ready for Build** via router automation.
 
+**Implemented (Milestone 3):** SDK implementation runner — Cursor cloud agent, branch + PR, Linear transition to **PR Open**.
+
+**Implemented (Milestone 4):** SDK handoff runner — GitHub PR inspect, Vercel preview capture, PM handoff comment, Linear transition to **PM Review**. See [`docs/milestones/m4-handoff-phase.md`](docs/milestones/m4-handoff-phase.md).
+
 **Inputs:** Linear issue; plan comment if `requires-plan`; otherwise issue body and acceptance criteria.
 
 **Outputs:** Code/doc changes in a feature branch; PR opened; no merge without human gate.
+
+---
+
+### Handoff / PM review prep
+
+**Purpose:** Bridge implementation output to product review by inspecting the PR, capturing preview URLs, and posting a durable handoff comment.
+
+**Implemented (Milestone 4):** SDK handoff runner from Linear **PR Open** — reads implementation marker, inspects GitHub PR (`GITHUB_TOKEN` required), polls for Vercel preview, posts handoff comment, transitions to **PM Review**.
+
+**Inputs:** Linear issue in PR Open; latest implementation marker with `pr_url`.
+
+**Outputs:** PM handoff comment; preview URL when found; manifest and artifact bundle for review.
 
 ---
 
@@ -165,6 +181,7 @@ The first automation inspects status and labels, then:
 |--------|------|
 | Ready for Planning | Planning Agent |
 | Ready for Build | Implementation Agent |
+| PR Open | Handoff runner (M4) |
 | Needs Revision | Revision Agent |
 | Other | Exit with no changes |
 
@@ -212,8 +229,8 @@ Agents must not advance Linear status unless the required durable artifact exist
 |----------|------|-------------|
 | **Cursor** | Execution environment for scoped AI-assisted implementation | Active (manual); Automations **planned** |
 | **Linear** | PM control plane for issues and status | Statuses/labels configured manually; router automation **planned** |
-| **GitHub** | PR and code review layer | Manual PRs OK; agent-opened PRs **planned** |
-| **Vercel previews** | Product review layer for UI work | Planned |
+| **GitHub** | PR and code review layer | Manual PRs OK; agent-opened PRs **implemented** (M3); PR inspect for handoff **implemented** (M4) |
+| **Vercel previews** | Product review layer for UI work | **Implemented** for handoff (M4) — preview URL from PR comments |
 | **MCP / tools** | Optional context providers (docs, analytics, etc.) | Optional, not required |
 
 ## Design principles

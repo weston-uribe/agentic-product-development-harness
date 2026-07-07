@@ -2,11 +2,13 @@ import type { HarnessConfig } from "../config/types.js";
 import type { LinearIssueSnapshot } from "../linear/client.js";
 import type { LinearCommentRecord } from "../linear/writer.js";
 import {
+  hasHandoffCompletionMarker,
   hasImplementationCompletionMarker,
   hasPlanningCompletionMarker,
 } from "../linear/comments.js";
 import { parseHarnessMarkers } from "../linear/markers.js";
 import {
+  getEligibleHandoffStatuses,
   getEligibleImplementationStatuses,
   getEligiblePlanningStatuses,
   getTransitionalStatus,
@@ -148,4 +150,62 @@ export function assertImplementationEligibleStatus(
 
 export function isNarrowImplementationIssue(parsed: ParsedIssue): boolean {
   return parsed.task.length <= 240 && parsed.acceptanceCriteria.length <= 7;
+}
+
+export function checkHandoffIdempotency(
+  config: HarnessConfig,
+  issue: LinearIssueSnapshot,
+  comments: LinearCommentRecord[],
+  force: boolean,
+): IdempotencyResult {
+  if (force) {
+    return { skip: false };
+  }
+
+  const orchestratorMarker = config.orchestratorMarker;
+  const pmReview = getTransitionalStatus(config, "pmReview");
+  const hasHandoffComment = comments.some((comment) =>
+    hasHandoffCompletionMarker(comment.body, orchestratorMarker),
+  );
+
+  if (hasHandoffComment) {
+    return {
+      skip: true,
+      reason: "duplicate_phase_completed: handoff marker already exists",
+    };
+  }
+
+  if (
+    issue.status?.toLowerCase() === pmReview.toLowerCase() &&
+    hasHandoffComment
+  ) {
+    return {
+      skip: true,
+      reason: "duplicate_phase_completed: issue already in PM Review with handoff",
+    };
+  }
+
+  return { skip: false };
+}
+
+export function assertHandoffEligibleStatus(
+  config: HarnessConfig,
+  issue: LinearIssueSnapshot,
+  force: boolean,
+): void {
+  const status = issue.status?.trim() ?? "";
+  const eligible = getEligibleHandoffStatuses(config);
+  const prOpen = getTransitionalStatus(config, "prOpen");
+
+  if (eligible.some((s) => s.toLowerCase() === status.toLowerCase())) {
+    return;
+  }
+
+  if (force && status.toLowerCase() === prOpen.toLowerCase()) {
+    return;
+  }
+
+  throw new Error(
+    `wrong_status: issue is "${status}"; expected one of: ${eligible.join(", ")}`,
+  );
 }

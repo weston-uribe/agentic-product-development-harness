@@ -48,6 +48,12 @@
                   "items": {
                     "type": "string"
                   }
+                },
+                "handoff": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
                 }
               },
               "additionalProperties": false
@@ -100,6 +106,18 @@
               "type": "string",
               "minLength": 1,
               "default": "cursor"
+            }
+          },
+          "additionalProperties": false
+        },
+        "handoff": {
+          "type": "object",
+          "properties": {
+            "allowPmReviewWithoutPreview": {
+              "type": "boolean"
+            },
+            "previewRequiredForSuccess": {
+              "type": "boolean"
             }
           },
           "additionalProperties": false

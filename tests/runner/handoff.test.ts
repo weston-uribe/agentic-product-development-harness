@@ -1,0 +1,249 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  transitionIssueStatus: vi.fn(),
+  postHandoffComment: vi.fn(),
+  postErrorComment: vi.fn(),
+  listIssueComments: vi.fn(),
+  createLinearClient: vi.fn(),
+  fetchLinearIssue: vi.fn(),
+  inspectPullRequest: vi.fn(),
+  pollForVercelPreview: vi.fn(),
+}));
+
+vi.mock("../../src/linear/writer.js", () => ({
+  transitionIssueStatus: mocks.transitionIssueStatus,
+  postHandoffComment: mocks.postHandoffComment,
+  postErrorComment: mocks.postErrorComment,
+  listIssueComments: mocks.listIssueComments,
+  createLinearClient: mocks.createLinearClient,
+}));
+
+vi.mock("../../src/linear/client.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/linear/client.js")>();
+  return {
+    ...actual,
+    fetchLinearIssue: mocks.fetchLinearIssue,
+  };
+});
+
+vi.mock("../../src/github/pr-inspector.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../src/github/pr-inspector.js")>();
+  return {
+    ...actual,
+    inspectPullRequest: mocks.inspectPullRequest,
+  };
+});
+
+vi.mock("../../src/preview/vercel-from-pr.js", () => ({
+  pollForVercelPreview: mocks.pollForVercelPreview,
+}));
+
+import { executeHandoffPhase } from "../../src/runner/phases/handoff.js";
+import type { HarnessConfig } from "../../src/config/types.js";
+
+const implementationCommentBody = `## Implementation summary
+
+Done.
+
+---
+harness-orchestrator-v1
+phase: implementation
+run_id: 2026-07-07T04-50-00Z-WES-13
+model: composer-2.5
+prompt_version: implementation@1
+target_repo: https://github.com/weston-uribe/weston-uribe-portfolio
+branch: cursor/wes-13-test
+pr_url: https://github.com/weston-uribe/weston-uribe-portfolio/pull/4
+---`;
+
+const issueDescription = `## Target repo
+
+weston-uribe/weston-uribe-portfolio
+
+## Task
+
+Handoff test issue.
+
+## Acceptance criteria
+
+- [ ] PR is open
+
+## Out of scope
+
+- [ ] Merge
+
+## Validation expectations
+
+Run npm run lint and npm run build.`;
+
+describe("executeHandoffPhase", () => {
+  let tempRoot = "";
+  let configPath = "";
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    tempRoot = await mkdtemp(path.join(tmpdir(), "harness-handoff-"));
+    const config: HarnessConfig = {
+      version: 1,
+      orchestratorMarker: "harness-orchestrator-v1",
+      logDirectory: tempRoot,
+      defaultModel: { id: "composer-2.5" },
+      linear: {
+        teamKey: "WES",
+        eligibleStatuses: {
+          handoff: ["PR Open"],
+        },
+        transitionalStatuses: {
+          prOpen: "PR Open",
+          pmReview: "PM Review",
+          blocked: "Blocked",
+        },
+      },
+      handoff: { allowPmReviewWithoutPreview: true },
+      preview: { pollTimeoutSeconds: 1, pollIntervalSeconds: 1 },
+      repos: [
+        {
+          id: "portfolio",
+          linearProjects: ["Portfolio"],
+          targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+          baseBranch: "main",
+          previewProvider: "vercel",
+          validation: { commands: ["npm run lint", "npm run build"] },
+        },
+      ],
+      allowedTargetRepos: [
+        "https://github.com/weston-uribe/weston-uribe-portfolio",
+      ],
+    };
+    configPath = path.join(tempRoot, "harness.config.json");
+    await import("node:fs/promises").then((fs) =>
+      fs.writeFile(configPath, JSON.stringify(config), "utf8"),
+    );
+
+    process.env.LINEAR_API_KEY = "test-linear-key";
+    process.env.GITHUB_TOKEN = "test-github-token";
+
+    mocks.listIssueComments.mockResolvedValue([
+      {
+        id: "impl-1",
+        body: implementationCommentBody,
+        createdAt: "2026-07-07T04:50:00.000Z",
+      },
+    ]);
+    mocks.transitionIssueStatus.mockResolvedValue(undefined);
+    mocks.postHandoffComment.mockResolvedValue("handoff-comment-1");
+    mocks.postErrorComment.mockResolvedValue("error-comment-1");
+    mocks.createLinearClient.mockReturnValue({});
+    mocks.inspectPullRequest.mockResolvedValue({
+      title: "M3 hello world",
+      url: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4",
+      branch: "cursor/wes-13-test",
+      baseBranch: "main",
+      state: "open",
+      merged: false,
+      repoUrl: "https://github.com/weston-uribe/weston-uribe-portfolio",
+      changedFiles: [{ path: "src/app/hello/page.tsx", status: "added" }],
+      checks: [],
+      checkSummary: "No GitHub check runs reported for the PR head commit.",
+      comments: [],
+      rawChecks: null,
+    });
+    mocks.pollForVercelPreview.mockResolvedValue({
+      previewUrl: "https://example.vercel.app",
+      source: "vercel_comment",
+      polledSeconds: 0,
+      warnings: [],
+    });
+    mocks.fetchLinearIssue
+      .mockResolvedValueOnce({
+        id: "issue-handoff",
+        identifier: "WES-13",
+        title: "M3 implementation integration test",
+        description: issueDescription,
+        status: "PR Open",
+        projectName: "Portfolio",
+        teamName: "WES",
+        teamId: "team-1",
+        url: "https://linear.app/example/issue/WES-13/test",
+      })
+      .mockResolvedValueOnce({
+        id: "issue-handoff",
+        identifier: "WES-13",
+        title: "M3 implementation integration test",
+        description: issueDescription,
+        status: "PM Review",
+        projectName: "Portfolio",
+        teamName: "WES",
+        teamId: "team-1",
+        url: "https://linear.app/example/issue/WES-13/test",
+      });
+  });
+
+  afterEach(async () => {
+    delete process.env.LINEAR_API_KEY;
+    delete process.env.GITHUB_TOKEN;
+    await rm(tempRoot, { recursive: true, force: true });
+  });
+
+  it("runs happy path with PM Review transition", async () => {
+    const result = await executeHandoffPhase({
+      issueKey: "WES-13",
+      configPath,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.manifest.finalOutcome).toBe("success");
+    expect(result.manifest.linearStatusBefore).toBe("PR Open");
+    expect(result.manifest.linearStatusAfter).toBe("PM Review");
+    expect(result.manifest.prUrl).toContain("/pull/4");
+    expect(result.manifest.previewUrl).toBe("https://example.vercel.app");
+    expect(result.manifest.changedFiles).toContain("src/app/hello/page.tsx");
+    expect(mocks.transitionIssueStatus).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      "PM Review",
+    );
+    expect(mocks.postHandoffComment).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails before Linear writes when GITHUB_TOKEN is missing", async () => {
+    delete process.env.GITHUB_TOKEN;
+
+    const result = await executeHandoffPhase({
+      issueKey: "WES-13",
+      configPath,
+    });
+
+    expect(result.exitCode).toBe(2);
+    expect(result.manifest.errorClassification).toBe("github_auth_failure");
+    expect(mocks.postHandoffComment).not.toHaveBeenCalled();
+    expect(mocks.transitionIssueStatus).not.toHaveBeenCalled();
+  });
+
+  it("moves to Blocked after failure once handoff was entered", async () => {
+    mocks.inspectPullRequest.mockRejectedValue(
+      new Error("pr_closed: PR https://github.com/weston-uribe/weston-uribe-portfolio/pull/4 is not open"),
+    );
+
+    const result = await executeHandoffPhase({
+      issueKey: "WES-13",
+      configPath,
+    });
+
+    expect(result.exitCode).toBe(3);
+    expect(result.manifest.finalOutcome).toBe("failed");
+    expect(result.manifest.errorClassification).toBe("pr_closed");
+    expect(result.manifest.linearStatusAfter).toBe("Blocked");
+    expect(mocks.postErrorComment).toHaveBeenCalledTimes(1);
+    expect(mocks.transitionIssueStatus).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      "Blocked",
+    );
+  });
+});

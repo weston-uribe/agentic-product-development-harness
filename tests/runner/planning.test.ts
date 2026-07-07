@@ -153,7 +153,7 @@ describe("executePlanningPhase", () => {
     expect(result.manifest.linearStatusBefore).toBe("Ready for Planning");
     expect(result.manifest.linearStatusAfter).toBe("Ready for Build");
     expect(result.manifest.dryRun).toBe(false);
-    expect(result.manifest.milestone).toBe("m3");
+    expect(result.manifest.milestone).toBe("m4");
 
     expect(mocks.transitionIssueStatus).toHaveBeenCalledTimes(2);
     expect(mocks.postPlanningComment).toHaveBeenCalledTimes(1);

@@ -2,13 +2,13 @@
 
 Phased delivery for the agentic product development harness. Each phase adds capability only after the previous loop is proven manually.
 
-**Current phase: Implementation automation spike**
+**Current phase: Handoff automation spike (Milestone 4)**
 
 ---
 
-## Implementation automation spike (current)
+## Handoff automation spike (current)
 
-**Goal:** Validate a docs-only implementation flow triggered from **Ready for Build** — branch creation, PR opening, and Linear status transition — without a revision loop.
+**Goal:** After implementation opens a PR, inspect GitHub, capture Vercel preview when available, post PM handoff comment, and transition **PR Open → PM Review** — without a revision loop.
 
 **Already done (planning-router spike — validated):**
 - Manual v0.1 loop proven on portfolio (see [`examples/runs/001-portfolio-github-link/`](examples/runs/001-portfolio-github-link/))
@@ -23,21 +23,41 @@ Phased delivery for the agentic product development harness. Each phase adds cap
   - Silent no-op for duplicate/non-matching runs
 - **SDK planning runner validated** — Milestone 2 implements Linear Ready for Planning → Planning → Cursor cloud planning agent → Ready for Build. See [`docs/milestones/m2-planning-phase.md`](docs/milestones/m2-planning-phase.md).
 - **SDK implementation runner implemented** — Milestone 3 adds Ready for Build → Building → Cursor cloud implementation agent → PR Open. See [`docs/milestones/m3-implementation-phase.md`](docs/milestones/m3-implementation-phase.md).
+- **SDK handoff runner implemented** — Milestone 4 adds PR Open → GitHub PR inspect + Vercel preview capture → PM Review. See [`docs/milestones/m4-handoff-phase.md`](docs/milestones/m4-handoff-phase.md).
 
 **This phase includes:**
-- SDK implementation runner starting from **Ready for Build**
-- Branch creation and PR opening through Cursor cloud agent
-- Linear status transition to **PR Open** after PR exists
-- Router inspects issue status and exits on unsupported states
-- Configured model: **Composer 2.5**
+- SDK handoff runner starting from **PR Open**
+- GitHub PR inspection via REST API (`GITHUB_TOKEN` required)
+- Vercel preview capture from PR comments (bounded polling)
+- Linear status transition to **PM Review** after handoff comment
+- Auto routing: **PR Open → handoff** (not implementation)
 
 **Not included yet:**
 - Revision loop (**Needs Revision** → **Revising** → **PM Review**)
 - Full autonomous build loop (Backlog → PR → merge without human gates)
 - Multiple independent automations per status
 - Merge/deployment reporter automation
-- Vercel preview capture
-- PM Review transition from the SDK runner
+- Skills or reusable automation templates beyond validated spikes
+
+---
+
+## Implementation automation spike (completed)
+
+**Goal:** Validate a docs-only implementation flow triggered from **Ready for Build** — branch creation, PR opening, and Linear status transition — without a revision loop.
+
+**Delivered:**
+- SDK implementation runner starting from **Ready for Build**
+- Branch creation and PR opening through Cursor cloud agent
+- Linear status transition to **PR Open** after PR exists
+- Router inspects issue status and exits on unsupported states
+- Configured model: **Composer 2.5**
+
+See [`docs/milestones/m3-implementation-phase.md`](docs/milestones/m3-implementation-phase.md).
+
+**Not included (deferred to M4+):**
+- Revision loop
+- Merge/deployment reporter automation
+- PM Review transition from the SDK runner (delivered in M4 handoff)
 - Skills or reusable automation templates beyond validated spikes
 
 ---

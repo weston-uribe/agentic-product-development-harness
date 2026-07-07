@@ -9,6 +9,8 @@ export interface HarnessMarkers {
   targetRepo?: string;
   branch?: string;
   prUrl?: string;
+  previewUrl?: string;
+  previousImplementationRunId?: string;
 }
 
 export function parseHarnessMarkers(commentBody: string): HarnessMarkers {
@@ -58,6 +60,12 @@ export function parseHarnessMarkers(commentBody: string): HarnessMarkers {
         break;
       case "pr_url":
         markers.prUrl = value;
+        break;
+      case "preview_url":
+        markers.previewUrl = value;
+        break;
+      case "previous_implementation_run_id":
+        markers.previousImplementationRunId = value;
         break;
       default:
         if (trimmed === "harness-orchestrator-v1") {
