@@ -19,6 +19,7 @@ Capture what works and what fails when running the harness loop manually—befor
 |----|-------|--------|
 | [001](001-manual-run-retrospective.md) | Manual harness run 001 (portfolio GitHub link) | Complete |
 | [002](002-linear-cursor-integration-smoke-test.md) | Native Cursor ↔ Linear integration smoke test (WES-6) | Complete |
+| [003](003-cursor-automation-planning-router-spike.md) | Cursor Automation planning router spike (WES-9, WES-10) | Complete |
 
 ## v0.1 status
 

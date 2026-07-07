@@ -6,7 +6,7 @@ Instructions for AI agents working in **agentic-product-development-harness**. R
 
 v0.1 documentation scaffold for a Cursor-first agentic product development harness. It contains docs, templates, and eval contracts—not production automation, skills, or implementation code.
 
-The harness is entering a **Cursor Automations trigger spike** phase. Linear statuses/labels are configured manually; automations are planned, not live.
+The harness has a **validated planning-router** Cursor Automation spike. Implementation, revision, and merge/deploy automations remain **planned**.
 
 ## Core rules
 
@@ -26,16 +26,21 @@ The harness is entering a **Cursor Automations trigger spike** phase. Linear sta
 
 ## Cursor model policy
 
-- Every Cursor agent, cloud agent, or automation in this harness must use the Cursor model setting **`Auto` only**.
-- Do **not** configure or recommend named models (Composer, GPT-5.5, Claude, or any explicit model).
-- If an automation cannot be configured with `Auto`, do not create it yet.
-- Mention the model setting used in reports when relevant.
+| Rule | Detail |
+|------|--------|
+| **Preferred future policy** | **`Auto`**, if Cursor Automations support it as a model setting |
+| **Current automation policy** | **Composer 2.5** — Cursor Automations currently require a concrete model selection |
+| **Mid-run switching** | **Disallowed** — do not change models during a run |
+| **Reporting** | State the **actual configured model** in reports and comments when relevant |
 
-## Automation and Linear behavior (planned spike)
+## Automation and Linear behavior
 
 When working on or simulating harness automations:
 
-- **Exit early** if triggered on an unsupported Linear status — no branch, PR, or status writes.
+- **Exit early and silently** if triggered on an unsupported Linear status — no branch, PR, status writes, or **Linear comments**.
+- **No-op router exits must not write Linear comments** — duplicate or non-matching runs must produce zero Linear noise.
+- **Be idempotent** when triggered by broad status changes — self-triggered runs from status transitions are expected; handle them with silent no-op.
+- **Avoid Linear comment noise** — post only durable, necessary comments (one combined planning/report comment per successful planning run).
 - **Do not advance Linear status** unless the required durable artifact exists (plan comment, PR link, revision summary, etc.).
 - **Preserve state in Linear/GitHub artifacts** — comments, PRs, commits, preview URLs — not hidden session memory.
 - **Do not rely on hidden session memory** as source of truth; a fresh agent must reconstruct context from durable artifacts.
@@ -53,7 +58,7 @@ Cursor agents working in or through this harness should report **concise, factua
 - **Validation results** — pass / fail / not run per check, with evidence
 - **Blockers** — anything that stopped or limited progress
 - **Changed files** — explicit list of paths touched
-- **Model setting** — confirm `Auto` was used when relevant
+- **Model setting** — state the actual configured model when relevant (currently **Composer 2.5** for automations)
 
 **Do not include unless explicitly asked:**
 
@@ -93,7 +98,6 @@ These are distinct artifacts. Do not conflate them in docs or reports.
 - Recommend strategic next steps unless the operator explicitly asks
 - Create skills after a single run
 - Create releases without explicit approval and external usefulness
-- Configure named Cursor models
 
 ## File map
 

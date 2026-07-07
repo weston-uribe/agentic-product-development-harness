@@ -1,10 +1,10 @@
 # Linear automation state machine
 
-**Status:** Planned — statuses and labels configured manually in Linear; Cursor Automations not implemented yet.
+**Status:** Partially implemented — statuses and labels configured manually in Linear; planning-router Cursor Automation validated (see research note 003). Implementation, revision, and merge/deploy automations remain planned.
 
-This document defines the intended Linear issue lifecycle for the agentic product development harness. It is the contract for the first Cursor Automations trigger spike.
+This document defines the Linear issue lifecycle for the agentic product development harness. It is the contract for Cursor Automations.
 
-**Related:** [`ARCHITECTURE.md`](../../ARCHITECTURE.md), [`docs/decisions/0003-automation-state-machine-and-auto-model-policy.md`](../decisions/0003-automation-state-machine-and-auto-model-policy.md), [`docs/research/002-linear-cursor-integration-smoke-test.md`](../research/002-linear-cursor-integration-smoke-test.md)
+**Related:** [`ARCHITECTURE.md`](../../ARCHITECTURE.md), [`docs/decisions/0003-automation-state-machine-and-auto-model-policy.md`](../decisions/0003-automation-state-machine-and-auto-model-policy.md), [`docs/research/002-linear-cursor-integration-smoke-test.md`](../research/002-linear-cursor-integration-smoke-test.md), [`docs/research/003-cursor-automation-planning-router-spike.md`](../research/003-cursor-automation-planning-router-spike.md)
 
 ---
 
@@ -117,48 +117,53 @@ Automations must **not** advance status to **Ready for Build** without a durable
 
 ## Cursor model policy
 
-Every Cursor agent, cloud agent, or automation in this harness must use the Cursor model setting **`Auto`**.
-
 | Rule | Detail |
 |------|--------|
-| Allowed setting | **`Auto` only** — current default and only permitted setting |
-| Disallowed | Named models (Composer, GPT-5.5, Claude, or any other explicit model selection) |
-| Future flexibility | Harness docs and prompts should be written so the model setting can change later without rewriting workflows |
-| Blocker | If an automation cannot be configured with `Auto`, do not create it yet |
-| Reporting | Agent and automation reports should mention the model setting used when relevant |
+| **Preferred future policy** | **`Auto`**, if Cursor Automations support it as a model setting |
+| **Current automation policy** | **Composer 2.5** — required because Cursor Automations currently need a concrete model selection and `Auto` is not available |
+| **Mid-run switching** | **Disallowed** — agents must not change models during a run |
+| **Documentation** | Reports, comments, and automation output must state the **actual configured model**, not a preferred policy |
+| **Future flexibility** | Harness docs and prompts should be written so the model setting can change later without rewriting workflows |
 
 ---
 
 ## Router automation design
 
-The **first** Cursor Automation should be a **router**, not many independent automations.
+Cursor Automations should use a **router** pattern, not many independent automations per status.
 
 ### Why a router
 
-- Linear status-change triggers may fire broadly (any status transition).
-- The automation must inspect issue status and labels **first**.
-- If the issue is not in a supported trigger state, it must **exit without action** — no branch, no PR, no Linear writes.
+- **Broad Linear status-change triggers are expected** — automations fire on any status transition, not only the intended one.
+- The router must inspect issue **status and labels first** before acting.
+- **Non-matching runs must exit silently** — no branch, no PR, no Linear comments, no status writes.
+- **Duplicate self-triggered runs are acceptable only if silent** — when the automation moves an issue through **Planning** or **Ready for Build**, each transition re-fires the trigger; those runs must no-op without Linear noise.
+
+Validated in WES-9 and WES-10 — see [`docs/research/003-cursor-automation-planning-router-spike.md`](../research/003-cursor-automation-planning-router-spike.md).
 
 ### Router behavior
 
 | Issue status | Action |
 |--------------|--------|
 | **Ready for Planning** | Run planning flow (Planning Agent) |
-| **Ready for Build** | Run implementation flow (Implementation Agent) |
-| **Needs Revision** | Run revision flow (Revision Agent) |
-| Any other status | Exit with no changes |
+| **Ready for Build** | Run implementation flow (Implementation Agent) — **not yet validated** |
+| **Needs Revision** | Run revision flow (Revision Agent) — **not yet validated** |
+| Any other status | **Silent exit** — no changes, no Linear writes |
 
-The router may delegate logically to role-specific prompts. The first spike may implement this as **one Cursor Automation prompt** that routes based on Linear status.
+The router may delegate logically to role-specific prompts. The planning spike implements this as **one Cursor Automation prompt** that routes based on Linear status.
+
+### Planning run output
+
+A successful planning run must post **exactly one combined planning/report comment** in Linear before moving the issue to **Ready for Build**. Duplicate or non-matching runs must not add comments.
 
 ### Spike scope
 
-The first automation should be **planning-only or docs-only**. No full autonomous build loop yet.
+The **planning-router spike is validated** (WES-9 + WES-10). The next spike is **implementation automation** — docs-only, starting from **Ready for Build**, creating a branch and PR, moving Linear to **PR Open** or **PM Review**. No revision loop yet.
 
 ---
 
 ## Agent roles
 
-Each role is **planned** — not implemented until the Cursor Automations trigger spike lands.
+Role maturity varies — see honest maturity table below. Planning Agent behavior is validated; other roles remain planned.
 
 ### Router Agent
 
@@ -169,7 +174,7 @@ Each role is **planned** — not implemented until the Cursor Automations trigge
 | **Output** | Delegation to Planning, Implementation, or Revision flow; or clean exit |
 | **Linear writes** | None directly — may update status only when sub-flow completes (via delegated agent) |
 | **GitHub writes** | None |
-| **Must not do** | Run build or planning on unsupported statuses; configure named models; merge PRs |
+| **Must not do** | Run build or planning on unsupported statuses; write Linear comments on no-op exit; merge PRs |
 
 ### Planning Agent
 
@@ -180,7 +185,7 @@ Each role is **planned** — not implemented until the Cursor Automations trigge
 | **Output** | Durable plan comment in Linear |
 | **Linear writes** | Plan comment; move to **Ready for Build** after plan exists; move to **Planning** while working if status model requires it |
 | **GitHub writes** | None |
-| **Must not do** | Implement code; open PRs; skip plan comment; use named models |
+| **Must not do** | Implement code; open PRs; skip plan comment; post duplicate comments on re-triggered runs |
 
 ### Implementation Agent
 
@@ -191,7 +196,7 @@ Each role is **planned** — not implemented until the Cursor Automations trigge
 | **Output** | Feature branch, commits, PR; readiness summary in Linear comment |
 | **Linear writes** | Progress comments; move to **Building** while working; move to **PR Open** when PR exists |
 | **GitHub writes** | Branch, commits, PR (link back to Linear issue) |
-| **Must not do** | Merge PRs; deploy without human gate; advance past **PR Open** without a PR; use named models |
+| **Must not do** | Merge PRs; deploy without human gate; advance past **PR Open** without a PR |
 
 ### Revision Agent
 
@@ -202,7 +207,7 @@ Each role is **planned** — not implemented until the Cursor Automations trigge
 | **Output** | Additional commits on branch; revision summary comment |
 | **Linear writes** | Revision summary comment; move to **Revising** while working; move back to **PM Review** when ready |
 | **GitHub writes** | Commits on existing PR branch |
-| **Must not do** | Merge PRs; ignore PM feedback; use named models |
+| **Must not do** | Merge PRs; ignore PM feedback |
 
 ### Merge / Deployment Reporter
 
@@ -213,7 +218,7 @@ Each role is **planned** — not implemented until the Cursor Automations trigge
 | **Output** | Final status comment with links and evidence |
 | **Linear writes** | Closure comment with PR merge link and preview/production URL |
 | **GitHub writes** | None (read-only) |
-| **Must not do** | Trigger merges; use named models |
+| **Must not do** | Trigger merges |
 
 ---
 
@@ -238,6 +243,9 @@ Before advancing Linear status, the agent must ensure the required durable artif
 |------|--------|
 | Linear statuses and labels | **Configured manually** in Linear |
 | Native Cursor ↔ Linear trigger | **Smoke-tested once** — see research note 002 |
-| Cursor Automations router | **Planned** — not implemented |
-| Full autonomous build loop | **Not planned** for first spike |
-| Named model configuration | **Disallowed** — `Auto` only |
+| Planning-router Cursor Automation | **Validated** — see research note 003 (WES-9, WES-10) |
+| Implementation automation | **Planned** — next spike |
+| Revision loop automation | **Planned** |
+| Merge/deploy reporting automation | **Planned** |
+| Full autonomous build loop | **Not planned** |
+| Automation model | **Composer 2.5** (current); **`Auto` preferred** when supported |

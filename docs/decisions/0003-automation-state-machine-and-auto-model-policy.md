@@ -1,44 +1,50 @@
-# ADR 0003: Automation state machine and Auto model policy
+# ADR 0003: Automation state machine and model policy
 
-**Status:** Accepted  
+**Status:** Accepted (amended 2026-07-06 — planning-router spike results)  
 **Date:** 2026-07-06
 
 ## Decision
 
 1. Adopt the Linear status model documented in [`docs/architecture/linear-automation-state-machine.md`](../architecture/linear-automation-state-machine.md), with **optional planning**, a **planning bypass path**, and **no Plan Review** in the default active flow.
-2. Require every Cursor agent, cloud agent, and automation in this harness to use the Cursor model setting **`Auto` only** — no named models until explicitly changed in a future ADR.
-3. Implement the first Cursor Automation as a **status-triggered router** that inspects issue status/labels and exits without action on unsupported states.
+2. **Preferred future model policy:** **`Auto`**, if Cursor Automations support it as a model setting.
+3. **Current automation model policy:** **Composer 2.5** — Cursor Automations currently require a concrete model selection and `Auto` is not available. Agents must **not switch models mid-run**. Documentation and comments must state the **actual configured model**.
+4. Implement Cursor Automations as a **status-triggered router** that inspects issue status/labels and **exits silently** (no Linear writes) on unsupported or duplicate runs.
+5. **Planning-router spike validated** (WES-9, WES-10) — see [`docs/research/003-cursor-automation-planning-router-spike.md`](../research/003-cursor-automation-planning-router-spike.md).
 
 ## Context
 
-Linear statuses and labels were updated manually ahead of a Cursor Automations trigger spike. The previously assumed workflow included **Plan Review** as a default gate. Operational experience and spike scope require a simpler machine:
+Linear statuses and labels were updated manually ahead of Cursor Automations spikes. The previously assumed workflow included **Plan Review** as a default gate. Operational experience and spike scope require a simpler machine:
 
 - Planning is optional; small/low-risk issues can go directly to build.
 - `Plan Review` remains in Linear only as deprecated/reserved if present — not routed by automations.
-- Native Cursor ↔ Linear integration was smoke-tested once ([`docs/research/002-linear-cursor-integration-smoke-test.md`](../research/002-linear-cursor-integration-smoke-test.md)); the next step is a router automation, not a full build loop.
-- Model selection should not be hard-coded to named providers during early spikes; **`Auto`** is the only allowed setting so behavior can evolve with Cursor defaults.
+- Native Cursor ↔ Linear integration was smoke-tested once ([`docs/research/002-linear-cursor-integration-smoke-test.md`](../research/002-linear-cursor-integration-smoke-test.md)).
+- **WES-9** proved Linear status-change automation can trigger, authenticate to Linear MCP, post a planning comment, and move the issue to **Ready for Build** — but broad status-change triggers caused duplicate runs and extra comments.
+- **WES-10** proved the quiet/idempotent router fix: duplicate and non-matching runs exit silently without Linear comments.
+- Cursor Automations currently require a concrete model selection; **`Auto` is not available** as an automation model setting. The planning-router automation uses **Composer 2.5**.
 
 ## Rationale
 
 1. **Optional planning reduces friction** for narrow, well-scoped work while preserving a path for high-risk or ambiguous issues via `requires-plan`.
-2. **Removing Plan Review from the default path** avoids an extra human gate before the first automation spike; it may return later for high-risk work only.
-3. **Router-first automation** prevents duplicate or conflicting automations when Linear fires status-change triggers broadly.
-4. **`Auto`-only model policy** keeps spike prompts portable and avoids documenting provider-specific assumptions that will change.
+2. **Removing Plan Review from the default path** avoids an extra human gate before automation spikes; it may return later for high-risk work only.
+3. **Router-first automation** prevents duplicate or conflicting automations when Linear fires status-change triggers broadly; silent no-op is required for self-triggered duplicate runs.
+4. **Document actual model configuration** — prefer `Auto` when supported, but do not misrepresent the configured model during spikes.
 5. **Durable context in Linear/GitHub** ensures any fresh agent can resume work without hidden session memory.
 
 ## Consequences
 
 ### Positive
 
-- Clear contract for the Cursor Automations trigger spike
+- Clear contract for Cursor Automations spikes
 - Labels (`requires-plan`, `skip-plan`) give explicit routing hints
-- Early exit on unsupported statuses limits runaway agent actions
+- Silent early exit on unsupported statuses limits runaway agent actions and Linear comment noise
+- Planning-router behavior validated end-to-end
 
 ### Negative / accepted tradeoffs
 
 - Plan Review gate is deferred; high-risk work relies on labels and human triage until reintroduced
-- First spike is planning-only or docs-only — no autonomous merge/deploy loop
-- Automations that cannot use `Auto` are blocked until Cursor supports it or policy changes
+- Implementation, revision, and merge/deploy automations remain planned
+- Automations use **Composer 2.5** until `Auto` is supported or policy changes in a future ADR
+- Broad status-change triggers produce duplicate runs that must be handled idempotently
 
 ## Alternatives considered
 
@@ -47,11 +53,13 @@ Linear statuses and labels were updated manually ahead of a Cursor Automations t
 | Mandatory planning for all issues | Too heavy for small/docs-only work |
 | Plan Review in default flow | Extra gate before spike; removed from active path |
 | Separate automations per status | Broad Linear triggers cause duplicate runs |
-| Named model per role (e.g. Claude for planning) | Policy lock-in; violates current harness rule |
+| Block automations until `Auto` is supported | Would delay validated planning-router spike |
+| Named model per role (e.g. Claude for planning) | Unnecessary complexity; single configured model per automation |
 
 ## References
 
 - [`docs/architecture/linear-automation-state-machine.md`](../architecture/linear-automation-state-machine.md)
+- [`docs/research/003-cursor-automation-planning-router-spike.md`](../research/003-cursor-automation-planning-router-spike.md)
 - [`ARCHITECTURE.md`](../../ARCHITECTURE.md)
 - [`ROADMAP.md`](../../ROADMAP.md)
 - [`AGENTS.md`](../../AGENTS.md)

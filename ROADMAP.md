@@ -2,32 +2,53 @@
 
 Phased delivery for the agentic product development harness. Each phase adds capability only after the previous loop is proven manually.
 
-**Current phase: Cursor Automations trigger spike**
+**Current phase: Implementation automation spike**
 
 ---
 
-## Cursor Automations trigger spike (current)
+## Implementation automation spike (current)
 
-**Goal:** Document and validate a status-triggered router automation on Linear issues before any full build loop.
+**Goal:** Validate a docs-only implementation flow triggered from **Ready for Build** — branch creation, PR opening, and Linear status transition — without a revision loop.
 
-**Already done:**
+**Already done (planning-router spike — validated):**
 - Manual v0.1 loop proven on portfolio (see [`examples/runs/001-portfolio-github-link/`](examples/runs/001-portfolio-github-link/))
 - Linear statuses and labels updated manually to match [`docs/architecture/linear-automation-state-machine.md`](docs/architecture/linear-automation-state-machine.md)
 - Native Cursor ↔ Linear integration smoke-tested once — see [`docs/research/002-linear-cursor-integration-smoke-test.md`](docs/research/002-linear-cursor-integration-smoke-test.md)
 - ADR accepted: [`docs/decisions/0003-automation-state-machine-and-auto-model-policy.md`](docs/decisions/0003-automation-state-machine-and-auto-model-policy.md)
+- **Planning-router Cursor Automation validated** — see [`docs/research/003-cursor-automation-planning-router-spike.md`](docs/research/003-cursor-automation-planning-router-spike.md) (WES-9, WES-10)
+  - Linear status-change trigger
+  - Linear MCP auth inside automation environment
+  - Issue read/write and status path: Ready for Planning → Planning → Ready for Build
+  - Durable planning comment
+  - Silent no-op for duplicate/non-matching runs
 
 **This phase includes:**
-- Status-triggered **router** Cursor Automation (one automation, not many)
-- Router inspects issue status/labels and exits without action on unsupported states
-- First automation scope: **planning-only or docs-only**
-- All agents/automations use Cursor model setting **`Auto` only**
+- Docs-only implementation automation starting from **Ready for Build**
+- Branch creation and PR opening from automation
+- Linear status transition to **PR Open** or **PM Review** after PR exists
+- Router inspects issue status/labels and exits silently on unsupported states
+- Automation model: **Composer 2.5** (current Cursor Automations requirement)
 
 **Not included yet:**
+- Revision loop (**Needs Revision** → **Revising** → **PM Review**)
 - Full autonomous build loop (Backlog → PR → merge without human gates)
 - Multiple independent automations per status
-- Named model configuration per role
-- Skills or reusable automation templates beyond the spike
 - Merge/deployment reporter automation
+- Skills or reusable automation templates beyond validated spikes
+
+---
+
+## Cursor Automations trigger spike (completed)
+
+**Goal:** Document and validate a status-triggered router automation on Linear issues before any full build loop.
+
+**Status:** **Validated** — planning-router spike complete (WES-9, WES-10). See [`docs/research/003-cursor-automation-planning-router-spike.md`](docs/research/003-cursor-automation-planning-router-spike.md).
+
+**Delivered:**
+- Status-triggered **router** Cursor Automation (one automation, not many)
+- Router inspects issue status/labels and exits silently on unsupported states
+- Planning flow: durable plan comment, status path to **Ready for Build**
+- Idempotent silent no-op for duplicate self-triggered runs
 
 ---
 
