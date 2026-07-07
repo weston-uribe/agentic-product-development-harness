@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { EXIT_CONFIG } from "../exit-codes.js";
-import { executeDryRun } from "../../runner/dry-run.js";
+import { runOrchestrator } from "../../runner/orchestrator.js";
 
 export interface RunCommandOptions {
   issueKey: string;
@@ -8,34 +8,45 @@ export interface RunCommandOptions {
   dryRun?: boolean;
   fixturePath?: string;
   json?: boolean;
+  phase?: "auto" | "planning" | "dry-run";
+  force?: boolean;
 }
 
 export async function runRunCommand(options: RunCommandOptions): Promise<number> {
-  if (!options.dryRun) {
-    console.error(
-      "Only --dry-run is implemented in Milestone 1. Re-run with --dry-run.",
-    );
-    return EXIT_CONFIG;
-  }
-
   if (!options.issueKey) {
     console.error("--issue <KEY> is required.");
     return EXIT_CONFIG;
   }
 
-  const result = await executeDryRun({
+  if (options.fixturePath && !options.dryRun && options.phase !== "dry-run") {
+    console.error("--fixture is only supported with --dry-run");
+    return EXIT_CONFIG;
+  }
+
+  const result = await runOrchestrator({
     issueKey: options.issueKey,
     configPath: options.configPath,
+    dryRun: options.dryRun,
     fixturePath: options.fixturePath,
+    phase: options.dryRun ? "dry-run" : options.phase,
+    force: options.force,
   });
 
-  if (options.json) {
+  if (options.json && result.manifest) {
     console.log(JSON.stringify(result.manifest, null, 2));
-  } else {
-    console.log(`Dry run finished: ${result.manifest.finalOutcome}`);
-    console.log(`Run directory: ${result.runDirectory}`);
-    if (result.manifest.errorClassification) {
-      console.log(`Error classification: ${result.manifest.errorClassification}`);
+  } else if (result.manifest && typeof result.manifest === "object") {
+    const manifest = result.manifest as {
+      finalOutcome: string;
+      errorClassification?: string | null;
+      dryRun?: boolean;
+    };
+    const label = manifest.dryRun ? "Dry run" : "Run";
+    console.log(`${label} finished: ${manifest.finalOutcome}`);
+    if (result.runDirectory) {
+      console.log(`Run directory: ${result.runDirectory}`);
+    }
+    if (manifest.errorClassification) {
+      console.log(`Error classification: ${manifest.errorClassification}`);
     }
   }
 

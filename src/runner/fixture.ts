@@ -23,6 +23,7 @@ export async function loadIssueFixture(
     status: metadata.status,
     projectName: metadata.projectName,
     teamName: metadata.teamName,
+    teamId: null,
     url: null,
   };
 }

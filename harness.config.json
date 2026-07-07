@@ -2,8 +2,24 @@
   "version": 1,
   "orchestratorMarker": "harness-orchestrator-v1",
   "logDirectory": "runs",
+  "defaultModel": { "id": "composer-2.5" },
   "linear": {
-    "teamKey": "WES"
+    "teamKey": "WES",
+    "eligibleStatuses": {
+      "planning": ["Ready for Planning"],
+      "implementation": ["Ready for Build"]
+    },
+    "transitionalStatuses": {
+      "planningInProgress": "Planning",
+      "buildingInProgress": "Building",
+      "prOpen": "PR Open",
+      "pmReview": "PM Review",
+      "blocked": "Blocked",
+      "readyForBuild": "Ready for Build"
+    }
+  },
+  "planning": {
+    "timeoutSeconds": 1800
   },
   "repos": [
     {

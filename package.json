@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Repo-agnostic Cursor SDK orchestration harness (Milestone 1: dry-run foundation)",
+  "description": "Repo-agnostic Cursor SDK orchestration harness (Milestone 2: planning phase)",
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
@@ -13,6 +13,7 @@
     "generate:config-schema": "tsx scripts/generate-config-schema.ts"
   },
   "dependencies": {
+    "@cursor/sdk": "^1.0.23",
     "@linear/sdk": "^40.0.0",
     "commander": "^13.1.0",
     "dotenv": "^16.4.7",

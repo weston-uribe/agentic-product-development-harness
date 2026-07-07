@@ -26,9 +26,15 @@ export function createProgram(): Command {
 
   program
     .command("run")
-    .description("Run harness against a Linear issue (Milestone 1: dry-run only)")
+    .description("Run harness against a Linear issue")
     .requiredOption("--issue <key>", "Linear issue key, e.g. WES-11")
     .option("--dry-run", "Parse and resolve without side effects", false)
+    .option(
+      "--phase <phase>",
+      "Run phase: auto, planning, or dry-run (default: auto for live runs)",
+      "auto",
+    )
+    .option("--force", "Re-run planning even when idempotency markers exist", false)
     .option("--fixture <path>", "Load issue description from a local markdown fixture")
     .option("--json", "Print manifest JSON to stdout", false)
     .action(async (opts) => {
@@ -39,6 +45,8 @@ export function createProgram(): Command {
         dryRun: opts.dryRun,
         fixturePath: opts.fixture,
         json: opts.json,
+        phase: opts.phase,
+        force: opts.force,
       });
       process.exitCode = exitCode;
     });

@@ -69,9 +69,22 @@
                 },
                 "blocked": {
                   "type": "string"
+                },
+                "readyForBuild": {
+                  "type": "string"
                 }
               },
               "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "planning": {
+          "type": "object",
+          "properties": {
+            "timeoutSeconds": {
+              "type": "number",
+              "exclusiveMinimum": 0
             }
           },
           "additionalProperties": false

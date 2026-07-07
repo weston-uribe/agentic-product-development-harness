@@ -1,5 +1,6 @@
 import { access, constants, mkdir } from "node:fs/promises";
 import path from "node:path";
+import { Cursor } from "@cursor/sdk";
 import { loadConfig, validateRepoClosure } from "../../config/load-config.js";
 import { pingLinear } from "../../linear/client.js";
 import { EXIT_CONFIG, EXIT_SUCCESS } from "../exit-codes.js";
@@ -65,23 +66,65 @@ export async function runDoctor(options: DoctorOptions): Promise<number> {
   } else {
     checks.push({
       label: "LINEAR_API_KEY set",
+      ok: false,
+      detail: "required for live planning runs",
+    });
+  }
+
+  if (process.env.CURSOR_API_KEY) {
+    checks.push({
+      label: "CURSOR_API_KEY set",
       ok: true,
-      detail: "optional — warn: not set (fixture dry-run does not require it)",
-      skipped: false,
+    });
+
+    try {
+      const models = await Cursor.models.list({
+        apiKey: process.env.CURSOR_API_KEY,
+      });
+      const count = models.length;
+      checks.push({
+        label: "Cursor models.list()",
+        ok: true,
+        detail: `${count} model(s) available`,
+      });
+    } catch (error) {
+      checks.push({
+        label: "Cursor models.list()",
+        ok: true,
+        detail: `warn: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
+
+    try {
+      const repos = await Cursor.repositories.list({
+        apiKey: process.env.CURSOR_API_KEY,
+      });
+      const count = repos.length;
+      checks.push({
+        label: "Cursor repositories.list()",
+        ok: true,
+        detail: `${count} connected repo(s)`,
+      });
+    } catch (error) {
+      checks.push({
+        label: "Cursor repositories.list()",
+        ok: true,
+        detail: `warn: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
+  } else {
+    checks.push({
+      label: "CURSOR_API_KEY set",
+      ok: false,
+      detail: "required for live planning runs",
     });
   }
 
   checks.push({
-    label: "CURSOR_API_KEY",
-    ok: true,
-    skipped: true,
-    detail: "skipped (Milestone 2)",
-  });
-  checks.push({
     label: "GITHUB_TOKEN",
     ok: true,
     skipped: true,
-    detail: "skipped (Milestone 2)",
+    detail: "skipped (Milestone 3+)",
   });
 
   for (const check of checks) {

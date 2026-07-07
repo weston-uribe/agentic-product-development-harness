@@ -37,8 +37,13 @@ const linearConfigSchema = z.object({
       prOpen: z.string().optional(),
       pmReview: z.string().optional(),
       blocked: z.string().optional(),
+      readyForBuild: z.string().optional(),
     })
     .optional(),
+});
+
+const planningConfigSchema = z.object({
+  timeoutSeconds: z.number().positive().optional(),
 });
 
 export const harnessConfigSchema = z
@@ -48,6 +53,7 @@ export const harnessConfigSchema = z
     logDirectory: z.string().default(DEFAULT_LOG_DIRECTORY),
     defaultModel: z.object({ id: z.string() }).optional(),
     linear: linearConfigSchema.optional(),
+    planning: planningConfigSchema.optional(),
     watch: z
       .object({
         pollIntervalSeconds: z.number().positive().optional(),
