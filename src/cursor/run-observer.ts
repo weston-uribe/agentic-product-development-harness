@@ -1,6 +1,5 @@
 import { mkdir, writeFile } from "node:fs/promises";
-import type { SDKAgent, Run, RunResult } from "@cursor/sdk";
-import { CursorAgentError } from "@cursor/sdk";
+import { Agent, CursorAgentError, type Run, type RunResult, type SDKAgent } from "@cursor/sdk";
 import type { EventLogger } from "../artifacts/events.js";
 import { getCursorRunResultPath } from "../artifacts/paths.js";
 import { classifyCursorError, classifyRunResultStatus } from "./errors.js";
@@ -26,6 +25,85 @@ export interface SendAndObserveOptions {
   expectedBranch?: string;
   expectedPrUrl?: string;
   abortSignal?: AbortSignal;
+  apiKey?: string;
+  pollIntervalMs?: number;
+  fetchCloudRun?: typeof Agent.getRun;
+}
+
+const DEFAULT_CLOUD_RUN_POLL_INTERVAL_MS = 5_000;
+
+export function isStreamUnavailableRunResult(
+  result: { status: string; error?: { code?: string; message?: string } | null },
+): boolean {
+  return (
+    result.status === "error" &&
+    result.error?.code === "stream_unavailable"
+  );
+}
+
+export function isTerminalRunStatus(status: string): boolean {
+  return (
+    status === "finished" ||
+    status === "completed" ||
+    status === "error" ||
+    status === "cancelled"
+  );
+}
+
+function sleep(ms: number, abortSignal?: AbortSignal): Promise<void> {
+  if (abortSignal?.aborted) {
+    return Promise.reject(abortSignal.reason);
+  }
+
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      abortSignal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(abortSignal?.reason);
+    };
+
+    abortSignal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+export async function pollCloudRunResult(
+  options: {
+    apiKey: string;
+    agentId: string;
+    runId: string;
+    abortSignal?: AbortSignal;
+    pollIntervalMs?: number;
+    fetchCloudRun?: typeof Agent.getRun;
+  },
+): Promise<RunResult> {
+  const fetchCloudRun = options.fetchCloudRun ?? Agent.getRun.bind(Agent);
+  const pollIntervalMs =
+    options.pollIntervalMs ?? DEFAULT_CLOUD_RUN_POLL_INTERVAL_MS;
+
+  while (true) {
+    if (options.abortSignal?.aborted) {
+      throw options.abortSignal.reason;
+    }
+
+    const snapshot = await fetchCloudRun(options.runId, {
+      runtime: "cloud",
+      agentId: options.agentId,
+      apiKey: options.apiKey,
+    });
+
+    if (
+      isTerminalRunStatus(snapshot.status) &&
+      !isStreamUnavailableRunResult(snapshot)
+    ) {
+      return snapshot as RunResult;
+    }
+
+    await sleep(pollIntervalMs, options.abortSignal);
+  }
 }
 
 function makePhaseError(
@@ -153,6 +231,24 @@ export async function sendAndObserve(
   let result: RunResult;
   try {
     result = await run.wait();
+    if (
+      options.apiKey &&
+      agentId.startsWith("bc-") &&
+      isStreamUnavailableRunResult(result)
+    ) {
+      await events.log("cursor_run_poll_fallback", "info", {
+        runId: result.id,
+        agentId,
+      });
+      result = await pollCloudRunResult({
+        apiKey: options.apiKey,
+        agentId,
+        runId: result.id,
+        abortSignal: options.abortSignal,
+        pollIntervalMs: options.pollIntervalMs,
+        fetchCloudRun: options.fetchCloudRun,
+      });
+    }
   } catch (error) {
     if (options.abortSignal?.aborted) {
       await abortRun(phase, options.abortSignal, ensureCancelled);

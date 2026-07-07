@@ -166,6 +166,68 @@ describe("sendAndObserve", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
+  it("polls cloud run status when wait returns stream_unavailable", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "harness-observer-"));
+    const events = new EventLogger(dir);
+    await events.init();
+
+    const fetchCloudRun = vi
+      .fn()
+      .mockResolvedValueOnce({
+        id: "run-6",
+        status: "running",
+      })
+      .mockResolvedValueOnce({
+        id: "run-6",
+        status: "finished",
+        durationMs: 5000,
+        result: "## Implementation summary\n\nDone",
+        git: {
+          branches: [
+            {
+              repoUrl: "https://github.com/weston-uribe/weston-uribe-portfolio",
+              branch: "cursor/wes-16-smoke",
+              prUrl:
+                "https://github.com/weston-uribe/weston-uribe-portfolio/pull/5",
+            },
+          ],
+        },
+      });
+
+    const agent = createMockAgent({
+      agentId: "bc-agent-1",
+      send: vi.fn().mockResolvedValue({
+        id: "run-6",
+        stream: async function* () {
+          yield { type: "message" };
+        },
+        wait: vi.fn().mockResolvedValue({
+          id: "run-6",
+          status: "error",
+          durationMs: 100,
+          error: {
+            message: "Run stream is no longer available",
+            code: "stream_unavailable",
+          },
+        }),
+      }),
+    });
+
+    const observed = await sendAndObserve(agent as never, "prompt", dir, events, {
+      phase: "implementation",
+      targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+      apiKey: "cursor_test_key",
+      pollIntervalMs: 1,
+      fetchCloudRun,
+    });
+
+    expect(fetchCloudRun).toHaveBeenCalled();
+    expect(observed.runId).toBe("run-6");
+    expect(observed.gitResult?.prUrl).toContain("/pull/5");
+
+    await rm(dir, { recursive: true, force: true });
+  });
+
   it("cancels run when abort signal fires during streaming", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "harness-observer-"));
     const events = new EventLogger(dir);

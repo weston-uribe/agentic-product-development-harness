@@ -98,6 +98,7 @@ export type RunEventName =
   | "linear_comment_posted"
   | "cursor_agent_created"
   | "cursor_event"
+  | "cursor_run_poll_fallback"
   | "cursor_run_finished"
   | "cursor_run_cancelled"
   | "cursor_cancel_unavailable"

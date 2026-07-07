@@ -518,6 +518,7 @@ export async function executeRevisionPhase(
         expectedBranch: branch,
         expectedPrUrl: prUrl,
         abortSignal: abortController.signal,
+        apiKey: cursorApiKey,
       });
     } catch (error) {
       if (abortController.signal.aborted && timeoutError) {

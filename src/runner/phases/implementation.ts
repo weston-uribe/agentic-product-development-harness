@@ -352,6 +352,7 @@ export async function executeImplementationPhase(
         phase: "implementation",
         targetRepo: resolved.targetRepo,
         abortSignal: abortController.signal,
+        apiKey: cursorApiKey,
       });
     } catch (error) {
       if (abortController.signal.aborted && timeoutError) {

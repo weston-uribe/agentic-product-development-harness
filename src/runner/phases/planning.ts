@@ -279,7 +279,9 @@ export async function executePlanningPhase(
       1000;
 
     const observed = await Promise.race([
-      sendAndObserve(agent, prompt, runDirectory, events),
+      sendAndObserve(agent, prompt, runDirectory, events, {
+        apiKey: cursorApiKey,
+      }),
       new Promise<never>((_, reject) => {
         setTimeout(() => {
           reject(
