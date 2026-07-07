@@ -33,6 +33,20 @@ export interface MergeCommentFooterInput extends RevisionCommentFooterInput {
   previousRevisionRunId?: string;
   mergeCommitSha?: string;
   deploymentUrl?: string;
+  githubActionsRunUrl?: string;
+}
+
+export type PhaseStartPhase =
+  | "planning_start"
+  | "implementation_start"
+  | "revision_start"
+  | "merge_start";
+
+export interface PhaseStartCommentFooterInput extends HarnessCommentFooterInput {
+  phase: PhaseStartPhase;
+  branch?: string;
+  prUrl?: string;
+  githubActionsRunUrl?: string;
 }
 
 export function isHarnessOrchestratorComment(
@@ -95,6 +109,9 @@ export function formatHarnessCommentFooter(
   }
   if (input.deploymentUrl) {
     lines.push(`deployment_url: ${input.deploymentUrl}`);
+  }
+  if (input.githubActionsRunUrl) {
+    lines.push(`github_actions_run_url: ${input.githubActionsRunUrl}`);
   }
   lines.push("---");
   return lines.join("\n");
@@ -469,6 +486,85 @@ export function formatMergeComment(
   footer: MergeCommentFooterInput,
 ): string {
   return `${body.trim()}\n\n${formatHarnessCommentFooter(footer)}`;
+}
+
+const PHASE_START_HEADERS: Record<PhaseStartPhase, string> = {
+  planning_start: "Harness: planning started",
+  implementation_start: "Harness: implementation started",
+  revision_start: "Harness: revision started",
+  merge_start: "Harness: merge started",
+};
+
+export interface PhaseStartCommentBodyInput {
+  issueKey: string;
+  targetRepo: string;
+  branch?: string;
+  prUrl?: string;
+  githubActionsRunUrl?: string | null;
+  cursorAgentId?: string;
+  cursorRunId?: string;
+}
+
+export function buildPhaseStartCommentBody(
+  phase: PhaseStartPhase,
+  input: PhaseStartCommentBodyInput,
+): string {
+  const lines = [
+    `## ${PHASE_START_HEADERS[phase]}`,
+    "",
+    `- **Issue:** ${input.issueKey}`,
+    `- **Target repo:** ${input.targetRepo}`,
+  ];
+  if (input.branch) {
+    lines.push(`- **Branch:** ${input.branch}`);
+  }
+  if (input.prUrl) {
+    lines.push(`- **PR:** ${input.prUrl}`);
+  }
+  if (input.githubActionsRunUrl) {
+    lines.push(`- **GitHub Actions run:** ${input.githubActionsRunUrl}`);
+  }
+  if (input.cursorAgentId) {
+    lines.push(`- **Cursor agent ID:** ${input.cursorAgentId}`);
+  }
+  if (input.cursorRunId) {
+    lines.push(`- **Cursor run ID:** ${input.cursorRunId}`);
+  }
+  return lines.join("\n");
+}
+
+export function formatPhaseStartComment(
+  phase: PhaseStartPhase,
+  bodyInput: PhaseStartCommentBodyInput,
+  footer: Omit<PhaseStartCommentFooterInput, "phase">,
+): string {
+  const body = buildPhaseStartCommentBody(phase, bodyInput);
+  return `${body}\n\n${formatHarnessCommentFooter({ ...footer, phase })}`;
+}
+
+export function hasPhaseStartMarker(
+  commentBody: string,
+  orchestratorMarker: string,
+  phase: PhaseStartPhase,
+  runId: string,
+): boolean {
+  const markers = parseHarnessMarkers(commentBody);
+  return (
+    markers.orchestratorMarker === orchestratorMarker &&
+    markers.phase === phase &&
+    markers.runId === runId
+  );
+}
+
+export function findPhaseStartMarker(
+  comments: { body: string }[],
+  orchestratorMarker: string,
+  phase: PhaseStartPhase,
+  runId: string,
+): boolean {
+  return comments.some((comment) =>
+    hasPhaseStartMarker(comment.body, orchestratorMarker, phase, runId),
+  );
 }
 
 export async function writeCommentsArtifact(

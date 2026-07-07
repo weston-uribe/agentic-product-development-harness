@@ -13,7 +13,12 @@ import {
   formatMergeComment,
   type HarnessCommentFooterInput,
   type ImplementationCommentFooterInput,
+  type PhaseStartPhase,
+  type PhaseStartCommentBodyInput,
+  formatPhaseStartComment,
+  findPhaseStartMarker,
 } from "./comments.js";
+import { getGitHubActionsRunUrl } from "../github/actions-url.js";
 
 export interface LinearCommentRecord {
   id: string;
@@ -120,6 +125,62 @@ export async function postMergeCompletionComment(
   footer: MergeCommentFooterInput,
 ): Promise<string> {
   const body = formatMergeComment(summaryBody, footer);
+  return postIssueComment(client, issueId, body);
+}
+
+export interface PostPhaseStartCommentInput {
+  orchestratorMarker: string;
+  phase: PhaseStartPhase;
+  runId: string;
+  issueKey: string;
+  targetRepo: string;
+  model: string;
+  promptVersion: string;
+  branch?: string;
+  prUrl?: string;
+  cursorAgentId?: string;
+  cursorRunId?: string;
+}
+
+export async function postPhaseStartCommentIfNeeded(
+  client: LinearClient,
+  issueId: string,
+  input: PostPhaseStartCommentInput,
+): Promise<string | null> {
+  const comments = await listIssueComments(client, issueId);
+  if (
+    findPhaseStartMarker(
+      comments,
+      input.orchestratorMarker,
+      input.phase,
+      input.runId,
+    )
+  ) {
+    return null;
+  }
+
+  const githubActionsRunUrl = getGitHubActionsRunUrl();
+  const bodyInput: PhaseStartCommentBodyInput = {
+    issueKey: input.issueKey,
+    targetRepo: input.targetRepo,
+    branch: input.branch,
+    prUrl: input.prUrl,
+    githubActionsRunUrl,
+    cursorAgentId: input.cursorAgentId,
+    cursorRunId: input.cursorRunId,
+  };
+  const body = formatPhaseStartComment(input.phase, bodyInput, {
+    orchestratorMarker: input.orchestratorMarker,
+    runId: input.runId,
+    cursorAgentId: input.cursorAgentId,
+    cursorRunId: input.cursorRunId,
+    model: input.model,
+    promptVersion: input.promptVersion,
+    targetRepo: input.targetRepo,
+    branch: input.branch,
+    prUrl: input.prUrl,
+    githubActionsRunUrl: githubActionsRunUrl ?? undefined,
+  });
   return postIssueComment(client, issueId, body);
 }
 

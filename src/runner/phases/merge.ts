@@ -33,6 +33,7 @@ import {
   listIssueComments,
   postErrorComment,
   postMergeCompletionComment,
+  postPhaseStartCommentIfNeeded,
   transitionIssueStatus,
 } from "../../linear/writer.js";
 import { GitHubClient } from "../../github/client.js";
@@ -626,6 +627,32 @@ export async function executeMergePhase(
         from: linearStatusBefore,
         to: mergingStatus,
       });
+
+      const mergeStartCommentId = await postPhaseStartCommentIfNeeded(
+        client,
+        issue.id,
+        {
+          orchestratorMarker: config.orchestratorMarker,
+          phase: "merge_start",
+          runId,
+          issueKey: issue.identifier,
+          targetRepo: markerTargetRepo,
+          model,
+          promptVersion: MERGE_PROMPT_VERSION,
+          branch: preInspection.branch,
+          prUrl,
+        },
+      );
+      if (mergeStartCommentId) {
+        await events.log("phase_start_comment_posted", "info", {
+          phase: "merge_start",
+          commentId: mergeStartCommentId,
+        });
+        await events.log("linear_comment_posted", "info", {
+          phase: "merge_start",
+          commentId: mergeStartCommentId,
+        });
+      }
 
       if (preInspection.isDraft) {
         preInspection = await ensurePullRequestReadyForMerge(

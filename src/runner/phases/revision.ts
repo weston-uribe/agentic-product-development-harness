@@ -34,6 +34,7 @@ import {
   createLinearClient,
   listIssueComments,
   postErrorComment,
+  postPhaseStartCommentIfNeeded,
   postRevisionComment,
   transitionIssueStatus,
 } from "../../linear/writer.js";
@@ -519,6 +520,31 @@ export async function executeRevisionPhase(
         expectedPrUrl: prUrl,
         abortSignal: abortController.signal,
         apiKey: cursorApiKey,
+        onAgentCreated: async ({ agentId, runId: cursorRunId }) => {
+          const commentId = await postPhaseStartCommentIfNeeded(client, issue.id, {
+            orchestratorMarker: config.orchestratorMarker,
+            phase: "revision_start",
+            runId,
+            issueKey: issue.identifier,
+            targetRepo: markerTargetRepo,
+            model,
+            promptVersion: REVISION_PROMPT_VERSION,
+            branch: branch ?? undefined,
+            prUrl: prUrl ?? undefined,
+            cursorAgentId: agentId,
+            cursorRunId,
+          });
+          if (commentId) {
+            await events.log("phase_start_comment_posted", "info", {
+              phase: "revision_start",
+              commentId,
+            });
+            await events.log("linear_comment_posted", "info", {
+              phase: "revision_start",
+              commentId,
+            });
+          }
+        },
       });
     } catch (error) {
       if (abortController.signal.aborted && timeoutError) {

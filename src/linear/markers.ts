@@ -16,6 +16,7 @@ export interface HarnessMarkers {
   previousRevisionRunId?: string;
   mergeCommitSha?: string;
   deploymentUrl?: string;
+  githubActionsRunUrl?: string;
 }
 
 export function parseHarnessMarkers(commentBody: string): HarnessMarkers {
@@ -86,6 +87,9 @@ export function parseHarnessMarkers(commentBody: string): HarnessMarkers {
         break;
       case "deployment_url":
         markers.deploymentUrl = value;
+        break;
+      case "github_actions_run_url":
+        markers.githubActionsRunUrl = value;
         break;
       default:
         if (trimmed === "harness-orchestrator-v1") {

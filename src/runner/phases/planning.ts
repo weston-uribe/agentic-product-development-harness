@@ -18,6 +18,7 @@ import {
   createLinearClient,
   listIssueComments,
   postErrorComment,
+  postPhaseStartCommentIfNeeded,
   postPlanningComment,
   transitionIssueStatus,
 } from "../../linear/writer.js";
@@ -281,6 +282,30 @@ export async function executePlanningPhase(
     const observed = await Promise.race([
       sendAndObserve(agent, prompt, runDirectory, events, {
         apiKey: cursorApiKey,
+        phase: "planning",
+        onAgentCreated: async ({ agentId, runId: cursorRunId }) => {
+          const commentId = await postPhaseStartCommentIfNeeded(client, issue.id, {
+            orchestratorMarker: config.orchestratorMarker,
+            phase: "planning_start",
+            runId,
+            issueKey: issue.identifier,
+            targetRepo: resolved.targetRepo,
+            model,
+            promptVersion: version,
+            cursorAgentId: agentId,
+            cursorRunId,
+          });
+          if (commentId) {
+            await events.log("phase_start_comment_posted", "info", {
+              phase: "planning_start",
+              commentId,
+            });
+            await events.log("linear_comment_posted", "info", {
+              phase: "planning_start",
+              commentId,
+            });
+          }
+        },
       }),
       new Promise<never>((_, reject) => {
         setTimeout(() => {

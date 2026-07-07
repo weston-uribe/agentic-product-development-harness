@@ -96,6 +96,7 @@ export type RunEventName =
   | "implementation_comment_loaded"
   | "linear_status_changed"
   | "linear_comment_posted"
+  | "phase_start_comment_posted"
   | "cursor_agent_created"
   | "cursor_event"
   | "cursor_run_poll_fallback"

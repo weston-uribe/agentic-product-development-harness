@@ -28,6 +28,7 @@ export interface SendAndObserveOptions {
   apiKey?: string;
   pollIntervalMs?: number;
   fetchCloudRun?: typeof Agent.getRun;
+  onAgentCreated?: (details: { agentId: string; runId: string }) => Promise<void>;
 }
 
 const DEFAULT_CLOUD_RUN_POLL_INTERVAL_MS = 5_000;
@@ -200,6 +201,9 @@ export async function sendAndObserve(
   }
 
   await events.log("cursor_agent_created", "info", { agentId, runId: run.id });
+  if (options.onAgentCreated) {
+    await options.onAgentCreated({ agentId, runId: run.id });
+  }
   detachAbort = attachAbortHandler(options.abortSignal, ensureCancelled);
   if (options.abortSignal?.aborted) {
     await abortRun(phase, options.abortSignal, ensureCancelled);

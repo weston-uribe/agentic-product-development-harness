@@ -23,6 +23,7 @@ import {
   listIssueComments,
   postErrorComment,
   postImplementationComment,
+  postPhaseStartCommentIfNeeded,
   transitionIssueStatus,
 } from "../../linear/writer.js";
 import { createImplementationCloudAgent } from "../../cursor/agent-factory.js";
@@ -353,6 +354,30 @@ export async function executeImplementationPhase(
         targetRepo: resolved.targetRepo,
         abortSignal: abortController.signal,
         apiKey: cursorApiKey,
+        onAgentCreated: async ({ agentId, runId: cursorRunId }) => {
+          const commentId = await postPhaseStartCommentIfNeeded(client, issue.id, {
+            orchestratorMarker: config.orchestratorMarker,
+            phase: "implementation_start",
+            runId,
+            issueKey: issue.identifier,
+            targetRepo: resolved.targetRepo,
+            model,
+            promptVersion: IMPLEMENTATION_PROMPT_VERSION,
+            branch: branchName,
+            cursorAgentId: agentId,
+            cursorRunId,
+          });
+          if (commentId) {
+            await events.log("phase_start_comment_posted", "info", {
+              phase: "implementation_start",
+              commentId,
+            });
+            await events.log("linear_comment_posted", "info", {
+              phase: "implementation_start",
+              commentId,
+            });
+          }
+        },
       });
     } catch (error) {
       if (abortController.signal.aborted && timeoutError) {
