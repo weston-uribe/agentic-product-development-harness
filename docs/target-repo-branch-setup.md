@@ -20,7 +20,13 @@ When `baseBranch !== productionBranch`, merge success moves the issue to **`Merg
 npm run harness:sync-production -- --repo portfolio
 ```
 
-Or trigger the **Harness Production Sync** GitHub Actions workflow (`workflow_dispatch`).
+For a single issue:
+
+```bash
+npm run harness:sync-production -- --issue WES-19
+```
+
+A GitHub Actions `workflow_dispatch` wrapper is optional future work once a token with the `workflow` scope can commit workflow files to this repo.
 
 **Promotion guidance:** prefer merge or fast-forward when promoting `dev` → `main`. Squash promotion may make the original dev merge commit unreachable; sync will correctly no-op with `production_not_promoted`.
 
