@@ -73,15 +73,22 @@ Optional: `githubRunId`, `githubDeliveryId` (audit only). Harness ignores `after
 
 ### Test dispatch (no portfolio push)
 
+Requires harness workflow on origin with `production_promoted` handler (see Track B fixture). Use JSON body:
+
 ```bash
-gh api repos/weston-uribe/agentic-product-development-harness/dispatches \
-  -f event_type=production_promoted \
-  -f 'client_payload[repo]=portfolio' \
-  -f 'client_payload[productionBranch]=main' \
-  -f 'client_payload[sourceRepo]=weston-uribe/weston-uribe-portfolio' \
-  -f 'client_payload[after]=<main-sha>' \
-  -f 'client_payload[ref]=refs/heads/main' \
-  -f 'client_payload[receivedAt]=$(date -u +%Y-%m-%dT%H:%M:%SZ)'
+gh api repos/weston-uribe/agentic-product-development-harness/dispatches --method POST --input - <<'EOF'
+{
+  "event_type": "production_promoted",
+  "client_payload": {
+    "repo": "portfolio",
+    "productionBranch": "main",
+    "sourceRepo": "weston-uribe/weston-uribe-portfolio",
+    "after": "<main-sha>",
+    "ref": "refs/heads/main",
+    "receivedAt": "2026-07-07T23:46:00.000Z"
+  }
+}
+EOF
 ```
 
 Requires a PAT with **Contents: write** on the harness repo (same class as Vercel `GITHUB_DISPATCH_TOKEN`).
