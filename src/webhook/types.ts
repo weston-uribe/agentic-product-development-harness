@@ -55,10 +55,21 @@ export interface RepositoryDispatchPayload {
   receivedAt: string;
 }
 
+export interface ProductionPromotedDispatchPayload {
+  repo: string;
+  productionBranch: string;
+  sourceRepo: string;
+  after: string;
+  ref: string;
+  receivedAt: string;
+  githubRunId?: string;
+  githubDeliveryId?: string;
+}
+
 export interface DispatchGitHubOptions {
   token: string;
   repository: string;
   eventType: string;
-  clientPayload: RepositoryDispatchPayload;
+  clientPayload: RepositoryDispatchPayload | ProductionPromotedDispatchPayload;
   fetchImpl?: typeof fetch;
 }

@@ -1,0 +1,251 @@
+name: Harness Auto Runner
+
+on:
+  repository_dispatch:
+    types: [linear_issue_status_changed, production_promoted]
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: "Linear issue key, e.g. WES-13 (harness run)"
+        required: false
+      phase:
+        description: "Harness phase (auto, planning, implementation, handoff, revision, merge)"
+        required: false
+        default: auto
+      sync_repo:
+        description: "Repo config id for production sync, e.g. portfolio (runs sync-production instead of harness run)"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  run-harness:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.sync_repo == '') ||
+      (github.event_name == 'repository_dispatch' && github.event.action == 'linear_issue_status_changed')
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    concurrency:
+      group: harness-${{ github.event.client_payload.issueKey || github.event.inputs.issue }}
+      cancel-in-progress: false
+
+    env:
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+      CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+      GITHUB_TOKEN: ${{ secrets.HARNESS_GITHUB_TOKEN }}
+
+    steps:
+      - name: Resolve inputs
+        id: inputs
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "issue_key=${{ github.event.inputs.issue }}" >> "$GITHUB_OUTPUT"
+            echo "phase=${{ github.event.inputs.phase || 'auto' }}" >> "$GITHUB_OUTPUT"
+            echo "trigger=workflow_dispatch" >> "$GITHUB_OUTPUT"
+            echo "linear_delivery_id=" >> "$GITHUB_OUTPUT"
+          else
+            echo "issue_key=${{ github.event.client_payload.issueKey }}" >> "$GITHUB_OUTPUT"
+            echo "phase=auto" >> "$GITHUB_OUTPUT"
+            echo "trigger=repository_dispatch" >> "$GITHUB_OUTPUT"
+            echo "linear_delivery_id=${{ github.event.client_payload.linearDeliveryId || '' }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Validate issue key
+        run: |
+          if [ -z "${{ steps.inputs.outputs.issue_key }}" ]; then
+            echo "Missing issue key in workflow inputs."
+            exit 1
+          fi
+
+      - name: Checkout harness repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Doctor
+        run: npm run harness:doctor
+
+      - name: Write dispatch metadata
+        run: |
+          mkdir -p runs
+          cat > runs/dispatch-metadata.json <<EOF
+          {
+            "githubRunId": "${{ github.run_id }}",
+            "linearDeliveryId": "${{ steps.inputs.outputs.linear_delivery_id }}",
+            "trigger": "${{ steps.inputs.outputs.trigger }}",
+            "issueKey": "${{ steps.inputs.outputs.issue_key }}",
+            "phase": "${{ steps.inputs.outputs.phase }}",
+            "receivedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+
+      - name: Run harness
+        id: harness
+        run: |
+          set +e
+          OUTPUT=$(npm run harness:run -- --issue "${{ steps.inputs.outputs.issue_key }}" --phase "${{ steps.inputs.outputs.phase }}" --json 2>&1)
+          EXIT_CODE=$?
+          echo "$OUTPUT"
+          echo "$OUTPUT" > harness-run-output.json
+          echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+          exit $EXIT_CODE
+
+      - name: Write step summary
+        if: always()
+        run: |
+          {
+            echo "## Harness Auto Runner"
+            echo ""
+            echo "- Issue: \`${{ steps.inputs.outputs.issue_key }}\`"
+            echo "- Phase: \`${{ steps.inputs.outputs.phase }}\`"
+            echo "- Trigger: \`${{ steps.inputs.outputs.trigger }}\`"
+            echo "- Linear delivery ID: \`${{ steps.inputs.outputs.linear_delivery_id }}\`"
+            echo "- Harness exit code: \`${{ steps.harness.outputs.exit_code }}\`"
+            echo ""
+            if [ -f harness-run-output.json ]; then
+              echo "### Harness output"
+              echo '```json'
+              cat harness-run-output.json
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload harness artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-run-${{ steps.inputs.outputs.issue_key }}-${{ github.run_id }}
+          path: |
+            runs/${{ steps.inputs.outputs.issue_key }}/**
+            runs/dispatch-metadata.json
+            harness-run-output.json
+          retention-days: 30
+          if-no-files-found: ignore
+
+  sync-production:
+    if: >-
+      (github.event_name == 'repository_dispatch' && github.event.action == 'production_promoted') ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.sync_repo != '')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: harness-production-sync-${{ github.event.client_payload.repo || github.event.inputs.sync_repo }}
+      cancel-in-progress: false
+
+    env:
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+      GITHUB_TOKEN: ${{ secrets.HARNESS_GITHUB_TOKEN }}
+
+    steps:
+      - name: Resolve sync inputs
+        id: sync
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "repo=${{ github.event.inputs.sync_repo }}" >> "$GITHUB_OUTPUT"
+            echo "trigger=workflow_dispatch" >> "$GITHUB_OUTPUT"
+            echo "production_branch=" >> "$GITHUB_OUTPUT"
+            echo "source_repo=" >> "$GITHUB_OUTPUT"
+            echo "after=" >> "$GITHUB_OUTPUT"
+          else
+            echo "repo=${{ github.event.client_payload.repo }}" >> "$GITHUB_OUTPUT"
+            echo "trigger=repository_dispatch" >> "$GITHUB_OUTPUT"
+            echo "production_branch=${{ github.event.client_payload.productionBranch || '' }}" >> "$GITHUB_OUTPUT"
+            echo "source_repo=${{ github.event.client_payload.sourceRepo || '' }}" >> "$GITHUB_OUTPUT"
+            echo "after=${{ github.event.client_payload.after || '' }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Validate repo id
+        run: |
+          if [ -z "${{ steps.sync.outputs.repo }}" ]; then
+            echo "Missing repo id in production_promoted payload or sync_repo input."
+            exit 1
+          fi
+
+      - name: Checkout harness repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Doctor
+        run: npm run harness:doctor
+
+      - name: Write dispatch metadata
+        run: |
+          mkdir -p runs
+          cat > runs/dispatch-metadata.json <<EOF
+          {
+            "githubRunId": "${{ github.run_id }}",
+            "trigger": "${{ steps.sync.outputs.trigger }}",
+            "eventAction": "${{ github.event.action }}",
+            "repo": "${{ steps.sync.outputs.repo }}",
+            "productionBranch": "${{ steps.sync.outputs.production_branch }}",
+            "sourceRepo": "${{ steps.sync.outputs.source_repo }}",
+            "after": "${{ steps.sync.outputs.after }}",
+            "receivedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+
+      - name: Run production sync
+        id: sync_production
+        run: |
+          set +e
+          OUTPUT=$(npm run harness:sync-production -- --repo "${{ steps.sync.outputs.repo }}" --json 2>&1)
+          EXIT_CODE=$?
+          echo "$OUTPUT"
+          echo "$OUTPUT" > sync-production-output.json
+          echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+          exit $EXIT_CODE
+
+      - name: Write step summary
+        if: always()
+        run: |
+          {
+            echo "## Harness Production Sync"
+            echo ""
+            echo "- Repo: \`${{ steps.sync.outputs.repo }}\`"
+            echo "- Trigger: \`${{ steps.sync.outputs.trigger }}\`"
+            echo "- Production branch: \`${{ steps.sync.outputs.production_branch }}\`"
+            echo "- Source repo: \`${{ steps.sync.outputs.source_repo }}\`"
+            echo "- After commit: \`${{ steps.sync.outputs.after }}\`"
+            echo "- Exit code: \`${{ steps.sync_production.outputs.exit_code }}\`"
+            echo ""
+            if [ -f sync-production-output.json ]; then
+              echo "### Sync output"
+              echo '```json'
+              cat sync-production-output.json
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload sync artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-sync-${{ steps.sync.outputs.repo }}-${{ github.run_id }}
+          path: |
+            runs/**
+            runs/dispatch-metadata.json
+            sync-production-output.json
+          retention-days: 30
+          if-no-files-found: ignore

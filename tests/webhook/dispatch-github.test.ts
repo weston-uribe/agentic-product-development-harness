@@ -58,6 +58,32 @@ describe("dispatchRepositoryEvent", () => {
     expect(body.client_payload.issueKey).toBe("WES-20");
   });
 
+  it("posts production_promoted repository_dispatch payload", async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+
+    await dispatchRepositoryEvent({
+      token: TOKEN,
+      repository: "weston-uribe/agentic-product-development-harness",
+      eventType: "production_promoted",
+      clientPayload: {
+        repo: "portfolio",
+        productionBranch: "main",
+        sourceRepo: "weston-uribe/weston-uribe-portfolio",
+        after: "abc123def456",
+        ref: "refs/heads/main",
+        receivedAt: "2026-07-07T23:46:00.000Z",
+        githubRunId: "12345",
+      },
+      fetchImpl: fetchMock,
+    });
+
+    const body = JSON.parse(String(fetchMock.mock.calls[0]![1]!.body));
+    expect(body.event_type).toBe("production_promoted");
+    expect(body.client_payload.repo).toBe("portfolio");
+    expect(body.client_payload.productionBranch).toBe("main");
+    expect(body.client_payload.after).toBe("abc123def456");
+  });
+
   it("throws when GitHub dispatch fails", async () => {
     const fetchMock = vi.fn(async () => new Response("nope", { status: 403 }));
 

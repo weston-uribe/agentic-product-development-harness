@@ -26,7 +26,9 @@ For a single issue:
 npm run harness:sync-production -- --issue WES-19
 ```
 
-A GitHub Actions `workflow_dispatch` wrapper is optional future work once a token with the `workflow` scope can commit workflow files to this repo.
+**Automatic sync:** after `main` is updated, portfolio can dispatch `production_promoted` to the harness GitHub Actions workflow (see [`docs/production-sync-automation.md`](production-sync-automation.md)). Manual CLI remains the fallback.
+
+Harness Actions also supports **`workflow_dispatch`** with input **`sync_repo=portfolio`** on **Harness Auto Runner**.
 
 **Promotion guidance:** prefer merge or fast-forward when promoting `dev` → `main`. Squash promotion may make the original dev merge commit unreachable; sync will correctly no-op with `production_not_promoted`.
 
