@@ -159,12 +159,12 @@ export class GitHubClient {
   ): Promise<GitHubPullRequest> {
     const pull = await this.getPullRequest(owner, repo, pullNumber);
     await this.graphqlRequest<{
-      markPullRequestAsReadyForReview: {
+      markPullRequestReadyForReview: {
         pullRequest: { isDraft: boolean } | null;
       };
     }>(
       `mutation MarkPullRequestReadyForReview($pullRequestId: ID!) {
-        markPullRequestAsReadyForReview(input: { pullRequestId: $pullRequestId }) {
+        markPullRequestReadyForReview(input: { pullRequestId: $pullRequestId }) {
           pullRequest { isDraft }
         }
       }`,

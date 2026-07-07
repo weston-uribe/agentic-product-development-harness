@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   transitionIssueStatus: vi.fn(),
   postMergeCompletionComment: vi.fn(),
+  postPhaseStartCommentIfNeeded: vi.fn(),
   postErrorComment: vi.fn(),
   listIssueComments: vi.fn(),
   createLinearClient: vi.fn(),
@@ -20,6 +21,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../../src/linear/writer.js", () => ({
   transitionIssueStatus: mocks.transitionIssueStatus,
   postMergeCompletionComment: mocks.postMergeCompletionComment,
+  postPhaseStartCommentIfNeeded: mocks.postPhaseStartCommentIfNeeded,
   postErrorComment: mocks.postErrorComment,
   listIssueComments: mocks.listIssueComments,
   createLinearClient: mocks.createLinearClient,
@@ -149,6 +151,7 @@ describe("executeMergePhase", () => {
     ]);
     mocks.transitionIssueStatus.mockResolvedValue(undefined);
     mocks.postMergeCompletionComment.mockResolvedValue("merge-comment-1");
+    mocks.postPhaseStartCommentIfNeeded.mockResolvedValue("merge-start-1");
     mocks.inspectPullRequestForMerge.mockResolvedValue({
       title: "[WES-13] test",
       url: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4",

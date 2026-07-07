@@ -38,7 +38,7 @@ describe("GitHubClient", () => {
         status: 200,
         json: async () => ({
           data: {
-            markPullRequestAsReadyForReview: {
+            markPullRequestReadyForReview: {
               pullRequest: { isDraft: false },
             },
           },
@@ -64,7 +64,7 @@ describe("GitHubClient", () => {
     expect(graphqlCall[1]?.method).toBe("POST");
     const body = JSON.parse(String(graphqlCall[1]?.body));
     expect(body.variables.pullRequestId).toBe("PR_kwDOExample");
-    expect(body.query).toContain("markPullRequestAsReadyForReview");
+    expect(body.query).toContain("markPullRequestReadyForReview");
     const patchCalls = mockFetch.mock.calls.filter(
       ([url, init]) =>
         String(url).includes("/pulls/7") && init?.method === "PATCH",
