@@ -126,7 +126,7 @@ Planning is **optional** in the target Linear workflow. Low-risk issues may bypa
 
 **Implemented (Milestone 6):** SDK merge runner from **Ready to Merge** — reads revision or handoff marker, verifies PR base branch and checks, squash merges into configured `baseBranch`, captures production deployment URL only when merging to `productionBranch`, posts completion comment, transitions to integration or production success status.
 
-**Branch strategy:** `repos[].baseBranch` is the integration branch (e.g. portfolio `dev`); `productionBranch` remains `main`. Dev → main promotion is not automated in v0.1. See [`docs/target-repo-branch-setup.md`](docs/target-repo-branch-setup.md).
+**Branch strategy:** `repos[].baseBranch` is the integration branch (e.g. portfolio `dev`); `productionBranch` remains `main`. After manual `dev → main` promotion, run **`harness:sync-production`** to move Linear issues from **Merged to Dev** to **Merged / Deployed** when GitHub proves the merge commit is reachable on `productionBranch`. See [`docs/target-repo-branch-setup.md`](docs/target-repo-branch-setup.md).
 
 **Inputs:** Linear issue in Ready to Merge; handoff or revision marker with `pr_url`; PM manually moved issue from PM Review.
 
