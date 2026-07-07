@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { runDoctor } from "./commands/doctor.js";
 import { runInspect } from "./commands/inspect.js";
 import { runRunCommand } from "./commands/run.js";
+import { runValidateIssue } from "./commands/validate-issue.js";
 
 export function createProgram(): Command {
   const program = new Command();
@@ -57,6 +58,28 @@ export function createProgram(): Command {
     .requiredOption("--run <path>", "Path to run directory under runs/")
     .action(async (opts) => {
       const exitCode = await runInspect({ runPath: opts.run });
+      process.exitCode = exitCode;
+    });
+
+  program
+    .command("validate-issue")
+    .description("Validate a Linear issue description without side effects")
+    .option("--file <path>", "Path to issue markdown file")
+    .option("--issue <key>", "Linear issue key, e.g. WES-11")
+    .option(
+      "--intended-phase <phase>",
+      "Route-specific validation: planning or implementation",
+    )
+    .option("--json", "Print validation result JSON to stdout", false)
+    .action(async (opts) => {
+      const configPath = program.opts<{ config: string }>().config;
+      const exitCode = await runValidateIssue({
+        configPath,
+        filePath: opts.file,
+        issueKey: opts.issue,
+        intendedPhase: opts.intendedPhase,
+        json: opts.json,
+      });
       process.exitCode = exitCode;
     });
 

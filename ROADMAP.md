@@ -2,19 +2,38 @@
 
 Phased delivery for the agentic product development harness. Each phase adds capability only after the previous loop is proven manually.
 
-**Current phase: Merge automation spike (Milestone 6)**
+**Current phase: Issue intake (Milestone 7)**
 
 ---
 
-## Merge automation spike (current)
+## Issue intake (current)
+
+**Goal:** Reliable intake that turns a fuzzy product idea into a harness-compatible Linear issue before planning or implementation runs.
+
+**Delivered:**
+- Issue intake skill — [`skills/issue-intake/SKILL.md`](skills/issue-intake/SKILL.md)
+- Parser-aligned template — [`templates/linear-issue.md`](templates/linear-issue.md)
+- Read-only validator CLI — `harness validate-issue` with `--intended-phase planning|implementation`
+- Operator guide — [`docs/issue-intake.md`](docs/issue-intake.md)
+
+See [`docs/milestones/m7-issue-intake.md`](docs/milestones/m7-issue-intake.md).
+
+**Not included yet:**
+- Lead agent, planner/implementer skills
+- ChatGPT/Linear intake automation
+- Label enforcement in runner code
+
+---
+
+## Merge automation spike (completed)
 
 **Goal:** Close the solo-PM merge loop — **Ready to Merge → Merging → Merged / Deployed** — by squash-merging the accepted PR and posting a completion comment.
 
 **Already done:**
-- M1–M5 SDK runners validated (planning, implementation, handoff, revision)
+- M1–M6 SDK runners validated (planning, implementation, handoff, revision, merge)
 - See [`docs/milestones/m6-merge-phase.md`](docs/milestones/m6-merge-phase.md) for M6 scope
 
-**This phase includes:**
+**Delivered:**
 - SDK merge runner from **Ready to Merge**
 - GitHub squash merge via REST API
 - Checks policy before merge
@@ -24,7 +43,7 @@ Phased delivery for the agentic product development harness. Each phase adds cap
 **Not included yet:**
 - Engineering Review transition
 - Release tags
-- Skills or watcher/poller
+- Watcher/poller
 
 ---
 

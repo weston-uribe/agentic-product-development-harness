@@ -2,17 +2,15 @@
 
 Cursor skills and other encoded workflows for the harness.
 
-## v0.1 status: intentionally empty
+## Implemented
 
-Skills are **deferred** until a manual workflow has been run multiple times and the steps are proven worth encoding.
+### issue-intake
 
-Creating skills too early:
+[`issue-intake/SKILL.md`](issue-intake/SKILL.md) — conversational intake that produces a harness-compatible Linear issue package. Use before planning or implementation runs.
 
-- Locks in unvalidated assumptions
-- Makes debugging harder when the loop changes
-- Overstates harness maturity publicly
+See [`docs/issue-intake.md`](../docs/issue-intake.md) for the operator workflow and [`docs/milestones/m7-issue-intake.md`](../docs/milestones/m7-issue-intake.md) for milestone scope.
 
-## When to add a skill
+## When to add more skills
 
 Add a skill only when all of the following are true:
 
@@ -23,8 +21,7 @@ Add a skill only when all of the following are true:
 
 ## Planned examples (not implemented)
 
-- Issue → implementation plan bootstrap
 - PR readiness report generation from a diff
 - Portfolio-specific context loading
 
-See [`ROADMAP.md`](../ROADMAP.md) v1.0 for when reusable skills become a deliverable.
+See [`ROADMAP.md`](../ROADMAP.md) for phased delivery.

@@ -24,13 +24,13 @@ Planning is **optional** in the target Linear workflow. Low-risk issues may bypa
 
 **Purpose:** Capture product intent in a structured, reviewable issue before any code is written.
 
-**v0.1:** Manual. Use [`templates/linear-issue.md`](templates/linear-issue.md). Issues may live in Linear, GitHub Issues, or a markdown file—Linear is the planned control plane; native Cursor ↔ Linear triggering was smoke-tested once, not production automation.
+**Status:** **Implemented** — [`skills/issue-intake/SKILL.md`](skills/issue-intake/SKILL.md) for conversational drafting; [`templates/linear-issue.md`](templates/linear-issue.md) aligned to parser contract; `harness validate-issue` for read-only validation with route-specific `--intended-phase`.
 
 **Inputs:** Problem statement, user context, acceptance criteria, out-of-scope boundaries.
 
-**Outputs:** A single issue artifact that an implementation plan or direct build can reference.
+**Outputs:** A single issue artifact that an implementation plan or direct build can reference. Routing is the **Linear status field** (Ready for Planning, Ready for Build), not a description section.
 
-**Labels (planned):** `requires-plan` — must go through planning; `skip-plan` — may go directly to Ready for Build.
+**Labels (operational):** `requires-plan` — should go through planning; `skip-plan` — may go directly to Ready for Build. Runner does not read labels today.
 
 ---
 

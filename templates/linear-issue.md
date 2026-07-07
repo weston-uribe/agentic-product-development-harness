@@ -1,44 +1,51 @@
 # Issue: [Short title]
 
-<!-- Linear-style product issue template. v0.1: manual; Linear integration planned. -->
+Routing is controlled by the **Linear status field** (e.g. Ready for Planning, Ready for Build), not by any section in this description.
 
-## Problem
+> `## Problem` is a parser fallback for `## Task`; prefer `## Task` for new issues.
 
-What user or business problem are we solving? Why now?
+## Target repo
 
-## User / job story
+owner/repo
 
-As a **[persona]**, I want **[capability]** so that **[outcome]**.
+## Task
+
+Single clear objective in one or two sentences.
 
 ## Acceptance criteria
 
-- [ ] Criterion 1 — observable, testable
-- [ ] Criterion 2
-- [ ] Criterion 3
+- [ ] Observable, testable outcome 1
+- [ ] Observable, testable outcome 2
 
 ## Out of scope
 
-- Explicitly excluded work (prevents scope creep)
+- Explicitly excluded work
+
+## Validation expectations
+
+- `npm run lint`
+- `npm run build`
 
 ## Context and links
 
 - Related issues / PRs:
 - Design or research links:
-- Target repo: `weston-uribe/weston-uribe-portfolio` (or other)
+- Target repo: `owner/repo` (optional backup if `## Target repo` is omitted)
+
+## User / job story
+
+As a **[persona]**, I want **[capability]** so that **[outcome]**.
 
 ## Eval hints
 
-Criteria the scorecard should check (map to [`eval-scorecard.md`](eval-scorecard.md)):
-
 | Criterion | Priority |
 |-----------|----------|
-| Example: matches acceptance criteria | Required |
-| Example: no unrelated file changes | Required |
-| Example: preview looks correct on mobile | Nice-to-have |
+| Matches acceptance criteria | Required |
+| No unrelated file changes | Required |
 
 ## Definition of ready
 
-- [ ] Problem and acceptance criteria are clear
+- [ ] Task and acceptance criteria are clear
 - [ ] Out of scope is documented
 - [ ] Target repo identified
 - [ ] PM / owner assigned for review

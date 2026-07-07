@@ -26,7 +26,7 @@ v0.1 is **Cursor-specific** but **modular by design**:
 
 | Layer | v0.1 status |
 |-------|-------------|
-| Issue intake | Manual (templates) |
+| Issue intake | Skill + validate-issue CLI |
 | Implementation planning | Manual (templates) |
 | Execution | Cursor (local agent) |
 | Validation / evals | Manual rubrics |
@@ -67,17 +67,18 @@ The first real-world target for this harness is [`weston-uribe/weston-uribe-port
 - Production-ready automation already exists
 - Cloud agents are wired and running
 - Linear integration is implemented
-- Reusable Cursor skills are shipped
+- Reusable Cursor skills beyond issue intake
 - The system can autonomously ship software without human review
 
-Skills are intentionally **not implemented yet**. The repo starts with docs, templates, and eval contracts before any automation layer.
+Issue intake is implemented via [`skills/issue-intake/`](skills/issue-intake/). Additional skills remain deferred.
 
 ## Getting started
 
 1. Read [`ARCHITECTURE.md`](ARCHITECTURE.md) for the modular component model
 2. Read [`AGENTS.md`](AGENTS.md) if you are an AI agent working in this repo
-3. Draft a product issue using [`templates/linear-issue.md`](templates/linear-issue.md)
-4. Run the manual v0.1 loop on a target repo (portfolio first)
+3. Use [`skills/issue-intake/SKILL.md`](skills/issue-intake/SKILL.md) or [`templates/linear-issue.md`](templates/linear-issue.md) to draft a product issue
+4. Validate before Linear paste: `npm run harness:validate-issue -- --file draft.md --intended-phase planning`
+5. Run the harness against a Linear issue: `npm run harness:run -- --issue WES-XX --dry-run`
 
 ## License
 

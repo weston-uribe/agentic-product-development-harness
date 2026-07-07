@@ -18,6 +18,10 @@ import {
   getTransitionalStatus,
 } from "../config/status-names.js";
 import type { ParsedIssue } from "../types/parsed-issue.js";
+import {
+  NARROW_AC_MAX_COUNT,
+  NARROW_TASK_MAX_LENGTH,
+} from "../validate/constants.js";
 
 export interface IdempotencyResult {
   skip: boolean;
@@ -153,7 +157,28 @@ export function assertImplementationEligibleStatus(
 }
 
 export function isNarrowImplementationIssue(parsed: ParsedIssue): boolean {
-  return parsed.task.length <= 240 && parsed.acceptanceCriteria.length <= 7;
+  return (
+    parsed.task.length <= NARROW_TASK_MAX_LENGTH &&
+    parsed.acceptanceCriteria.length <= NARROW_AC_MAX_COUNT
+  );
+}
+
+export function getNarrowFailureReason(parsed: ParsedIssue): string | null {
+  if (isNarrowImplementationIssue(parsed)) {
+    return null;
+  }
+  const reasons: string[] = [];
+  if (parsed.task.length > NARROW_TASK_MAX_LENGTH) {
+    reasons.push(
+      `task length ${parsed.task.length} exceeds ${NARROW_TASK_MAX_LENGTH} characters`,
+    );
+  }
+  if (parsed.acceptanceCriteria.length > NARROW_AC_MAX_COUNT) {
+    reasons.push(
+      `acceptance criteria count ${parsed.acceptanceCriteria.length} exceeds ${NARROW_AC_MAX_COUNT}`,
+    );
+  }
+  return reasons.join("; ");
 }
 
 export function checkHandoffIdempotency(

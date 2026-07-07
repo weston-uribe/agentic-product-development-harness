@@ -3,13 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Repo-agnostic Cursor SDK orchestration harness (Milestone 3: implementation phase)",
+  "description": "Repo-agnostic Cursor SDK orchestration harness (Milestone 7: issue intake)",
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
     "harness:doctor": "tsx src/index.ts doctor",
     "harness:run": "tsx src/index.ts run",
     "harness:inspect": "tsx src/index.ts inspect",
+    "harness:validate-issue": "tsx src/index.ts validate-issue",
     "generate:config-schema": "tsx scripts/generate-config-schema.ts"
   },
   "dependencies": {

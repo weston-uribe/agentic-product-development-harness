@@ -6,7 +6,9 @@ Instructions for AI agents working in **agentic-product-development-harness**. R
 
 v0.1 documentation scaffold for a Cursor-first agentic product development harness. It contains docs, templates, and eval contracts—not production automation, skills, or implementation code.
 
-The harness has a **validated planning-router** Cursor Automation spike. Implementation, revision, and merge/deploy automations remain **planned**.
+The harness has **M1–M7 SDK runners and tooling** (planning through merge, plus issue intake validation). Cursor Automations for full pipeline routing remain partially planned.
+
+For new harness work intake, use [`skills/issue-intake/SKILL.md`](skills/issue-intake/SKILL.md) and validate with `npm run harness:validate-issue`.
 
 ## Core rules
 
