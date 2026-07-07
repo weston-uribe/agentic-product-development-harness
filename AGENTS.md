@@ -4,11 +4,13 @@ Instructions for AI agents working in **agentic-product-development-harness**. R
 
 ## What this repo is
 
-v0.1 documentation scaffold for a Cursor-first agentic product development harness. It contains docs, templates, and eval contracts—not production automation, skills, or implementation code.
+v0.1+ harness repo: SDK runners (M1–M8), templates, eval contracts, and event-driven Linear auto-run. Read this before making changes.
 
-The harness has **M1–M7 SDK runners and tooling** (planning through merge, plus issue intake validation). Cursor Automations for full pipeline routing remain partially planned.
+The harness has **M1–M8 SDK runners and tooling** (planning through merge, issue intake validation, and event-driven auto-run via Linear webhook + GitHub Actions).
 
 For new harness work intake, use [`skills/issue-intake/SKILL.md`](skills/issue-intake/SKILL.md) and validate with `npm run harness:validate-issue`.
+
+Status changes on allowlisted Linear statuses trigger cloud harness runs automatically — see [`docs/linear-watcher-setup.md`](docs/linear-watcher-setup.md).
 
 ## Core rules
 

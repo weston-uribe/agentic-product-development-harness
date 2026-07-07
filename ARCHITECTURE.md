@@ -174,9 +174,9 @@ Planning is **optional** in the target Linear workflow. Low-risk issues may bypa
 
 **Purpose:** Encode repeated manual steps only after they are validated (skills, scripts, CI, Linear sync, cloud agents).
 
-**v0.1:** **Not implemented.** See [`skills/README.md`](skills/README.md).
+**Implemented (Milestone 8):** Event-driven auto-runner — Vercel webhook bridge verifies Linear signatures, filters to dispatch allowlist statuses, and triggers GitHub Actions via `repository_dispatch`. See [`docs/milestones/m8-linear-watcher.md`](docs/milestones/m8-linear-watcher.md).
 
-**Next spike (planned):** Single **router** Cursor Automation on Linear status change—not many independent automations. First spike: planning-only or docs-only; no full autonomous build loop.
+**Still deferred:** Additional skills beyond issue intake. See [`skills/README.md`](skills/README.md).
 
 **State machine:** [`docs/architecture/linear-automation-state-machine.md`](docs/architecture/linear-automation-state-machine.md)
 
@@ -184,9 +184,45 @@ Planning is **optional** in the target Linear workflow. Low-risk issues may bypa
 
 ---
 
-## Linear automation (planned)
+### Linear watcher / auto-runner
 
-Native Cursor ↔ Linear assignment/mention was smoke-tested once. Status-triggered automations are **planned**, not live.
+**Purpose:** Start harness runs automatically when Linear issue status changes to an actionable trigger — without manual CLI invocation.
+
+**Implemented (Milestone 8):**
+- Vercel endpoint [`api/linear-webhook.ts`](../api/linear-webhook.ts)
+- GitHub Actions workflow [`.github/workflows/harness-auto-runner.yml`](../.github/workflows/harness-auto-runner.yml)
+- Dispatch allowlist: Ready for Planning, Ready for Build, PR Open, Needs Revision, Ready to Merge
+- `workflow_dispatch` fallback for manual cloud runs
+
+**Flow:**
+
+```text
+Linear webhook → verify signature → filter status → repository_dispatch → GHA → harness --phase auto
+```
+
+**Inputs:** Linear Issue webhook POST with status change to allowlisted status.
+
+**Outputs:** GitHub Actions run; harness artifacts under `runs/<issueKey>/<run-id>/`.
+
+Setup: [`docs/linear-watcher-setup.md`](docs/linear-watcher-setup.md)
+
+---
+
+## Linear automation
+
+SDK runners (M1–M6) and the M8 event-driven watcher handle status-triggered harness phases. Native Cursor ↔ Linear assignment was smoke-tested once; the primary automation path is now **webhook → GitHub Actions**.
+
+### Auto-run trigger statuses (M8 dispatch allowlist)
+
+| Status | Harness phase |
+|--------|---------------|
+| Ready for Planning | planning |
+| Ready for Build | implementation |
+| PR Open | handoff |
+| Needs Revision | revision |
+| Ready to Merge | merge |
+
+Transitional statuses (Planning, Building, PM Review, Merging, Merged / Deployed) are filtered at the webhook bridge with `ignored_status`.
 
 ### Default status flow
 
@@ -256,10 +292,10 @@ Agents must not advance Linear status unless the required durable artifact exist
 
 | Platform | Role | v0.1 status |
 |----------|------|-------------|
-| **Cursor** | Execution environment for scoped AI-assisted implementation | Active (manual); Automations **planned** |
-| **Linear** | PM control plane for issues and status | Statuses/labels configured manually; router automation **planned** |
-| **GitHub** | PR and code review layer | Manual PRs OK; agent-opened PRs **implemented** (M3); PR inspect for handoff **implemented** (M4) |
-| **Vercel previews** | Product review layer for UI work | **Implemented** for handoff (M4) — preview URL from PR comments |
+| **Cursor** | Execution environment for scoped AI-assisted implementation | SDK runners + GHA auto-runner (M8) |
+| **Linear** | PM control plane for issues and status | Webhook-triggered auto-run (M8) |
+| **GitHub** | PR and code review layer; GHA runs harness | Auto-runner workflow (M8); PR inspect/merge (M4/M6) |
+| **Vercel previews** | Product review layer for UI work; webhook bridge host | Handoff preview capture (M4); webhook endpoint (M8) |
 | **MCP / tools** | Optional context providers (docs, analytics, etc.) | Optional, not required |
 
 ## Design principles

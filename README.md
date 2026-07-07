@@ -1,14 +1,14 @@
 # Agentic Product Development Harness
 
-**Status: v0.1 — documentation scaffold**
+**Status: Milestone 8 — event-driven Linear watcher**
 
 This project explores how an AI-native PM can define product work in structured issues, guide AI-assisted implementation through Cursor, and evaluate outputs before human product and engineering review.
 
 ## What this is
 
-A Cursor-first harness for turning product issues into implementation plans, validation reports, and review-ready pull requests. v0.1 is intentionally a **manual loop**: docs, templates, and eval contracts—not automation.
+A Cursor-first harness for turning product issues into implementation plans, validation reports, and review-ready pull requests. M1–M7 SDK runners handle planning through merge; **M8 adds automatic cloud runs** when Linear status changes to an actionable trigger status.
 
-The architecture is modular so the harness can evolve beyond Cursor later. v0.1 is explicitly designed around a current workflow: **Cursor + GitHub + Linear-style issues + Vercel previews + human review**.
+The architecture is modular: **Cursor + GitHub + Linear + Vercel previews + human review**, with a Vercel webhook bridge and GitHub Actions auto-runner.
 
 ## Why it exists
 
@@ -18,45 +18,44 @@ AI-assisted development makes it easy to generate code quickly. It does not, by 
 - AI execution happens in a bounded, reviewable context
 - Outputs are evaluated against explicit criteria before humans sign off
 
-The goal is to prove one reliable loop manually before wiring automation, cloud agents, or reusable skills.
+## Current capability
 
-## v0.1 constraint
-
-v0.1 is **Cursor-specific** but **modular by design**:
-
-| Layer | v0.1 status |
-|-------|-------------|
+| Layer | Status |
+|-------|--------|
 | Issue intake | Skill + validate-issue CLI |
-| Implementation planning | Manual (templates) |
-| Execution | Cursor (local agent) |
-| Validation / evals | Manual rubrics |
-| Readiness reporting | Manual (templates) |
-| Human approval | Required at every merge |
-| Linear integration | Planned |
-| GitHub PR workflow | Planned |
-| Vercel preview review | Planned |
-| Cloud agents | Planned |
-| Reusable skills | Deferred |
+| Planning / implementation / handoff / revision / merge | SDK runners (M1–M6) |
+| **Auto-run from Linear status** | **Webhook bridge + GitHub Actions (M8)** |
+| Human approval | Required at merge |
+| Reusable skills beyond issue intake | Deferred |
 
-## Workflow (designed, not automated)
+## Auto-run flow (M8)
+
+```text
+Linear status → Ready for Planning / Ready for Build / PR Open / Needs Revision / Ready to Merge
+  → Vercel webhook → GitHub Actions → harness run --phase auto
+```
+
+Setup: [`docs/linear-watcher-setup.md`](docs/linear-watcher-setup.md)
+
+## Workflow
 
 ```text
 Structured issue → Implementation plan → Cursor execution
   → Eval scorecard → PR readiness report → Human review → PR / preview
 ```
 
-Each step has a template in [`templates/`](templates/). v0.1 expects a human PM to drive the loop and an AI agent in Cursor to execute scoped implementation work.
+Each step has a template in [`templates/`](templates/). Status changes on allowlisted Linear statuses trigger harness phases automatically; human gates remain at review and merge.
 
 ## What exists today
 
-- [`README.md`](README.md), [`ROADMAP.md`](ROADMAP.md), [`ARCHITECTURE.md`](ARCHITECTURE.md), [`AGENTS.md`](AGENTS.md)
-- Architecture decision record: [`docs/decisions/0001-cursor-first-v0.1.md`](docs/decisions/0001-cursor-first-v0.1.md)
-- Issue, plan, readiness, and eval templates in [`templates/`](templates/)
-- Placeholder directories for [`evals/`](evals/), [`skills/`](skills/), and [`examples/`](examples/)
+- SDK harness runners M1–M7 — see [`ROADMAP.md`](ROADMAP.md)
+- **M8:** [`api/linear-webhook.ts`](api/linear-webhook.ts), [`.github/workflows/harness-auto-runner.yml`](.github/workflows/harness-auto-runner.yml)
+- Issue intake skill — [`skills/issue-intake/`](skills/issue-intake/)
+- Templates, evals, examples, architecture docs
 
 ## What is planned
 
-See [`ROADMAP.md`](ROADMAP.md) for phased delivery from manual Cursor loop (v0.1) through eval contracts, Linear control plane, PR/preview workflow, cloud agent experiments, and v1.0 reusable sprint harness.
+See [`ROADMAP.md`](ROADMAP.md) for deferred work: lead agent, additional skills, release automation.
 
 ## First target repo
 
@@ -64,11 +63,10 @@ The first real-world target for this harness is [`weston-uribe/weston-uribe-port
 
 ## What this repo does not claim
 
-- Production-ready automation already exists
-- Cloud agents are wired and running
-- Linear integration is implemented
-- Reusable Cursor skills beyond issue intake
-- The system can autonomously ship software without human review
+- Autonomous shipping without human review
+- Lead agent or planner/implementer skills
+- Production release tags
+- Polling-based Linear watcher
 
 Issue intake is implemented via [`skills/issue-intake/`](skills/issue-intake/). Additional skills remain deferred.
 
@@ -76,9 +74,10 @@ Issue intake is implemented via [`skills/issue-intake/`](skills/issue-intake/). 
 
 1. Read [`ARCHITECTURE.md`](ARCHITECTURE.md) for the modular component model
 2. Read [`AGENTS.md`](AGENTS.md) if you are an AI agent working in this repo
-3. Use [`skills/issue-intake/SKILL.md`](skills/issue-intake/SKILL.md) or [`templates/linear-issue.md`](templates/linear-issue.md) to draft a product issue
-4. Validate before Linear paste: `npm run harness:validate-issue -- --file draft.md --intended-phase planning`
-5. Run the harness against a Linear issue: `npm run harness:run -- --issue WES-XX --dry-run`
+3. Use [`skills/issue-intake/SKILL.md`](skills/issue-intake/SKILL.md) to draft a product issue
+4. Validate: `npm run harness:validate-issue -- --file draft.md --intended-phase planning`
+5. Dry-run: `npm run harness:run -- --issue WES-XX --dry-run`
+6. **Auto-run setup:** [`docs/linear-watcher-setup.md`](docs/linear-watcher-setup.md)
 
 ## License
 

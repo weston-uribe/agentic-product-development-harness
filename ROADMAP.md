@@ -2,11 +2,32 @@
 
 Phased delivery for the agentic product development harness. Each phase adds capability only after the previous loop is proven manually.
 
-**Current phase: Issue intake (Milestone 7)**
+**Current phase: Linear watcher / auto-runner (Milestone 8)**
 
 ---
 
-## Issue intake (current)
+## Linear watcher (current)
+
+**Goal:** Event-driven harness runs when Linear issue status changes to an actionable trigger — no manual `npm run harness:run` from Cursor/CLI.
+
+**Delivered:**
+- Vercel webhook bridge — [`api/linear-webhook.ts`](api/linear-webhook.ts)
+- GitHub Actions auto-runner — [`.github/workflows/harness-auto-runner.yml`](.github/workflows/harness-auto-runner.yml)
+- Dispatch allowlist filter — only Ready for Planning, Ready for Build, PR Open, Needs Revision, Ready to Merge trigger GHA
+- `workflow_dispatch` fallback for manual cloud runs
+- Operator guide — [`docs/linear-watcher-setup.md`](docs/linear-watcher-setup.md)
+
+See [`docs/milestones/m8-linear-watcher.md`](docs/milestones/m8-linear-watcher.md).
+
+**Not included yet:**
+- Polling Linear
+- Database-backed queue
+- Lead agent / autonomous repair
+- Production release tags
+
+---
+
+## Issue intake (completed)
 
 **Goal:** Reliable intake that turns a fuzzy product idea into a harness-compatible Linear issue before planning or implementation runs.
 
@@ -43,7 +64,6 @@ See [`docs/milestones/m7-issue-intake.md`](docs/milestones/m7-issue-intake.md).
 **Not included yet:**
 - Engineering Review transition
 - Release tags
-- Watcher/poller
 
 ---
 
@@ -64,7 +84,6 @@ See [`docs/milestones/m7-issue-intake.md`](docs/milestones/m7-issue-intake.md).
 **Not included (deferred to M6+):**
 - Engineering Review transition
 - Merge/deploy automation (delivered in M6)
-- Skills or watcher/poller
 
 ---
 

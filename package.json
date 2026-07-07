@@ -3,10 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Repo-agnostic Cursor SDK orchestration harness (Milestone 7: issue intake)",
+  "description": "Repo-agnostic Cursor SDK orchestration harness (Milestone 8: Linear watcher)",
   "scripts": {
     "build": "tsc",
     "test": "vitest run",
+    "test:webhook": "vitest run tests/webhook",
     "harness:doctor": "tsx src/index.ts doctor",
     "harness:run": "tsx src/index.ts run",
     "harness:inspect": "tsx src/index.ts inspect",
