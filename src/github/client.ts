@@ -62,6 +62,22 @@ export interface GitHubCombinedStatus {
   statuses: GitHubCommitStatus[];
 }
 
+export interface GitHubPullRequestListItem {
+  number: number;
+  html_url: string;
+  state: string;
+  created_at: string;
+  head: { ref: string; sha: string };
+  base: { ref: string };
+}
+
+export interface GitHubCompareResult {
+  status: "identical" | "ahead" | "behind" | "diverged";
+  ahead_by: number;
+  behind_by: number;
+  commits: Array<{ sha: string; commit: { message: string } }>;
+}
+
 export interface GitHubGitRef {
   ref: string;
   object: { sha: string; type: string; url: string };
@@ -246,6 +262,39 @@ export class GitHubClient {
           ...(options.commitTitle ? { commit_title: options.commitTitle } : {}),
         },
       },
+    );
+  }
+
+  async listPullRequests(
+    owner: string,
+    repo: string,
+    options: {
+      state?: "open" | "closed" | "all";
+      base?: string;
+      sort?: "created" | "updated";
+      direction?: "asc" | "desc";
+    } = {},
+  ): Promise<GitHubPullRequestListItem[]> {
+    const params = new URLSearchParams();
+    params.set("state", options.state ?? "open");
+    if (options.base) {
+      params.set("base", options.base);
+    }
+    params.set("sort", options.sort ?? "created");
+    params.set("direction", options.direction ?? "desc");
+    return this.request<GitHubPullRequestListItem[]>(
+      `/repos/${owner}/${repo}/pulls?${params.toString()}`,
+    );
+  }
+
+  async compareCommits(
+    owner: string,
+    repo: string,
+    base: string,
+    head: string,
+  ): Promise<GitHubCompareResult> {
+    return this.request<GitHubCompareResult>(
+      `/repos/${owner}/${repo}/compare/${base}...${head}`,
     );
   }
 }

@@ -3,6 +3,7 @@ import { runDoctor } from "./commands/doctor.js";
 import { runInspect } from "./commands/inspect.js";
 import { runRunCommand } from "./commands/run.js";
 import { runValidateIssue } from "./commands/validate-issue.js";
+import { runSyncProductionCommand } from "./commands/sync-production.js";
 
 export function createProgram(): Command {
   const program = new Command();
@@ -78,6 +79,27 @@ export function createProgram(): Command {
         filePath: opts.file,
         issueKey: opts.issue,
         intendedPhase: opts.intendedPhase,
+        json: opts.json,
+      });
+      process.exitCode = exitCode;
+    });
+
+  program
+    .command("sync-production")
+    .description("Sync Linear issues from Merged to Dev to Merged / Deployed when promoted")
+    .option("--repo <id>", "Repo config id, e.g. portfolio")
+    .option("--issue <key>", "Single Linear issue key, e.g. WES-11")
+    .option("--dry-run", "Inspect without Linear writes", false)
+    .option("--force", "Re-run even when markers exist", false)
+    .option("--json", "Print sync summary JSON to stdout", false)
+    .action(async (opts) => {
+      const configPath = program.opts<{ config: string }>().config;
+      const exitCode = await runSyncProductionCommand({
+        configPath,
+        repo: opts.repo,
+        issue: opts.issue,
+        dryRun: opts.dryRun,
+        force: opts.force,
         json: opts.json,
       });
       process.exitCode = exitCode;

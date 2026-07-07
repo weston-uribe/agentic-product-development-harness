@@ -33,7 +33,7 @@ describe("linear comments", () => {
     );
   });
 
-  it("wraps planning body with header and footer", () => {
+  it("wraps planning body with harness comment format and footer", () => {
     const body = formatPlanningComment("Step 1: inspect repo", {
       orchestratorMarker: "harness-orchestrator-v1",
       phase: "planning",
@@ -43,9 +43,12 @@ describe("linear comments", () => {
       targetRepo: "https://github.com/example/repo",
     });
 
-    expect(body).toContain("🤖 Harness update");
+    expect(body).toContain("# Comment from harness");
+    expect(body).toContain("**Phase:** Planning complete");
+    expect(body).toContain("## For the PM");
     expect(body).toContain("Step 1: inspect repo");
     expect(body).toContain("phase: planning");
+    expect(body).not.toContain("🤖 Harness update");
   });
 
   it("detects planning completion marker in comment body", () => {
@@ -92,7 +95,8 @@ describe("linear comments", () => {
       },
     );
 
-    expect(body).toContain("🤖 Harness update — Building");
+    expect(body).toContain("# Comment from harness");
+    expect(body).toContain("**Phase:** Building");
     expect(body).toContain("Issue: WES-18");
     expect(body).toContain("phase: implementation_start");
     expect(body).toContain(

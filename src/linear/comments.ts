@@ -11,11 +11,11 @@ import { parseHarnessMarkers } from "./markers.js";
 import {
   buildHarnessComment,
   formatBulletList,
+  formatLinksAsMarkdown,
   type HarnessCommentLink,
 } from "./comment-card.js";
 import {
-  formatHarnessErrorHeader,
-  formatHarnessUpdateHeader,
+  formatHarnessErrorPhaseLabel,
   getCompletionLabel,
   getPhaseStartLabel,
   type HarnessErrorPhase,
@@ -36,14 +36,9 @@ export interface HarnessCommentFooterInput {
   baseBranch?: string;
 }
 
-export interface ImplementationCommentFooterInput
-  extends HarnessCommentFooterInput {
+export interface HandoffCommentFooterInput extends HarnessCommentFooterInput {
   branch?: string;
   prUrl?: string;
-  previewUrl?: string;
-}
-
-export interface HandoffCommentFooterInput extends ImplementationCommentFooterInput {
   previewUrl?: string;
   previousImplementationRunId?: string;
 }
@@ -58,6 +53,16 @@ export interface MergeCommentFooterInput extends RevisionCommentFooterInput {
   mergeCommitSha?: string;
   deploymentUrl?: string;
   githubActionsRunUrl?: string;
+  issueKey?: string;
+  prNumber?: string;
+  productionBranch?: string;
+  integrationSuccessStatus?: string;
+}
+
+export interface ProductionSyncCommentFooterInput extends MergeCommentFooterInput {
+  productionHeadSha?: string;
+  previousMergeRunId?: string;
+  promotionProofMethod?: string;
 }
 
 export interface PhaseStartCommentFooterInput extends HarnessCommentFooterInput {
@@ -80,7 +85,7 @@ export function isHarnessOrchestratorComment(
 }
 
 export function formatHarnessCommentFooter(
-  input: MergeCommentFooterInput,
+  input: ProductionSyncCommentFooterInput,
 ): string {
   const lines = [
     "---",
@@ -99,14 +104,26 @@ export function formatHarnessCommentFooter(
     `prompt_version: ${input.promptVersion}`,
     `target_repo: ${input.targetRepo}`,
   );
+  if (input.issueKey) {
+    lines.push(`issue_key: ${input.issueKey}`);
+  }
   if (input.baseBranch) {
     lines.push(`base_branch: ${input.baseBranch}`);
+  }
+  if (input.productionBranch) {
+    lines.push(`production_branch: ${input.productionBranch}`);
+  }
+  if (input.integrationSuccessStatus) {
+    lines.push(`integration_success_status: ${input.integrationSuccessStatus}`);
   }
   if (input.branch) {
     lines.push(`branch: ${input.branch}`);
   }
   if (input.prUrl) {
     lines.push(`pr_url: ${input.prUrl}`);
+  }
+  if (input.prNumber) {
+    lines.push(`pr_number: ${input.prNumber}`);
   }
   if (input.previewUrl) {
     lines.push(`preview_url: ${input.previewUrl}`);
@@ -125,8 +142,17 @@ export function formatHarnessCommentFooter(
   if (input.previousRevisionRunId) {
     lines.push(`previous_revision_run_id: ${input.previousRevisionRunId}`);
   }
+  if (input.previousMergeRunId) {
+    lines.push(`previous_merge_run_id: ${input.previousMergeRunId}`);
+  }
   if (input.mergeCommitSha) {
     lines.push(`merge_commit_sha: ${input.mergeCommitSha}`);
+  }
+  if (input.productionHeadSha) {
+    lines.push(`production_head_sha: ${input.productionHeadSha}`);
+  }
+  if (input.promotionProofMethod) {
+    lines.push(`promotion_proof_method: ${input.promotionProofMethod}`);
   }
   if (input.deploymentUrl) {
     lines.push(`deployment_url: ${input.deploymentUrl}`);
@@ -176,18 +202,19 @@ export function formatPlanningComment(
 ): string {
   const summary = summarizeAgentText(planBody);
   return buildHarnessComment({
-    header: formatHarnessUpdateHeader(getCompletionLabel("planning")),
-    statusLine: "Planning has finished.",
+    phaseLabel: getCompletionLabel("planning"),
     pmSection: [
+      "Planning has finished.",
+      "",
       summary || "_No plan summary reported._",
       "",
-      "Next step: review the plan, then move the issue to **Ready for Build** when you want implementation to start.",
+      "Review the plan, then move the issue to **Ready for Build** when you want implementation to start.",
     ],
     engineerSection: [
       ...formatBulletList([
         `Target repo: ${footer.targetRepo}`,
-        `Harness run ID: ${footer.runId}`,
         footer.baseBranch ? `Base branch: \`${footer.baseBranch}\`` : "",
+        `Harness run ID: ${footer.runId}`,
       ]).filter(Boolean),
       "",
       "### Full plan",
@@ -206,73 +233,6 @@ export function hasPlanningCompletionMarker(
     markers.orchestratorMarker === orchestratorMarker &&
     markers.phase === "planning" &&
     Boolean(markers.runId)
-  );
-}
-
-export interface ImplementationCommentBodyInput {
-  summary: string;
-  branch: string;
-  prUrl: string;
-  previewUrl?: string | null;
-  baseBranch?: string;
-}
-
-export function buildImplementationCommentBody(
-  input: ImplementationCommentBodyInput,
-): string {
-  const links: HarnessCommentLink[] = [
-    { label: "Pull request", url: input.prUrl },
-  ];
-  if (input.previewUrl) {
-    links.unshift({ label: "Preview deployment", url: input.previewUrl });
-  }
-
-  return buildHarnessComment({
-    header: formatHarnessUpdateHeader(getCompletionLabel("implementation")),
-    statusLine: "Build finished and the pull request is open.",
-    links,
-    pmSection: [
-      summarizeAgentText(input.summary) || "_See the pull request for details._",
-      "",
-      `Branch: \`${input.branch}\``,
-      "",
-      "Next step: wait for PM handoff, then review the preview against acceptance criteria.",
-    ],
-    engineerSection: formatBulletList([
-      `Branch: \`${input.branch}\``,
-      `PR: ${formatPullRequestLink(input.prUrl)}`,
-      input.baseBranch ? `Base branch: \`${input.baseBranch}\`` : "",
-    ]).filter(Boolean),
-    footer: "",
-  }).replace(/\n\n$/, "");
-}
-
-export function formatImplementationComment(
-  summaryBody: string,
-  footer: ImplementationCommentFooterInput,
-): string {
-  const body = summaryBody.includes("🤖 Harness update")
-    ? summaryBody.trim()
-    : buildImplementationCommentBody({
-        summary: summaryBody,
-        branch: footer.branch ?? "unknown",
-        prUrl: footer.prUrl ?? "unknown",
-        previewUrl: footer.previewUrl,
-        baseBranch: footer.baseBranch,
-      });
-  return `${body}\n\n${formatHarnessCommentFooter(footer)}`;
-}
-
-export function hasImplementationCompletionMarker(
-  commentBody: string,
-  orchestratorMarker: string,
-): boolean {
-  const markers = parseHarnessMarkers(commentBody);
-  return (
-    markers.orchestratorMarker === orchestratorMarker &&
-    markers.phase === "implementation" &&
-    Boolean(markers.runId) &&
-    Boolean(markers.prUrl)
   );
 }
 
@@ -343,6 +303,7 @@ export interface HandoffCommentBodyInput {
   checkSummary: string;
   harnessRunId: string;
   previousImplementationRunId: string | null;
+  changeSummary?: string;
 }
 
 export function buildHandoffCommentBody(input: HandoffCommentBodyInput): string {
@@ -351,18 +312,24 @@ export function buildHandoffCommentBody(input: HandoffCommentBodyInput): string 
     links.unshift({ label: "Preview deployment", url: input.previewUrl });
   }
 
+  const pmSection = [
+    "The build is ready for your review.",
+    "",
+    ...formatLinksAsMarkdown(links),
+    "",
+    input.changeSummary
+      ? input.changeSummary
+      : "Review the preview and PR against the acceptance criteria in this issue.",
+    "",
+    "Move the issue to **Needs Revision** with feedback, or to **Ready to Merge** when you accept the change.",
+  ];
+  if (input.previewWarning) {
+    pmSection.push("", input.previewWarning);
+  }
+
   return buildHarnessComment({
-    header: formatHarnessUpdateHeader(getCompletionLabel("handoff")),
-    statusLine: "PM handoff is ready for review.",
-    links,
-    pmSection: [
-      "Please review the preview against the acceptance criteria in this issue.",
-      "",
-      "Next actions:",
-      "- Comment with requested changes and move the issue to **Needs Revision**, or",
-      "- Move the issue to **Ready to Merge** when you accept the change.",
-    ],
-    warningSection: input.previewWarning ? [input.previewWarning] : undefined,
+    phaseLabel: getCompletionLabel("handoff"),
+    pmSection,
     engineerSection: [
       ...formatBulletList([
         `Target repo: ${input.targetRepo}`,
@@ -413,16 +380,20 @@ export function buildRevisionCommentBody(input: RevisionCommentBodyInput): strin
     links.unshift({ label: "Preview deployment", url: input.previewUrl });
   }
 
+  const pmSection = [
+    "Revision finished and the pull request was updated.",
+    "",
+    ...formatLinksAsMarkdown(links),
+    "",
+    summarizeAgentText(input.summary) || "Review the updated preview and PR diff.",
+  ];
+  if (input.previewWarning) {
+    pmSection.push("", input.previewWarning);
+  }
+
   return buildHarnessComment({
-    header: formatHarnessUpdateHeader(getCompletionLabel("revision")),
-    statusLine: "Revision finished and the pull request was updated.",
-    links,
-    pmSection: [
-      summarizeAgentText(input.summary) || "_See the pull request for details._",
-      "",
-      "Next step: review the updated preview and PR diff again.",
-    ],
-    warningSection: input.previewWarning ? [input.previewWarning] : undefined,
+    phaseLabel: getCompletionLabel("revision"),
+    pmSection,
     engineerSection: [
       ...formatBulletList([
         `Target repo: ${input.targetRepo}`,
@@ -468,6 +439,18 @@ export function hasMergeCompletionMarker(
   );
 }
 
+export function hasProductionSyncMarker(
+  commentBody: string,
+  orchestratorMarker: string,
+): boolean {
+  const markers = parseHarnessMarkers(commentBody);
+  return (
+    markers.orchestratorMarker === orchestratorMarker &&
+    markers.phase === "production_sync" &&
+    Boolean(markers.runId)
+  );
+}
+
 export function findMergeMarkerForPrUrl(
   comments: { body: string }[],
   orchestratorMarker: string,
@@ -481,6 +464,52 @@ export function findMergeMarkerForPrUrl(
       markers.phase === "merge" &&
       Boolean(markers.runId) &&
       markers.prUrl?.trim().toLowerCase() === normalized
+    );
+  });
+}
+
+export function findLatestMergeMarker(
+  comments: { body: string; createdAt?: string }[],
+  orchestratorMarker: string,
+): { body: string; markers: ReturnType<typeof parseHarnessMarkers> } | null {
+  const mergeComments = comments
+    .map((comment) => ({
+      comment,
+      markers: parseHarnessMarkers(comment.body),
+    }))
+    .filter(
+      ({ markers }) =>
+        markers.orchestratorMarker === orchestratorMarker &&
+        markers.phase === "merge" &&
+        Boolean(markers.runId),
+    );
+
+  mergeComments.sort((a, b) => {
+    const aTime = a.comment.createdAt ? Date.parse(a.comment.createdAt) : 0;
+    const bTime = b.comment.createdAt ? Date.parse(b.comment.createdAt) : 0;
+    return bTime - aTime;
+  });
+
+  const latest = mergeComments[0];
+  if (!latest) {
+    return null;
+  }
+  return { body: latest.comment.body, markers: latest.markers };
+}
+
+export function findProductionSyncMarkerForMergeCommit(
+  comments: { body: string }[],
+  orchestratorMarker: string,
+  mergeCommitSha: string,
+): boolean {
+  const normalized = mergeCommitSha.trim().toLowerCase();
+  return comments.some((comment) => {
+    const markers = parseHarnessMarkers(comment.body);
+    return (
+      markers.orchestratorMarker === orchestratorMarker &&
+      markers.phase === "production_sync" &&
+      Boolean(markers.runId) &&
+      markers.mergeCommitSha?.trim().toLowerCase() === normalized
     );
   });
 }
@@ -522,20 +551,16 @@ export function buildMergeCompletionCommentBody(
       url: input.previewLinks.productionUrl,
     });
   }
-  if (input.mergeCommitSha) {
-    links.push({
-      label: "Merge commit",
-      url: `${input.targetRepo.replace(/\/$/, "")}/commit/${input.mergeCommitSha}`,
-    });
-  }
 
   const pmSection = [
-    `Merged into \`${input.baseBranch}\` using **${input.mergeMethod}**.`,
-    `Final Linear status: **${input.finalIssueStatus}**.`,
+    input.previewLinks.notYetInProduction
+      ? `This change reached **${input.baseBranch}** (dev) and is **not yet in production**.`
+      : `This change reached **${input.baseBranch}**.`,
+    "",
+    ...formatLinksAsMarkdown(links),
+    "",
+    `Linear status: **${input.finalIssueStatus}**.`,
   ];
-  if (input.previewLinks.notYetInProduction) {
-    pmSection.push("This change is integrated but **not yet in production**.");
-  }
 
   const deploymentLines: string[] = [];
   if (input.previewLinks.integrationPreviewUrl) {
@@ -554,9 +579,7 @@ export function buildMergeCompletionCommentBody(
   }
 
   return buildHarnessComment({
-    header: formatHarnessUpdateHeader(getCompletionLabel("merge")),
-    statusLine: `Merge finished into \`${input.baseBranch}\`.`,
-    links,
+    phaseLabel: getCompletionLabel("merge"),
     pmSection,
     engineerSection: [
       ...formatBulletList([
@@ -564,6 +587,7 @@ export function buildMergeCompletionCommentBody(
         `Branch: \`${input.branch}\``,
         `Base branch: \`${input.baseBranch}\``,
         `Production branch: \`${input.productionBranch}\``,
+        `Merge method: ${input.mergeMethod}`,
         input.mergeCommitSha
           ? `Merge commit: ${formatCommitLink(input.targetRepo, input.mergeCommitSha)}`
           : "",
@@ -590,9 +614,67 @@ export function buildMergeCompletionCommentBody(
   }).replace(/\n\n$/, "");
 }
 
+export interface ProductionPromotionCommentBodyInput {
+  prUrl: string;
+  branch: string;
+  targetRepo: string;
+  baseBranch: string;
+  productionBranch: string;
+  mergeCommitSha: string;
+  productionHeadSha: string;
+  productionUrl: string | null;
+  harnessRunId: string;
+  previousMergeRunId: string | null;
+  promotionProofMethod: string;
+}
+
+export function buildProductionPromotionCommentBody(
+  input: ProductionPromotionCommentBodyInput,
+): string {
+  const links: HarnessCommentLink[] = [];
+  if (input.productionUrl) {
+    links.push({ label: "Production", url: input.productionUrl });
+  }
+  links.push({ label: "Pull request", url: input.prUrl });
+
+  return buildHarnessComment({
+    phaseLabel: getCompletionLabel("production_sync"),
+    pmSection: [
+      "This issue reached **production**.",
+      "",
+      ...formatLinksAsMarkdown(links),
+      "",
+      input.productionUrl
+        ? `Live site: ${formatMarkdownLink("Production", input.productionUrl)}`
+        : "_Production URL not captured — check your deployment provider._",
+    ],
+    engineerSection: formatBulletList([
+      `Target repo: ${input.targetRepo}`,
+      `Dev branch: \`${input.baseBranch}\``,
+      `Production branch: \`${input.productionBranch}\``,
+      `PR: ${formatPullRequestLink(input.prUrl)}`,
+      `Merge commit: ${formatCommitLink(input.targetRepo, input.mergeCommitSha)}`,
+      `Production commit: ${formatCommitLink(input.targetRepo, input.productionHeadSha)}`,
+      `Promotion proof: ${input.promotionProofMethod}`,
+      `Harness run ID: ${input.harnessRunId}`,
+      input.previousMergeRunId
+        ? `Previous merge run ID: ${input.previousMergeRunId}`
+        : "",
+    ]).filter(Boolean),
+    footer: "",
+  }).replace(/\n\n$/, "");
+}
+
 export function formatMergeComment(
   body: string,
   footer: MergeCommentFooterInput,
+): string {
+  return `${body.trim()}\n\n${formatHarnessCommentFooter(footer)}`;
+}
+
+export function formatProductionSyncComment(
+  body: string,
+  footer: ProductionSyncCommentFooterInput,
 ): string {
   return `${body.trim()}\n\n${formatHarnessCommentFooter(footer)}`;
 }
@@ -606,6 +688,7 @@ export interface PhaseStartCommentBodyInput {
   githubActionsRunUrl?: string | null;
   cursorAgentId?: string;
   cursorRunId?: string;
+  harnessRunId?: string;
 }
 
 export function buildPhaseStartCommentBody(
@@ -630,19 +713,23 @@ export function buildPhaseStartCommentBody(
     links.push({ label: "Pull request", url: input.prUrl });
   }
 
+  const pmSection = [statusByPhase[phase], ""];
+  if (links.length > 0) {
+    pmSection.push(...formatLinksAsMarkdown(links), "");
+  }
+  if (input.branch) {
+    pmSection.push(`Working branch: \`${input.branch}\``);
+  }
+
   return buildHarnessComment({
-    header: formatHarnessUpdateHeader(label),
-    statusLine: statusByPhase[phase],
-    links,
-    pmSection: [
-      input.branch ? `Working branch: \`${input.branch}\`` : "",
-      "Watch the links above for live progress.",
-    ].filter(Boolean),
+    phaseLabel: label,
+    pmSection: pmSection.filter(Boolean),
     engineerSection: formatBulletList([
       `Issue: ${input.issueKey}`,
       `Target repo: ${input.targetRepo}`,
       input.baseBranch ? `Base branch: \`${input.baseBranch}\`` : "",
       input.branch ? `Branch: \`${input.branch}\`` : "",
+      input.harnessRunId ? `Harness run ID: ${input.harnessRunId}` : "",
       input.cursorAgentId ? `Cursor agent ID: ${input.cursorAgentId}` : "",
       input.cursorRunId ? `Cursor run ID: ${input.cursorRunId}` : "",
     ]).filter(Boolean),
@@ -655,7 +742,10 @@ export function formatPhaseStartComment(
   bodyInput: PhaseStartCommentBodyInput,
   footer: Omit<PhaseStartCommentFooterInput, "phase">,
 ): string {
-  const body = buildPhaseStartCommentBody(phase, bodyInput);
+  const body = buildPhaseStartCommentBody(phase, {
+    ...bodyInput,
+    harnessRunId: footer.runId,
+  });
   return `${body}\n\n${formatHarnessCommentFooter({ ...footer, phase })}`;
 }
 
@@ -672,15 +762,19 @@ export function buildErrorCommentBody(
     harnessRunId?: string;
   },
 ): string {
+  const links = buildGithubActionsLink(input.githubActionsRunUrl);
+  const pmSection = [message.trim()];
+  if (links.length > 0) {
+    pmSection.push("", ...formatLinksAsMarkdown(links));
+  }
+  pmSection.push(
+    "",
+    "Check whether action is needed on your side, then retry or update the issue status.",
+  );
+
   return buildHarnessComment({
-    header: formatHarnessErrorHeader(phase),
-    statusLine: "The harness hit an error during this phase.",
-    links: buildGithubActionsLink(input.githubActionsRunUrl),
-    pmSection: [
-      message.trim(),
-      "",
-      "If the GitHub Actions run link is available, open it for the full log.",
-    ],
+    phaseLabel: formatHarnessErrorPhaseLabel(phase),
+    pmSection,
     engineerSection: formatBulletList([
       input.errorClassification
         ? `Error classification: ${input.errorClassification}`
@@ -728,4 +822,9 @@ export async function writeCommentsArtifact(
   await mkdir(path.dirname(filePath), { recursive: true });
   const content = comments.map((c, i) => `## Comment ${i + 1}\n\n${c}`).join("\n\n");
   await writeFile(filePath, `${content}\n`, "utf8");
+}
+
+export function parsePrNumberFromUrl(prUrl: string): string | null {
+  const match = prUrl.match(/\/pull\/(\d+)/);
+  return match?.[1] ?? null;
 }

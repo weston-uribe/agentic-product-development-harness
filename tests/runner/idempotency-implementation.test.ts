@@ -37,16 +37,11 @@ const issue: LinearIssueSnapshot = {
 };
 
 describe("implementation idempotency", () => {
-  it("skips when an implementation marker has a PR URL", () => {
-    const result = checkImplementationIdempotency(
+  it("skips when issue is already PR Open", async () => {
+    const result = await checkImplementationIdempotency(
       config,
-      issue,
-      [
-        {
-          id: "c1",
-          body: `---\nharness-orchestrator-v1\nphase: implementation\nrun_id: run-1\npr_url: https://github.com/o/r/pull/1\n---`,
-        },
-      ],
+      { ...issue, status: "PR Open" },
+      [],
       false,
     );
 
@@ -54,16 +49,11 @@ describe("implementation idempotency", () => {
     expect(result.reason).toContain("duplicate_phase_completed");
   });
 
-  it("bypasses duplicate checks with force", () => {
-    const result = checkImplementationIdempotency(
+  it("bypasses duplicate checks with force", async () => {
+    const result = await checkImplementationIdempotency(
       config,
-      issue,
-      [
-        {
-          id: "c1",
-          body: `---\nharness-orchestrator-v1\nphase: implementation\nrun_id: run-1\npr_url: https://github.com/o/r/pull/1\n---`,
-        },
-      ],
+      { ...issue, status: "PR Open" },
+      [],
       true,
     );
 

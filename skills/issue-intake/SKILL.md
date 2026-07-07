@@ -93,26 +93,18 @@ See [`src/validate/constants.ts`](../../src/validate/constants.ts) for canonical
 Produce this artifact when intake is complete:
 
 ```markdown
-## Linear issue package
+# Proposed Linear issue
 
 **Title:** ...
-**Linear project:** ...
 **Recommended status:** Backlog | Ready for Planning | Ready for Build
-**Optional labels:** ... (or "none")
-**Target repo:** owner/repo (derived or override)
+**Recommended labels:** ... (existing labels only)
 
-### Readiness assessment
-- Valid for planning: yes/no — reason
-- Valid for direct implementation: yes/no — reason
+## Linear description
 
-### Blocking questions
-- ... (or "none")
-
-### Linear description (copy-paste)
 <paste-ready markdown matching description contract>
 ```
 
-Apply the readiness assessment algorithm from [`prompts/issue-intake-chatgpt.md`](../../prompts/issue-intake-chatgpt.md).
+Apply the readiness assessment algorithm from [`prompts/issue-intake-chatgpt.md`](../../prompts/issue-intake-chatgpt.md) internally — do not include it in the final package.
 
 ## Description contract
 
@@ -132,8 +124,8 @@ Authoritative copy: [`prompts/issue-intake-chatgpt.md`](../../prompts/issue-inta
 PMs copy the canonical prompt into a normal ChatGPT thread:
 
 1. Open [`prompts/issue-intake-chatgpt.md`](../../prompts/issue-intake-chatgpt.md) and copy the entire file into ChatGPT
-2. Answer the upfront intake form; review the issue package
-3. Approve creation; ChatGPT creates via Linear access if available, otherwise copy-paste into Linear
+2. Answer the upfront intake form; review the proposed Linear issue
+3. Approve creation; ChatGPT creates via Linear access if available, otherwise create manually in Linear with the recommended status and labels
 4. Operator optionally validates live issues with CLI (below)
 
 Deferred Custom GPT setup: [`gpt/issue-intake/setup-guide.md`](../../gpt/issue-intake/setup-guide.md)

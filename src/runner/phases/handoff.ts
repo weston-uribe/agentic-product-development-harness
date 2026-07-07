@@ -23,8 +23,7 @@ import {
   writeCommentsArtifact,
 } from "../../linear/comments.js";
 import { fetchLinearIssue } from "../../linear/client.js";
-import { findLatestImplementationComment } from "../../linear/implementation-comment.js";
-import { parseHarnessMarkers } from "../../linear/markers.js";
+import { findImplementationPullRequest } from "../../github/pr-discovery.js";
 import {
   createLinearClient,
   listIssueComments,
@@ -122,6 +121,7 @@ async function writeFinalManifest(
             "wrong_status",
             "github_auth_failure",
             "missing_implementation_marker",
+            "missing_implementation_pr",
             "missing_pr_url",
             "base_branch_missing",
             "wrong_pr_base_branch",
@@ -332,41 +332,33 @@ export async function executeHandoffPhase(
       );
     }
 
-    const implementationComment = findLatestImplementationComment(
-      comments,
-      config.orchestratorMarker,
+    const discoveredPr = await findImplementationPullRequest(
+      github,
+      resolved.targetRepo,
+      resolved.baseBranch,
+      issue.identifier,
     );
-    if (!implementationComment) {
+    if (!discoveredPr) {
       throw new HandoffError(
-        "missing_implementation_marker",
-        "No durable implementation marker comment found",
+        "missing_implementation_pr",
+        "No open implementation pull request found on GitHub for this issue",
       );
     }
 
-    const markers = parseHarnessMarkers(implementationComment.body);
-    if (!markers.prUrl) {
-      throw new HandoffError(
-        "missing_pr_url",
-        "Implementation marker is missing pr_url",
-      );
-    }
-
-    prUrl = markers.prUrl;
-    branch = markers.branch ?? null;
-    previousImplementationRunId = markers.runId ?? null;
-    const markerTargetRepo = normalizeRepoUrl(
-      markers.targetRepo ?? resolved.targetRepo,
-    );
+    prUrl = discoveredPr.prUrl;
+    branch = discoveredPr.branch;
+    previousImplementationRunId = null;
 
     await mkdir(`${runDirectory}/linear`, { recursive: true });
     await writeFile(
       getImplementationCommentLoadedPath(runDirectory),
-      `${implementationComment.body}\n`,
+      `${JSON.stringify(discoveredPr, null, 2)}\n`,
       "utf8",
     );
-    await events.log("implementation_comment_loaded", "info", {
-      commentId: implementationComment.id,
-      previousImplementationRunId,
+    await events.log("github_pr_inspected", "info", {
+      prUrl: discoveredPr.prUrl,
+      branch: discoveredPr.branch,
+      source: "pr_discovery",
     });
 
     enteredHandoff = true;
@@ -375,6 +367,8 @@ export async function executeHandoffPhase(
     if (!parsedPr) {
       throw new HandoffError("missing_pr_url", `Invalid PR URL: ${prUrl}`);
     }
+
+    const markerTargetRepo = normalizeRepoUrl(resolved.targetRepo);
 
     let inspection;
     try {

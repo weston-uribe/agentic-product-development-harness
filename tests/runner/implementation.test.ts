@@ -6,7 +6,6 @@ import { ImplementationError } from "../../src/runner/errors.js";
 
 const mocks = vi.hoisted(() => ({
   transitionIssueStatus: vi.fn(),
-  postImplementationComment: vi.fn(),
   postErrorComment: vi.fn(),
   listIssueComments: vi.fn(),
   createLinearClient: vi.fn(),
@@ -17,7 +16,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../../src/linear/writer.js", () => ({
   transitionIssueStatus: mocks.transitionIssueStatus,
-  postImplementationComment: mocks.postImplementationComment,
   postErrorComment: mocks.postErrorComment,
   listIssueComments: mocks.listIssueComments,
   createLinearClient: mocks.createLinearClient,
@@ -123,7 +121,6 @@ describe("executeImplementationPhase", () => {
 
     mocks.listIssueComments.mockResolvedValue([]);
     mocks.transitionIssueStatus.mockResolvedValue(undefined);
-    mocks.postImplementationComment.mockResolvedValue("comment-1");
     mocks.postErrorComment.mockResolvedValue("error-comment-1");
     mocks.createLinearClient.mockReturnValue({});
     mocks.createImplementationCloudAgent.mockResolvedValue({
@@ -176,7 +173,7 @@ describe("executeImplementationPhase", () => {
     );
     expect(result.manifest.prUrl).toContain("/pull/12");
     expect(mocks.transitionIssueStatus).toHaveBeenCalledTimes(2);
-    expect(mocks.postImplementationComment).toHaveBeenCalledTimes(1);
+    expect(mocks.postErrorComment).not.toHaveBeenCalled();
   });
 
   it("moves to Blocked after failure once Building was entered", async () => {

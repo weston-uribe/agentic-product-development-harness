@@ -17,9 +17,9 @@ Product managers draft issues in a **normal ChatGPT thread**—no Custom GPT req
 1. Open [`prompts/issue-intake-chatgpt.md`](../prompts/issue-intake-chatgpt.md)
 2. Copy the **entire file** into a new ChatGPT conversation
 3. Answer the upfront intake form (**Linear project first**; target repo optional when project metadata includes `Harness metadata: Target repo: ...`)
-4. Review the **Linear issue package** and readiness assessment
-5. Approve creation; ChatGPT creates the issue if Linear access is available in that thread, otherwise copy-paste into Linear manually
-6. Set the **status** field on the issue per the recommendation (not in the description)
+4. Review the **proposed Linear issue** (title, status, labels, description)
+5. Approve creation; ChatGPT creates the issue if Linear access is available in that thread, otherwise create it manually in Linear
+6. Set the **status** and **labels** on the issue per the recommendation (not in the description)
 7. Operator optionally validates the live issue with CLI (below)
 
 ### Cursor skill + CLI (operator path)

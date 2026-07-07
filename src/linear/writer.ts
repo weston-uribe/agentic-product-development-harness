@@ -4,7 +4,6 @@ import { resolveWorkflowStateId } from "./states.js";
 import {
   formatHarnessCommentFooter,
   formatHandoffComment,
-  formatImplementationComment,
   formatPlanningComment,
   buildErrorCommentBody,
   type HandoffCommentFooterInput,
@@ -13,7 +12,8 @@ import {
   type MergeCommentFooterInput,
   formatMergeComment,
   type HarnessCommentFooterInput,
-  type ImplementationCommentFooterInput,
+  type ProductionSyncCommentFooterInput,
+  formatProductionSyncComment,
   type PhaseStartPhase,
   type PhaseStartCommentBodyInput,
   formatPhaseStartComment,
@@ -89,16 +89,6 @@ export async function postPlanningComment(
   return postIssueComment(client, issueId, body);
 }
 
-export async function postImplementationComment(
-  client: LinearClient,
-  issueId: string,
-  summaryBody: string,
-  footer: ImplementationCommentFooterInput,
-): Promise<string> {
-  const body = formatImplementationComment(summaryBody, footer);
-  return postIssueComment(client, issueId, body);
-}
-
 export async function postHandoffComment(
   client: LinearClient,
   issueId: string,
@@ -126,6 +116,16 @@ export async function postMergeCompletionComment(
   footer: MergeCommentFooterInput,
 ): Promise<string> {
   const body = formatMergeComment(summaryBody, footer);
+  return postIssueComment(client, issueId, body);
+}
+
+export async function postProductionSyncComment(
+  client: LinearClient,
+  issueId: string,
+  summaryBody: string,
+  footer: ProductionSyncCommentFooterInput,
+): Promise<string> {
+  const body = formatProductionSyncComment(summaryBody, footer);
   return postIssueComment(client, issueId, body);
 }
 
@@ -193,7 +193,7 @@ export async function postErrorComment(
   issueId: string,
   message: string,
   footer: MergeCommentFooterInput,
-  phase: "planning" | "implementation" | "handoff" | "revision" | "merge" = "planning",
+  phase: "planning" | "implementation" | "handoff" | "revision" | "merge" | "production_sync" = "planning",
   options?: {
     errorClassification?: string;
   },

@@ -53,8 +53,9 @@ describe("merge completion comment", () => {
       previousHandoffRunId: "handoff-run",
       previousRevisionRunId: "revision-run",
     });
-    expect(body).toContain("🤖 Harness update");
+    expect(body).toContain("# Comment from harness");
     expect(body).toContain("Production deployment URL not captured");
     expect(body).toContain("revision-run");
+    expect(body).not.toContain("🤖 Harness update");
   });
 });

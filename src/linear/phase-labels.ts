@@ -9,7 +9,8 @@ export type HarnessErrorPhase =
   | "implementation"
   | "handoff"
   | "revision"
-  | "merge";
+  | "merge"
+  | "production_sync";
 
 const PHASE_START_LABELS: Record<PhaseStartPhase, string> = {
   planning_start: "Planning",
@@ -24,6 +25,7 @@ const COMPLETION_LABELS: Record<string, string> = {
   handoff: "PM handoff",
   revision: "Revision complete",
   merge: "Merge complete",
+  production_sync: "Production promotion",
 };
 
 const ERROR_LABELS: Record<HarnessErrorPhase, string> = {
@@ -32,6 +34,7 @@ const ERROR_LABELS: Record<HarnessErrorPhase, string> = {
   handoff: "PM handoff",
   revision: "Revision",
   merge: "Merge",
+  production_sync: "Production promotion",
 };
 
 export function getPhaseStartLabel(phase: PhaseStartPhase): string {
@@ -46,10 +49,10 @@ export function getErrorLabel(phase: HarnessErrorPhase): string {
   return ERROR_LABELS[phase];
 }
 
-export function formatHarnessUpdateHeader(label: string): string {
-  return `🤖 Harness update — ${label}`;
+export function formatHarnessPhaseLabel(label: string): string {
+  return label;
 }
 
-export function formatHarnessErrorHeader(phase: HarnessErrorPhase): string {
-  return `🤖 Harness error — ${getErrorLabel(phase)}`;
+export function formatHarnessErrorPhaseLabel(phase: HarnessErrorPhase): string {
+  return `${getErrorLabel(phase)} error`;
 }

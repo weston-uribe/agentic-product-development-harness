@@ -27,6 +27,7 @@ import {
 } from "../../artifacts/paths.js";
 import {
   buildMergeCompletionCommentBody,
+  parsePrNumberFromUrl,
   writeCommentsArtifact,
 } from "../../linear/comments.js";
 import { fetchLinearIssue } from "../../linear/client.js";
@@ -863,8 +864,14 @@ export async function executeMergePhase(
 
     const mergeFooter = {
       ...footerBase,
+      issueKey: options.issueKey,
+      productionBranch: resolved.productionBranch,
+      integrationSuccessStatus:
+        resolved.integrationSuccessStatus ??
+        getTransitionalStatus(config, "mergedToDev"),
       branch: branch ?? undefined,
       prUrl: prUrl ?? undefined,
+      prNumber: prUrl ? (parsePrNumberFromUrl(prUrl) ?? undefined) : undefined,
       previewUrl: previewUrl ?? undefined,
       previousHandoffRunId: previousHandoffRunId ?? undefined,
       previousRevisionRunId: previousRevisionRunId ?? undefined,

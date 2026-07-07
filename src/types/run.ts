@@ -4,6 +4,7 @@ export type RunPhase =
   | "handoff"
   | "revision"
   | "merge"
+  | "production_sync"
   | "none";
 
 export type FinalOutcome = "success" | "failed" | "skipped" | "duplicate";
@@ -31,6 +32,9 @@ export type ErrorClassification =
   | "github_auth_failure"
   | "github_api_failure"
   | "missing_implementation_marker"
+  | "missing_implementation_pr"
+  | "missing_merge_metadata"
+  | "production_not_promoted"
   | "missing_pr_url"
   | "pr_closed"
   | "preview_not_found"

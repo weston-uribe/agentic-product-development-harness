@@ -139,9 +139,12 @@ describe("handoff comment formatting", () => {
       previousImplementationRunId: "run-impl",
     });
 
-    expect(body).toContain("🤖 Harness update — PM handoff");
+    expect(body).toContain("# Comment from harness");
+    expect(body).toContain("**Phase:** PM handoff");
     expect(body).toContain("src/app/page.tsx");
     expect(body).toContain("https://example.vercel.app");
+    expect(body).not.toContain("Next actions");
+    expect(body).not.toContain("🤖 Harness update");
   });
 });
 

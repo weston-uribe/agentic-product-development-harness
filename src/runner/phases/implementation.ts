@@ -24,7 +24,6 @@ import {
   createLinearClient,
   listIssueComments,
   postErrorComment,
-  postImplementationComment,
   postPhaseStartCommentIfNeeded,
   transitionIssueStatus,
 } from "../../linear/writer.js";
@@ -238,11 +237,21 @@ export async function executeImplementationPhase(
     }
 
     const comments = await listIssueComments(client, issue.id);
-    const idempotency = checkImplementationIdempotency(
+    const githubForIdempotency = process.env.GITHUB_TOKEN
+      ? new GitHubClient({ token: process.env.GITHUB_TOKEN })
+      : undefined;
+    const idempotency = await checkImplementationIdempotency(
       config,
       issue,
       comments,
       Boolean(options.force),
+      githubForIdempotency
+        ? {
+            github: githubForIdempotency,
+            targetRepo: resolved.targetRepo,
+            baseBranch: resolved.baseBranch,
+          }
+        : undefined,
     );
     if (idempotency.skip) {
       await events.log("idempotency_skip", "info", { reason: idempotency.reason });
@@ -324,7 +333,7 @@ export async function executeImplementationPhase(
 
     const repoConfig = config.repos.find((repo) => repo.id === resolved.repoConfigId);
     const validationCommands = repoConfig?.validation?.commands ?? [];
-    const { prompt, promptVersion } = await buildImplementationPrompt({
+    const { prompt } = await buildImplementationPrompt({
       issue,
       parsed,
       resolved,
@@ -492,26 +501,6 @@ export async function executeImplementationPhase(
     }
 
     await events.log("validation_completed", "info", { validationSummary });
-
-    const implementationCommentId = await postImplementationComment(
-      client,
-      issue.id,
-      observed.assistantText,
-      {
-        ...footerBase,
-        promptVersion,
-        cursorAgentId,
-        cursorRunId,
-        branch: branch ?? undefined,
-        prUrl: prUrl ?? undefined,
-        previewUrl: previewUrl ?? undefined,
-      },
-    );
-    commentsWritten.push(observed.assistantText);
-    await events.log("linear_comment_posted", "info", {
-      phase: "implementation",
-      commentId: implementationCommentId,
-    });
 
     const prOpenStatus = getTransitionalStatus(config, "prOpen");
     await transitionIssueStatus(client, issue, prOpenStatus);

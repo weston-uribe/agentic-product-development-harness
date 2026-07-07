@@ -5,10 +5,11 @@ import {
   findMergeMarkerForPrUrl,
   findRevisionMarkerForPmFeedback,
   hasHandoffCompletionMarker,
-  hasImplementationCompletionMarker,
   hasPlanningCompletionMarker,
+  findProductionSyncMarkerForMergeCommit,
 } from "../linear/comments.js";
-import { parseHarnessMarkers } from "../linear/markers.js";
+import type { GitHubClient } from "../github/client.js";
+import { findImplementationPullRequest } from "../github/pr-discovery.js";
 import {
   getEligibleHandoffStatuses,
   getEligibleImplementationStatuses,
@@ -93,42 +94,44 @@ export function assertPlanningEligibleStatus(
   );
 }
 
-export function checkImplementationIdempotency(
+export async function checkImplementationIdempotency(
   config: HarnessConfig,
   issue: LinearIssueSnapshot,
-  comments: LinearCommentRecord[],
+  _comments: LinearCommentRecord[],
   force: boolean,
-): IdempotencyResult {
+  options?: {
+    github?: GitHubClient;
+    targetRepo?: string;
+    baseBranch?: string;
+  },
+): Promise<IdempotencyResult> {
   if (force) {
     return { skip: false };
   }
 
-  const orchestratorMarker = config.orchestratorMarker;
   const prOpen = getTransitionalStatus(config, "prOpen");
-  const hasImplementationComment = comments.some((comment) =>
-    hasImplementationCompletionMarker(comment.body, orchestratorMarker),
-  );
-  const hasPrUrlForIssue = comments.some((comment) => {
-    const markers = parseHarnessMarkers(comment.body);
-    return (
-      markers.orchestratorMarker === orchestratorMarker &&
-      markers.phase === "implementation" &&
-      Boolean(markers.prUrl)
-    );
-  });
-
-  if (hasImplementationComment || hasPrUrlForIssue) {
-    return {
-      skip: true,
-      reason: "duplicate_phase_completed: implementation PR marker already exists",
-    };
-  }
 
   if (issue.status?.toLowerCase() === prOpen.toLowerCase()) {
     return {
       skip: true,
       reason: "duplicate_phase_completed: issue is already PR Open",
     };
+  }
+
+  if (options?.github && options.targetRepo && options.baseBranch) {
+    const discovered = await findImplementationPullRequest(
+      options.github,
+      options.targetRepo,
+      options.baseBranch,
+      issue.identifier,
+    );
+    if (discovered) {
+      return {
+        skip: true,
+        reason:
+          "duplicate_phase_completed: open implementation PR already exists on GitHub",
+      };
+    }
   }
 
   return { skip: false };
@@ -429,4 +432,47 @@ export function assertMergeEligibleStatus(
   throw new Error(
     `wrong_status: issue is "${status}"; expected one of: ${eligible.join(", ")}`,
   );
+}
+
+export function checkProductionSyncIdempotency(
+  config: HarnessConfig,
+  issue: LinearIssueSnapshot,
+  comments: LinearCommentRecord[],
+  mergeCommitSha: string | null,
+  productionSuccessStatus: string,
+  integrationSuccessStatus: string,
+): IdempotencyResult {
+  const orchestratorMarker = config.orchestratorMarker;
+  const status = issue.status?.toLowerCase() ?? "";
+
+  if (status === productionSuccessStatus.toLowerCase()) {
+    return {
+      skip: true,
+      reason: `duplicate_phase_completed: issue already ${issue.status}`,
+    };
+  }
+
+  if (mergeCommitSha) {
+    const hasSyncMarker = findProductionSyncMarkerForMergeCommit(
+      comments,
+      orchestratorMarker,
+      mergeCommitSha,
+    );
+    if (hasSyncMarker) {
+      return {
+        skip: true,
+        reason:
+          "duplicate_phase_completed: production sync marker already exists for merge commit",
+      };
+    }
+  }
+
+  if (status !== integrationSuccessStatus.toLowerCase()) {
+    return {
+      skip: true,
+      reason: `wrong_status: issue is "${issue.status}"; expected ${integrationSuccessStatus}`,
+    };
+  }
+
+  return { skip: false };
 }

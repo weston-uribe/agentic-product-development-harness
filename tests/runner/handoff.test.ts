@@ -43,6 +43,16 @@ vi.mock("../../src/preview/vercel-from-pr.js", () => ({
   pollForVercelPreview: mocks.pollForVercelPreview,
 }));
 
+vi.mock("../../src/github/pr-discovery.js", () => ({
+  findImplementationPullRequest: vi.fn().mockResolvedValue({
+    prUrl: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4",
+    prNumber: 4,
+    branch: "cursor/wes-13-test",
+    headSha: "abc123",
+    baseBranch: "main",
+  }),
+}));
+
 vi.mock("../../src/github/base-branch.js", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../../src/github/base-branch.js")>();
@@ -54,21 +64,6 @@ vi.mock("../../src/github/base-branch.js", async (importOriginal) => {
 
 import { executeHandoffPhase } from "../../src/runner/phases/handoff.js";
 import type { HarnessConfig } from "../../src/config/types.js";
-
-const implementationCommentBody = `## Implementation summary
-
-Done.
-
----
-harness-orchestrator-v1
-phase: implementation
-run_id: 2026-07-07T04-50-00Z-WES-13
-model: composer-2.5
-prompt_version: implementation@1
-target_repo: https://github.com/weston-uribe/weston-uribe-portfolio
-branch: cursor/wes-13-test
-pr_url: https://github.com/weston-uribe/weston-uribe-portfolio/pull/4
----`;
 
 const issueDescription = `## Target repo
 
@@ -137,13 +132,7 @@ describe("executeHandoffPhase", () => {
     process.env.LINEAR_API_KEY = "test-linear-key";
     process.env.GITHUB_TOKEN = "test-github-token";
 
-    mocks.listIssueComments.mockResolvedValue([
-      {
-        id: "impl-1",
-        body: implementationCommentBody,
-        createdAt: "2026-07-07T04:50:00.000Z",
-      },
-    ]);
+    mocks.listIssueComments.mockResolvedValue([]);
     mocks.transitionIssueStatus.mockResolvedValue(undefined);
     mocks.postHandoffComment.mockResolvedValue("handoff-comment-1");
     mocks.postErrorComment.mockResolvedValue("error-comment-1");

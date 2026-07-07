@@ -7,6 +7,7 @@ export const IMPLEMENTATION_PROMPT_VERSION = "implementation@1";
 export const HANDOFF_PROMPT_VERSION = "handoff@1";
 export const REVISION_PROMPT_VERSION = "revision@1";
 export const MERGE_PROMPT_VERSION = "merge@1";
+export const PRODUCTION_SYNC_PROMPT_VERSION = "production-sync@1";
 export const DEFAULT_PLANNING_TIMEOUT_SECONDS = 1800;
 export const DEFAULT_IMPLEMENTATION_TIMEOUT_SECONDS = 3600;
 export const DEFAULT_IMPLEMENTATION_BRANCH_PREFIX = "cursor";

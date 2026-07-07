@@ -18,12 +18,28 @@ export interface HarnessMarkers {
   mergeCommitSha?: string;
   deploymentUrl?: string;
   githubActionsRunUrl?: string;
+  issueKey?: string;
+  prNumber?: string;
+  productionBranch?: string;
+  integrationSuccessStatus?: string;
+  productionHeadSha?: string;
+  previousMergeRunId?: string;
+  promotionProofMethod?: string;
 }
 
 export function parseHarnessMarkers(commentBody: string): HarnessMarkers {
   const markers: HarnessMarkers = {};
-  const footerMatch = commentBody.match(/\n---\n([\s\S]*?)(?:\n---|$)/);
-  const block = footerMatch?.[1] ?? commentBody;
+  const segments = commentBody.split(/\n---\n/);
+  const footerSegment =
+    [...segments]
+      .reverse()
+      .find(
+        (segment) =>
+          segment.includes("harness-orchestrator-v1") ||
+          /\nphase:\s*\S+/m.test(segment) ||
+          /^phase:\s*\S+/m.test(segment),
+      ) ?? segments.at(-1) ?? commentBody;
+  const block = footerSegment;
 
   for (const line of block.split("\n")) {
     const trimmed = line.trim();
@@ -94,6 +110,27 @@ export function parseHarnessMarkers(commentBody: string): HarnessMarkers {
         break;
       case "github_actions_run_url":
         markers.githubActionsRunUrl = value;
+        break;
+      case "issue_key":
+        markers.issueKey = value;
+        break;
+      case "pr_number":
+        markers.prNumber = value;
+        break;
+      case "production_branch":
+        markers.productionBranch = value;
+        break;
+      case "integration_success_status":
+        markers.integrationSuccessStatus = value;
+        break;
+      case "production_head_sha":
+        markers.productionHeadSha = value;
+        break;
+      case "previous_merge_run_id":
+        markers.previousMergeRunId = value;
+        break;
+      case "promotion_proof_method":
+        markers.promotionProofMethod = value;
         break;
       default:
         if (trimmed === "harness-orchestrator-v1") {

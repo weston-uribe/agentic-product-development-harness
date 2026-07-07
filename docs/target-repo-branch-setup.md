@@ -1,6 +1,6 @@
 # Target repo branch setup
 
-The harness merges pull requests into an **integration branch** configured per repo (`repos[].baseBranch`, e.g. `dev`). Production promotion (`dev` → `main`) is a separate, manual step and is **not** automated in v0.1.
+The harness merges pull requests into an **integration branch** configured per repo (`repos[].baseBranch`, e.g. `dev`). Production promotion (`dev` → `main`) is a **manual git step** followed by an explicit harness sync.
 
 ## Config fields
 
@@ -14,7 +14,15 @@ The harness merges pull requests into an **integration branch** configured per r
 
 When `baseBranch === productionBranch`, behavior matches the original single-branch workflow: merge success moves the issue to **`Merged / Deployed`** and production deployment polling runs as before.
 
-When `baseBranch !== productionBranch`, merge success moves the issue to **`Merged to Dev`**, merge comments note the change is **not yet in production**, and production deployment polling is skipped.
+When `baseBranch !== productionBranch`, merge success moves the issue to **`Merged to Dev`**, merge comments note the change is **not yet in production**, and production deployment polling is skipped. After manually promoting `dev` → `main`, run production sync:
+
+```bash
+npm run harness:sync-production -- --repo portfolio
+```
+
+Or trigger the **Harness Production Sync** GitHub Actions workflow (`workflow_dispatch`).
+
+**Promotion guidance:** prefer merge or fast-forward when promoting `dev` → `main`. Squash promotion may make the original dev merge commit unreachable; sync will correctly no-op with `production_not_promoted`.
 
 ## Linear setup (before changing portfolio `baseBranch`)
 
