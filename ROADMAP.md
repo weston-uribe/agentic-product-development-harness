@@ -2,29 +2,28 @@
 
 Phased delivery for the agentic product development harness. Each phase adds capability only after the previous loop is proven manually.
 
-**Current phase: Custom GPT issue intake (Milestone 9)**
+**Current phase: ChatGPT issue intake prompt (Milestone 9)**
 
 ---
 
-## Custom GPT intake (current)
+## ChatGPT issue intake (current)
 
-**Goal:** Productize issue intake so PMs can create harness-compatible Linear issues via ChatGPT without copying repo templates.
+**Goal:** Productize issue intake so PMs can create harness-compatible Linear issues via a normal ChatGPT thread without Custom GPT setup or repo template copying.
 
 **Delivered:**
-- Custom GPT package — [`gpt/issue-intake/`](gpt/issue-intake/) (instructions, knowledge, setup guide, smoke test)
-- Generic issue-intake skill aligned with GPT UX — [`skills/issue-intake/SKILL.md`](skills/issue-intake/SKILL.md)
+- Canonical copy-paste prompt — [`prompts/issue-intake-chatgpt.md`](prompts/issue-intake-chatgpt.md)
+- Generic issue-intake skill aligned with prompt UX — [`skills/issue-intake/SKILL.md`](skills/issue-intake/SKILL.md)
 - Dual-path operator guide — [`docs/issue-intake.md`](docs/issue-intake.md)
 
-**Not included yet:**
-- Custom GPT Actions for Linear (deferred unless built-in app cannot create issues)
+**Deferred (not current operating path):**
+- Custom GPT configuration — [`gpt/issue-intake/setup-guide.md`](gpt/issue-intake/setup-guide.md)
+- Custom GPT Actions / Linear bridge / OAuth productization
 - Lead agent, planner/implementer skills
 - Label enforcement in runner code
 
 ---
 
 ## Linear watcher (completed)
-
-**Goal:** Event-driven harness runs when Linear issue status changes to an actionable trigger — no manual `npm run harness:run` from Cursor/CLI.
 
 **Goal:** Event-driven harness runs when Linear issue status changes to an actionable trigger — no manual `npm run harness:run` from Cursor/CLI.
 
@@ -61,7 +60,7 @@ See [`docs/milestones/m7-issue-intake.md`](docs/milestones/m7-issue-intake.md).
 - Lead agent, planner/implementer skills
 - Label enforcement in runner code
 
-Superseded for PM self-service by M9 Custom GPT package — [`gpt/issue-intake/`](gpt/issue-intake/).
+Superseded for PM self-service by canonical ChatGPT prompt — [`prompts/issue-intake-chatgpt.md`](prompts/issue-intake-chatgpt.md). Custom GPT package retained as deferred reference — [`gpt/issue-intake/`](gpt/issue-intake/).
 
 ---
 

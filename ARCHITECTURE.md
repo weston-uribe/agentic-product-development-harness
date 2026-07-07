@@ -24,7 +24,7 @@ Planning is **optional** in the target Linear workflow. Low-risk issues may bypa
 
 **Purpose:** Capture product intent in a structured, reviewable issue before any code is written.
 
-**Status:** **Implemented** — Custom GPT package at [`gpt/issue-intake/`](gpt/issue-intake/) for PM intake in ChatGPT; [`skills/issue-intake/SKILL.md`](skills/issue-intake/SKILL.md) for Cursor drafting; [`templates/linear-issue.md`](templates/linear-issue.md) aligned to parser contract; `harness validate-issue` for read-only validation with route-specific `--intended-phase`.
+**Status:** **Implemented** — Canonical ChatGPT prompt at [`prompts/issue-intake-chatgpt.md`](prompts/issue-intake-chatgpt.md) for PM intake; [`skills/issue-intake/SKILL.md`](skills/issue-intake/SKILL.md) for Cursor drafting; [`templates/linear-issue.md`](templates/linear-issue.md) aligned to parser contract; `harness validate-issue` for read-only validation with route-specific `--intended-phase`. Deferred Custom GPT package at [`gpt/issue-intake/`](gpt/issue-intake/).
 
 **Inputs:** Problem statement, user context, acceptance criteria, out-of-scope boundaries.
 

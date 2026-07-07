@@ -8,7 +8,7 @@ Cursor skills and other encoded workflows for the harness.
 
 [`issue-intake/SKILL.md`](issue-intake/SKILL.md) — conversational intake that produces a harness-compatible Linear issue package. Use before planning or implementation runs in Cursor.
 
-For PM self-service in ChatGPT, use the Custom GPT package at [`gpt/issue-intake/`](../gpt/issue-intake/).
+For PM self-service in ChatGPT, copy the canonical prompt at [`prompts/issue-intake-chatgpt.md`](../prompts/issue-intake-chatgpt.md) into a normal chat thread. A deferred Custom GPT package exists at [`gpt/issue-intake/`](../gpt/issue-intake/).
 
 See [`docs/issue-intake.md`](../docs/issue-intake.md) for the operator workflow and [`docs/milestones/m7-issue-intake.md`](../docs/milestones/m7-issue-intake.md) for milestone scope.
 

@@ -1,5 +1,11 @@
 # Custom GPT setup guide — Product Issue Intake
 
+> **Status: Deferred / optional.** This is **not** the current operating path for issue intake.
+>
+> **Current path:** Copy [`prompts/issue-intake-chatgpt.md`](../../prompts/issue-intake-chatgpt.md) into a normal ChatGPT thread. See [`docs/issue-intake.md`](../../docs/issue-intake.md).
+>
+> Keep this guide for future productization (Custom GPT, uploaded knowledge, OAuth). Do not configure a Custom GPT unless explicitly approved.
+
 Operator guide for configuring a ChatGPT Custom GPT that drafts harness-compatible Linear issues for product managers.
 
 ## Prerequisites
