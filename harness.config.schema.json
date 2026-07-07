@@ -89,6 +89,21 @@
           },
           "additionalProperties": false
         },
+        "implementation": {
+          "type": "object",
+          "properties": {
+            "timeoutSeconds": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "branchPrefix": {
+              "type": "string",
+              "minLength": 1,
+              "default": "cursor"
+            }
+          },
+          "additionalProperties": false
+        },
         "watch": {
           "type": "object",
           "properties": {

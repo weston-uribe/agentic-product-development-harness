@@ -7,6 +7,8 @@ export interface HarnessMarkers {
   model?: string;
   promptVersion?: string;
   targetRepo?: string;
+  branch?: string;
+  prUrl?: string;
 }
 
 export function parseHarnessMarkers(commentBody: string): HarnessMarkers {
@@ -50,6 +52,12 @@ export function parseHarnessMarkers(commentBody: string): HarnessMarkers {
         break;
       case "target_repo":
         markers.targetRepo = value;
+        break;
+      case "branch":
+        markers.branch = value;
+        break;
+      case "pr_url":
+        markers.prUrl = value;
         break;
       default:
         if (trimmed === "harness-orchestrator-v1") {

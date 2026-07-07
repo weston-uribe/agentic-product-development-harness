@@ -1,11 +1,12 @@
 import { executeDryRun } from "./dry-run.js";
+import { executeImplementationPhase } from "./phases/implementation.js";
 import { executePlanningPhase } from "./phases/planning.js";
 import { fetchLinearIssue } from "../linear/client.js";
 import { inferPhaseFromStatus } from "./phase-infer.js";
 import { loadConfig } from "../config/load-config.js";
 import { EXIT_CONFIG } from "../cli/exit-codes.js";
 
-export type RunPhaseArg = "auto" | "planning" | "dry-run";
+export type RunPhaseArg = "auto" | "planning" | "implementation" | "dry-run";
 
 export interface OrchestratorOptions {
   issueKey: string;
@@ -50,8 +51,7 @@ export async function runOrchestrator(
     if (inferred.phase === "planning") {
       phase = "planning";
     } else if (inferred.phase === "implementation") {
-      console.error("Implementation phase is not implemented in Milestone 2");
-      return { exitCode: EXIT_CONFIG };
+      phase = "implementation";
     } else {
       console.error(
         `Issue status "${issue.status ?? "unknown"}" is not eligible for harness run`,
@@ -62,6 +62,19 @@ export async function runOrchestrator(
 
   if (phase === "planning") {
     const result = await executePlanningPhase({
+      issueKey: options.issueKey,
+      configPath: options.configPath,
+      force: options.force,
+    });
+    return {
+      exitCode: result.exitCode,
+      runDirectory: result.runDirectory,
+      manifest: result.manifest,
+    };
+  }
+
+  if (phase === "implementation") {
+    const result = await executeImplementationPhase({
       issueKey: options.issueKey,
       configPath: options.configPath,
       force: options.force,

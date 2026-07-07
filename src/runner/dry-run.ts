@@ -53,8 +53,10 @@ export async function executeDryRun(options: DryRunOptions): Promise<DryRunResul
       promptVersion: null,
       cursorAgentId: null,
       cursorRunId: null,
+      branch: null,
       prUrl: null,
       previewUrl: null,
+      validationSummary: null,
       model,
     };
     await writeManifest(preflight.context.runDirectory, manifest);
@@ -93,8 +95,10 @@ export async function executeDryRun(options: DryRunOptions): Promise<DryRunResul
     promptVersion: null,
     cursorAgentId: null,
     cursorRunId: null,
+    branch: null,
     prUrl: null,
     previewUrl: null,
+    validationSummary: null,
     model,
   };
 

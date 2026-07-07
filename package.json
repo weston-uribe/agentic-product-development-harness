@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Repo-agnostic Cursor SDK orchestration harness (Milestone 2: planning phase)",
+  "description": "Repo-agnostic Cursor SDK orchestration harness (Milestone 3: implementation phase)",
   "scripts": {
     "build": "tsc",
     "test": "vitest run",

@@ -1,34 +1,40 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import {
-  DEFAULT_PLANNING_TIMEOUT_SECONDS,
+  DEFAULT_IMPLEMENTATION_TIMEOUT_SECONDS,
+  IMPLEMENTATION_PROMPT_VERSION,
   MILESTONE,
 } from "../../config/defaults.js";
 import { getTransitionalStatus } from "../../config/status-names.js";
 import { writeManifest } from "../../artifacts/manifest.js";
 import { writeRunSummary } from "../../artifacts/summary.js";
 import {
+  getImplementationPromptPath,
+  getImplementationResultPath,
   getIssueSnapshotAfterPath,
-  getPlanningPromptPath,
-  getPlanningResultPath,
+  getPlanningCommentLoadedPath,
+  getPrMetadataPath,
 } from "../../artifacts/paths.js";
 import { writeCommentsArtifact } from "../../linear/comments.js";
 import { fetchLinearIssue } from "../../linear/client.js";
+import { findLatestPlanningComment } from "../../linear/planning-comment.js";
 import {
   createLinearClient,
   listIssueComments,
   postErrorComment,
-  postPlanningComment,
+  postImplementationComment,
   transitionIssueStatus,
 } from "../../linear/writer.js";
-import { createPlanningCloudAgent } from "../../cursor/agent-factory.js";
+import { createImplementationCloudAgent } from "../../cursor/agent-factory.js";
 import { sendAndObserve } from "../../cursor/run-observer.js";
 import { resolveModelId } from "../../cursor/model.js";
-import { buildPlanningPrompt } from "../../prompts/builder.js";
-import { PlanningError } from "../errors.js";
+import { buildBranchName } from "../../prompts/branch-name.js";
+import { buildImplementationPrompt } from "../../prompts/builder.js";
+import { ImplementationError } from "../errors.js";
 import { runPreflight } from "../preflight.js";
 import {
-  assertPlanningEligibleStatus,
-  checkPlanningIdempotency,
+  assertImplementationEligibleStatus,
+  checkImplementationIdempotency,
+  isNarrowImplementationIssue,
 } from "../idempotency.js";
 import type { EventLogger } from "../../artifacts/events.js";
 import type {
@@ -36,16 +42,17 @@ import type {
   FinalOutcome,
   RunManifest,
 } from "../../types/run.js";
+import type { CursorCancelOutcome } from "../../cursor/run-cleanup.js";
 import type { ParsedIssue } from "../../types/parsed-issue.js";
 import type { ResolvedTarget } from "../../resolver/target-repo.js";
 
-export interface PlanningPhaseOptions {
+export interface ImplementationPhaseOptions {
   issueKey: string;
   configPath: string;
   force?: boolean;
 }
 
-export interface PlanningPhaseResult {
+export interface ImplementationPhaseResult {
   manifest: RunManifest;
   runDirectory: string;
   exitCode: number;
@@ -54,12 +61,25 @@ export interface PlanningPhaseResult {
 function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value) {
-    throw new PlanningError(
+    throw new ImplementationError(
       name === "LINEAR_API_KEY" ? "linear_auth_failure" : "cursor_api_failure",
-      `${name} is required for live planning runs`,
+      `${name} is required for live implementation runs`,
     );
   }
   return value;
+}
+
+async function writeErrorArtifact(
+  runDirectory: string,
+  message: string,
+  errorClassification: ErrorClassification,
+): Promise<void> {
+  await mkdir(`${runDirectory}/errors`, { recursive: true });
+  await writeFile(
+    `${runDirectory}/errors/error.json`,
+    `${JSON.stringify({ message, errorClassification }, null, 2)}\n`,
+    "utf8",
+  );
 }
 
 async function writeFinalManifest(
@@ -70,10 +90,13 @@ async function writeFinalManifest(
   events: EventLogger | null,
   finalOutcome: FinalOutcome,
   errorClassification: ErrorClassification,
-): Promise<PlanningPhaseResult> {
+  cursorCleanup: CursorCancelOutcome | null = null,
+): Promise<ImplementationPhaseResult> {
   if (runDirectory) {
     await writeManifest(runDirectory, manifest);
-    await writeRunSummary(runDirectory, manifest, parsed, resolved);
+    await writeRunSummary(runDirectory, manifest, parsed, resolved, {
+      cursorCleanup,
+    });
     await events?.log("run_finished", finalOutcome === "success" ? "info" : "error", {
       finalOutcome,
       errorClassification,
@@ -83,21 +106,23 @@ async function writeFinalManifest(
   const exitCode =
     finalOutcome === "success" || finalOutcome === "duplicate"
       ? 0
-      : finalOutcome === "failed" && !errorClassification
+      : errorClassification &&
+          [
+            "ambiguous_issue",
+            "missing_target_repo",
+            "unknown_repo_denied",
+            "wrong_status",
+            "missing_planning_comment",
+          ].includes(errorClassification)
         ? 2
-        : errorClassification &&
-            ["ambiguous_issue", "missing_target_repo", "unknown_repo_denied"].includes(
-              errorClassification,
-            )
-          ? 2
-          : 3;
+        : 3;
 
   return { manifest, runDirectory, exitCode };
 }
 
-export async function executePlanningPhase(
-  options: PlanningPhaseOptions,
-): Promise<PlanningPhaseResult> {
+export async function executeImplementationPhase(
+  options: ImplementationPhaseOptions,
+): Promise<ImplementationPhaseResult> {
   const linearApiKey = requireEnv("LINEAR_API_KEY");
   const cursorApiKey = requireEnv("CURSOR_API_KEY");
 
@@ -163,17 +188,21 @@ export async function executePlanningPhase(
   let errorClassification: ErrorClassification = null;
   let cursorAgentId: string | null = null;
   let cursorRunId: string | null = null;
-  let promptVersion: string | null = null;
+  let branch: string | null = null;
+  let prUrl: string | null = null;
+  let validationSummary: string | null = null;
+  let enteredBuilding = false;
+  let cursorCleanup: CursorCancelOutcome | null = null;
   const model = resolveModelId(config);
-  let enteredPlanning = false;
   const commentsWritten: string[] = [];
+  const branchName = buildBranchName(issue.identifier, issue.title, config);
 
   const footerBase = {
     orchestratorMarker: config.orchestratorMarker,
-    phase: "planning",
+    phase: "implementation",
     runId,
     model,
-    promptVersion: "planning@1",
+    promptVersion: IMPLEMENTATION_PROMPT_VERSION,
     targetRepo: resolved.targetRepo,
   };
 
@@ -181,16 +210,16 @@ export async function executePlanningPhase(
 
   try {
     try {
-      assertPlanningEligibleStatus(config, issue, Boolean(options.force));
+      assertImplementationEligibleStatus(config, issue, Boolean(options.force));
     } catch (error) {
-      throw new PlanningError(
+      throw new ImplementationError(
         "wrong_status",
         error instanceof Error ? error.message : String(error),
       );
     }
 
     const comments = await listIssueComments(client, issue.id);
-    const idempotency = checkPlanningIdempotency(
+    const idempotency = checkImplementationIdempotency(
       config,
       issue,
       comments,
@@ -216,13 +245,13 @@ export async function executePlanningPhase(
         startedAt: startedAt.toISOString(),
         finishedAt: new Date().toISOString(),
         milestone: MILESTONE,
-        promptVersion,
+        promptVersion: IMPLEMENTATION_PROMPT_VERSION,
         cursorAgentId,
         cursorRunId,
-        branch: null,
-        prUrl: null,
+        branch,
+        prUrl,
         previewUrl: null,
-        validationSummary: null,
+        validationSummary,
         model,
       };
       return writeFinalManifest(
@@ -236,25 +265,54 @@ export async function executePlanningPhase(
       );
     }
 
-    const planningStatus = getTransitionalStatus(config, "planningInProgress");
-    await transitionIssueStatus(client, issue, planningStatus);
-    enteredPlanning = true;
-    linearStatusAfter = planningStatus;
+    const planningComment = findLatestPlanningComment(
+      comments,
+      config.orchestratorMarker,
+    );
+    if (!planningComment && !isNarrowImplementationIssue(parsed)) {
+      throw new ImplementationError(
+        "missing_planning_comment",
+        "No durable planning comment found for a broad implementation issue",
+      );
+    }
+
+    if (planningComment) {
+      await mkdir(`${runDirectory}/linear`, { recursive: true });
+      await writeFile(
+        getPlanningCommentLoadedPath(runDirectory),
+        `${planningComment.body}\n`,
+        "utf8",
+      );
+      await events.log("planning_comment_loaded", "info", {
+        commentId: planningComment.id,
+      });
+    }
+
+    const buildingStatus = getTransitionalStatus(config, "buildingInProgress");
+    await transitionIssueStatus(client, issue, buildingStatus);
+    enteredBuilding = true;
+    linearStatusAfter = buildingStatus;
     await events.log("linear_status_changed", "info", {
       from: linearStatusBefore,
-      to: planningStatus,
+      to: buildingStatus,
     });
 
-    const { prompt, promptVersion: version } = await buildPlanningPrompt(
+    const repoConfig = config.repos.find((repo) => repo.id === resolved.repoConfigId);
+    const validationCommands = repoConfig?.validation?.commands ?? [];
+    const { prompt, promptVersion } = await buildImplementationPrompt({
       issue,
       parsed,
       resolved,
-    );
-    promptVersion = version;
-    await mkdir(`${runDirectory}/prompts`, { recursive: true });
-    await writeFile(getPlanningPromptPath(runDirectory), `${prompt}\n`, "utf8");
+      runId,
+      branchName,
+      planningCommentBody: planningComment?.body ?? null,
+      validationCommands,
+    });
 
-    await using agent = await createPlanningCloudAgent({
+    await mkdir(`${runDirectory}/prompts`, { recursive: true });
+    await writeFile(getImplementationPromptPath(runDirectory), `${prompt}\n`, "utf8");
+
+    await using agent = await createImplementationCloudAgent({
       apiKey: cursorApiKey,
       config,
       targetRepo: resolved.targetRepo,
@@ -262,56 +320,104 @@ export async function executePlanningPhase(
     });
 
     const timeoutMs =
-      (config.planning?.timeoutSeconds ?? DEFAULT_PLANNING_TIMEOUT_SECONDS) *
-      1000;
+      (config.implementation?.timeoutSeconds ??
+        DEFAULT_IMPLEMENTATION_TIMEOUT_SECONDS) * 1000;
 
-    const observed = await Promise.race([
-      sendAndObserve(agent, prompt, runDirectory, events),
-      new Promise<never>((_, reject) => {
-        setTimeout(() => {
-          reject(
-            new PlanningError(
-              "cursor_run_timeout",
-              `Cursor planning run exceeded ${timeoutMs / 1000}s`,
-            ),
-          );
-        }, timeoutMs);
-      }),
-    ]);
+    const abortController = new AbortController();
+    let timeoutError: ImplementationError | null = null;
+    const timeoutId = setTimeout(() => {
+      timeoutError = new ImplementationError(
+        "cursor_run_timeout",
+        `Cursor implementation run exceeded ${timeoutMs / 1000}s`,
+      );
+      abortController.abort(timeoutError);
+    }, timeoutMs);
+
+    let observed;
+    try {
+      observed = await sendAndObserve(agent, prompt, runDirectory, events, {
+        phase: "implementation",
+        targetRepo: resolved.targetRepo,
+        abortSignal: abortController.signal,
+      });
+    } catch (error) {
+      if (abortController.signal.aborted && timeoutError) {
+        throw timeoutError;
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+    cursorCleanup = observed.cancelOutcome;
 
     cursorAgentId = observed.agentId;
     cursorRunId = observed.runId;
+    branch = observed.gitResult?.branch ?? null;
+    prUrl = observed.gitResult?.prUrl ?? null;
+    validationSummary = observed.assistantText;
 
     await mkdir(`${runDirectory}/outputs`, { recursive: true });
     await writeFile(
-      getPlanningResultPath(runDirectory),
+      getImplementationResultPath(runDirectory),
       `${observed.assistantText}\n`,
       "utf8",
     );
 
-    const planningComment = await postPlanningComment(
+    await mkdir(`${runDirectory}/github`, { recursive: true });
+    await writeFile(
+      getPrMetadataPath(runDirectory),
+      `${JSON.stringify(
+        {
+          repoUrl: observed.gitResult?.repoUrl ?? resolved.targetRepo,
+          branch,
+          prUrl,
+          capturedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+    await events.log("git_result_captured", "info", {
+      targetRepo: resolved.targetRepo,
+      branch,
+      prUrl,
+    });
+    await events.log("pr_captured", "info", { prUrl });
+    await events.log("validation_completed", "info", { validationSummary });
+
+    const implementationCommentBody = [
+      observed.assistantText,
+      "",
+      `Branch: ${branch}`,
+      `PR: ${prUrl}`,
+    ].join("\n");
+    const implementationCommentId = await postImplementationComment(
       client,
       issue.id,
-      observed.assistantText,
+      implementationCommentBody,
       {
         ...footerBase,
-        promptVersion: version,
+        promptVersion,
         cursorAgentId,
         cursorRunId,
+        branch: branch ?? undefined,
+        prUrl: prUrl ?? undefined,
       },
     );
-    commentsWritten.push(observed.assistantText);
+    commentsWritten.push(implementationCommentBody);
     await events.log("linear_comment_posted", "info", {
-      phase: "planning",
-      commentId: planningComment,
+      phase: "implementation",
+      commentId: implementationCommentId,
     });
 
-    const readyForBuild = getTransitionalStatus(config, "readyForBuild");
-    await transitionIssueStatus(client, issue, readyForBuild);
-    linearStatusAfter = readyForBuild;
+    const prOpenStatus = getTransitionalStatus(config, "prOpen");
+    await transitionIssueStatus(client, issue, prOpenStatus);
+    linearStatusAfter = prOpenStatus;
     await events.log("linear_status_changed", "info", {
-      from: planningStatus,
-      to: readyForBuild,
+      from: buildingStatus,
+      to: prOpenStatus,
     });
 
     const afterIssue = await fetchLinearIssue(options.issueKey, linearApiKey);
@@ -328,27 +434,27 @@ export async function executePlanningPhase(
     finalOutcome = "success";
     errorClassification = null;
   } catch (error) {
-    if (error instanceof PlanningError) {
+    if (error instanceof ImplementationError) {
       errorClassification = error.classification;
+      cursorCleanup = error.cancelOutcome;
     } else if (error instanceof Error) {
       errorClassification = "linear_write_failure";
     } else {
       errorClassification = "linear_write_failure";
     }
 
-    if (enteredPlanning) {
+    const message = error instanceof Error ? error.message : String(error);
+    await writeErrorArtifact(runDirectory, message, errorClassification);
+
+    if (enteredBuilding) {
       try {
-        await postErrorComment(
-          client,
-          issue.id,
-          error instanceof Error ? error.message : String(error),
-          {
-            ...footerBase,
-            promptVersion: promptVersion ?? "planning@1",
-            cursorAgentId: cursorAgentId ?? undefined,
-            cursorRunId: cursorRunId ?? undefined,
-          },
-        );
+        await postErrorComment(client, issue.id, message, {
+          ...footerBase,
+          cursorAgentId: cursorAgentId ?? undefined,
+          cursorRunId: cursorRunId ?? undefined,
+          branch: branch ?? undefined,
+          prUrl: prUrl ?? undefined,
+        }, "implementation");
         const blocked = getTransitionalStatus(config, "blocked");
         await transitionIssueStatus(client, issue, blocked);
         linearStatusAfter = blocked;
@@ -378,13 +484,13 @@ export async function executePlanningPhase(
     startedAt: startedAt.toISOString(),
     finishedAt: new Date().toISOString(),
     milestone: MILESTONE,
-    promptVersion,
+    promptVersion: IMPLEMENTATION_PROMPT_VERSION,
     cursorAgentId,
     cursorRunId,
-    branch: null,
-    prUrl: null,
+    branch,
+    prUrl,
     previewUrl: null,
-    validationSummary: null,
+    validationSummary,
     model,
   };
 
@@ -396,5 +502,6 @@ export async function executePlanningPhase(
     events,
     finalOutcome,
     errorClassification,
+    cursorCleanup,
   );
 }

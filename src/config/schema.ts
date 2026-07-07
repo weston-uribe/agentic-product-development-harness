@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { DEFAULT_LOG_DIRECTORY, DEFAULT_ORCHESTRATOR_MARKER } from "./defaults.js";
+import {
+  DEFAULT_IMPLEMENTATION_BRANCH_PREFIX,
+  DEFAULT_LOG_DIRECTORY,
+  DEFAULT_ORCHESTRATOR_MARKER,
+} from "./defaults.js";
 
 const githubRepoUrl = z
   .string()
@@ -46,6 +50,11 @@ const planningConfigSchema = z.object({
   timeoutSeconds: z.number().positive().optional(),
 });
 
+const implementationConfigSchema = z.object({
+  timeoutSeconds: z.number().positive().optional(),
+  branchPrefix: z.string().min(1).default(DEFAULT_IMPLEMENTATION_BRANCH_PREFIX),
+});
+
 export const harnessConfigSchema = z
   .object({
     version: z.literal(1),
@@ -54,6 +63,7 @@ export const harnessConfigSchema = z
     defaultModel: z.object({ id: z.string() }).optional(),
     linear: linearConfigSchema.optional(),
     planning: planningConfigSchema.optional(),
+    implementation: implementationConfigSchema.optional(),
     watch: z
       .object({
         pollIntervalSeconds: z.number().positive().optional(),

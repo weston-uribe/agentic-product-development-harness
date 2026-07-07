@@ -21,3 +21,7 @@ export function getTransitionalStatus(
 export function getEligiblePlanningStatuses(config: HarnessConfig): string[] {
   return config.linear?.eligibleStatuses?.planning ?? ["Ready for Planning"];
 }
+
+export function getEligibleImplementationStatuses(config: HarnessConfig): string[] {
+  return config.linear?.eligibleStatuses?.implementation ?? ["Ready for Build"];
+}

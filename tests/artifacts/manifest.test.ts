@@ -27,8 +27,10 @@ describe("manifest writer", () => {
       promptVersion: null,
       cursorAgentId: null,
       cursorRunId: null,
+      branch: null,
       prUrl: null,
       previewUrl: null,
+      validationSummary: null,
       model: null,
     };
 

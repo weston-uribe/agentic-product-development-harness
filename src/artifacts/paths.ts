@@ -36,8 +36,24 @@ export function getPlanningResultPath(runDirectory: string): string {
   return path.join(runDirectory, "outputs", "planning-result.md");
 }
 
+export function getImplementationPromptPath(runDirectory: string): string {
+  return path.join(runDirectory, "prompts", "implementation-agent.md");
+}
+
+export function getImplementationResultPath(runDirectory: string): string {
+  return path.join(runDirectory, "outputs", "implementation-result.md");
+}
+
 export function getCursorRunResultPath(runDirectory: string): string {
   return path.join(runDirectory, "cursor", "run-result.json");
+}
+
+export function getPrMetadataPath(runDirectory: string): string {
+  return path.join(runDirectory, "github", "pr-metadata.json");
+}
+
+export function getPlanningCommentLoadedPath(runDirectory: string): string {
+  return path.join(runDirectory, "linear", "planning-comment-loaded.md");
 }
 
 export function getCommentsWrittenPath(runDirectory: string): string {

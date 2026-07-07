@@ -14,6 +14,12 @@ export type ErrorClassification =
   | "cursor_run_timeout"
   | "linear_write_failure"
   | "agent_policy_violation"
+  | "missing_planning_comment"
+  | "validation_failed"
+  | "pr_not_created"
+  | "branch_without_pr"
+  | "wrong_target_repo"
+  | "wrong_pr_target"
   | null;
 
 export interface RunManifest {
@@ -35,8 +41,10 @@ export interface RunManifest {
   promptVersion: string | null;
   cursorAgentId: string | null;
   cursorRunId: string | null;
+  branch: string | null;
   prUrl: string | null;
   previewUrl: string | null;
+  validationSummary: string | null;
   model: string | null;
 }
 
@@ -50,11 +58,18 @@ export type RunEventName =
   | "repo_resolution_failed"
   | "phase_inferred"
   | "idempotency_skip"
+  | "planning_comment_loaded"
   | "linear_status_changed"
   | "linear_comment_posted"
   | "cursor_agent_created"
   | "cursor_event"
   | "cursor_run_finished"
+  | "cursor_run_cancelled"
+  | "cursor_cancel_unavailable"
+  | "cursor_run_cancel_failed"
+  | "git_result_captured"
+  | "pr_captured"
+  | "validation_completed"
   | "run_finished";
 
 export interface RunEvent {

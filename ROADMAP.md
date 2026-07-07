@@ -21,19 +21,23 @@ Phased delivery for the agentic product development harness. Each phase adds cap
   - Issue read/write and status path: Ready for Planning → Planning → Ready for Build
   - Durable planning comment
   - Silent no-op for duplicate/non-matching runs
+- **SDK planning runner validated** — Milestone 2 implements Linear Ready for Planning → Planning → Cursor cloud planning agent → Ready for Build. See [`docs/milestones/m2-planning-phase.md`](docs/milestones/m2-planning-phase.md).
+- **SDK implementation runner implemented** — Milestone 3 adds Ready for Build → Building → Cursor cloud implementation agent → PR Open. See [`docs/milestones/m3-implementation-phase.md`](docs/milestones/m3-implementation-phase.md).
 
 **This phase includes:**
-- Docs-only implementation automation starting from **Ready for Build**
-- Branch creation and PR opening from automation
-- Linear status transition to **PR Open** or **PM Review** after PR exists
-- Router inspects issue status/labels and exits silently on unsupported states
-- Automation model: **Composer 2.5** (current Cursor Automations requirement)
+- SDK implementation runner starting from **Ready for Build**
+- Branch creation and PR opening through Cursor cloud agent
+- Linear status transition to **PR Open** after PR exists
+- Router inspects issue status and exits on unsupported states
+- Configured model: **Composer 2.5**
 
 **Not included yet:**
 - Revision loop (**Needs Revision** → **Revising** → **PM Review**)
 - Full autonomous build loop (Backlog → PR → merge without human gates)
 - Multiple independent automations per status
 - Merge/deployment reporter automation
+- Vercel preview capture
+- PM Review transition from the SDK runner
 - Skills or reusable automation templates beyond validated spikes
 
 ---

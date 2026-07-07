@@ -10,6 +10,8 @@ export interface PlanningAgentParams {
   baseBranch: string;
 }
 
+export type ImplementationAgentParams = PlanningAgentParams;
+
 export async function createPlanningCloudAgent(
   params: PlanningAgentParams,
 ): Promise<SDKAgent> {
@@ -26,6 +28,27 @@ export async function createPlanningCloudAgent(
         },
       ],
       autoCreatePR: false,
+      skipReviewerRequest: true,
+    },
+  });
+}
+
+export async function createImplementationCloudAgent(
+  params: ImplementationAgentParams,
+): Promise<SDKAgent> {
+  const model: ModelSelection = resolveModel(params.config);
+  return Agent.create({
+    apiKey: params.apiKey,
+    model,
+    mode: "agent",
+    cloud: {
+      repos: [
+        {
+          url: params.targetRepo,
+          startingRef: params.baseBranch,
+        },
+      ],
+      autoCreatePR: true,
       skipReviewerRequest: true,
     },
   });

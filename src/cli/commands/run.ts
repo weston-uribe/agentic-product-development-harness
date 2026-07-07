@@ -8,7 +8,7 @@ export interface RunCommandOptions {
   dryRun?: boolean;
   fixturePath?: string;
   json?: boolean;
-  phase?: "auto" | "planning" | "dry-run";
+  phase?: "auto" | "planning" | "implementation" | "dry-run";
   force?: boolean;
 }
 

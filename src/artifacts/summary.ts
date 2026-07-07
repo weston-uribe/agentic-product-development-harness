@@ -2,13 +2,32 @@ import { writeFile } from "node:fs/promises";
 import type { RunManifest } from "../types/run.js";
 import type { ParsedIssue } from "../types/parsed-issue.js";
 import type { ResolvedTarget } from "../resolver/target-repo.js";
+import type { CursorCancelOutcome } from "../cursor/run-cleanup.js";
 import { getSummaryPath } from "./paths.js";
+
+export interface RunSummaryExtras {
+  cursorCleanup?: CursorCancelOutcome | null;
+}
+
+function formatCursorCleanup(status: CursorCancelOutcome | null | undefined): string {
+  switch (status) {
+    case "cancelled":
+      return "Cursor run cancel requested and completed";
+    case "cancel_unavailable":
+      return "Cursor run cancel unavailable (SDK does not support cancel for this run)";
+    case "cancel_failed":
+      return "Cursor run cancel requested but failed";
+    default:
+      return "n/a";
+  }
+}
 
 export async function writeRunSummary(
   runDirectory: string,
   manifest: RunManifest,
   parsed: ParsedIssue,
   resolved: ResolvedTarget | null,
+  extras: RunSummaryExtras = {},
 ): Promise<void> {
   const lines = [
     "# Harness run summary",
@@ -27,6 +46,10 @@ export async function writeRunSummary(
     `- **Prompt version:** ${manifest.promptVersion ?? "n/a"}`,
     `- **Cursor agent ID:** ${manifest.cursorAgentId ?? "n/a"}`,
     `- **Cursor run ID:** ${manifest.cursorRunId ?? "n/a"}`,
+    `- **Branch:** ${manifest.branch ?? "n/a"}`,
+    `- **PR URL:** ${manifest.prUrl ?? "n/a"}`,
+    `- **Validation summary:** ${manifest.validationSummary ?? "n/a"}`,
+    `- **Cursor cleanup:** ${formatCursorCleanup(extras.cursorCleanup)}`,
     "",
     "## Task",
     parsed.task || "_not parsed_",
@@ -59,7 +82,11 @@ export async function writeRunSummary(
     `- Issue snapshot (after): \`${runDirectory}/linear/issue-snapshot-after.json\``,
     `- Planning prompt: \`${runDirectory}/prompts/planning-agent.md\``,
     `- Planning result: \`${runDirectory}/outputs/planning-result.md\``,
+    `- Planning comment loaded: \`${runDirectory}/linear/planning-comment-loaded.md\``,
+    `- Implementation prompt: \`${runDirectory}/prompts/implementation-agent.md\``,
+    `- Implementation result: \`${runDirectory}/outputs/implementation-result.md\``,
     `- Cursor run result: \`${runDirectory}/cursor/run-result.json\``,
+    `- PR metadata: \`${runDirectory}/github/pr-metadata.json\``,
     `- Comments written: \`${runDirectory}/linear/comments-written.md\``,
     "",
   );

@@ -21,13 +21,20 @@
   "planning": {
     "timeoutSeconds": 1800
   },
+  "implementation": {
+    "timeoutSeconds": 3600,
+    "branchPrefix": "cursor"
+  },
   "repos": [
     {
       "id": "portfolio",
       "linearProjects": ["Portfolio"],
       "targetRepo": "https://github.com/weston-uribe/weston-uribe-portfolio",
       "baseBranch": "main",
-      "previewProvider": "vercel"
+      "previewProvider": "vercel",
+      "validation": {
+        "commands": ["npm run lint", "npm run build"]
+      }
     },
     {
       "id": "harness",

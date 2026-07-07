@@ -5,7 +5,7 @@ import { EventLogger } from "../../src/artifacts/events.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { PlanningError } from "../../src/runner/errors.js";
+import { ImplementationError, PlanningError } from "../../src/runner/errors.js";
 
 function createMockAgent(overrides: {
   send?: () => Promise<unknown>;
@@ -90,6 +90,128 @@ describe("sendAndObserve", () => {
     const observed = await sendAndObserve(agent as never, "prompt", dir, events);
     expect(observed.assistantText).toContain("Implementation plan");
     expect(observed.runId).toBe("run-2");
+
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("requires branch and PR for implementation runs", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "harness-observer-"));
+    const events = new EventLogger(dir);
+    await events.init();
+
+    const agent = createMockAgent({
+      send: vi.fn().mockResolvedValue({
+        id: "run-3",
+        stream: async function* () {
+          yield { type: "message" };
+        },
+        wait: vi.fn().mockResolvedValue({
+          id: "run-3",
+          status: "finished",
+          durationMs: 200,
+          result: "## Implementation summary\n\nDone",
+          git: {
+            branches: [
+              {
+                repoUrl: "https://github.com/weston-uribe/weston-uribe-portfolio",
+                branch: "cursor/wes-12-hello-world",
+                prUrl:
+                  "https://github.com/weston-uribe/weston-uribe-portfolio/pull/12",
+              },
+            ],
+          },
+        }),
+      }),
+    });
+
+    const observed = await sendAndObserve(agent as never, "prompt", dir, events, {
+      phase: "implementation",
+      targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+    });
+
+    expect(observed.gitResult?.branch).toBe("cursor/wes-12-hello-world");
+    expect(observed.gitResult?.prUrl).toContain("/pull/12");
+
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("rejects implementation runs without PR metadata", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "harness-observer-"));
+    const events = new EventLogger(dir);
+    await events.init();
+
+    const agent = createMockAgent({
+      send: vi.fn().mockResolvedValue({
+        id: "run-4",
+        stream: async function* () {
+          yield { type: "message" };
+        },
+        wait: vi.fn().mockResolvedValue({
+          id: "run-4",
+          status: "finished",
+          durationMs: 200,
+          result: "## Implementation summary\n\nDone",
+          git: { branches: [] },
+        }),
+      }),
+    });
+
+    await expect(
+      sendAndObserve(agent as never, "prompt", dir, events, {
+        phase: "implementation",
+        targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+      }),
+    ).rejects.toBeInstanceOf(ImplementationError);
+
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("cancels run when abort signal fires during streaming", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "harness-observer-"));
+    const events = new EventLogger(dir);
+    await events.init();
+    const logSpy = vi.spyOn(events, "log");
+
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    const abortController = new AbortController();
+
+    const agent = createMockAgent({
+      send: vi.fn().mockResolvedValue({
+        id: "run-5",
+        supports: vi.fn().mockReturnValue(true),
+        unsupportedReason: vi.fn(),
+        cancel,
+        stream: async function* () {
+          abortController.abort(
+            new ImplementationError(
+              "cursor_run_timeout",
+              "Cursor implementation run exceeded 60s",
+            ),
+          );
+          yield { type: "message" };
+          await new Promise(() => undefined);
+        },
+        wait: vi.fn(),
+      }),
+    });
+
+    await expect(
+      sendAndObserve(agent as never, "prompt", dir, events, {
+        phase: "implementation",
+        targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+        abortSignal: abortController.signal,
+      }),
+    ).rejects.toMatchObject({
+      classification: "cursor_run_timeout",
+      cancelOutcome: "cancelled",
+    });
+
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(logSpy).toHaveBeenCalledWith(
+      "cursor_run_cancelled",
+      "info",
+      expect.objectContaining({ runId: "run-5" }),
+    );
 
     await rm(dir, { recursive: true, force: true });
   });

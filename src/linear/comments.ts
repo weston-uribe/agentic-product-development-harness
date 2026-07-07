@@ -13,8 +13,14 @@ export interface HarnessCommentFooterInput {
   targetRepo: string;
 }
 
+export interface ImplementationCommentFooterInput
+  extends HarnessCommentFooterInput {
+  branch?: string;
+  prUrl?: string;
+}
+
 export function formatHarnessCommentFooter(
-  input: HarnessCommentFooterInput,
+  input: ImplementationCommentFooterInput,
 ): string {
   const lines = [
     "---",
@@ -32,8 +38,14 @@ export function formatHarnessCommentFooter(
     `model: ${input.model}`,
     `prompt_version: ${input.promptVersion}`,
     `target_repo: ${input.targetRepo}`,
-    "---",
   );
+  if (input.branch) {
+    lines.push(`branch: ${input.branch}`);
+  }
+  if (input.prUrl) {
+    lines.push(`pr_url: ${input.prUrl}`);
+  }
+  lines.push("---");
   return lines.join("\n");
 }
 
@@ -57,6 +69,30 @@ export function hasPlanningCompletionMarker(
     markers.orchestratorMarker === orchestratorMarker &&
     markers.phase === "planning" &&
     Boolean(markers.runId)
+  );
+}
+
+export function formatImplementationComment(
+  summaryBody: string,
+  footer: ImplementationCommentFooterInput,
+): string {
+  const trimmed = summaryBody.trim();
+  const header = trimmed.startsWith("##")
+    ? trimmed
+    : `## Implementation summary\n\n${trimmed}`;
+  return `${header}\n\n${formatHarnessCommentFooter(footer)}`;
+}
+
+export function hasImplementationCompletionMarker(
+  commentBody: string,
+  orchestratorMarker: string,
+): boolean {
+  const markers = parseHarnessMarkers(commentBody);
+  return (
+    markers.orchestratorMarker === orchestratorMarker &&
+    markers.phase === "implementation" &&
+    Boolean(markers.runId) &&
+    Boolean(markers.prUrl)
   );
 }
 
