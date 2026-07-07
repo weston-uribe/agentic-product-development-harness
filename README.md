@@ -1,12 +1,12 @@
 # Agentic Product Development Harness
 
-**Status: Milestone 8 — event-driven Linear watcher**
+**Status: Milestone 9 — Custom GPT issue intake**
 
 This project explores how an AI-native PM can define product work in structured issues, guide AI-assisted implementation through Cursor, and evaluate outputs before human product and engineering review.
 
 ## What this is
 
-A Cursor-first harness for turning product issues into implementation plans, validation reports, and review-ready pull requests. M1–M7 SDK runners handle planning through merge; **M8 adds automatic cloud runs** when Linear status changes to an actionable trigger status.
+A Cursor-first harness for turning product issues into implementation plans, validation reports, and review-ready pull requests. M1–M7 SDK runners handle planning through merge; **M8 adds automatic cloud runs** when Linear status changes; **M9 adds a Custom GPT package** so PMs can draft harness-compatible Linear issues in ChatGPT.
 
 The architecture is modular: **Cursor + GitHub + Linear + Vercel previews + human review**, with a Vercel webhook bridge and GitHub Actions auto-runner.
 
@@ -22,7 +22,7 @@ AI-assisted development makes it easy to generate code quickly. It does not, by 
 
 | Layer | Status |
 |-------|--------|
-| Issue intake | Skill + validate-issue CLI |
+| Issue intake | Custom GPT package + Cursor skill + validate-issue CLI |
 | Planning / implementation / handoff / revision / merge | SDK runners (M1–M6) |
 | **Auto-run from Linear status** | **Webhook bridge + GitHub Actions (M8)** |
 | Human approval | Required at merge |
@@ -50,6 +50,7 @@ Each step has a template in [`templates/`](templates/). Status changes on allowl
 
 - SDK harness runners M1–M7 — see [`ROADMAP.md`](ROADMAP.md)
 - **M8:** [`api/linear-webhook.ts`](api/linear-webhook.ts), [`.github/workflows/harness-auto-runner.yml`](.github/workflows/harness-auto-runner.yml)
+- **M9:** Custom GPT intake — [`gpt/issue-intake/`](gpt/issue-intake/)
 - Issue intake skill — [`skills/issue-intake/`](skills/issue-intake/)
 - Templates, evals, examples, architecture docs
 
@@ -68,13 +69,13 @@ The first real-world target for this harness is [`weston-uribe/weston-uribe-port
 - Production release tags
 - Polling-based Linear watcher
 
-Issue intake is implemented via [`skills/issue-intake/`](skills/issue-intake/). Additional skills remain deferred.
+Issue intake is implemented via [`gpt/issue-intake/`](gpt/issue-intake/) (ChatGPT) and [`skills/issue-intake/`](skills/issue-intake/) (Cursor). Additional skills remain deferred.
 
 ## Getting started
 
 1. Read [`ARCHITECTURE.md`](ARCHITECTURE.md) for the modular component model
 2. Read [`AGENTS.md`](AGENTS.md) if you are an AI agent working in this repo
-3. Use [`skills/issue-intake/SKILL.md`](skills/issue-intake/SKILL.md) to draft a product issue
+3. **PM intake:** configure [`gpt/issue-intake/setup-guide.md`](gpt/issue-intake/setup-guide.md) — or use [`skills/issue-intake/SKILL.md`](skills/issue-intake/SKILL.md) in Cursor
 4. Validate: `npm run harness:validate-issue -- --file draft.md --intended-phase planning`
 5. Dry-run: `npm run harness:run -- --issue WES-XX --dry-run`
 6. **Auto-run setup:** [`docs/linear-watcher-setup.md`](docs/linear-watcher-setup.md)

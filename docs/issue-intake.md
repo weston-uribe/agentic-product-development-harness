@@ -8,11 +8,25 @@ How to turn a fuzzy product idea into a harness-compatible Linear issue before p
 - Drafting a Linear issue description
 - Checking whether an issue is ready for **Ready for Planning** or **Ready for Build**
 
-## Workflow
+## Paths
 
-1. Invoke the **issue-intake** skill in Cursor ([`skills/issue-intake/SKILL.md`](../skills/issue-intake/SKILL.md)).
-2. Answer interview questions one at a time until the skill produces a **Linear issue package**.
-3. Save the description to a draft markdown file.
+### ChatGPT Custom GPT (primary PM UX)
+
+Product managers can draft issues without copying repo templates:
+
+1. Operator configures the Custom GPT per [`gpt/issue-intake/setup-guide.md`](../gpt/issue-intake/setup-guide.md)
+2. PM answers the upfront intake form in ChatGPT (eight fields)
+3. GPT produces a **Linear issue package** with readiness assessment
+4. PM approves; GPT creates the issue via the built-in Linear app (or delivers copy-paste instructions)
+5. Operator optionally validates the live issue with CLI (below)
+
+Artifacts: [`gpt/issue-intake/`](../gpt/issue-intake/) — instructions, knowledge, setup guide, smoke test.
+
+### Cursor skill + CLI (operator validation)
+
+1. Invoke the **issue-intake** skill in Cursor ([`skills/issue-intake/SKILL.md`](../skills/issue-intake/SKILL.md))
+2. Answer the upfront intake form (same eight fields as the GPT)
+3. Save the description to a draft markdown file
 4. Validate with route-specific flags:
 
 ```bash
@@ -26,7 +40,7 @@ npm run harness:validate-issue -- --file draft.md --intended-phase implementatio
 npm run harness:validate-issue -- --file draft.md
 ```
 
-5. Paste the description into Linear and set the **status** field per the skill recommendation (not in the description).
+5. Paste the description into Linear and set the **status** field per the recommendation (not in the description)
 6. Re-validate after paste:
 
 ```bash
@@ -53,6 +67,8 @@ Direct implementation without a prior planning comment requires:
 - Acceptance criteria ≤ 7 hyphen bullets
 
 Constants: [`src/validate/constants.ts`](../src/validate/constants.ts)
+
+Full contract: [`gpt/issue-intake/knowledge.md`](../gpt/issue-intake/knowledge.md)
 
 ## File vs Linear validation
 
@@ -82,5 +98,6 @@ The skill lives at [`skills/issue-intake/`](../skills/issue-intake/). To use it 
 
 ## Related
 
+- Custom GPT package: [`gpt/issue-intake/`](../gpt/issue-intake/)
 - Milestone doc: [`docs/milestones/m7-issue-intake.md`](milestones/m7-issue-intake.md)
 - State machine: [`docs/architecture/linear-automation-state-machine.md`](architecture/linear-automation-state-machine.md)

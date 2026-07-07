@@ -2,11 +2,29 @@
 
 Phased delivery for the agentic product development harness. Each phase adds capability only after the previous loop is proven manually.
 
-**Current phase: Linear watcher / auto-runner (Milestone 8)**
+**Current phase: Custom GPT issue intake (Milestone 9)**
 
 ---
 
-## Linear watcher (current)
+## Custom GPT intake (current)
+
+**Goal:** Productize issue intake so PMs can create harness-compatible Linear issues via ChatGPT without copying repo templates.
+
+**Delivered:**
+- Custom GPT package — [`gpt/issue-intake/`](gpt/issue-intake/) (instructions, knowledge, setup guide, smoke test)
+- Generic issue-intake skill aligned with GPT UX — [`skills/issue-intake/SKILL.md`](skills/issue-intake/SKILL.md)
+- Dual-path operator guide — [`docs/issue-intake.md`](docs/issue-intake.md)
+
+**Not included yet:**
+- Custom GPT Actions for Linear (deferred unless built-in app cannot create issues)
+- Lead agent, planner/implementer skills
+- Label enforcement in runner code
+
+---
+
+## Linear watcher (completed)
+
+**Goal:** Event-driven harness runs when Linear issue status changes to an actionable trigger — no manual `npm run harness:run` from Cursor/CLI.
 
 **Goal:** Event-driven harness runs when Linear issue status changes to an actionable trigger — no manual `npm run harness:run` from Cursor/CLI.
 
@@ -41,8 +59,9 @@ See [`docs/milestones/m7-issue-intake.md`](docs/milestones/m7-issue-intake.md).
 
 **Not included yet:**
 - Lead agent, planner/implementer skills
-- ChatGPT/Linear intake automation
 - Label enforcement in runner code
+
+Superseded for PM self-service by M9 Custom GPT package — [`gpt/issue-intake/`](gpt/issue-intake/).
 
 ---
 
