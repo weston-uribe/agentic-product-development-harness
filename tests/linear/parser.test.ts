@@ -54,4 +54,30 @@ describe("parseIssueDescription", () => {
     expect(parsed.targetRepoRaw).toBe("weston-uribe/weston-uribe-portfolio");
     expect(parsed.parseErrors).toEqual([]);
   });
+
+  it("accepts asterisk list bullets from Linear markdown", () => {
+    const description = `## Target repo
+
+weston-uribe/agentic-product-development-harness
+
+## Task
+
+Docs-only note.
+
+## Acceptance criteria
+
+* [ ] First criterion
+* [ ] Second criterion
+
+## Out of scope
+
+* No production releases
+* No portfolio changes
+`;
+    const parsed = parseIssueDescription(description);
+
+    expect(parsed.parseErrors).toEqual([]);
+    expect(parsed.acceptanceCriteria).toEqual(["First criterion", "Second criterion"]);
+    expect(parsed.outOfScope).toEqual(["No production releases", "No portfolio changes"]);
+  });
 });

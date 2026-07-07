@@ -45,8 +45,8 @@ function extractListItems(content: string): string[] {
   return content
     .split("\n")
     .map((line) => line.trim())
-    .filter((line) => line.startsWith("-"))
-    .map((line) => line.replace(/^-\s*(\[[ xX]\]\s*)?/, "").trim())
+    .filter((line) => line.startsWith("-") || line.startsWith("*"))
+    .map((line) => line.replace(/^[-*]\s*(\[[ xX]\]\s*)?/, "").trim())
     .filter(Boolean);
 }
 
