@@ -12,6 +12,7 @@ const IMPLEMENTATION_STATUSES = new Set([
 ]);
 
 const HANDOFF_STATUSES = new Set(["pr open"]);
+const REVISION_STATUSES = new Set(["needs revision"]);
 
 export function inferPhaseFromStatus(
   status: string | null | undefined,
@@ -31,6 +32,9 @@ export function inferPhaseFromStatus(
   const handoffStatuses =
     config.linear?.eligibleStatuses?.handoff?.map((s) => s.toLowerCase()) ??
     [...HANDOFF_STATUSES];
+  const revisionStatuses =
+    config.linear?.eligibleStatuses?.revision?.map((s) => s.toLowerCase()) ??
+    [...REVISION_STATUSES];
 
   if (planningStatuses.includes(normalized) || PLANNING_STATUSES.has(normalized)) {
     return { phase: "planning", statusLabel: status };
@@ -38,6 +42,10 @@ export function inferPhaseFromStatus(
 
   if (handoffStatuses.includes(normalized) || HANDOFF_STATUSES.has(normalized)) {
     return { phase: "handoff", statusLabel: status };
+  }
+
+  if (revisionStatuses.includes(normalized) || REVISION_STATUSES.has(normalized)) {
+    return { phase: "revision", statusLabel: status };
   }
 
   if (

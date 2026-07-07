@@ -52,6 +52,8 @@ export async function writeRunSummary(
     `- **Changed files:** ${manifest.changedFiles?.length ?? 0}`,
     `- **Check summary:** ${manifest.checkSummary ?? "n/a"}`,
     `- **Previous implementation run ID:** ${manifest.previousImplementationRunId ?? "n/a"}`,
+    `- **Previous handoff run ID:** ${manifest.previousHandoffRunId ?? "n/a"}`,
+    `- **PM feedback comment ID:** ${manifest.pmFeedbackCommentId ?? "n/a"}`,
     `- **Validation summary:** ${manifest.validationSummary ?? "n/a"}`,
     `- **Cursor cleanup:** ${formatCursorCleanup(extras.cursorCleanup)}`,
     "",

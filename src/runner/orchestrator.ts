@@ -1,5 +1,6 @@
 import { executeDryRun } from "./dry-run.js";
 import { executeHandoffPhase } from "./phases/handoff.js";
+import { executeRevisionPhase } from "./phases/revision.js";
 import { executeImplementationPhase } from "./phases/implementation.js";
 import { executePlanningPhase } from "./phases/planning.js";
 import { fetchLinearIssue } from "../linear/client.js";
@@ -7,7 +8,13 @@ import { inferPhaseFromStatus } from "./phase-infer.js";
 import { loadConfig } from "../config/load-config.js";
 import { EXIT_CONFIG } from "../cli/exit-codes.js";
 
-export type RunPhaseArg = "auto" | "planning" | "implementation" | "handoff" | "dry-run";
+export type RunPhaseArg =
+  | "auto"
+  | "planning"
+  | "implementation"
+  | "handoff"
+  | "revision"
+  | "dry-run";
 
 export interface OrchestratorOptions {
   issueKey: string;
@@ -53,6 +60,8 @@ export async function runOrchestrator(
       phase = "planning";
     } else if (inferred.phase === "handoff") {
       phase = "handoff";
+    } else if (inferred.phase === "revision") {
+      phase = "revision";
     } else if (inferred.phase === "implementation") {
       phase = "implementation";
     } else {
@@ -91,6 +100,19 @@ export async function runOrchestrator(
 
   if (phase === "handoff") {
     const result = await executeHandoffPhase({
+      issueKey: options.issueKey,
+      configPath: options.configPath,
+      force: options.force,
+    });
+    return {
+      exitCode: result.exitCode,
+      runDirectory: result.runDirectory,
+      manifest: result.manifest,
+    };
+  }
+
+  if (phase === "revision") {
+    const result = await executeRevisionPhase({
       issueKey: options.issueKey,
       configPath: options.configPath,
       force: options.force,

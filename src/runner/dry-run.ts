@@ -60,6 +60,8 @@ export async function executeDryRun(options: DryRunOptions): Promise<DryRunResul
       changedFiles: null,
       checkSummary: null,
       previousImplementationRunId: null,
+      previousHandoffRunId: null,
+      pmFeedbackCommentId: null,
       model,
     };
     await writeManifest(preflight.context.runDirectory, manifest);
@@ -105,6 +107,8 @@ export async function executeDryRun(options: DryRunOptions): Promise<DryRunResul
     changedFiles: null,
     checkSummary: null,
     previousImplementationRunId: null,
+    previousHandoffRunId: null,
+    pmFeedbackCommentId: null,
     model,
   };
 

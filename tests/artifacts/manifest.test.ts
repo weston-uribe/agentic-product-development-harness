@@ -34,6 +34,8 @@ describe("manifest writer", () => {
       changedFiles: null,
       checkSummary: null,
       previousImplementationRunId: null,
+      previousHandoffRunId: null,
+      pmFeedbackCommentId: null,
       model: null,
     };
 

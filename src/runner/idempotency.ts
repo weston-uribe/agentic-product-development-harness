@@ -2,6 +2,7 @@ import type { HarnessConfig } from "../config/types.js";
 import type { LinearIssueSnapshot } from "../linear/client.js";
 import type { LinearCommentRecord } from "../linear/writer.js";
 import {
+  findRevisionMarkerForPmFeedback,
   hasHandoffCompletionMarker,
   hasImplementationCompletionMarker,
   hasPlanningCompletionMarker,
@@ -11,6 +12,7 @@ import {
   getEligibleHandoffStatuses,
   getEligibleImplementationStatuses,
   getEligiblePlanningStatuses,
+  getEligibleRevisionStatuses,
   getTransitionalStatus,
 } from "../config/status-names.js";
 import type { ParsedIssue } from "../types/parsed-issue.js";
@@ -205,6 +207,96 @@ export function assertHandoffEligibleStatus(
     return;
   }
 
+  throw new Error(
+    `wrong_status: issue is "${status}"; expected one of: ${eligible.join(", ")}`,
+  );
+}
+
+export function checkRevisionIdempotency(
+  config: HarnessConfig,
+  issue: LinearIssueSnapshot,
+  comments: LinearCommentRecord[],
+  pmFeedbackCommentId: string,
+  force: boolean,
+): IdempotencyResult {
+  const orchestratorMarker = config.orchestratorMarker;
+  const pmReview = getTransitionalStatus(config, "pmReview");
+  const needsRevision = getTransitionalStatus(config, "needsRevision");
+  const revising = getTransitionalStatus(config, "revisingInProgress");
+  const status = issue.status?.toLowerCase() ?? "";
+
+  const hasMatchingRevisionMarker = findRevisionMarkerForPmFeedback(
+    comments,
+    orchestratorMarker,
+    pmFeedbackCommentId,
+  );
+
+  if (hasMatchingRevisionMarker) {
+    if (status === pmReview.toLowerCase()) {
+      return {
+        skip: true,
+        reason:
+          "duplicate_phase_completed: revision marker already exists for latest PM feedback",
+      };
+    }
+
+    if (status === needsRevision.toLowerCase() && !force) {
+      return {
+        skip: true,
+        reason:
+          "duplicate_phase_completed: revision marker already exists for latest PM feedback",
+      };
+    }
+  }
+
+  if (status === pmReview.toLowerCase() && !hasMatchingRevisionMarker) {
+    return {
+      skip: false,
+      reason: "wrong_status: PM Review without matching revision marker",
+    };
+  }
+
+  if (
+    status !== needsRevision.toLowerCase() &&
+    !(force && status === revising.toLowerCase())
+  ) {
+    const eligible = getEligibleRevisionStatuses(config);
+    if (!eligible.some((s) => s.toLowerCase() === status)) {
+      return {
+        skip: false,
+        reason: `wrong_status: issue is "${issue.status}"; expected one of: ${eligible.join(", ")}`,
+      };
+    }
+  }
+
+  return { skip: false };
+}
+
+export function assertRevisionEligibleStatus(
+  config: HarnessConfig,
+  issue: LinearIssueSnapshot,
+  force: boolean,
+): void {
+  const status = issue.status?.trim() ?? "";
+  const needsRevision = getTransitionalStatus(config, "needsRevision");
+  const revising = getTransitionalStatus(config, "revisingInProgress");
+  const pmReview = getTransitionalStatus(config, "pmReview");
+
+  if (status.toLowerCase() === needsRevision.toLowerCase()) {
+    return;
+  }
+
+  if (force && status.toLowerCase() === revising.toLowerCase()) {
+    return;
+  }
+
+  if (status.toLowerCase() === pmReview.toLowerCase()) {
+    throw new Error(
+      `wrong_status: issue is "${status}"; no matching revision marker for latest PM feedback`,
+    );
+  }
+
+  const eligible = getEligibleRevisionStatuses(config);
   throw new Error(
     `wrong_status: issue is "${status}"; expected one of: ${eligible.join(", ")}`,
   );

@@ -79,6 +79,7 @@ describe("runDoctor", () => {
   });
 
   it("fails when GITHUB_TOKEN is missing", async () => {
+    delete process.env.GITHUB_TOKEN;
     const code = await runDoctor({ configPath });
     expect(code).toBe(EXIT_CONFIG);
   });

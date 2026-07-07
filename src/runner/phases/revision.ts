@@ -1,34 +1,39 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import {
-  DEFAULT_HANDOFF_ALLOW_PM_REVIEW_WITHOUT_PREVIEW,
   DEFAULT_PREVIEW_POLL_INTERVAL_SECONDS,
   DEFAULT_PREVIEW_POLL_TIMEOUT_SECONDS,
-  HANDOFF_PROMPT_VERSION,
+  DEFAULT_REVISION_TIMEOUT_SECONDS,
   MILESTONE,
+  REVISION_PROMPT_VERSION,
 } from "../../config/defaults.js";
 import { getTransitionalStatus } from "../../config/status-names.js";
 import { writeManifest } from "../../artifacts/manifest.js";
 import { writeRunSummary } from "../../artifacts/summary.js";
 import {
   getGithubChecksPath,
-  getGithubPrPath,
-  getHandoffCommentPath,
-  getImplementationCommentLoadedPath,
+  getGithubPrAfterPath,
+  getGithubPrBeforePath,
+  getHandoffCommentLoadedPath,
   getIssueSnapshotAfterPath,
+  getPmFeedbackCommentLoadedPath,
+  getRevisionCommentPath,
+  getRevisionPromptPath,
+  getRevisionResultPath,
   getVercelDeploymentPath,
 } from "../../artifacts/paths.js";
 import {
-  buildHandoffCommentBody,
+  buildRevisionCommentBody,
   writeCommentsArtifact,
 } from "../../linear/comments.js";
 import { fetchLinearIssue } from "../../linear/client.js";
-import { findLatestImplementationComment } from "../../linear/implementation-comment.js";
+import { findLatestHandoffComment } from "../../linear/handoff-comment.js";
+import { findLatestPmFeedbackAfterHandoff } from "../../linear/pm-feedback-comment.js";
 import { parseHarnessMarkers } from "../../linear/markers.js";
 import {
   createLinearClient,
   listIssueComments,
   postErrorComment,
-  postHandoffComment,
+  postRevisionComment,
   transitionIssueStatus,
 } from "../../linear/writer.js";
 import { GitHubClient } from "../../github/client.js";
@@ -38,13 +43,16 @@ import {
 } from "../../github/pr-inspector.js";
 import { parsePrUrl } from "../../github/pr-url.js";
 import { pollForVercelPreview } from "../../preview/vercel-from-pr.js";
+import { createRevisionCloudAgent } from "../../cursor/agent-factory.js";
+import { sendAndObserve } from "../../cursor/run-observer.js";
 import { normalizeRepoUrl } from "../../resolver/normalize-repo.js";
+import { buildRevisionPrompt } from "../../prompts/revision-builder.js";
 import { resolveModelId } from "../../cursor/model.js";
-import { HandoffError } from "../errors.js";
+import { RevisionError } from "../errors.js";
 import { runPreflight } from "../preflight.js";
 import {
-  assertHandoffEligibleStatus,
-  checkHandoffIdempotency,
+  assertRevisionEligibleStatus,
+  checkRevisionIdempotency,
 } from "../idempotency.js";
 import type { EventLogger } from "../../artifacts/events.js";
 import type {
@@ -54,14 +62,15 @@ import type {
 } from "../../types/run.js";
 import type { ParsedIssue } from "../../types/parsed-issue.js";
 import type { ResolvedTarget } from "../../resolver/target-repo.js";
+import type { CursorCancelOutcome } from "../../cursor/run-cleanup.js";
 
-export interface HandoffPhaseOptions {
+export interface RevisionPhaseOptions {
   issueKey: string;
   configPath: string;
   force?: boolean;
 }
 
-export interface HandoffPhaseResult {
+export interface RevisionPhaseResult {
   manifest: RunManifest;
   runDirectory: string;
   exitCode: number;
@@ -70,12 +79,25 @@ export interface HandoffPhaseResult {
 function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value) {
-    throw new HandoffError(
-      name === "LINEAR_API_KEY" ? "linear_auth_failure" : "github_auth_failure",
-      `${name} is required for live handoff runs`,
-    );
+    const classification =
+      name === "LINEAR_API_KEY"
+        ? "linear_auth_failure"
+        : name === "CURSOR_API_KEY"
+          ? "cursor_api_failure"
+          : "github_auth_failure";
+    throw new RevisionError(classification, `${name} is required for live revision runs`);
   }
   return value;
+}
+
+function emptyManifestFields() {
+  return {
+    changedFiles: null as string[] | null,
+    checkSummary: null as string | null,
+    previousImplementationRunId: null as string | null,
+    previousHandoffRunId: null as string | null,
+    pmFeedbackCommentId: null as string | null,
+  };
 }
 
 async function writeErrorArtifact(
@@ -99,10 +121,13 @@ async function writeFinalManifest(
   events: EventLogger | null,
   finalOutcome: FinalOutcome,
   errorClassification: ErrorClassification,
-): Promise<HandoffPhaseResult> {
+  cursorCleanup: CursorCancelOutcome | null = null,
+): Promise<RevisionPhaseResult> {
   if (runDirectory) {
     await writeManifest(runDirectory, manifest);
-    await writeRunSummary(runDirectory, manifest, parsed, resolved);
+    await writeRunSummary(runDirectory, manifest, parsed, resolved, {
+      cursorCleanup,
+    });
     await events?.log("run_finished", finalOutcome === "success" ? "info" : "error", {
       finalOutcome,
       errorClassification,
@@ -118,8 +143,12 @@ async function writeFinalManifest(
             "missing_target_repo",
             "unknown_repo_denied",
             "wrong_status",
+            "linear_auth_failure",
+            "cursor_api_failure",
             "github_auth_failure",
-            "missing_implementation_marker",
+            "missing_handoff_marker",
+            "missing_pm_feedback",
+            "missing_branch",
             "missing_pr_url",
           ].includes(errorClassification)
         ? 2
@@ -128,22 +157,24 @@ async function writeFinalManifest(
   return { manifest, runDirectory, exitCode };
 }
 
-export async function executeHandoffPhase(
-  options: HandoffPhaseOptions,
-): Promise<HandoffPhaseResult> {
+export async function executeRevisionPhase(
+  options: RevisionPhaseOptions,
+): Promise<RevisionPhaseResult> {
   let linearApiKey: string;
+  let cursorApiKey: string;
   let githubToken: string;
 
   try {
-    githubToken = requireEnv("GITHUB_TOKEN");
     linearApiKey = requireEnv("LINEAR_API_KEY");
+    cursorApiKey = requireEnv("CURSOR_API_KEY");
+    githubToken = requireEnv("GITHUB_TOKEN");
   } catch (error) {
-    if (error instanceof HandoffError) {
+    if (error instanceof RevisionError) {
       const startedAt = new Date().toISOString();
       const manifest: RunManifest = {
         runId: `auth-failure-${options.issueKey}`,
         issueKey: options.issueKey,
-        phase: "handoff",
+        phase: "revision",
         phaseInferredFromStatus: null,
         linearStatusBefore: null,
         linearStatusAfter: null,
@@ -163,12 +194,8 @@ export async function executeHandoffPhase(
         prUrl: null,
         previewUrl: null,
         validationSummary: null,
-        changedFiles: null,
-        checkSummary: null,
-        previousImplementationRunId: null,
-      previousHandoffRunId: null,
-      pmFeedbackCommentId: null,
         model: null,
+        ...emptyManifestFields(),
       };
       return { manifest, runDirectory: "", exitCode: 2 };
     }
@@ -185,7 +212,7 @@ export async function executeHandoffPhase(
     const manifest: RunManifest = {
       runId: preflight.runId,
       issueKey: options.issueKey,
-      phase: "handoff",
+      phase: "revision",
       phaseInferredFromStatus: preflight.phaseInferredFromStatus,
       linearStatusBefore: preflight.issue?.status ?? null,
       linearStatusAfter: preflight.issue?.status ?? null,
@@ -205,12 +232,8 @@ export async function executeHandoffPhase(
       prUrl: null,
       previewUrl: null,
       validationSummary: null,
-      changedFiles: null,
-      checkSummary: null,
-      previousImplementationRunId: null,
-      previousHandoffRunId: null,
-      pmFeedbackCommentId: null,
       model: preflight.config ? resolveModelId(preflight.config) : null,
+      ...emptyManifestFields(),
     };
     return writeFinalManifest(
       manifest,
@@ -240,22 +263,28 @@ export async function executeHandoffPhase(
   let linearStatusAfter = issue.status;
   let finalOutcome: FinalOutcome = "failed";
   let errorClassification: ErrorClassification = null;
+  let cursorAgentId: string | null = null;
+  let cursorRunId: string | null = null;
   let branch: string | null = null;
   let prUrl: string | null = null;
   let previewUrl: string | null = null;
+  let validationSummary: string | null = null;
   let changedFiles: string[] | null = null;
   let checkSummary: string | null = null;
   let previousImplementationRunId: string | null = null;
-  let enteredHandoff = false;
+  let previousHandoffRunId: string | null = null;
+  let pmFeedbackCommentId: string | null = null;
+  let enteredRevising = false;
+  let cursorCleanup: CursorCancelOutcome | null = null;
   const model = resolveModelId(config);
   const commentsWritten: string[] = [];
 
   const footerBase = {
     orchestratorMarker: config.orchestratorMarker,
-    phase: "handoff",
+    phase: "revision",
     runId,
     model,
-    promptVersion: HANDOFF_PROMPT_VERSION,
+    promptVersion: REVISION_PROMPT_VERSION,
     targetRepo: resolved.targetRepo,
   };
 
@@ -264,10 +293,34 @@ export async function executeHandoffPhase(
 
   try {
     const comments = await listIssueComments(client, issue.id);
-    const idempotency = checkHandoffIdempotency(
+
+    const handoffComment = findLatestHandoffComment(comments, config.orchestratorMarker);
+    if (!handoffComment) {
+      throw new RevisionError(
+        "missing_handoff_marker",
+        "No durable handoff marker comment found",
+      );
+    }
+
+    const pmFeedbackComment = findLatestPmFeedbackAfterHandoff(
+      comments,
+      handoffComment,
+      config.orchestratorMarker,
+    );
+    if (!pmFeedbackComment) {
+      throw new RevisionError(
+        "missing_pm_feedback",
+        "No PM feedback comment found after latest handoff marker",
+      );
+    }
+
+    pmFeedbackCommentId = pmFeedbackComment.id;
+
+    const idempotency = checkRevisionIdempotency(
       config,
       issue,
       comments,
+      pmFeedbackCommentId,
       Boolean(options.force),
     );
     if (idempotency.skip) {
@@ -290,18 +343,18 @@ export async function executeHandoffPhase(
         startedAt: startedAt.toISOString(),
         finishedAt: new Date().toISOString(),
         milestone: MILESTONE,
-        promptVersion: HANDOFF_PROMPT_VERSION,
-        cursorAgentId: null,
-        cursorRunId: null,
+        promptVersion: REVISION_PROMPT_VERSION,
+        cursorAgentId,
+        cursorRunId,
         branch,
         prUrl,
         previewUrl,
-        validationSummary: null,
+        validationSummary,
         changedFiles,
         checkSummary,
         previousImplementationRunId,
-        previousHandoffRunId: null,
-        pmFeedbackCommentId: null,
+        previousHandoffRunId,
+        pmFeedbackCommentId,
         model,
       };
       return writeFinalManifest(
@@ -315,57 +368,55 @@ export async function executeHandoffPhase(
       );
     }
 
+    if (idempotency.reason?.startsWith("wrong_status")) {
+      throw new RevisionError("wrong_status", idempotency.reason);
+    }
+
     try {
-      assertHandoffEligibleStatus(config, issue, Boolean(options.force));
+      assertRevisionEligibleStatus(config, issue, Boolean(options.force));
     } catch (error) {
-      throw new HandoffError(
+      throw new RevisionError(
         "wrong_status",
         error instanceof Error ? error.message : String(error),
       );
     }
 
-    const implementationComment = findLatestImplementationComment(
-      comments,
-      config.orchestratorMarker,
-    );
-    if (!implementationComment) {
-      throw new HandoffError(
-        "missing_implementation_marker",
-        "No durable implementation marker comment found",
-      );
+    const handoffMarkers = parseHarnessMarkers(handoffComment.body);
+    if (!handoffMarkers.prUrl) {
+      throw new RevisionError("missing_pr_url", "Handoff marker is missing pr_url");
     }
 
-    const markers = parseHarnessMarkers(implementationComment.body);
-    if (!markers.prUrl) {
-      throw new HandoffError(
-        "missing_pr_url",
-        "Implementation marker is missing pr_url",
-      );
-    }
-
-    prUrl = markers.prUrl;
-    branch = markers.branch ?? null;
-    previousImplementationRunId = markers.runId ?? null;
+    prUrl = handoffMarkers.prUrl;
+    branch = handoffMarkers.branch ?? null;
+    previewUrl = handoffMarkers.previewUrl ?? null;
+    previousHandoffRunId = handoffMarkers.runId ?? null;
+    previousImplementationRunId = handoffMarkers.previousImplementationRunId ?? null;
     const markerTargetRepo = normalizeRepoUrl(
-      markers.targetRepo ?? resolved.targetRepo,
+      handoffMarkers.targetRepo ?? resolved.targetRepo,
     );
 
     await mkdir(`${runDirectory}/linear`, { recursive: true });
     await writeFile(
-      getImplementationCommentLoadedPath(runDirectory),
-      `${implementationComment.body}\n`,
+      getHandoffCommentLoadedPath(runDirectory),
+      `${handoffComment.body}\n`,
       "utf8",
     );
-    await events.log("implementation_comment_loaded", "info", {
-      commentId: implementationComment.id,
-      previousImplementationRunId,
+    await writeFile(
+      getPmFeedbackCommentLoadedPath(runDirectory),
+      `${pmFeedbackComment.body}\n`,
+      "utf8",
+    );
+    await events.log("handoff_comment_loaded", "info", {
+      commentId: handoffComment.id,
+      previousHandoffRunId,
     });
-
-    enteredHandoff = true;
+    await events.log("pm_feedback_loaded", "info", {
+      commentId: pmFeedbackComment.id,
+    });
 
     const parsedPr = parsePrUrl(prUrl);
     if (!parsedPr) {
-      throw new HandoffError("missing_pr_url", `Invalid PR URL: ${prUrl}`);
+      throw new RevisionError("missing_pr_url", `Invalid PR URL: ${prUrl}`);
     }
 
     let inspection;
@@ -375,12 +426,12 @@ export async function executeHandoffPhase(
       const classification = classifyGitHubError(error);
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes("wrong_target_repo")) {
-        throw new HandoffError("wrong_target_repo", message);
+        throw new RevisionError("wrong_target_repo", message);
       }
       if (message.includes("pr_closed")) {
-        throw new HandoffError("pr_closed", message);
+        throw new RevisionError("pr_closed", message);
       }
-      throw new HandoffError(classification, message);
+      throw new RevisionError(classification, message);
     }
 
     branch = inspection.branch;
@@ -388,9 +439,13 @@ export async function executeHandoffPhase(
     changedFiles = inspection.changedFiles.map((f) => f.path);
     checkSummary = inspection.checkSummary;
 
+    if (!branch) {
+      throw new RevisionError("missing_branch", "Could not determine PR branch");
+    }
+
     await mkdir(`${runDirectory}/github`, { recursive: true });
     await writeFile(
-      getGithubPrPath(runDirectory),
+      getGithubPrBeforePath(runDirectory),
       `${JSON.stringify(inspection, null, 2)}\n`,
       "utf8",
     );
@@ -406,15 +461,103 @@ export async function executeHandoffPhase(
       changedFileCount: changedFiles.length,
     });
 
+    const revisingStatus = getTransitionalStatus(config, "revisingInProgress");
+    await transitionIssueStatus(client, issue, revisingStatus);
+    enteredRevising = true;
+    linearStatusAfter = revisingStatus;
+    await events.log("linear_status_changed", "info", {
+      from: linearStatusBefore,
+      to: revisingStatus,
+    });
+
+    const repoConfig = config.repos.find((repo) => repo.id === resolved.repoConfigId);
+    const validationCommands = repoConfig?.validation?.commands ?? [];
+    const { prompt, promptVersion } = await buildRevisionPrompt({
+      issue,
+      parsed,
+      resolved,
+      runId,
+      branch,
+      prUrl,
+      pmFeedback: pmFeedbackComment.body,
+      changedFiles,
+      validationCommands,
+    });
+
+    await mkdir(`${runDirectory}/prompts`, { recursive: true });
+    await writeFile(getRevisionPromptPath(runDirectory), `${prompt}\n`, "utf8");
+
+    await using agent = await createRevisionCloudAgent({
+      apiKey: cursorApiKey,
+      config,
+      targetRepo: markerTargetRepo,
+      branch,
+      prUrl,
+    });
+
+    const timeoutMs =
+      (config.revision?.timeoutSeconds ?? DEFAULT_REVISION_TIMEOUT_SECONDS) * 1000;
+    const abortController = new AbortController();
+    let timeoutError: RevisionError | null = null;
+    const timeoutId = setTimeout(() => {
+      timeoutError = new RevisionError(
+        "cursor_run_timeout",
+        `Cursor revision run exceeded ${timeoutMs / 1000}s`,
+      );
+      abortController.abort(timeoutError);
+    }, timeoutMs);
+
+    let observed;
+    try {
+      observed = await sendAndObserve(agent, prompt, runDirectory, events, {
+        phase: "revision",
+        targetRepo: markerTargetRepo,
+        expectedBranch: branch,
+        expectedPrUrl: prUrl,
+        abortSignal: abortController.signal,
+      });
+    } catch (error) {
+      if (abortController.signal.aborted && timeoutError) {
+        throw timeoutError;
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+    cursorCleanup = observed.cancelOutcome;
+    cursorAgentId = observed.agentId;
+    cursorRunId = observed.runId;
+    branch = observed.gitResult?.branch ?? branch;
+    prUrl = observed.gitResult?.prUrl ?? prUrl;
+    validationSummary = observed.assistantText;
+
+    await mkdir(`${runDirectory}/outputs`, { recursive: true });
+    await writeFile(
+      getRevisionResultPath(runDirectory),
+      `${observed.assistantText}\n`,
+      "utf8",
+    );
+    await events.log("revision_pr_validated", "info", { prUrl, branch });
+    await events.log("validation_completed", "info", { validationSummary });
+
+    const postInspection = await inspectPullRequest(
+      github,
+      parsePrUrl(prUrl)!,
+      markerTargetRepo,
+    );
+    changedFiles = postInspection.changedFiles.map((f) => f.path);
+    checkSummary = postInspection.checkSummary;
+    await writeFile(
+      getGithubPrAfterPath(runDirectory),
+      `${JSON.stringify(postInspection, null, 2)}\n`,
+      "utf8",
+    );
+
     const pollTimeout =
       config.preview?.pollTimeoutSeconds ?? DEFAULT_PREVIEW_POLL_TIMEOUT_SECONDS;
     const pollInterval =
       config.preview?.pollIntervalSeconds ?? DEFAULT_PREVIEW_POLL_INTERVAL_SECONDS;
-
-    await events.log("preview_poll_started", "info", {
-      pollTimeoutSeconds: pollTimeout,
-      pollIntervalSeconds: pollInterval,
-    });
 
     const previewResult = await pollForVercelPreview(
       async () => {
@@ -427,7 +570,22 @@ export async function executeHandoffPhase(
       },
     );
 
-    previewUrl = previewResult.previewUrl;
+    const updatedPreviewUrl = previewResult.previewUrl;
+    let previewWarning: string | null = null;
+    if (updatedPreviewUrl) {
+      previewUrl = updatedPreviewUrl;
+      await events.log("preview_captured", "info", {
+        previewUrl,
+        source: previewResult.source,
+      });
+    } else {
+      previewWarning =
+        previewResult.warnings.join("; ") ||
+        "Preview URL not updated yet after revision; prior preview may be stale";
+      await events.log("preview_not_found", "warn", {
+        warnings: previewResult.warnings,
+      });
+    }
 
     await mkdir(`${runDirectory}/vercel`, { recursive: true });
     await writeFile(
@@ -436,70 +594,48 @@ export async function executeHandoffPhase(
       "utf8",
     );
 
-    if (previewUrl) {
-      await events.log("preview_captured", "info", {
-        previewUrl,
-        source: previewResult.source,
-      });
-    } else {
-      await events.log("preview_not_found", "warn", {
-        warnings: previewResult.warnings,
-      });
-    }
-
-    const allowWithoutPreview =
-      config.handoff?.allowPmReviewWithoutPreview ??
-      DEFAULT_HANDOFF_ALLOW_PM_REVIEW_WITHOUT_PREVIEW;
-
-    if (!previewUrl && !allowWithoutPreview) {
-      throw new HandoffError(
-        "preview_not_found",
-        previewResult.warnings.join("; ") || "Vercel preview URL not found",
-      );
-    }
-
-    const previewWarning =
-      !previewUrl && allowWithoutPreview
-        ? previewResult.warnings.join("; ") ||
-          "Preview URL not found; proceeding to PM Review per fallback policy"
-        : null;
-
-    const handoffBody = buildHandoffCommentBody({
-      prTitle: inspection.title,
-      prUrl: inspection.url,
-      branch: inspection.branch,
+    const revisionBody = buildRevisionCommentBody({
+      pmFeedback: pmFeedbackComment.body,
+      prTitle: postInspection.title,
+      prUrl: postInspection.url,
+      branch: postInspection.branch,
       targetRepo: markerTargetRepo,
       previewUrl,
       previewWarning,
       changedFiles,
-      checkSummary: inspection.checkSummary,
+      checkSummary: postInspection.checkSummary,
+      validationSummary: validationSummary ?? "",
       harnessRunId: runId,
-      previousImplementationRunId,
+      previousHandoffRunId,
+      pmFeedbackCommentId,
     });
 
-    const handoffCommentId = await postHandoffComment(client, issue.id, handoffBody, {
+    const revisionCommentId = await postRevisionComment(client, issue.id, revisionBody, {
       ...footerBase,
+      promptVersion,
+      cursorAgentId: cursorAgentId ?? undefined,
+      cursorRunId: cursorRunId ?? undefined,
       branch: branch ?? undefined,
       prUrl: prUrl ?? undefined,
       previewUrl: previewUrl ?? undefined,
-      previousImplementationRunId: previousImplementationRunId ?? undefined,
+      previousHandoffRunId: previousHandoffRunId ?? undefined,
+      pmFeedbackCommentId,
     });
-    commentsWritten.push(handoffBody);
-    await mkdir(`${runDirectory}/linear`, { recursive: true });
-    await writeFile(getHandoffCommentPath(runDirectory), `${handoffBody}\n`, "utf8");
-    await events.log("handoff_comment_posted", "info", {
-      commentId: handoffCommentId,
+    commentsWritten.push(revisionBody);
+    await writeFile(getRevisionCommentPath(runDirectory), `${revisionBody}\n`, "utf8");
+    await events.log("revision_comment_posted", "info", {
+      commentId: revisionCommentId,
     });
     await events.log("linear_comment_posted", "info", {
-      phase: "handoff",
-      commentId: handoffCommentId,
+      phase: "revision",
+      commentId: revisionCommentId,
     });
 
     const pmReviewStatus = getTransitionalStatus(config, "pmReview");
     await transitionIssueStatus(client, issue, pmReviewStatus);
     linearStatusAfter = pmReviewStatus;
     await events.log("linear_status_changed", "info", {
-      from: linearStatusBefore,
+      from: revisingStatus,
       to: pmReviewStatus,
     });
 
@@ -517,8 +653,9 @@ export async function executeHandoffPhase(
     finalOutcome = "success";
     errorClassification = null;
   } catch (error) {
-    if (error instanceof HandoffError) {
+    if (error instanceof RevisionError) {
       errorClassification = error.classification;
+      cursorCleanup = error.cancelOutcome;
     } else if (error instanceof Error) {
       errorClassification = "linear_write_failure";
     } else {
@@ -528,7 +665,7 @@ export async function executeHandoffPhase(
     const message = error instanceof Error ? error.message : String(error);
     await writeErrorArtifact(runDirectory, message, errorClassification);
 
-    if (enteredHandoff) {
+    if (enteredRevising) {
       try {
         await postErrorComment(
           client,
@@ -536,12 +673,15 @@ export async function executeHandoffPhase(
           message,
           {
             ...footerBase,
+            cursorAgentId: cursorAgentId ?? undefined,
+            cursorRunId: cursorRunId ?? undefined,
             branch: branch ?? undefined,
             prUrl: prUrl ?? undefined,
             previewUrl: previewUrl ?? undefined,
-            previousImplementationRunId: previousImplementationRunId ?? undefined,
+            previousHandoffRunId: previousHandoffRunId ?? undefined,
+            pmFeedbackCommentId: pmFeedbackCommentId ?? undefined,
           },
-          "handoff",
+          "revision",
         );
         const blocked = getTransitionalStatus(config, "blocked");
         await transitionIssueStatus(client, issue, blocked);
@@ -559,7 +699,7 @@ export async function executeHandoffPhase(
   const manifest: RunManifest = {
     runId,
     issueKey: options.issueKey,
-    phase: "handoff",
+    phase: "revision",
     phaseInferredFromStatus,
     linearStatusBefore,
     linearStatusAfter,
@@ -572,18 +712,18 @@ export async function executeHandoffPhase(
     startedAt: startedAt.toISOString(),
     finishedAt: new Date().toISOString(),
     milestone: MILESTONE,
-    promptVersion: HANDOFF_PROMPT_VERSION,
-    cursorAgentId: null,
-    cursorRunId: null,
+    promptVersion: REVISION_PROMPT_VERSION,
+    cursorAgentId,
+    cursorRunId,
     branch,
     prUrl,
     previewUrl,
-    validationSummary: checkSummary,
+    validationSummary,
     changedFiles,
     checkSummary,
     previousImplementationRunId,
-    previousHandoffRunId: null,
-    pmFeedbackCommentId: null,
+    previousHandoffRunId,
+    pmFeedbackCommentId,
     model,
   };
 
@@ -595,5 +735,6 @@ export async function executeHandoffPhase(
     events,
     finalOutcome,
     errorClassification,
+    cursorCleanup,
   );
 }

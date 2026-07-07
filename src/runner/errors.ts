@@ -47,3 +47,14 @@ export class HandoffError extends PhaseError {
     this.name = "HandoffError";
   }
 }
+
+export class RevisionError extends PhaseError {
+  constructor(
+    classification: NonNullable<import("../types/run.js").ErrorClassification>,
+    message: string,
+    cancelOutcome: import("../cursor/run-cleanup.js").CursorCancelOutcome | null = null,
+  ) {
+    super(classification, message, cancelOutcome);
+    this.name = "RevisionError";
+  }
+}

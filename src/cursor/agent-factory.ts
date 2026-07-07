@@ -12,6 +12,14 @@ export interface PlanningAgentParams {
 
 export type ImplementationAgentParams = PlanningAgentParams;
 
+export interface RevisionAgentParams {
+  apiKey: string;
+  config: HarnessConfig;
+  targetRepo: string;
+  branch: string;
+  prUrl: string;
+}
+
 export async function createPlanningCloudAgent(
   params: PlanningAgentParams,
 ): Promise<SDKAgent> {
@@ -49,6 +57,28 @@ export async function createImplementationCloudAgent(
         },
       ],
       autoCreatePR: true,
+      skipReviewerRequest: true,
+    },
+  });
+}
+
+export async function createRevisionCloudAgent(
+  params: RevisionAgentParams,
+): Promise<SDKAgent> {
+  const model: ModelSelection = resolveModel(params.config);
+  return Agent.create({
+    apiKey: params.apiKey,
+    model,
+    mode: "agent",
+    cloud: {
+      repos: [
+        {
+          url: params.targetRepo,
+          startingRef: params.branch,
+          prUrl: params.prUrl,
+        },
+      ],
+      autoCreatePR: false,
       skipReviewerRequest: true,
     },
   });

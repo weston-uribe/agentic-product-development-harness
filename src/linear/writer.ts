@@ -7,6 +7,8 @@ import {
   formatImplementationComment,
   formatPlanningComment,
   type HandoffCommentFooterInput,
+  type RevisionCommentFooterInput,
+  formatRevisionComment,
   type HarnessCommentFooterInput,
   type ImplementationCommentFooterInput,
 } from "./comments.js";
@@ -99,19 +101,31 @@ export async function postHandoffComment(
   return postIssueComment(client, issueId, body);
 }
 
+export async function postRevisionComment(
+  client: LinearClient,
+  issueId: string,
+  summaryBody: string,
+  footer: RevisionCommentFooterInput,
+): Promise<string> {
+  const body = formatRevisionComment(summaryBody, footer);
+  return postIssueComment(client, issueId, body);
+}
+
 export async function postErrorComment(
   client: LinearClient,
   issueId: string,
   message: string,
-  footer: HandoffCommentFooterInput,
-  phase: "planning" | "implementation" | "handoff" = "planning",
+  footer: RevisionCommentFooterInput,
+  phase: "planning" | "implementation" | "handoff" | "revision" = "planning",
 ): Promise<string> {
   const header =
-    phase === "handoff"
-      ? "## Handoff error"
-      : phase === "implementation"
-        ? "## Implementation error"
-        : "## Harness planning error";
+    phase === "revision"
+      ? "## Revision error"
+      : phase === "handoff"
+        ? "## Handoff error"
+        : phase === "implementation"
+          ? "## Implementation error"
+          : "## Harness planning error";
   const body = `${header}\n\n${message}\n\n${formatHarnessCommentFooter(footer)}`;
   return postIssueComment(client, issueId, body);
 }

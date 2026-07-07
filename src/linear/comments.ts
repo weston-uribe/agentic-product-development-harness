@@ -24,8 +24,25 @@ export interface HandoffCommentFooterInput extends ImplementationCommentFooterIn
   previousImplementationRunId?: string;
 }
 
+export interface RevisionCommentFooterInput extends HandoffCommentFooterInput {
+  previousHandoffRunId?: string;
+  pmFeedbackCommentId?: string;
+}
+
+export function isHarnessOrchestratorComment(
+  commentBody: string,
+  orchestratorMarker: string,
+): boolean {
+  const markers = parseHarnessMarkers(commentBody);
+  return (
+    markers.orchestratorMarker === orchestratorMarker &&
+    Boolean(markers.phase) &&
+    Boolean(markers.runId)
+  );
+}
+
 export function formatHarnessCommentFooter(
-  input: HandoffCommentFooterInput,
+  input: RevisionCommentFooterInput,
 ): string {
   const lines = [
     "---",
@@ -57,6 +74,12 @@ export function formatHarnessCommentFooter(
     lines.push(
       `previous_implementation_run_id: ${input.previousImplementationRunId}`,
     );
+  }
+  if (input.previousHandoffRunId) {
+    lines.push(`previous_handoff_run_id: ${input.previousHandoffRunId}`);
+  }
+  if (input.pmFeedbackCommentId) {
+    lines.push(`pm_feedback_comment_id: ${input.pmFeedbackCommentId}`);
   }
   lines.push("---");
   return lines.join("\n");
@@ -120,6 +143,35 @@ export function hasHandoffCompletionMarker(
     Boolean(markers.runId) &&
     Boolean(markers.prUrl)
   );
+}
+
+export function hasRevisionCompletionMarker(
+  commentBody: string,
+  orchestratorMarker: string,
+): boolean {
+  const markers = parseHarnessMarkers(commentBody);
+  return (
+    markers.orchestratorMarker === orchestratorMarker &&
+    markers.phase === "revision" &&
+    Boolean(markers.runId) &&
+    Boolean(markers.prUrl) &&
+    Boolean(markers.pmFeedbackCommentId)
+  );
+}
+
+export function findRevisionMarkerForPmFeedback(
+  comments: { body: string }[],
+  orchestratorMarker: string,
+  pmFeedbackCommentId: string,
+): boolean {
+  return comments.some((comment) => {
+    const markers = parseHarnessMarkers(comment.body);
+    return (
+      markers.orchestratorMarker === orchestratorMarker &&
+      markers.phase === "revision" &&
+      markers.pmFeedbackCommentId === pmFeedbackCommentId
+    );
+  });
 }
 
 const MAX_CHANGED_FILES_IN_COMMENT = 30;
@@ -196,6 +248,88 @@ export function buildHandoffCommentBody(input: HandoffCommentBodyInput): string 
 export function formatHandoffComment(
   body: string,
   footer: HandoffCommentFooterInput,
+): string {
+  return `${body.trim()}\n\n${formatHarnessCommentFooter(footer)}`;
+}
+
+export interface RevisionCommentBodyInput {
+  pmFeedback: string;
+  prTitle: string;
+  prUrl: string;
+  branch: string;
+  targetRepo: string;
+  previewUrl: string | null;
+  previewWarning: string | null;
+  changedFiles: string[];
+  checkSummary: string;
+  validationSummary: string;
+  harnessRunId: string;
+  previousHandoffRunId: string | null;
+  pmFeedbackCommentId: string;
+}
+
+export function buildRevisionCommentBody(input: RevisionCommentBodyInput): string {
+  const lines = [
+    "## PM revision",
+    "",
+    "### PM feedback applied",
+    input.pmFeedback.trim(),
+    "",
+    "### PR summary",
+    `- **Title:** ${input.prTitle}`,
+    `- **URL:** ${input.prUrl}`,
+    `- **Branch:** ${input.branch}`,
+    `- **Target repo:** ${input.targetRepo}`,
+    "",
+  ];
+
+  if (input.previewUrl) {
+    lines.push("### Preview", `- ${input.previewUrl}`, "");
+  } else if (input.previewWarning) {
+    lines.push("### Preview", `- ${input.previewWarning}`, "");
+  }
+
+  lines.push("### Changed files");
+  const files = input.changedFiles.slice(0, MAX_CHANGED_FILES_IN_COMMENT);
+  for (const file of files) {
+    lines.push(`- ${file}`);
+  }
+  if (input.changedFiles.length > MAX_CHANGED_FILES_IN_COMMENT) {
+    lines.push(
+      `- … and ${input.changedFiles.length - MAX_CHANGED_FILES_IN_COMMENT} more (see github/pr.json)`,
+    );
+  }
+  if (files.length === 0) {
+    lines.push("- _see PR diff_");
+  }
+
+  lines.push(
+    "",
+    "### Checks",
+    input.checkSummary,
+    "",
+    "### Validation",
+    input.validationSummary.trim() || "_No validation summary reported._",
+    "",
+    "### PM review instructions",
+    "- Re-review the updated PR diff against the PM feedback above.",
+    "- Open the Vercel preview (if present) and spot-check acceptance criteria.",
+    "- Do **not** merge from the harness; merge remains a separate human step.",
+    "",
+    "### Run references",
+    `- **Revision run ID:** ${input.harnessRunId}`,
+    `- **PM feedback comment ID:** ${input.pmFeedbackCommentId}`,
+  );
+  if (input.previousHandoffRunId) {
+    lines.push(`- **Previous handoff run ID:** ${input.previousHandoffRunId}`);
+  }
+
+  return lines.join("\n");
+}
+
+export function formatRevisionComment(
+  body: string,
+  footer: RevisionCommentFooterInput,
 ): string {
   return `${body.trim()}\n\n${formatHarnessCommentFooter(footer)}`;
 }

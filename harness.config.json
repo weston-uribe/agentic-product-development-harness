@@ -8,7 +8,8 @@
     "eligibleStatuses": {
       "planning": ["Ready for Planning"],
       "implementation": ["Ready for Build"],
-      "handoff": ["PR Open"]
+      "handoff": ["PR Open"],
+      "revision": ["Needs Revision"]
     },
     "transitionalStatuses": {
       "planningInProgress": "Planning",
@@ -16,7 +17,9 @@
       "prOpen": "PR Open",
       "pmReview": "PM Review",
       "blocked": "Blocked",
-      "readyForBuild": "Ready for Build"
+      "readyForBuild": "Ready for Build",
+      "needsRevision": "Needs Revision",
+      "revisingInProgress": "Revising"
     }
   },
   "planning": {
@@ -29,6 +32,9 @@
   "handoff": {
     "allowPmReviewWithoutPreview": true,
     "previewRequiredForSuccess": false
+  },
+  "revision": {
+    "timeoutSeconds": 3600
   },
   "preview": {
     "pollTimeoutSeconds": 300,

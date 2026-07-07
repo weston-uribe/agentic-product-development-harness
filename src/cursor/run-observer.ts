@@ -5,10 +5,11 @@ import type { EventLogger } from "../artifacts/events.js";
 import { getCursorRunResultPath } from "../artifacts/paths.js";
 import { classifyCursorError, classifyRunResultStatus } from "./errors.js";
 import { extractTargetRepoGitResult, type CapturedGitResult } from "./git-result.js";
+import { extractRevisionGitResult } from "./revision-git-result.js";
 import { cancelCursorRun, type CursorCancelOutcome } from "./run-cleanup.js";
-import { ImplementationError, PlanningError, PhaseError } from "../runner/errors.js";
+import { ImplementationError, PlanningError, PhaseError, RevisionError } from "../runner/errors.js";
 
-export type ObservePhase = "planning" | "implementation";
+export type ObservePhase = "planning" | "implementation" | "revision";
 
 export interface ObservedRunResult {
   agentId: string;
@@ -22,6 +23,8 @@ export interface ObservedRunResult {
 export interface SendAndObserveOptions {
   phase?: ObservePhase;
   targetRepo?: string;
+  expectedBranch?: string;
+  expectedPrUrl?: string;
   abortSignal?: AbortSignal;
 }
 
@@ -31,9 +34,13 @@ function makePhaseError(
   message: string,
   cancelOutcome: CursorCancelOutcome | null = null,
 ): PhaseError {
-  return phase === "implementation"
-    ? new ImplementationError(classification, message, cancelOutcome)
-    : new PlanningError(classification, message, cancelOutcome);
+  if (phase === "implementation") {
+    return new ImplementationError(classification, message, cancelOutcome);
+  }
+  if (phase === "revision") {
+    return new RevisionError(classification, message, cancelOutcome);
+  }
+  return new PlanningError(classification, message, cancelOutcome);
 }
 
 async function abortRun(
@@ -217,7 +224,14 @@ export async function sendAndObserve(
   const gitResult =
     phase === "implementation"
       ? extractTargetRepoGitResult(result.git, options.targetRepo ?? "")
-      : null;
+      : phase === "revision"
+        ? extractRevisionGitResult(
+            result.git,
+            options.targetRepo ?? "",
+            options.expectedBranch ?? "",
+            options.expectedPrUrl ?? "",
+          )
+        : null;
 
   return {
     agentId,

@@ -98,9 +98,23 @@ Planning is **optional** in the target Linear workflow. Low-risk issues may bypa
 
 **Implemented (Milestone 4):** SDK handoff runner from Linear **PR Open** — reads implementation marker, inspects GitHub PR (`GITHUB_TOKEN` required), polls for Vercel preview, posts handoff comment, transitions to **PM Review**.
 
-**Inputs:** Linear issue in PR Open; latest implementation marker with `pr_url`.
+**Implemented (Milestone 5):** SDK revision runner — PM feedback from Linear, Cursor cloud agent on existing PR branch, revision comment, transition back to **PM Review**. See [`docs/milestones/m5-revision-phase.md`](docs/milestones/m5-revision-phase.md).
+
+**Inputs:** Linear issue in PM Review with handoff marker; latest implementation marker with `pr_url`.
 
 **Outputs:** PM handoff comment; preview URL when found; manifest and artifact bundle for review.
+
+---
+
+### Revision loop
+
+**Purpose:** Apply PM feedback to an existing open PR and return the issue to PM Review.
+
+**Implemented (Milestone 5):** SDK revision runner from **Needs Revision** — reads handoff marker + PM feedback, updates existing PR branch, posts revision comment.
+
+**Inputs:** Linear issue in Needs Revision; handoff marker; PM feedback comment after handoff.
+
+**Outputs:** Revision comment; updated PR on same branch; transition to PM Review.
 
 ---
 
@@ -182,7 +196,7 @@ The first automation inspects status and labels, then:
 | Ready for Planning | Planning Agent |
 | Ready for Build | Implementation Agent |
 | PR Open | Handoff runner (M4) |
-| Needs Revision | Revision Agent |
+| Needs Revision | Revision runner (M5) |
 | Other | Exit with no changes |
 
 ### Agent roles (planned)

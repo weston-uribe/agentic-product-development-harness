@@ -1,4 +1,9 @@
-export type RunPhase = "planning" | "implementation" | "handoff" | "none";
+export type RunPhase =
+  | "planning"
+  | "implementation"
+  | "handoff"
+  | "revision"
+  | "none";
 
 export type FinalOutcome = "success" | "failed" | "skipped" | "duplicate";
 
@@ -27,6 +32,11 @@ export type ErrorClassification =
   | "pr_closed"
   | "preview_not_found"
   | "checks_failing"
+  | "missing_handoff_marker"
+  | "missing_pm_feedback"
+  | "missing_branch"
+  | "revision_pr_mismatch"
+  | "cursor_branch_attach_failure"
   | null;
 
 export interface RunManifest {
@@ -55,6 +65,8 @@ export interface RunManifest {
   changedFiles: string[] | null;
   checkSummary: string | null;
   previousImplementationRunId: string | null;
+  previousHandoffRunId: string | null;
+  pmFeedbackCommentId: string | null;
   model: string | null;
 }
 
@@ -86,6 +98,10 @@ export type RunEventName =
   | "preview_captured"
   | "preview_not_found"
   | "handoff_comment_posted"
+  | "handoff_comment_loaded"
+  | "pm_feedback_loaded"
+  | "revision_comment_posted"
+  | "revision_pr_validated"
   | "run_finished";
 
 export interface RunEvent {

@@ -134,6 +134,8 @@ export async function executePlanningPhase(
       changedFiles: null,
       checkSummary: null,
       previousImplementationRunId: null,
+      previousHandoffRunId: null,
+      pmFeedbackCommentId: null,
       model: preflight.config ? resolveModelId(preflight.config) : null,
     };
     return writeFinalManifest(
@@ -229,6 +231,8 @@ export async function executePlanningPhase(
         changedFiles: null,
         checkSummary: null,
         previousImplementationRunId: null,
+      previousHandoffRunId: null,
+      pmFeedbackCommentId: null,
         model,
       };
       return writeFinalManifest(
@@ -394,6 +398,8 @@ export async function executePlanningPhase(
     changedFiles: null,
     checkSummary: null,
     previousImplementationRunId: null,
+    previousHandoffRunId: null,
+    pmFeedbackCommentId: null,
     model,
   };
 

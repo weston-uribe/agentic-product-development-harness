@@ -80,6 +80,34 @@ export function getCommentsWrittenPath(runDirectory: string): string {
   return path.join(runDirectory, "linear", "comments-written.md");
 }
 
+export function getHandoffCommentLoadedPath(runDirectory: string): string {
+  return path.join(runDirectory, "linear", "handoff-comment-loaded.md");
+}
+
+export function getPmFeedbackCommentLoadedPath(runDirectory: string): string {
+  return path.join(runDirectory, "linear", "pm-feedback-comment-loaded.md");
+}
+
+export function getRevisionPromptPath(runDirectory: string): string {
+  return path.join(runDirectory, "prompts", "revision-agent.md");
+}
+
+export function getRevisionResultPath(runDirectory: string): string {
+  return path.join(runDirectory, "outputs", "revision-result.md");
+}
+
+export function getRevisionCommentPath(runDirectory: string): string {
+  return path.join(runDirectory, "linear", "revision-comment.md");
+}
+
+export function getGithubPrBeforePath(runDirectory: string): string {
+  return path.join(runDirectory, "github", "pr-before.json");
+}
+
+export function getGithubPrAfterPath(runDirectory: string): string {
+  return path.join(runDirectory, "github", "pr-after.json");
+}
+
 export function getErrorPath(runDirectory: string): string {
   return path.join(runDirectory, "errors", "error.json");
 }

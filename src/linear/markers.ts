@@ -11,6 +11,8 @@ export interface HarnessMarkers {
   prUrl?: string;
   previewUrl?: string;
   previousImplementationRunId?: string;
+  previousHandoffRunId?: string;
+  pmFeedbackCommentId?: string;
 }
 
 export function parseHarnessMarkers(commentBody: string): HarnessMarkers {
@@ -66,6 +68,12 @@ export function parseHarnessMarkers(commentBody: string): HarnessMarkers {
         break;
       case "previous_implementation_run_id":
         markers.previousImplementationRunId = value;
+        break;
+      case "previous_handoff_run_id":
+        markers.previousHandoffRunId = value;
+        break;
+      case "pm_feedback_comment_id":
+        markers.pmFeedbackCommentId = value;
         break;
       default:
         if (trimmed === "harness-orchestrator-v1") {

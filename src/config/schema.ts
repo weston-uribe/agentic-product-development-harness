@@ -33,6 +33,7 @@ const linearConfigSchema = z.object({
       planning: z.array(z.string()).optional(),
       implementation: z.array(z.string()).optional(),
       handoff: z.array(z.string()).optional(),
+      revision: z.array(z.string()).optional(),
     })
     .optional(),
   transitionalStatuses: z
@@ -43,6 +44,8 @@ const linearConfigSchema = z.object({
       pmReview: z.string().optional(),
       blocked: z.string().optional(),
       readyForBuild: z.string().optional(),
+      needsRevision: z.string().optional(),
+      revisingInProgress: z.string().optional(),
     })
     .optional(),
 });
@@ -61,6 +64,10 @@ const handoffConfigSchema = z.object({
   previewRequiredForSuccess: z.boolean().optional(),
 });
 
+const revisionConfigSchema = z.object({
+  timeoutSeconds: z.number().positive().optional(),
+});
+
 export const harnessConfigSchema = z
   .object({
     version: z.literal(1),
@@ -71,6 +78,7 @@ export const harnessConfigSchema = z
     planning: planningConfigSchema.optional(),
     implementation: implementationConfigSchema.optional(),
     handoff: handoffConfigSchema.optional(),
+    revision: revisionConfigSchema.optional(),
     watch: z
       .object({
         pollIntervalSeconds: z.number().positive().optional(),

@@ -7,6 +7,8 @@ const DEFAULT_TRANSITIONAL = {
   pmReview: "PM Review",
   blocked: "Blocked",
   readyForBuild: "Ready for Build",
+  needsRevision: "Needs Revision",
+  revisingInProgress: "Revising",
 } as const;
 
 export function getTransitionalStatus(
@@ -28,4 +30,8 @@ export function getEligibleImplementationStatuses(config: HarnessConfig): string
 
 export function getEligibleHandoffStatuses(config: HarnessConfig): string[] {
   return config.linear?.eligibleStatuses?.handoff ?? ["PR Open"];
+}
+
+export function getEligibleRevisionStatuses(config: HarnessConfig): string[] {
+  return config.linear?.eligibleStatuses?.revision ?? ["Needs Revision"];
 }
