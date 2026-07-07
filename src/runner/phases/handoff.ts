@@ -7,6 +7,7 @@ import {
   MILESTONE,
 } from "../../config/defaults.js";
 import { getTransitionalStatus } from "../../config/status-names.js";
+import { emptyMergeManifestFields } from "../../artifacts/manifest-fields.js";
 import { writeManifest } from "../../artifacts/manifest.js";
 import { writeRunSummary } from "../../artifacts/summary.js";
 import {
@@ -168,7 +169,8 @@ export async function executeHandoffPhase(
         previousImplementationRunId: null,
       previousHandoffRunId: null,
       pmFeedbackCommentId: null,
-        model: null,
+      ...emptyMergeManifestFields(),
+      model: null,
       };
       return { manifest, runDirectory: "", exitCode: 2 };
     }
@@ -210,6 +212,7 @@ export async function executeHandoffPhase(
       previousImplementationRunId: null,
       previousHandoffRunId: null,
       pmFeedbackCommentId: null,
+      ...emptyMergeManifestFields(),
       model: preflight.config ? resolveModelId(preflight.config) : null,
     };
     return writeFinalManifest(
@@ -302,6 +305,7 @@ export async function executeHandoffPhase(
         previousImplementationRunId,
         previousHandoffRunId: null,
         pmFeedbackCommentId: null,
+        ...emptyMergeManifestFields(),
         model,
       };
       return writeFinalManifest(
@@ -584,6 +588,7 @@ export async function executeHandoffPhase(
     previousImplementationRunId,
     previousHandoffRunId: null,
     pmFeedbackCommentId: null,
+    ...emptyMergeManifestFields(),
     model,
   };
 

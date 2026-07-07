@@ -4,6 +4,7 @@ import {
   MILESTONE,
 } from "../../config/defaults.js";
 import { getTransitionalStatus } from "../../config/status-names.js";
+import { emptyMergeManifestFields } from "../../artifacts/manifest-fields.js";
 import { writeManifest } from "../../artifacts/manifest.js";
 import { writeRunSummary } from "../../artifacts/summary.js";
 import {
@@ -136,6 +137,7 @@ export async function executePlanningPhase(
       previousImplementationRunId: null,
       previousHandoffRunId: null,
       pmFeedbackCommentId: null,
+      ...emptyMergeManifestFields(),
       model: preflight.config ? resolveModelId(preflight.config) : null,
     };
     return writeFinalManifest(
@@ -233,6 +235,7 @@ export async function executePlanningPhase(
         previousImplementationRunId: null,
       previousHandoffRunId: null,
       pmFeedbackCommentId: null,
+        ...emptyMergeManifestFields(),
         model,
       };
       return writeFinalManifest(
@@ -400,6 +403,7 @@ export async function executePlanningPhase(
     previousImplementationRunId: null,
     previousHandoffRunId: null,
     pmFeedbackCommentId: null,
+    ...emptyMergeManifestFields(),
     model,
   };
 

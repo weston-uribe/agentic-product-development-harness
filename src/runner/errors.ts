@@ -58,3 +58,13 @@ export class RevisionError extends PhaseError {
     this.name = "RevisionError";
   }
 }
+
+export class MergeError extends PhaseError {
+  constructor(
+    classification: NonNullable<import("../types/run.js").ErrorClassification>,
+    message: string,
+  ) {
+    super(classification, message, null);
+    this.name = "MergeError";
+  }
+}

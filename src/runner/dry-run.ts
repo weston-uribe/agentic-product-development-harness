@@ -1,4 +1,5 @@
 import { MILESTONE } from "../config/defaults.js";
+import { emptyMergeManifestFields } from "../artifacts/manifest-fields.js";
 import { writeManifest } from "../artifacts/manifest.js";
 import { writeRunSummary } from "../artifacts/summary.js";
 import { resolveModelId } from "../cursor/model.js";
@@ -62,6 +63,7 @@ export async function executeDryRun(options: DryRunOptions): Promise<DryRunResul
       previousImplementationRunId: null,
       previousHandoffRunId: null,
       pmFeedbackCommentId: null,
+      ...emptyMergeManifestFields(),
       model,
     };
     await writeManifest(preflight.context.runDirectory, manifest);
@@ -109,6 +111,7 @@ export async function executeDryRun(options: DryRunOptions): Promise<DryRunResul
     previousImplementationRunId: null,
     previousHandoffRunId: null,
     pmFeedbackCommentId: null,
+    ...emptyMergeManifestFields(),
     model,
   };
 

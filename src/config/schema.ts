@@ -19,6 +19,7 @@ const repoMappingSchema = z.object({
   targetRepo: githubRepoUrl,
   baseBranch: z.string().min(1).default("main"),
   previewProvider: z.string().optional(),
+  productionUrl: z.string().url().optional(),
   validation: z
     .object({
       commands: z.array(z.string()).optional(),
@@ -34,6 +35,7 @@ const linearConfigSchema = z.object({
       implementation: z.array(z.string()).optional(),
       handoff: z.array(z.string()).optional(),
       revision: z.array(z.string()).optional(),
+      merge: z.array(z.string()).optional(),
     })
     .optional(),
   transitionalStatuses: z
@@ -46,6 +48,9 @@ const linearConfigSchema = z.object({
       readyForBuild: z.string().optional(),
       needsRevision: z.string().optional(),
       revisingInProgress: z.string().optional(),
+      readyToMerge: z.string().optional(),
+      mergingInProgress: z.string().optional(),
+      mergedDeployed: z.string().optional(),
     })
     .optional(),
 });
@@ -68,6 +73,18 @@ const revisionConfigSchema = z.object({
   timeoutSeconds: z.number().positive().optional(),
 });
 
+const mergeConfigSchema = z.object({
+  mergeMethod: z.enum(["squash", "merge", "rebase"]).optional(),
+  deleteBranchAfterMerge: z.boolean().optional(),
+  allowPendingChecks: z.boolean().optional(),
+  allowUnknownChecks: z.boolean().optional(),
+  allowNeutralChecks: z.boolean().optional(),
+  deploymentRequiredForSuccess: z.boolean().optional(),
+  deploymentPollTimeoutSeconds: z.number().positive().optional(),
+  deploymentPollIntervalSeconds: z.number().positive().optional(),
+  checkPollTimeoutSeconds: z.number().positive().optional(),
+});
+
 export const harnessConfigSchema = z
   .object({
     version: z.literal(1),
@@ -79,6 +96,7 @@ export const harnessConfigSchema = z
     implementation: implementationConfigSchema.optional(),
     handoff: handoffConfigSchema.optional(),
     revision: revisionConfigSchema.optional(),
+    merge: mergeConfigSchema.optional(),
     watch: z
       .object({
         pollIntervalSeconds: z.number().positive().optional(),

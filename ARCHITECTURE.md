@@ -100,6 +100,8 @@ Planning is **optional** in the target Linear workflow. Low-risk issues may bypa
 
 **Implemented (Milestone 5):** SDK revision runner — PM feedback from Linear, Cursor cloud agent on existing PR branch, revision comment, transition back to **PM Review**. See [`docs/milestones/m5-revision-phase.md`](docs/milestones/m5-revision-phase.md).
 
+**Implemented (Milestone 6):** SDK merge runner — squash merge from **Ready to Merge**, deployment capture, completion comment, transition to **Merged / Deployed**. See [`docs/milestones/m6-merge-phase.md`](docs/milestones/m6-merge-phase.md).
+
 **Inputs:** Linear issue in PM Review with handoff marker; latest implementation marker with `pr_url`.
 
 **Outputs:** PM handoff comment; preview URL when found; manifest and artifact bundle for review.
@@ -115,6 +117,18 @@ Planning is **optional** in the target Linear workflow. Low-risk issues may bypa
 **Inputs:** Linear issue in Needs Revision; handoff marker; PM feedback comment after handoff.
 
 **Outputs:** Revision comment; updated PR on same branch; transition to PM Review.
+
+---
+
+### Merge / deployment completion
+
+**Purpose:** Squash-merge an accepted PR and record production deployment evidence after PM approval.
+
+**Implemented (Milestone 6):** SDK merge runner from **Ready to Merge** — reads revision or handoff marker, verifies PR and checks, squash merges, captures deployment URL when available, posts completion comment, transitions to **Merged / Deployed**.
+
+**Inputs:** Linear issue in Ready to Merge; handoff or revision marker with `pr_url`; PM manually moved issue from PM Review.
+
+**Outputs:** Squash-merged PR; merge completion comment; deployment URL or warning.
 
 ---
 
@@ -197,6 +211,7 @@ The first automation inspects status and labels, then:
 | Ready for Build | Implementation Agent |
 | PR Open | Handoff runner (M4) |
 | Needs Revision | Revision runner (M5) |
+| Ready to Merge | Merge runner (M6) |
 | Other | Exit with no changes |
 
 ### Agent roles (planned)
@@ -207,7 +222,7 @@ The first automation inspects status and labels, then:
 | Planning Agent | Ready for Planning | Plan comment in Linear |
 | Implementation Agent | Ready for Build | Branch, PR, Linear comment |
 | Revision Agent | Needs Revision | Commits, revision comment |
-| Merge/Deployment Reporter | Merged / Deployed | Final links comment |
+| Merge/Deployment Reporter | Ready to Merge | Final links comment |
 
 Full role contracts: [`docs/architecture/linear-automation-state-machine.md`](docs/architecture/linear-automation-state-machine.md).
 

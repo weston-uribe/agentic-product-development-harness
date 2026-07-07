@@ -9,7 +9,8 @@
       "planning": ["Ready for Planning"],
       "implementation": ["Ready for Build"],
       "handoff": ["PR Open"],
-      "revision": ["Needs Revision"]
+      "revision": ["Needs Revision"],
+      "merge": ["Ready to Merge"]
     },
     "transitionalStatuses": {
       "planningInProgress": "Planning",
@@ -19,7 +20,10 @@
       "blocked": "Blocked",
       "readyForBuild": "Ready for Build",
       "needsRevision": "Needs Revision",
-      "revisingInProgress": "Revising"
+      "revisingInProgress": "Revising",
+      "readyToMerge": "Ready to Merge",
+      "mergingInProgress": "Merging",
+      "mergedDeployed": "Merged / Deployed"
     }
   },
   "planning": {
@@ -36,6 +40,17 @@
   "revision": {
     "timeoutSeconds": 3600
   },
+  "merge": {
+    "mergeMethod": "squash",
+    "deleteBranchAfterMerge": false,
+    "allowPendingChecks": false,
+    "allowUnknownChecks": false,
+    "allowNeutralChecks": true,
+    "deploymentRequiredForSuccess": false,
+    "deploymentPollTimeoutSeconds": 300,
+    "deploymentPollIntervalSeconds": 15,
+    "checkPollTimeoutSeconds": 120
+  },
   "preview": {
     "pollTimeoutSeconds": 300,
     "pollIntervalSeconds": 15
@@ -47,6 +62,7 @@
       "targetRepo": "https://github.com/weston-uribe/weston-uribe-portfolio",
       "baseBranch": "main",
       "previewProvider": "vercel",
+      "productionUrl": "https://weston-uribe-portfolio.vercel.app",
       "validation": {
         "commands": ["npm run lint", "npm run build"]
       }

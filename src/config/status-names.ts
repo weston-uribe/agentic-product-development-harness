@@ -9,6 +9,9 @@ const DEFAULT_TRANSITIONAL = {
   readyForBuild: "Ready for Build",
   needsRevision: "Needs Revision",
   revisingInProgress: "Revising",
+  readyToMerge: "Ready to Merge",
+  mergingInProgress: "Merging",
+  mergedDeployed: "Merged / Deployed",
 } as const;
 
 export function getTransitionalStatus(
@@ -34,4 +37,8 @@ export function getEligibleHandoffStatuses(config: HarnessConfig): string[] {
 
 export function getEligibleRevisionStatuses(config: HarnessConfig): string[] {
   return config.linear?.eligibleStatuses?.revision ?? ["Needs Revision"];
+}
+
+export function getEligibleMergeStatuses(config: HarnessConfig): string[] {
+  return config.linear?.eligibleStatuses?.merge ?? ["Ready to Merge"];
 }

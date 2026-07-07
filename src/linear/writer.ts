@@ -9,6 +9,8 @@ import {
   type HandoffCommentFooterInput,
   type RevisionCommentFooterInput,
   formatRevisionComment,
+  type MergeCommentFooterInput,
+  formatMergeComment,
   type HarnessCommentFooterInput,
   type ImplementationCommentFooterInput,
 } from "./comments.js";
@@ -111,21 +113,33 @@ export async function postRevisionComment(
   return postIssueComment(client, issueId, body);
 }
 
+export async function postMergeCompletionComment(
+  client: LinearClient,
+  issueId: string,
+  summaryBody: string,
+  footer: MergeCommentFooterInput,
+): Promise<string> {
+  const body = formatMergeComment(summaryBody, footer);
+  return postIssueComment(client, issueId, body);
+}
+
 export async function postErrorComment(
   client: LinearClient,
   issueId: string,
   message: string,
-  footer: RevisionCommentFooterInput,
-  phase: "planning" | "implementation" | "handoff" | "revision" = "planning",
+  footer: MergeCommentFooterInput,
+  phase: "planning" | "implementation" | "handoff" | "revision" | "merge" = "planning",
 ): Promise<string> {
   const header =
-    phase === "revision"
-      ? "## Revision error"
-      : phase === "handoff"
-        ? "## Handoff error"
-        : phase === "implementation"
-          ? "## Implementation error"
-          : "## Harness planning error";
+    phase === "merge"
+      ? "## Merge error"
+      : phase === "revision"
+        ? "## Revision error"
+        : phase === "handoff"
+          ? "## Handoff error"
+          : phase === "implementation"
+            ? "## Implementation error"
+            : "## Harness planning error";
   const body = `${header}\n\n${message}\n\n${formatHarnessCommentFooter(footer)}`;
   return postIssueComment(client, issueId, body);
 }

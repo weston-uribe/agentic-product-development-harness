@@ -31,7 +31,7 @@ export function createProgram(): Command {
     .option("--dry-run", "Parse and resolve without side effects", false)
     .option(
       "--phase <phase>",
-      "Run phase: auto, planning, implementation, handoff, revision, or dry-run (default: auto for live runs)",
+      "Run phase: auto, planning, implementation, handoff, revision, merge, or dry-run (default: auto for live runs)",
       "auto",
     )
     .option("--force", "Re-run planning even when idempotency markers exist", false)

@@ -29,6 +29,12 @@ export interface RevisionCommentFooterInput extends HandoffCommentFooterInput {
   pmFeedbackCommentId?: string;
 }
 
+export interface MergeCommentFooterInput extends RevisionCommentFooterInput {
+  previousRevisionRunId?: string;
+  mergeCommitSha?: string;
+  deploymentUrl?: string;
+}
+
 export function isHarnessOrchestratorComment(
   commentBody: string,
   orchestratorMarker: string,
@@ -42,7 +48,7 @@ export function isHarnessOrchestratorComment(
 }
 
 export function formatHarnessCommentFooter(
-  input: RevisionCommentFooterInput,
+  input: MergeCommentFooterInput,
 ): string {
   const lines = [
     "---",
@@ -80,6 +86,15 @@ export function formatHarnessCommentFooter(
   }
   if (input.pmFeedbackCommentId) {
     lines.push(`pm_feedback_comment_id: ${input.pmFeedbackCommentId}`);
+  }
+  if (input.previousRevisionRunId) {
+    lines.push(`previous_revision_run_id: ${input.previousRevisionRunId}`);
+  }
+  if (input.mergeCommitSha) {
+    lines.push(`merge_commit_sha: ${input.mergeCommitSha}`);
+  }
+  if (input.deploymentUrl) {
+    lines.push(`deployment_url: ${input.deploymentUrl}`);
   }
   lines.push("---");
   return lines.join("\n");
@@ -330,6 +345,128 @@ export function buildRevisionCommentBody(input: RevisionCommentBodyInput): strin
 export function formatRevisionComment(
   body: string,
   footer: RevisionCommentFooterInput,
+): string {
+  return `${body.trim()}\n\n${formatHarnessCommentFooter(footer)}`;
+}
+
+export function hasMergeCompletionMarker(
+  commentBody: string,
+  orchestratorMarker: string,
+): boolean {
+  const markers = parseHarnessMarkers(commentBody);
+  return (
+    markers.orchestratorMarker === orchestratorMarker &&
+    markers.phase === "merge" &&
+    Boolean(markers.runId) &&
+    Boolean(markers.prUrl)
+  );
+}
+
+export function findMergeMarkerForPrUrl(
+  comments: { body: string }[],
+  orchestratorMarker: string,
+  prUrl: string,
+): boolean {
+  const normalized = prUrl.trim().toLowerCase();
+  return comments.some((comment) => {
+    const markers = parseHarnessMarkers(comment.body);
+    return (
+      markers.orchestratorMarker === orchestratorMarker &&
+      markers.phase === "merge" &&
+      Boolean(markers.runId) &&
+      markers.prUrl?.trim().toLowerCase() === normalized
+    );
+  });
+}
+
+export interface MergeCompletionCommentBodyInput {
+  prTitle: string;
+  prUrl: string;
+  branch: string;
+  targetRepo: string;
+  mergeMethod: string;
+  mergeCommitSha: string | null;
+  mergedAt: string | null;
+  baseBranch: string;
+  deploymentUrl: string | null;
+  deploymentWarning: string | null;
+  changedFiles: string[];
+  checkSummary: string;
+  finalIssueStatus: string;
+  harnessRunId: string;
+  previousHandoffRunId: string | null;
+  previousRevisionRunId: string | null;
+}
+
+export function buildMergeCompletionCommentBody(
+  input: MergeCompletionCommentBodyInput,
+): string {
+  const lines = [
+    "## PM merge complete",
+    "",
+    "### PR summary",
+    `- **Title:** ${input.prTitle}`,
+    `- **URL:** ${input.prUrl}`,
+    `- **Branch:** ${input.branch}`,
+    `- **Target repo:** ${input.targetRepo}`,
+    `- **Merge method:** ${input.mergeMethod}`,
+    `- **Base branch:** ${input.baseBranch}`,
+  ];
+
+  if (input.mergeCommitSha) {
+    lines.push(`- **Merge commit SHA:** ${input.mergeCommitSha}`);
+  }
+  if (input.mergedAt) {
+    lines.push(`- **Merged at:** ${input.mergedAt}`);
+  }
+
+  lines.push("", "### Deployment");
+  if (input.deploymentUrl) {
+    lines.push(`- ${input.deploymentUrl}`);
+  } else if (input.deploymentWarning) {
+    lines.push(`- ${input.deploymentWarning}`);
+  } else {
+    lines.push("- _Production deployment URL not captured_");
+  }
+
+  lines.push("", "### Changed files");
+  const files = input.changedFiles.slice(0, MAX_CHANGED_FILES_IN_COMMENT);
+  for (const file of files) {
+    lines.push(`- ${file}`);
+  }
+  if (input.changedFiles.length > MAX_CHANGED_FILES_IN_COMMENT) {
+    lines.push(
+      `- … and ${input.changedFiles.length - MAX_CHANGED_FILES_IN_COMMENT} more`,
+    );
+  }
+  if (files.length === 0) {
+    lines.push("- _see merged PR diff_");
+  }
+
+  lines.push(
+    "",
+    "### Checks",
+    input.checkSummary,
+    "",
+    "### Final status",
+    `- **Linear status:** ${input.finalIssueStatus}`,
+    "",
+    "### Run references",
+    `- **Merge run ID:** ${input.harnessRunId}`,
+  );
+  if (input.previousRevisionRunId) {
+    lines.push(`- **Previous revision run ID:** ${input.previousRevisionRunId}`);
+  }
+  if (input.previousHandoffRunId) {
+    lines.push(`- **Previous handoff run ID:** ${input.previousHandoffRunId}`);
+  }
+
+  return lines.join("\n");
+}
+
+export function formatMergeComment(
+  body: string,
+  footer: MergeCommentFooterInput,
 ): string {
   return `${body.trim()}\n\n${formatHarnessCommentFooter(footer)}`;
 }

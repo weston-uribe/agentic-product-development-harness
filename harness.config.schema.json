@@ -60,6 +60,12 @@
                   "items": {
                     "type": "string"
                   }
+                },
+                "merge": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
                 }
               },
               "additionalProperties": false
@@ -89,6 +95,15 @@
                   "type": "string"
                 },
                 "revisingInProgress": {
+                  "type": "string"
+                },
+                "readyToMerge": {
+                  "type": "string"
+                },
+                "mergingInProgress": {
+                  "type": "string"
+                },
+                "mergedDeployed": {
                   "type": "string"
                 }
               },
@@ -138,6 +153,47 @@
           "type": "object",
           "properties": {
             "timeoutSeconds": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          },
+          "additionalProperties": false
+        },
+        "merge": {
+          "type": "object",
+          "properties": {
+            "mergeMethod": {
+              "type": "string",
+              "enum": [
+                "squash",
+                "merge",
+                "rebase"
+              ]
+            },
+            "deleteBranchAfterMerge": {
+              "type": "boolean"
+            },
+            "allowPendingChecks": {
+              "type": "boolean"
+            },
+            "allowUnknownChecks": {
+              "type": "boolean"
+            },
+            "allowNeutralChecks": {
+              "type": "boolean"
+            },
+            "deploymentRequiredForSuccess": {
+              "type": "boolean"
+            },
+            "deploymentPollTimeoutSeconds": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "deploymentPollIntervalSeconds": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "checkPollTimeoutSeconds": {
               "type": "number",
               "exclusiveMinimum": 0
             }
@@ -204,6 +260,10 @@
               },
               "previewProvider": {
                 "type": "string"
+              },
+              "productionUrl": {
+                "type": "string",
+                "format": "uri"
               },
               "validation": {
                 "type": "object",

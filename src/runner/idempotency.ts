@@ -2,6 +2,7 @@ import type { HarnessConfig } from "../config/types.js";
 import type { LinearIssueSnapshot } from "../linear/client.js";
 import type { LinearCommentRecord } from "../linear/writer.js";
 import {
+  findMergeMarkerForPrUrl,
   findRevisionMarkerForPmFeedback,
   hasHandoffCompletionMarker,
   hasImplementationCompletionMarker,
@@ -11,6 +12,7 @@ import { parseHarnessMarkers } from "../linear/markers.js";
 import {
   getEligibleHandoffStatuses,
   getEligibleImplementationStatuses,
+  getEligibleMergeStatuses,
   getEligiblePlanningStatuses,
   getEligibleRevisionStatuses,
   getTransitionalStatus,
@@ -297,6 +299,90 @@ export function assertRevisionEligibleStatus(
   }
 
   const eligible = getEligibleRevisionStatuses(config);
+  throw new Error(
+    `wrong_status: issue is "${status}"; expected one of: ${eligible.join(", ")}`,
+  );
+}
+
+export function checkMergeIdempotency(
+  config: HarnessConfig,
+  issue: LinearIssueSnapshot,
+  comments: LinearCommentRecord[],
+  prUrl: string,
+  prAlreadyMerged: boolean,
+  force: boolean,
+): IdempotencyResult {
+  const orchestratorMarker = config.orchestratorMarker;
+  const mergedDeployed = getTransitionalStatus(config, "mergedDeployed");
+  const readyToMerge = getTransitionalStatus(config, "readyToMerge");
+  const merging = getTransitionalStatus(config, "mergingInProgress");
+  const status = issue.status?.toLowerCase() ?? "";
+
+  const hasMergeMarker = findMergeMarkerForPrUrl(
+    comments,
+    orchestratorMarker,
+    prUrl,
+  );
+
+  if (hasMergeMarker) {
+    return {
+      skip: true,
+      reason: "duplicate_phase_completed: merge marker already exists for PR",
+    };
+  }
+
+  if (status === mergedDeployed.toLowerCase()) {
+    return {
+      skip: true,
+      reason: "duplicate_phase_completed: issue already Merged / Deployed",
+    };
+  }
+
+  if (prAlreadyMerged && hasMergeMarker) {
+    return {
+      skip: true,
+      reason: "duplicate_phase_completed: PR merged with merge marker",
+    };
+  }
+
+  if (prAlreadyMerged && !hasMergeMarker) {
+    return { skip: false, reason: "recovery: PR merged without merge marker" };
+  }
+
+  if (
+    status !== readyToMerge.toLowerCase() &&
+    !(force && status === merging.toLowerCase())
+  ) {
+    const eligible = getEligibleMergeStatuses(config);
+    if (!eligible.some((s) => s.toLowerCase() === status)) {
+      return {
+        skip: false,
+        reason: `wrong_status: issue is "${issue.status}"; expected one of: ${eligible.join(", ")}`,
+      };
+    }
+  }
+
+  return { skip: false };
+}
+
+export function assertMergeEligibleStatus(
+  config: HarnessConfig,
+  issue: LinearIssueSnapshot,
+  force: boolean,
+): void {
+  const status = issue.status?.trim() ?? "";
+  const readyToMerge = getTransitionalStatus(config, "readyToMerge");
+  const merging = getTransitionalStatus(config, "mergingInProgress");
+
+  if (status.toLowerCase() === readyToMerge.toLowerCase()) {
+    return;
+  }
+
+  if (force && status.toLowerCase() === merging.toLowerCase()) {
+    return;
+  }
+
+  const eligible = getEligibleMergeStatuses(config);
   throw new Error(
     `wrong_status: issue is "${status}"; expected one of: ${eligible.join(", ")}`,
   );

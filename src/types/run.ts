@@ -3,6 +3,7 @@ export type RunPhase =
   | "implementation"
   | "handoff"
   | "revision"
+  | "merge"
   | "none";
 
 export type FinalOutcome = "success" | "failed" | "skipped" | "duplicate";
@@ -37,6 +38,12 @@ export type ErrorClassification =
   | "missing_branch"
   | "revision_pr_mismatch"
   | "cursor_branch_attach_failure"
+  | "missing_merge_source_marker"
+  | "pr_already_merged"
+  | "checks_pending"
+  | "checks_unknown"
+  | "github_merge_failure"
+  | "deployment_not_found"
   | null;
 
 export interface RunManifest {
@@ -67,6 +74,11 @@ export interface RunManifest {
   previousImplementationRunId: string | null;
   previousHandoffRunId: string | null;
   pmFeedbackCommentId: string | null;
+  previousRevisionRunId: string | null;
+  mergeCommitSha: string | null;
+  mergeMethod: string | null;
+  mergedAt: string | null;
+  deploymentUrl: string | null;
   model: string | null;
 }
 
@@ -102,6 +114,15 @@ export type RunEventName =
   | "pm_feedback_loaded"
   | "revision_comment_posted"
   | "revision_pr_validated"
+  | "merge_source_comment_loaded"
+  | "merge_checks_evaluated"
+  | "github_merge_requested"
+  | "github_merge_completed"
+  | "deployment_poll_started"
+  | "deployment_captured"
+  | "deployment_not_found"
+  | "merge_comment_posted"
+  | "merge_recovery_written"
   | "run_finished";
 
 export interface RunEvent {

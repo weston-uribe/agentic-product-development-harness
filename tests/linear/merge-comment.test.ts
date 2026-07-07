@@ -1,0 +1,51 @@
+import { describe, expect, it } from "vitest";
+import {
+  buildMergeCompletionCommentBody,
+  findMergeMarkerForPrUrl,
+  formatMergeComment,
+  hasMergeCompletionMarker,
+} from "../../src/linear/comments.js";
+
+const marker = "harness-orchestrator-v1";
+const prUrl = "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4";
+
+describe("merge completion comment", () => {
+  it("detects merge completion marker", () => {
+    const body = formatMergeComment("## PM merge complete", {
+      orchestratorMarker: marker,
+      phase: "merge",
+      runId: "merge-run",
+      model: "composer-2.5",
+      promptVersion: "merge@1",
+      targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+      prUrl,
+      mergeCommitSha: "abc123",
+    });
+    expect(hasMergeCompletionMarker(body, marker)).toBe(true);
+    expect(findMergeMarkerForPrUrl([{ body }], marker, prUrl)).toBe(true);
+  });
+
+  it("builds merge completion body with deployment warning", () => {
+    const body = buildMergeCompletionCommentBody({
+      prTitle: "Test PR",
+      prUrl,
+      branch: "cursor/test",
+      targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+      mergeMethod: "squash",
+      mergeCommitSha: "abc123",
+      mergedAt: "2026-07-07T06:00:00.000Z",
+      baseBranch: "main",
+      deploymentUrl: null,
+      deploymentWarning: "Production deployment URL not captured",
+      changedFiles: ["app/page.tsx"],
+      checkSummary: "- Passed: 1",
+      finalIssueStatus: "Merged / Deployed",
+      harnessRunId: "merge-run",
+      previousHandoffRunId: "handoff-run",
+      previousRevisionRunId: "revision-run",
+    });
+    expect(body).toContain("PM merge complete");
+    expect(body).toContain("Production deployment URL not captured");
+    expect(body).toContain("revision-run");
+  });
+});

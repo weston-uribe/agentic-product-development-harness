@@ -1,5 +1,5 @@
 import { repoUrlsEquivalent } from "../resolver/normalize-repo.js";
-import type { GitHubClient, GitHubCheckRun } from "./client.js";
+import type { GitHubClient, GitHubCheckRun, GitHubCommitStatus } from "./client.js";
 import { GitHubApiError } from "./client.js";
 import type { ParsedPrUrl } from "./pr-url.js";
 
@@ -22,6 +22,8 @@ export interface PrInspectionResult {
   baseBranch: string;
   state: string;
   merged: boolean;
+  mergeCommitSha: string | null;
+  mergedAt: string | null;
   repoUrl: string;
   changedFiles: PrChangedFile[];
   checks: PrCheckInfo[];
@@ -57,7 +59,99 @@ function summarizeChecks(checks: PrCheckInfo[]): string {
   return lines.join("\n");
 }
 
+function mapCommitStatusToCheck(status: GitHubCommitStatus): PrCheckInfo {
+  const state = status.state.toLowerCase();
+  let conclusion: string | null = null;
+  let checkStatus = "completed";
+
+  if (state === "success") {
+    conclusion = "success";
+  } else if (state === "pending") {
+    conclusion = null;
+    checkStatus = "queued";
+  } else if (state === "failure" || state === "error") {
+    conclusion = "failure";
+  } else {
+    conclusion = state;
+  }
+
+  return {
+    name: status.context,
+    status: checkStatus,
+    conclusion,
+    detailsUrl: status.target_url,
+  };
+}
+
+function checksFromCombinedStatus(
+  combined: { state: string; statuses: GitHubCommitStatus[] },
+): PrCheckInfo[] {
+  if (combined.statuses.length > 0) {
+    return combined.statuses.map(mapCommitStatusToCheck);
+  }
+
+  const state = combined.state.toLowerCase();
+  if (state === "pending") {
+    return [
+      {
+        name: "combined-status",
+        status: "queued",
+        conclusion: null,
+        detailsUrl: null,
+      },
+    ];
+  }
+
+  return [
+    {
+      name: "combined-status",
+      status: "completed",
+      conclusion: state === "success" ? "success" : "failure",
+      detailsUrl: null,
+    },
+  ];
+}
+
 export async function inspectPullRequest(
+  client: GitHubClient,
+  parsed: ParsedPrUrl,
+  expectedTargetRepo: string,
+): Promise<PrInspectionResult> {
+  const result = await inspectPullRequestRaw(client, parsed, expectedTargetRepo);
+  if (result.state !== "open" || result.merged) {
+    throw new Error(`pr_closed: PR ${result.url} is not open`);
+  }
+  return result;
+}
+
+export async function inspectPullRequestForMerge(
+  client: GitHubClient,
+  parsed: ParsedPrUrl,
+  expectedTargetRepo: string,
+): Promise<PrInspectionResult> {
+  const result = await inspectPullRequestRaw(client, parsed, expectedTargetRepo);
+  if (result.merged) {
+    return result;
+  }
+  if (result.state !== "open") {
+    throw new Error(`pr_closed: PR ${result.url} is closed but not merged`);
+  }
+  return result;
+}
+
+export async function inspectPullRequestPostMerge(
+  client: GitHubClient,
+  parsed: ParsedPrUrl,
+  expectedTargetRepo: string,
+): Promise<PrInspectionResult> {
+  const result = await inspectPullRequestRaw(client, parsed, expectedTargetRepo);
+  if (!result.merged) {
+    throw new Error(`pr_not_merged: PR ${result.url} is not merged`);
+  }
+  return result;
+}
+
+async function inspectPullRequestRaw(
   client: GitHubClient,
   parsed: ParsedPrUrl,
   expectedTargetRepo: string,
@@ -78,15 +172,16 @@ export async function inspectPullRequest(
     throw error;
   }
 
-  if (pull.state !== "open" || pull.merged) {
-    throw new Error(`pr_closed: PR ${pull.html_url} is not open`);
+  let files: { filename: string; status: string }[] = [];
+  if (!pull.merged) {
+    files = await client.getPullRequestFiles(
+      parsed.owner,
+      parsed.repo,
+      parsed.pullNumber,
+    );
   }
 
-  const files = await client.getPullRequestFiles(
-    parsed.owner,
-    parsed.repo,
-    parsed.pullNumber,
-  );
+  const headSha = pull.merge_commit_sha ?? pull.head.sha;
 
   let rawChecks: GitHubCheckRun[] | null = null;
   let checks: PrCheckInfo[] = [];
@@ -94,7 +189,7 @@ export async function inspectPullRequest(
     const checkPayload = await client.getCheckRunsForRef(
       parsed.owner,
       parsed.repo,
-      pull.head.sha,
+      headSha,
     );
     rawChecks = checkPayload.check_runs ?? [];
     checks = rawChecks.map((run) => ({
@@ -106,6 +201,19 @@ export async function inspectPullRequest(
   } catch {
     rawChecks = null;
     checks = [];
+  }
+
+  if (checks.length === 0) {
+    try {
+      const combined = await client.getCombinedStatusForRef(
+        parsed.owner,
+        parsed.repo,
+        headSha,
+      );
+      checks = checksFromCombinedStatus(combined);
+    } catch {
+      // Keep empty checks if combined status is unavailable.
+    }
   }
 
   const commentsRaw = await client.getIssueComments(
@@ -132,6 +240,8 @@ export async function inspectPullRequest(
     baseBranch: pull.base.ref,
     state: pull.state,
     merged: pull.merged,
+    mergeCommitSha: pull.merge_commit_sha,
+    mergedAt: pull.merged_at,
     repoUrl: parsed.repoUrl,
     changedFiles,
     checks,

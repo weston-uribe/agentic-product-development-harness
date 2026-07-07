@@ -13,6 +13,9 @@ export interface HarnessMarkers {
   previousImplementationRunId?: string;
   previousHandoffRunId?: string;
   pmFeedbackCommentId?: string;
+  previousRevisionRunId?: string;
+  mergeCommitSha?: string;
+  deploymentUrl?: string;
 }
 
 export function parseHarnessMarkers(commentBody: string): HarnessMarkers {
@@ -74,6 +77,15 @@ export function parseHarnessMarkers(commentBody: string): HarnessMarkers {
         break;
       case "pm_feedback_comment_id":
         markers.pmFeedbackCommentId = value;
+        break;
+      case "previous_revision_run_id":
+        markers.previousRevisionRunId = value;
+        break;
+      case "merge_commit_sha":
+        markers.mergeCommitSha = value;
+        break;
+      case "deployment_url":
+        markers.deploymentUrl = value;
         break;
       default:
         if (trimmed === "harness-orchestrator-v1") {

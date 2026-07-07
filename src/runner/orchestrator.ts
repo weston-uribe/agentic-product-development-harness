@@ -1,5 +1,6 @@
 import { executeDryRun } from "./dry-run.js";
 import { executeHandoffPhase } from "./phases/handoff.js";
+import { executeMergePhase } from "./phases/merge.js";
 import { executeRevisionPhase } from "./phases/revision.js";
 import { executeImplementationPhase } from "./phases/implementation.js";
 import { executePlanningPhase } from "./phases/planning.js";
@@ -14,6 +15,7 @@ export type RunPhaseArg =
   | "implementation"
   | "handoff"
   | "revision"
+  | "merge"
   | "dry-run";
 
 export interface OrchestratorOptions {
@@ -62,6 +64,8 @@ export async function runOrchestrator(
       phase = "handoff";
     } else if (inferred.phase === "revision") {
       phase = "revision";
+    } else if (inferred.phase === "merge") {
+      phase = "merge";
     } else if (inferred.phase === "implementation") {
       phase = "implementation";
     } else {
@@ -113,6 +117,19 @@ export async function runOrchestrator(
 
   if (phase === "revision") {
     const result = await executeRevisionPhase({
+      issueKey: options.issueKey,
+      configPath: options.configPath,
+      force: options.force,
+    });
+    return {
+      exitCode: result.exitCode,
+      runDirectory: result.runDirectory,
+      manifest: result.manifest,
+    };
+  }
+
+  if (phase === "merge") {
+    const result = await executeMergePhase({
       issueKey: options.issueKey,
       configPath: options.configPath,
       force: options.force,

@@ -17,6 +17,8 @@ export interface GitHubPullRequest {
   html_url: string;
   state: string;
   merged: boolean;
+  merged_at: string | null;
+  merge_commit_sha: string | null;
   head: { ref: string; sha: string };
   base: { ref: string };
 }
@@ -42,6 +44,17 @@ export interface GitHubCheckRun {
   details_url: string | null;
 }
 
+export interface GitHubCommitStatus {
+  state: string;
+  context: string;
+  target_url: string | null;
+}
+
+export interface GitHubCombinedStatus {
+  state: string;
+  statuses: GitHubCommitStatus[];
+}
+
 const GITHUB_API = "https://api.github.com";
 
 export class GitHubClient {
@@ -51,13 +64,19 @@ export class GitHubClient {
     this.token = options.token;
   }
 
-  private async request<T>(path: string): Promise<T> {
+  private async request<T>(
+    path: string,
+    init?: { method?: string; body?: unknown },
+  ): Promise<T> {
     const response = await fetch(`${GITHUB_API}${path}`, {
+      method: init?.method ?? "GET",
       headers: {
         Accept: "application/vnd.github+json",
         Authorization: `Bearer ${this.token}`,
         "X-GitHub-Api-Version": "2022-11-28",
+        ...(init?.body ? { "Content-Type": "application/json" } : {}),
       },
+      body: init?.body ? JSON.stringify(init.body) : undefined,
     });
 
     if (!response.ok) {
@@ -66,6 +85,10 @@ export class GitHubClient {
         response.status,
         text || `GitHub API request failed: ${response.status}`,
       );
+    }
+
+    if (response.status === 204) {
+      return {} as T;
     }
 
     return (await response.json()) as T;
@@ -112,6 +135,37 @@ export class GitHubClient {
   ): Promise<{ check_runs: GitHubCheckRun[] }> {
     return this.request<{ check_runs: GitHubCheckRun[] }>(
       `/repos/${owner}/${repo}/commits/${ref}/check-runs`,
+    );
+  }
+
+  async getCombinedStatusForRef(
+    owner: string,
+    repo: string,
+    ref: string,
+  ): Promise<GitHubCombinedStatus> {
+    return this.request<GitHubCombinedStatus>(
+      `/repos/${owner}/${repo}/commits/${ref}/status`,
+    );
+  }
+
+  async mergePullRequest(
+    owner: string,
+    repo: string,
+    pullNumber: number,
+    options: {
+      mergeMethod: "squash" | "merge" | "rebase";
+      commitTitle?: string;
+    },
+  ): Promise<{ sha: string; merged: boolean; message?: string }> {
+    return this.request<{ sha: string; merged: boolean; message?: string }>(
+      `/repos/${owner}/${repo}/pulls/${pullNumber}/merge`,
+      {
+        method: "PUT",
+        body: {
+          merge_method: options.mergeMethod,
+          ...(options.commitTitle ? { commit_title: options.commitTitle } : {}),
+        },
+      },
     );
   }
 }

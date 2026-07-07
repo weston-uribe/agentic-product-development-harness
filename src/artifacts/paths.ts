@@ -108,6 +108,38 @@ export function getGithubPrAfterPath(runDirectory: string): string {
   return path.join(runDirectory, "github", "pr-after.json");
 }
 
+export function getGithubPrBeforeMergePath(runDirectory: string): string {
+  return path.join(runDirectory, "github", "pr-before-merge.json");
+}
+
+export function getGithubPrAfterMergePath(runDirectory: string): string {
+  return path.join(runDirectory, "github", "pr-after-merge.json");
+}
+
+export function getGithubChecksBeforeMergePath(runDirectory: string): string {
+  return path.join(runDirectory, "github", "checks-before-merge.json");
+}
+
+export function getGithubMergeResultPath(runDirectory: string): string {
+  return path.join(runDirectory, "github", "merge-result.json");
+}
+
+export function getMergeSourceCommentLoadedPath(runDirectory: string): string {
+  return path.join(runDirectory, "linear", "merge-source-comment-loaded.md");
+}
+
+export function getMergeCompletionCommentPath(runDirectory: string): string {
+  return path.join(runDirectory, "linear", "merge-completion-comment.md");
+}
+
+export function getProductionDeploymentPath(runDirectory: string): string {
+  return path.join(runDirectory, "vercel", "production-deployment.json");
+}
+
+export function getMergeRecoveryPath(runDirectory: string): string {
+  return path.join(runDirectory, "outputs", "merge-recovery.json");
+}
+
 export function getErrorPath(runDirectory: string): string {
   return path.join(runDirectory, "errors", "error.json");
 }

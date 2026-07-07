@@ -7,6 +7,7 @@ import {
   REVISION_PROMPT_VERSION,
 } from "../../config/defaults.js";
 import { getTransitionalStatus } from "../../config/status-names.js";
+import { emptyMergeManifestFields } from "../../artifacts/manifest-fields.js";
 import { writeManifest } from "../../artifacts/manifest.js";
 import { writeRunSummary } from "../../artifacts/summary.js";
 import {
@@ -97,6 +98,7 @@ function emptyManifestFields() {
     previousImplementationRunId: null as string | null,
     previousHandoffRunId: null as string | null,
     pmFeedbackCommentId: null as string | null,
+    ...emptyMergeManifestFields(),
   };
 }
 
@@ -355,6 +357,7 @@ export async function executeRevisionPhase(
         previousImplementationRunId,
         previousHandoffRunId,
         pmFeedbackCommentId,
+        ...emptyMergeManifestFields(),
         model,
       };
       return writeFinalManifest(
@@ -724,6 +727,7 @@ export async function executeRevisionPhase(
     previousImplementationRunId,
     previousHandoffRunId,
     pmFeedbackCommentId,
+    ...emptyMergeManifestFields(),
     model,
   };
 

@@ -13,6 +13,7 @@ const IMPLEMENTATION_STATUSES = new Set([
 
 const HANDOFF_STATUSES = new Set(["pr open"]);
 const REVISION_STATUSES = new Set(["needs revision"]);
+const MERGE_STATUSES = new Set(["ready to merge"]);
 
 export function inferPhaseFromStatus(
   status: string | null | undefined,
@@ -35,6 +36,9 @@ export function inferPhaseFromStatus(
   const revisionStatuses =
     config.linear?.eligibleStatuses?.revision?.map((s) => s.toLowerCase()) ??
     [...REVISION_STATUSES];
+  const mergeStatuses =
+    config.linear?.eligibleStatuses?.merge?.map((s) => s.toLowerCase()) ??
+    [...MERGE_STATUSES];
 
   if (planningStatuses.includes(normalized) || PLANNING_STATUSES.has(normalized)) {
     return { phase: "planning", statusLabel: status };
@@ -46,6 +50,10 @@ export function inferPhaseFromStatus(
 
   if (revisionStatuses.includes(normalized) || REVISION_STATUSES.has(normalized)) {
     return { phase: "revision", statusLabel: status };
+  }
+
+  if (mergeStatuses.includes(normalized) || MERGE_STATUSES.has(normalized)) {
+    return { phase: "merge", statusLabel: status };
   }
 
   if (

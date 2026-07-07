@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { writeManifest, readManifest } from "../../src/artifacts/manifest.js";
+import { emptyMergeManifestFields } from "../../src/artifacts/manifest-fields.js";
 import type { RunManifest } from "../../src/types/run.js";
 
 describe("manifest writer", () => {
@@ -36,6 +37,7 @@ describe("manifest writer", () => {
       previousImplementationRunId: null,
       previousHandoffRunId: null,
       pmFeedbackCommentId: null,
+      ...emptyMergeManifestFields(),
       model: null,
     };
 

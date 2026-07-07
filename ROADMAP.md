@@ -2,11 +2,33 @@
 
 Phased delivery for the agentic product development harness. Each phase adds capability only after the previous loop is proven manually.
 
-**Current phase: Revision automation spike (Milestone 5)**
+**Current phase: Merge automation spike (Milestone 6)**
 
 ---
 
-## Revision automation spike (current)
+## Merge automation spike (current)
+
+**Goal:** Close the solo-PM merge loop — **Ready to Merge → Merging → Merged / Deployed** — by squash-merging the accepted PR and posting a completion comment.
+
+**Already done:**
+- M1–M5 SDK runners validated (planning, implementation, handoff, revision)
+- See [`docs/milestones/m6-merge-phase.md`](docs/milestones/m6-merge-phase.md) for M6 scope
+
+**This phase includes:**
+- SDK merge runner from **Ready to Merge**
+- GitHub squash merge via REST API
+- Checks policy before merge
+- Best-effort production deployment capture
+- Linear transition to **Merged / Deployed** after completion comment
+
+**Not included yet:**
+- Engineering Review transition
+- Release tags
+- Skills or watcher/poller
+
+---
+
+## Revision automation spike (completed)
 
 **Goal:** Close the PM feedback loop — **Needs Revision → Revising → PM Review** — by updating the existing PR branch via Cursor cloud agent.
 
@@ -14,15 +36,15 @@ Phased delivery for the agentic product development harness. Each phase adds cap
 - M1–M4 SDK runners validated (planning, implementation, handoff)
 - See [`docs/milestones/m5-revision-phase.md`](docs/milestones/m5-revision-phase.md) for M5 scope
 
-**This phase includes:**
+**Delivered:**
 - SDK revision runner from **Needs Revision**
 - PM feedback detection from Linear comments after handoff marker
 - Cursor cloud agent on existing branch/PR (`autoCreatePR: false`)
 - Linear transition back to **PM Review** after revision comment
 
-**Not included yet:**
+**Not included (deferred to M6+):**
 - Engineering Review transition
-- Merge/deploy automation
+- Merge/deploy automation (delivered in M6)
 - Skills or watcher/poller
 
 ---
@@ -46,6 +68,7 @@ Phased delivery for the agentic product development harness. Each phase adds cap
 - **SDK implementation runner implemented** — Milestone 3 adds Ready for Build → Building → Cursor cloud implementation agent → PR Open. See [`docs/milestones/m3-implementation-phase.md`](docs/milestones/m3-implementation-phase.md).
 - **SDK handoff runner implemented** — Milestone 4 adds PR Open → GitHub PR inspect + Vercel preview capture → PM Review. See [`docs/milestones/m4-handoff-phase.md`](docs/milestones/m4-handoff-phase.md).
 - **SDK revision runner implemented** — Milestone 5 adds Needs Revision → Revising → PM Review on existing PR branch. See [`docs/milestones/m5-revision-phase.md`](docs/milestones/m5-revision-phase.md).
+- **SDK merge runner implemented** — Milestone 6 adds Ready to Merge → Merging → Merged / Deployed with squash merge and deployment capture. See [`docs/milestones/m6-merge-phase.md`](docs/milestones/m6-merge-phase.md).
 
 **Delivered:**
 - SDK handoff runner starting from **PR Open**
