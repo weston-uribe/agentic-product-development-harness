@@ -13,6 +13,7 @@ export interface GitHubClientOptions {
 }
 
 export interface GitHubPullRequest {
+  node_id: string;
   title: string;
   html_url: string;
   state: string;
@@ -22,6 +23,11 @@ export interface GitHubPullRequest {
   merge_commit_sha: string | null;
   head: { ref: string; sha: string };
   base: { ref: string };
+}
+
+interface GraphQLResponse<T> {
+  data?: T;
+  errors?: Array<{ message: string }>;
 }
 
 export interface GitHubPullFile {
@@ -95,6 +101,43 @@ export class GitHubClient {
     return (await response.json()) as T;
   }
 
+  private async graphqlRequest<T>(
+    query: string,
+    variables?: Record<string, unknown>,
+  ): Promise<T> {
+    const response = await fetch(`${GITHUB_API}/graphql`, {
+      method: "POST",
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${this.token}`,
+        "X-GitHub-Api-Version": "2022-11-28",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ query, variables }),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new GitHubApiError(
+        response.status,
+        text || `GitHub GraphQL request failed: ${response.status}`,
+      );
+    }
+
+    const payload = (await response.json()) as GraphQLResponse<T>;
+    if (payload.errors?.length) {
+      throw new GitHubApiError(
+        422,
+        payload.errors.map((error) => error.message).join("; "),
+      );
+    }
+    if (!payload.data) {
+      throw new GitHubApiError(422, "GitHub GraphQL response missing data");
+    }
+
+    return payload.data;
+  }
+
   async getAuthenticatedUser(): Promise<{ login: string }> {
     return this.request<{ login: string }>("/user");
   }
@@ -114,13 +157,20 @@ export class GitHubClient {
     repo: string,
     pullNumber: number,
   ): Promise<GitHubPullRequest> {
-    return this.request<GitHubPullRequest>(
-      `/repos/${owner}/${repo}/pulls/${pullNumber}`,
-      {
-        method: "PATCH",
-        body: { draft: false },
-      },
+    const pull = await this.getPullRequest(owner, repo, pullNumber);
+    await this.graphqlRequest<{
+      markPullRequestAsReadyForReview: {
+        pullRequest: { isDraft: boolean } | null;
+      };
+    }>(
+      `mutation MarkPullRequestReadyForReview($pullRequestId: ID!) {
+        markPullRequestAsReadyForReview(input: { pullRequestId: $pullRequestId }) {
+          pullRequest { isDraft }
+        }
+      }`,
+      { pullRequestId: pull.node_id },
     );
+    return this.getPullRequest(owner, repo, pullNumber);
   }
 
   async getPullRequestFiles(

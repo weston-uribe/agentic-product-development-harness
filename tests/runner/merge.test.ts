@@ -284,7 +284,7 @@ describe("executeMergePhase", () => {
         comments: [],
         rawChecks: [],
       });
-    mocks.markPullRequestReadyForReview.mockResolvedValue({ draft: false });
+    mocks.markPullRequestReadyForReview.mockResolvedValue({ draft: true });
     mocks.fetchLinearIssue
       .mockResolvedValueOnce({
         id: "issue-1",
@@ -316,6 +316,90 @@ describe("executeMergePhase", () => {
       "weston-uribe-portfolio",
       4,
     );
+    expect(mocks.mergePullRequest).toHaveBeenCalled();
+  });
+
+  it("polls until draft clears when mark-ready response still shows draft", async () => {
+    mocks.inspectPullRequestForMerge
+      .mockResolvedValueOnce({
+        title: "[WES-13] test",
+        url: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4",
+        branch: "cursor/wes-13-test",
+        baseBranch: "main",
+        state: "open",
+        merged: false,
+        isDraft: true,
+        mergeCommitSha: null,
+        mergedAt: null,
+        repoUrl: "https://github.com/weston-uribe/weston-uribe-portfolio",
+        changedFiles: [{ path: "app/hello-world/page.tsx", status: "modified" }],
+        checks: [{ name: "CI", status: "completed", conclusion: "success", detailsUrl: null }],
+        checkSummary: "- Passed: 1",
+        comments: [],
+        rawChecks: [],
+      })
+      .mockResolvedValueOnce({
+        title: "[WES-13] test",
+        url: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4",
+        branch: "cursor/wes-13-test",
+        baseBranch: "main",
+        state: "open",
+        merged: false,
+        isDraft: true,
+        mergeCommitSha: null,
+        mergedAt: null,
+        repoUrl: "https://github.com/weston-uribe/weston-uribe-portfolio",
+        changedFiles: [{ path: "app/hello-world/page.tsx", status: "modified" }],
+        checks: [{ name: "CI", status: "completed", conclusion: "success", detailsUrl: null }],
+        checkSummary: "- Passed: 1",
+        comments: [],
+        rawChecks: [],
+      })
+      .mockResolvedValueOnce({
+        title: "[WES-13] test",
+        url: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4",
+        branch: "cursor/wes-13-test",
+        baseBranch: "main",
+        state: "open",
+        merged: false,
+        isDraft: false,
+        mergeCommitSha: null,
+        mergedAt: null,
+        repoUrl: "https://github.com/weston-uribe/weston-uribe-portfolio",
+        changedFiles: [{ path: "app/hello-world/page.tsx", status: "modified" }],
+        checks: [{ name: "CI", status: "completed", conclusion: "success", detailsUrl: null }],
+        checkSummary: "- Passed: 1",
+        comments: [],
+        rawChecks: [],
+      });
+    mocks.markPullRequestReadyForReview.mockResolvedValue({ draft: true });
+    mocks.fetchLinearIssue
+      .mockResolvedValueOnce({
+        id: "issue-1",
+        identifier: "WES-13",
+        status: "Ready to Merge",
+        teamId: "team-1",
+        description: issueDescription,
+        projectName: "Portfolio",
+        teamName: "Weston Product Lab",
+      })
+      .mockResolvedValueOnce({
+        id: "issue-1",
+        identifier: "WES-13",
+        status: "Merged / Deployed",
+        teamId: "team-1",
+        description: issueDescription,
+        projectName: "Portfolio",
+        teamName: "Weston Product Lab",
+      });
+
+    const result = await executeMergePhase({
+      issueKey: "WES-13",
+      configPath,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(mocks.inspectPullRequestForMerge).toHaveBeenCalledTimes(3);
     expect(mocks.mergePullRequest).toHaveBeenCalled();
   });
 });

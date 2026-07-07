@@ -124,27 +124,25 @@ async function ensurePullRequestReadyForMerge(
     return initialInspection;
   }
 
-  const updated = await github.markPullRequestReadyForReview(
+  await github.markPullRequestReadyForReview(
     parsedPr.owner,
     parsedPr.repo,
     parsedPr.pullNumber,
   );
-  if (updated.draft === true) {
-    throw new MergeError(
-      "github_merge_failure",
-      "GitHub did not clear draft flag after mark-ready request",
-    );
-  }
 
   const deadline = Date.now() + DRAFT_READY_POLL_TIMEOUT_MS;
+  let pollCount = 0;
+  let lastDraft = true;
   while (Date.now() < deadline) {
     const inspection = await inspectPullRequestForMerge(
       github,
       parsedPr,
       markerTargetRepo,
     );
+    pollCount += 1;
+    lastDraft = inspection.isDraft;
     if (!inspection.isDraft) {
-      await events.log("github_pr_marked_ready", "info", { prUrl });
+      await events.log("github_pr_marked_ready", "info", { prUrl, pollCount });
       return inspection;
     }
     await new Promise((resolve) => setTimeout(resolve, DRAFT_READY_POLL_INTERVAL_MS));
@@ -152,7 +150,7 @@ async function ensurePullRequestReadyForMerge(
 
   throw new MergeError(
     "github_merge_failure",
-    "Pull request remained draft after mark-ready request",
+    `Pull request remained draft after mark-ready request (pollCount=${pollCount}, lastDraft=${lastDraft})`,
   );
 }
 
