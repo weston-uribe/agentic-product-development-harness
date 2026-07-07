@@ -43,7 +43,7 @@ import {
   inspectPullRequestForMerge,
   inspectPullRequestPostMerge,
 } from "../../github/pr-inspector.js";
-import { parsePrUrl } from "../../github/pr-url.js";
+import { parsePrUrl, type ParsedPrUrl } from "../../github/pr-url.js";
 import { pollForProductionDeployment, inferVercelReadyFromComments } from "../../preview/production-from-merge.js";
 import { normalizeRepoUrl } from "../../resolver/normalize-repo.js";
 import { resolveModelId } from "../../cursor/model.js";
@@ -114,7 +114,7 @@ const DRAFT_READY_POLL_INTERVAL_MS = 2_000;
 
 async function ensurePullRequestReadyForMerge(
   github: GitHubClient,
-  parsedPr: ReturnType<typeof parsePrUrl>,
+  parsedPr: ParsedPrUrl,
   markerTargetRepo: string,
   events: EventLogger,
   prUrl: string,
