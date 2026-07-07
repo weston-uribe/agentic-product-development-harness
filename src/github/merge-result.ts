@@ -13,8 +13,14 @@ export function classifyMergeError(
     if (error.status === 401) {
       return "github_auth_failure";
     }
-    if (error.status === 405 || error.status === 409) {
+    if (error.status === 409) {
       return "pr_already_merged";
+    }
+    if (error.status === 405) {
+      const message = error.message.toLowerCase();
+      if (message.includes("already been merged") || message.includes("already merged")) {
+        return "pr_already_merged";
+      }
     }
   }
   return "github_merge_failure";

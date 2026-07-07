@@ -644,6 +644,13 @@ export async function executeMergePhase(
       "utf8",
     );
 
+    if (enteredMerging && !postInspection.merged) {
+      throw new MergeError(
+        "github_merge_failure",
+        "Pull request was not merged after merge request",
+      );
+    }
+
     const deploymentPollTimeout =
       config.merge?.deploymentPollTimeoutSeconds ??
       DEFAULT_MERGE_DEPLOYMENT_POLL_TIMEOUT_SECONDS;
