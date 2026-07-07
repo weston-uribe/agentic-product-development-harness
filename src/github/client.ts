@@ -17,6 +17,7 @@ export interface GitHubPullRequest {
   html_url: string;
   state: string;
   merged: boolean;
+  draft?: boolean;
   merged_at: string | null;
   merge_commit_sha: string | null;
   head: { ref: string; sha: string };
@@ -105,6 +106,20 @@ export class GitHubClient {
   ): Promise<GitHubPullRequest> {
     return this.request<GitHubPullRequest>(
       `/repos/${owner}/${repo}/pulls/${pullNumber}`,
+    );
+  }
+
+  async markPullRequestReadyForReview(
+    owner: string,
+    repo: string,
+    pullNumber: number,
+  ): Promise<GitHubPullRequest> {
+    return this.request<GitHubPullRequest>(
+      `/repos/${owner}/${repo}/pulls/${pullNumber}`,
+      {
+        method: "PATCH",
+        body: { draft: false },
+      },
     );
   }
 

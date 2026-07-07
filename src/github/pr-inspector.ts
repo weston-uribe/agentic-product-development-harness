@@ -22,6 +22,7 @@ export interface PrInspectionResult {
   baseBranch: string;
   state: string;
   merged: boolean;
+  isDraft: boolean;
   mergeCommitSha: string | null;
   mergedAt: string | null;
   repoUrl: string;
@@ -240,6 +241,7 @@ async function inspectPullRequestRaw(
     baseBranch: pull.base.ref,
     state: pull.state,
     merged: pull.merged,
+    isDraft: pull.draft === true,
     mergeCommitSha: pull.merge_commit_sha,
     mergedAt: pull.merged_at,
     repoUrl: parsed.repoUrl,

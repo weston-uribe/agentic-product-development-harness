@@ -117,6 +117,7 @@ export type RunEventName =
   | "revision_pr_validated"
   | "merge_source_comment_loaded"
   | "merge_checks_evaluated"
+  | "github_pr_marked_ready"
   | "github_merge_requested"
   | "github_merge_completed"
   | "deployment_poll_started"

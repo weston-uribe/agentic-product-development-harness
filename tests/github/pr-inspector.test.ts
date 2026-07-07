@@ -70,6 +70,7 @@ describe("inspectPullRequest", () => {
 
     expect(result.url).toContain("/pull/4");
     expect(result.branch).toBe("cursor/wes-13-test");
+    expect(result.isDraft).toBe(false);
     expect(result.changedFiles).toHaveLength(1);
     expect(result.checkSummary).toContain("Passed: 1");
     expect(result.comments[0]?.author).toBe("vercel[bot]");

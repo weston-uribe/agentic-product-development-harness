@@ -582,6 +582,20 @@ export async function executeMergePhase(
         to: mergingStatus,
       });
 
+      if (preInspection.isDraft) {
+        await github.markPullRequestReadyForReview(
+          parsedPr.owner,
+          parsedPr.repo,
+          parsedPr.pullNumber,
+        );
+        await events.log("github_pr_marked_ready", "info", { prUrl });
+        preInspection = await inspectPullRequestForMerge(
+          github,
+          parsedPr,
+          markerTargetRepo,
+        );
+      }
+
       await events.log("github_merge_requested", "info", {
         prUrl,
         mergeMethod,
