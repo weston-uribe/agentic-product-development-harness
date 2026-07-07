@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "orchestratorMarker": "harness-orchestrator-v1",
+  "logDirectory": "runs",
+  "linear": {
+    "teamKey": "WES"
+  },
+  "repos": [
+    {
+      "id": "portfolio",
+      "linearProjects": ["Portfolio"],
+      "targetRepo": "https://github.com/weston-uribe/weston-uribe-portfolio",
+      "baseBranch": "main",
+      "previewProvider": "vercel"
+    },
+    {
+      "id": "harness",
+      "linearProjects": ["Agentic Product Development Harness"],
+      "targetRepo": "https://github.com/weston-uribe/agentic-product-development-harness",
+      "baseBranch": "main",
+      "previewProvider": "none"
+    }
+  ],
+  "allowedTargetRepos": [
+    "https://github.com/weston-uribe/weston-uribe-portfolio",
+    "https://github.com/weston-uribe/agentic-product-development-harness"
+  ]
+}

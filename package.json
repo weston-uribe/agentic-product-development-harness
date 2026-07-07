@@ -1,0 +1,28 @@
+{
+  "name": "agentic-product-development-harness",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Repo-agnostic Cursor SDK orchestration harness (Milestone 1: dry-run foundation)",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "harness:doctor": "tsx src/index.ts doctor",
+    "harness:run": "tsx src/index.ts run",
+    "harness:inspect": "tsx src/index.ts inspect",
+    "generate:config-schema": "tsx scripts/generate-config-schema.ts"
+  },
+  "dependencies": {
+    "@linear/sdk": "^40.0.0",
+    "commander": "^13.1.0",
+    "dotenv": "^16.4.7",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.9",
+    "zod-to-json-schema": "^3.24.5"
+  }
+}

@@ -1,0 +1,43 @@
+import type { HarnessConfig } from "../config/types.js";
+import type { RunPhase } from "../types/run.js";
+
+const PLANNING_STATUSES = new Set([
+  "ready for planning",
+  "planning",
+]);
+
+const IMPLEMENTATION_STATUSES = new Set([
+  "ready for build",
+  "building",
+  "pr open",
+]);
+
+export function inferPhaseFromStatus(
+  status: string | null | undefined,
+  config: HarnessConfig,
+): { phase: RunPhase; statusLabel: string | null } {
+  if (!status) {
+    return { phase: "none", statusLabel: null };
+  }
+
+  const normalized = status.trim().toLowerCase();
+  const planningStatuses =
+    config.linear?.eligibleStatuses?.planning?.map((s) => s.toLowerCase()) ??
+    [...PLANNING_STATUSES];
+  const implementationStatuses =
+    config.linear?.eligibleStatuses?.implementation?.map((s) => s.toLowerCase()) ??
+    [...IMPLEMENTATION_STATUSES];
+
+  if (planningStatuses.includes(normalized) || PLANNING_STATUSES.has(normalized)) {
+    return { phase: "planning", statusLabel: status };
+  }
+
+  if (
+    implementationStatuses.includes(normalized) ||
+    IMPLEMENTATION_STATUSES.has(normalized)
+  ) {
+    return { phase: "implementation", statusLabel: status };
+  }
+
+  return { phase: "none", statusLabel: status };
+}

@@ -1,0 +1,179 @@
+{
+  "$ref": "#/definitions/HarnessConfig",
+  "definitions": {
+    "HarnessConfig": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "number",
+          "const": 1
+        },
+        "orchestratorMarker": {
+          "type": "string",
+          "default": "harness-orchestrator-v1"
+        },
+        "logDirectory": {
+          "type": "string",
+          "default": "runs"
+        },
+        "defaultModel": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
+        "linear": {
+          "type": "object",
+          "properties": {
+            "teamKey": {
+              "type": "string"
+            },
+            "eligibleStatuses": {
+              "type": "object",
+              "properties": {
+                "planning": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "implementation": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "additionalProperties": false
+            },
+            "transitionalStatuses": {
+              "type": "object",
+              "properties": {
+                "planningInProgress": {
+                  "type": "string"
+                },
+                "buildingInProgress": {
+                  "type": "string"
+                },
+                "prOpen": {
+                  "type": "string"
+                },
+                "pmReview": {
+                  "type": "string"
+                },
+                "blocked": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "watch": {
+          "type": "object",
+          "properties": {
+            "pollIntervalSeconds": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "maxConcurrentRuns": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          },
+          "additionalProperties": false
+        },
+        "preview": {
+          "type": "object",
+          "properties": {
+            "pollTimeoutSeconds": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "pollIntervalSeconds": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          },
+          "additionalProperties": false
+        },
+        "repos": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "linearProjects": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "linearTeams": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "targetRepo": {
+                "type": "string",
+                "pattern": "^https:\\/\\/github\\.com\\/[A-Za-z0-9_.-]+\\/[A-Za-z0-9_.-]+\\/?$"
+              },
+              "baseBranch": {
+                "type": "string",
+                "minLength": 1,
+                "default": "main"
+              },
+              "previewProvider": {
+                "type": "string"
+              },
+              "validation": {
+                "type": "object",
+                "properties": {
+                  "commands": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "targetRepo"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 1
+        },
+        "allowedTargetRepos": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^https:\\/\\/github\\.com\\/[A-Za-z0-9_.-]+\\/[A-Za-z0-9_.-]+\\/?$"
+          },
+          "minItems": 1
+        }
+      },
+      "required": [
+        "version",
+        "repos",
+        "allowedTargetRepos"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}
