@@ -338,7 +338,18 @@ export function checkMergeIdempotency(
   force: boolean,
 ): IdempotencyResult {
   const orchestratorMarker = config.orchestratorMarker;
-  const mergedDeployed = getTransitionalStatus(config, "mergedDeployed");
+  const completedMergeStatuses = new Set(
+    [
+      getTransitionalStatus(config, "mergedToDev"),
+      getTransitionalStatus(config, "mergedDeployed"),
+      ...config.repos.flatMap((repo) => [
+        repo.integrationSuccessStatus,
+        repo.productionSuccessStatus,
+      ]),
+    ]
+      .filter((status): status is string => Boolean(status))
+      .map((status) => status.toLowerCase()),
+  );
   const readyToMerge = getTransitionalStatus(config, "readyToMerge");
   const merging = getTransitionalStatus(config, "mergingInProgress");
   const status = issue.status?.toLowerCase() ?? "";
@@ -363,10 +374,10 @@ export function checkMergeIdempotency(
     };
   }
 
-  if (status === mergedDeployed.toLowerCase()) {
+  if (completedMergeStatuses.has(status)) {
     return {
       skip: true,
-      reason: "duplicate_phase_completed: issue already Merged / Deployed",
+      reason: `duplicate_phase_completed: issue already ${issue.status}`,
     };
   }
 

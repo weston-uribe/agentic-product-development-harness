@@ -49,6 +49,7 @@ vi.mock("../../src/github/client.js", () => ({
   GitHubClient: vi.fn().mockImplementation(() => ({
     mergePullRequest: mocks.mergePullRequest,
     markPullRequestReadyForReview: mocks.markPullRequestReadyForReview,
+    getBranchRef: vi.fn().mockResolvedValue({ object: { sha: "abc123" } }),
   })),
   GitHubApiError: class GitHubApiError extends Error {
     status: number;
@@ -62,6 +63,15 @@ vi.mock("../../src/github/client.js", () => ({
 vi.mock("../../src/preview/production-from-merge.js", () => ({
   pollForProductionDeployment: mocks.pollForProductionDeployment,
 }));
+
+vi.mock("../../src/github/base-branch.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../src/github/base-branch.js")>();
+  return {
+    ...actual,
+    assertBaseBranchExists: vi.fn().mockResolvedValue(undefined),
+  };
+});
 
 import { executeMergePhase } from "../../src/runner/phases/merge.js";
 import type { HarnessConfig } from "../../src/config/types.js";
@@ -404,5 +414,146 @@ describe("executeMergePhase", () => {
     expect(result.exitCode).toBe(0);
     expect(mocks.inspectPullRequestForMerge).toHaveBeenCalledTimes(3);
     expect(mocks.mergePullRequest).toHaveBeenCalled();
+  });
+
+  it("transitions to Merged to Dev for integration merge and skips production poll", async () => {
+    const { writeFile } = await import("node:fs/promises");
+    const devConfig: HarnessConfig = {
+      version: 1,
+      orchestratorMarker: "harness-orchestrator-v1",
+      logDirectory: tempRoot,
+      defaultModel: { id: "composer-2.5" },
+      linear: {
+        teamKey: "WES",
+        eligibleStatuses: { merge: ["Ready to Merge"] },
+        transitionalStatuses: {
+          readyToMerge: "Ready to Merge",
+          mergingInProgress: "Merging",
+          mergedToDev: "Merged to Dev",
+          mergedDeployed: "Merged / Deployed",
+          blocked: "Blocked",
+        },
+      },
+      merge: { mergeMethod: "squash", allowUnknownChecks: true },
+      repos: [
+        {
+          id: "portfolio",
+          linearProjects: ["Portfolio"],
+          targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+          baseBranch: "dev",
+          productionBranch: "main",
+          integrationPreviewUrl: "https://dev.example.vercel.app",
+        },
+      ],
+      allowedTargetRepos: [
+        "https://github.com/weston-uribe/weston-uribe-portfolio",
+      ],
+    };
+    await writeFile(configPath, `${JSON.stringify(devConfig, null, 2)}\n`, "utf8");
+
+    mocks.inspectPullRequestForMerge.mockResolvedValue({
+      title: "[WES-13] test",
+      url: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4",
+      branch: "cursor/wes-13-test",
+      baseBranch: "dev",
+      state: "open",
+      merged: false,
+      isDraft: false,
+      mergeCommitSha: null,
+      mergedAt: null,
+      repoUrl: "https://github.com/weston-uribe/weston-uribe-portfolio",
+      changedFiles: [{ path: "app/hello-world/page.tsx", status: "modified" }],
+      checks: [{ name: "CI", status: "completed", conclusion: "success", detailsUrl: null }],
+      checkSummary: "- Passed: 1",
+      comments: [],
+      rawChecks: [],
+    });
+    mocks.inspectPullRequestPostMerge.mockResolvedValue({
+      title: "[WES-13] test",
+      url: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4",
+      branch: "cursor/wes-13-test",
+      baseBranch: "dev",
+      state: "closed",
+      merged: true,
+      mergeCommitSha: "merged-sha-dev",
+      mergedAt: "2026-07-07T06:00:00.000Z",
+      repoUrl: "https://github.com/weston-uribe/weston-uribe-portfolio",
+      changedFiles: [{ path: "app/hello-world/page.tsx", status: "modified" }],
+      checks: [],
+      checkSummary: "- Passed: 1",
+      comments: [],
+      rawChecks: [],
+    });
+    mocks.fetchLinearIssue
+      .mockResolvedValueOnce({
+        id: "issue-1",
+        identifier: "WES-13",
+        status: "Ready to Merge",
+        teamId: "team-1",
+        description: issueDescription,
+        projectName: "Portfolio",
+        teamName: "Weston Product Lab",
+      })
+      .mockResolvedValueOnce({
+        id: "issue-1",
+        identifier: "WES-13",
+        status: "Merged to Dev",
+        teamId: "team-1",
+        description: issueDescription,
+        projectName: "Portfolio",
+        teamName: "Weston Product Lab",
+      });
+
+    const result = await executeMergePhase({
+      issueKey: "WES-13",
+      configPath,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.manifest.linearStatusAfter).toBe("Merged to Dev");
+    expect(mocks.pollForProductionDeployment).not.toHaveBeenCalled();
+    expect(mocks.transitionIssueStatus).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ identifier: "WES-13" }),
+      "Merged to Dev",
+    );
+  });
+
+  it("fails with wrong_pr_base_branch when PR targets unexpected base", async () => {
+    mocks.inspectPullRequestForMerge.mockResolvedValue({
+      title: "[WES-13] test",
+      url: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4",
+      branch: "cursor/wes-13-test",
+      baseBranch: "dev",
+      state: "open",
+      merged: false,
+      isDraft: false,
+      mergeCommitSha: null,
+      mergedAt: null,
+      repoUrl: "https://github.com/weston-uribe/weston-uribe-portfolio",
+      changedFiles: [],
+      checks: [],
+      checkSummary: "- Passed: 0",
+      comments: [],
+      rawChecks: [],
+    });
+    mocks.fetchLinearIssue.mockResolvedValueOnce({
+      id: "issue-1",
+      identifier: "WES-13",
+      status: "Ready to Merge",
+      teamId: "team-1",
+      description: issueDescription,
+      projectName: "Portfolio",
+      teamName: "Weston Product Lab",
+    });
+
+    const result = await executeMergePhase({
+      issueKey: "WES-13",
+      configPath,
+    });
+
+    expect(result.exitCode).toBe(2);
+    expect(result.manifest.errorClassification).toBe("wrong_pr_base_branch");
+    expect(mocks.mergePullRequest).not.toHaveBeenCalled();
   });
 });

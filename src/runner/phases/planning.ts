@@ -90,7 +90,8 @@ async function writeFinalManifest(
         : errorClassification &&
             ["ambiguous_issue", "missing_target_repo", "unknown_repo_denied"].includes(
               errorClassification,
-            )
+            ) ||
+            errorClassification === "base_branch_missing"
           ? 2
           : 3;
 
@@ -183,6 +184,7 @@ export async function executePlanningPhase(
     model,
     promptVersion: "planning@1",
     targetRepo: resolved.targetRepo,
+    baseBranch: resolved.baseBranch,
   };
 
   const client = createLinearClient(linearApiKey);
@@ -290,6 +292,7 @@ export async function executePlanningPhase(
             runId,
             issueKey: issue.identifier,
             targetRepo: resolved.targetRepo,
+            baseBranch: resolved.baseBranch,
             model,
             promptVersion: version,
             cursorAgentId: agentId,

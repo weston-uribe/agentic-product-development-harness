@@ -39,6 +39,7 @@ import {
   transitionIssueStatus,
 } from "../../linear/writer.js";
 import { GitHubClient } from "../../github/client.js";
+import { assertPrBaseBranchMatches } from "../../github/base-branch.js";
 import {
   classifyGitHubError,
   inspectPullRequest,
@@ -153,6 +154,8 @@ async function writeFinalManifest(
             "missing_pm_feedback",
             "missing_branch",
             "missing_pr_url",
+            "base_branch_missing",
+            "wrong_pr_base_branch",
           ].includes(errorClassification)
         ? 2
         : 3;
@@ -289,6 +292,7 @@ export async function executeRevisionPhase(
     model,
     promptVersion: REVISION_PROMPT_VERSION,
     targetRepo: resolved.targetRepo,
+    baseBranch: resolved.baseBranch,
   };
 
   const client = createLinearClient(linearApiKey);
@@ -440,6 +444,18 @@ export async function executeRevisionPhase(
 
     branch = inspection.branch;
     prUrl = inspection.url;
+    try {
+      assertPrBaseBranchMatches({
+        prUrl,
+        actualBaseBranch: inspection.baseBranch,
+        expectedBaseBranch: resolved.baseBranch,
+      });
+    } catch (error) {
+      throw new RevisionError(
+        "wrong_pr_base_branch",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
     changedFiles = inspection.changedFiles.map((f) => f.path);
     checkSummary = inspection.checkSummary;
 
@@ -527,6 +543,7 @@ export async function executeRevisionPhase(
             runId,
             issueKey: issue.identifier,
             targetRepo: markerTargetRepo,
+            baseBranch: resolved.baseBranch,
             model,
             promptVersion: REVISION_PROMPT_VERSION,
             branch: branch ?? undefined,
@@ -625,11 +642,11 @@ export async function executeRevisionPhase(
     );
 
     const revisionBody = buildRevisionCommentBody({
-      pmFeedback: pmFeedbackComment.body,
-      prTitle: postInspection.title,
+      summary: validationSummary ?? observed.assistantText,
       prUrl: postInspection.url,
       branch: postInspection.branch,
       targetRepo: markerTargetRepo,
+      baseBranch: resolved.baseBranch,
       previewUrl,
       previewWarning,
       changedFiles,

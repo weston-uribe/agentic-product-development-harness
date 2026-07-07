@@ -16,6 +16,7 @@ const config: HarnessConfig = {
     transitionalStatuses: {
       readyToMerge: "Ready to Merge",
       mergingInProgress: "Merging",
+      mergedToDev: "Merged to Dev",
       mergedDeployed: "Merged / Deployed",
     },
   },
@@ -80,6 +81,19 @@ describe("merge idempotency", () => {
     );
     expect(result.skip).toBe(false);
     expect(result.reason).toContain("recovery");
+  });
+
+  it("skips when issue is already Merged to Dev", () => {
+    const result = checkMergeIdempotency(
+      config,
+      { id: "1", identifier: "WES-13", status: "Merged to Dev", teamId: "t" },
+      [],
+      prUrl,
+      true,
+      false,
+    );
+    expect(result.skip).toBe(true);
+    expect(result.reason).toContain("duplicate_phase_completed");
   });
 
   it("asserts Ready to Merge status", () => {

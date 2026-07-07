@@ -103,6 +103,9 @@
                 "mergingInProgress": {
                   "type": "string"
                 },
+                "mergedToDev": {
+                  "type": "string"
+                },
                 "mergedDeployed": {
                   "type": "string"
                 }
@@ -258,12 +261,29 @@
                 "minLength": 1,
                 "default": "main"
               },
+              "productionBranch": {
+                "type": "string",
+                "minLength": 1,
+                "default": "main"
+              },
               "previewProvider": {
                 "type": "string"
+              },
+              "integrationPreviewUrl": {
+                "type": "string",
+                "format": "uri"
               },
               "productionUrl": {
                 "type": "string",
                 "format": "uri"
+              },
+              "integrationSuccessStatus": {
+                "type": "string",
+                "minLength": 1
+              },
+              "productionSuccessStatus": {
+                "type": "string",
+                "minLength": 1
               },
               "validation": {
                 "type": "object",

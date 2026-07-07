@@ -66,7 +66,7 @@ Superseded for PM self-service by canonical ChatGPT prompt — [`prompts/issue-i
 
 ## Merge automation spike (completed)
 
-**Goal:** Close the solo-PM merge loop — **Ready to Merge → Merging → Merged / Deployed** — by squash-merging the accepted PR and posting a completion comment.
+**Goal:** Close the solo-PM merge loop — **Ready to Merge → Merging → Merged to Dev** (integration) or **Merged / Deployed** (production) — by squash-merging the accepted PR and posting a completion comment.
 
 **Already done:**
 - M1–M6 SDK runners validated (planning, implementation, handoff, revision, merge)
@@ -125,6 +125,7 @@ Superseded for PM self-service by canonical ChatGPT prompt — [`prompts/issue-i
 - **SDK handoff runner implemented** — Milestone 4 adds PR Open → GitHub PR inspect + Vercel preview capture → PM Review. See [`docs/milestones/m4-handoff-phase.md`](docs/milestones/m4-handoff-phase.md).
 - **SDK revision runner implemented** — Milestone 5 adds Needs Revision → Revising → PM Review on existing PR branch. See [`docs/milestones/m5-revision-phase.md`](docs/milestones/m5-revision-phase.md).
 - **SDK merge runner implemented** — Milestone 6 adds Ready to Merge → Merging → Merged / Deployed with squash merge and deployment capture. See [`docs/milestones/m6-merge-phase.md`](docs/milestones/m6-merge-phase.md).
+- **Integration branch (portfolio):** PRs merge to `dev`; success status **Merged to Dev**; production `main` promotion is future/out of scope. See [`docs/target-repo-branch-setup.md`](docs/target-repo-branch-setup.md).
 
 **Delivered:**
 - SDK handoff runner starting from **PR Open**

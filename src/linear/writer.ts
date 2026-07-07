@@ -6,6 +6,7 @@ import {
   formatHandoffComment,
   formatImplementationComment,
   formatPlanningComment,
+  buildErrorCommentBody,
   type HandoffCommentFooterInput,
   type RevisionCommentFooterInput,
   formatRevisionComment,
@@ -134,6 +135,7 @@ export interface PostPhaseStartCommentInput {
   runId: string;
   issueKey: string;
   targetRepo: string;
+  baseBranch?: string;
   model: string;
   promptVersion: string;
   branch?: string;
@@ -163,6 +165,7 @@ export async function postPhaseStartCommentIfNeeded(
   const bodyInput: PhaseStartCommentBodyInput = {
     issueKey: input.issueKey,
     targetRepo: input.targetRepo,
+    baseBranch: input.baseBranch,
     branch: input.branch,
     prUrl: input.prUrl,
     githubActionsRunUrl,
@@ -177,6 +180,7 @@ export async function postPhaseStartCommentIfNeeded(
     model: input.model,
     promptVersion: input.promptVersion,
     targetRepo: input.targetRepo,
+    baseBranch: input.baseBranch,
     branch: input.branch,
     prUrl: input.prUrl,
     githubActionsRunUrl: githubActionsRunUrl ?? undefined,
@@ -190,18 +194,20 @@ export async function postErrorComment(
   message: string,
   footer: MergeCommentFooterInput,
   phase: "planning" | "implementation" | "handoff" | "revision" | "merge" = "planning",
+  options?: {
+    errorClassification?: string;
+  },
 ): Promise<string> {
-  const header =
-    phase === "merge"
-      ? "## Merge error"
-      : phase === "revision"
-        ? "## Revision error"
-        : phase === "handoff"
-          ? "## Handoff error"
-          : phase === "implementation"
-            ? "## Implementation error"
-            : "## Harness planning error";
-  const body = `${header}\n\n${message}\n\n${formatHarnessCommentFooter(footer)}`;
+  const body = `${buildErrorCommentBody(phase, message, {
+    githubActionsRunUrl:
+      footer.githubActionsRunUrl ?? getGitHubActionsRunUrl(),
+    errorClassification: options?.errorClassification,
+    targetRepo: footer.targetRepo,
+    branch: footer.branch,
+    prUrl: footer.prUrl,
+    baseBranch: footer.baseBranch,
+    harnessRunId: footer.runId,
+  })}\n\n${formatHarnessCommentFooter(footer)}`;
   return postIssueComment(client, issueId, body);
 }
 

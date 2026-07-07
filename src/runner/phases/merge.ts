@@ -8,7 +8,10 @@ import {
   MERGE_PROMPT_VERSION,
   MILESTONE,
 } from "../../config/defaults.js";
-import { getTransitionalStatus } from "../../config/status-names.js";
+import {
+  getTransitionalStatus,
+  resolveMergeSuccessStatus,
+} from "../../config/status-names.js";
 import { writeManifest } from "../../artifacts/manifest.js";
 import { writeRunSummary } from "../../artifacts/summary.js";
 import {
@@ -37,6 +40,7 @@ import {
   transitionIssueStatus,
 } from "../../linear/writer.js";
 import { GitHubClient } from "../../github/client.js";
+import { assertPrBaseBranchMatches } from "../../github/base-branch.js";
 import { evaluateChecksForMerge } from "../../github/check-policy.js";
 import { classifyMergeError, isAlreadyMergedError } from "../../github/merge-result.js";
 import {
@@ -46,6 +50,7 @@ import {
 } from "../../github/pr-inspector.js";
 import { parsePrUrl, type ParsedPrUrl } from "../../github/pr-url.js";
 import { pollForProductionDeployment, inferVercelReadyFromComments } from "../../preview/production-from-merge.js";
+import { resolvePreviewLinks } from "../../preview/urls.js";
 import { normalizeRepoUrl } from "../../resolver/normalize-repo.js";
 import { resolveModelId } from "../../cursor/model.js";
 import { MergeError } from "../errors.js";
@@ -211,6 +216,8 @@ async function writeFinalManifest(
             "github_auth_failure",
             "missing_merge_source_marker",
             "missing_pr_url",
+            "base_branch_missing",
+            "wrong_pr_base_branch",
             "checks_failing",
             "checks_pending",
             "checks_unknown",
@@ -226,7 +233,7 @@ async function postCompletionAndTransition(
   issue: import("../../linear/client.js").LinearIssueSnapshot,
   mergeBody: string,
   footer: Parameters<typeof postMergeCompletionComment>[3],
-  mergedDeployedStatus: string,
+  mergeSuccessStatus: string,
   events: EventLogger,
   linearStatusBefore: string | null,
 ): Promise<string> {
@@ -241,12 +248,12 @@ async function postCompletionAndTransition(
     phase: "merge",
     commentId,
   });
-  await transitionIssueStatus(client, issue, mergedDeployedStatus);
+  await transitionIssueStatus(client, issue, mergeSuccessStatus);
   await events.log("linear_status_changed", "info", {
     from: linearStatusBefore,
-    to: mergedDeployedStatus,
+    to: mergeSuccessStatus,
   });
-  return mergedDeployedStatus;
+  return mergeSuccessStatus;
 }
 
 export async function executeMergePhase(
@@ -378,11 +385,12 @@ export async function executeMergePhase(
     model,
     promptVersion: MERGE_PROMPT_VERSION,
     targetRepo: resolved.targetRepo,
+    baseBranch: resolved.baseBranch,
   };
 
   const client = createLinearClient(linearApiKey);
   const github = new GitHubClient({ token: githubToken });
-  const mergedDeployedStatus = getTransitionalStatus(config, "mergedDeployed");
+  const mergeSuccessStatus = resolveMergeSuccessStatus(resolved, config);
   const mergingStatus = getTransitionalStatus(config, "mergingInProgress");
 
   try {
@@ -458,6 +466,18 @@ export async function executeMergePhase(
     prMerged = preInspection.merged;
     branch = preInspection.branch;
     prUrl = preInspection.url;
+    try {
+      assertPrBaseBranchMatches({
+        prUrl,
+        actualBaseBranch: preInspection.baseBranch,
+        expectedBaseBranch: resolved.baseBranch,
+      });
+    } catch (error) {
+      throw new MergeError(
+        "wrong_pr_base_branch",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
     changedFiles = preInspection.changedFiles.map((f) => f.path);
     checkSummary = preInspection.checkSummary;
 
@@ -637,6 +657,7 @@ export async function executeMergePhase(
           runId,
           issueKey: issue.identifier,
           targetRepo: markerTargetRepo,
+          baseBranch: resolved.baseBranch,
           model,
           promptVersion: MERGE_PROMPT_VERSION,
           branch: preInspection.branch,
@@ -734,75 +755,94 @@ export async function executeMergePhase(
       );
     }
 
-    const deploymentPollTimeout =
-      config.merge?.deploymentPollTimeoutSeconds ??
-      DEFAULT_MERGE_DEPLOYMENT_POLL_TIMEOUT_SECONDS;
-    const deploymentPollInterval =
-      config.merge?.deploymentPollIntervalSeconds ??
-      DEFAULT_MERGE_DEPLOYMENT_POLL_INTERVAL_SECONDS;
+    const mergedToProduction = resolved.baseBranch === resolved.productionBranch;
     const productionReference = getProductionUrlReference(
       config,
       resolved.repoConfigId,
     );
 
-    await events.log("deployment_poll_started", "info", {
-      pollTimeoutSeconds: deploymentPollTimeout,
-    });
+    if (mergedToProduction) {
+      const deploymentPollTimeout =
+        config.merge?.deploymentPollTimeoutSeconds ??
+        DEFAULT_MERGE_DEPLOYMENT_POLL_TIMEOUT_SECONDS;
+      const deploymentPollInterval =
+        config.merge?.deploymentPollIntervalSeconds ??
+        DEFAULT_MERGE_DEPLOYMENT_POLL_INTERVAL_SECONDS;
 
-    const deploymentResult = await pollForProductionDeployment(
-      async () => {
-        const latest = await inspectPullRequestPostMerge(
-          github,
-          parsedPr,
-          markerTargetRepo,
-        ).catch(() => postInspection);
-        return {
-          comments: latest.comments,
-          checks: latest.checks,
-        };
-      },
-      {
+      await events.log("deployment_poll_started", "info", {
         pollTimeoutSeconds: deploymentPollTimeout,
-        pollIntervalSeconds: deploymentPollInterval,
-        productionUrlReference: productionReference,
-      },
-    );
-
-    deploymentUrl = deploymentResult.deploymentUrl;
-    await mkdir(`${runDirectory}/vercel`, { recursive: true });
-    await writeFile(
-      getProductionDeploymentPath(runDirectory),
-      `${JSON.stringify(deploymentResult, null, 2)}\n`,
-      "utf8",
-    );
-
-    const deploymentRequired =
-      config.merge?.deploymentRequiredForSuccess ??
-      DEFAULT_MERGE_DEPLOYMENT_REQUIRED;
-
-    let deploymentWarning: string | null = null;
-    if (!deploymentUrl) {
-      deploymentWarning =
-        deploymentResult.warnings.join("; ") ||
-        "Production deployment URL not captured";
-      await events.log("deployment_not_found", "warn", {
-        warnings: deploymentResult.warnings,
+        mergedToProduction: true,
       });
-      if (deploymentRequired) {
-        throw new MergeError("deployment_not_found", deploymentWarning);
+
+      const deploymentResult = await pollForProductionDeployment(
+        async () => {
+          const latest = await inspectPullRequestPostMerge(
+            github,
+            parsedPr,
+            markerTargetRepo,
+          ).catch(() => postInspection);
+          return {
+            comments: latest.comments,
+            checks: latest.checks,
+          };
+        },
+        {
+          pollTimeoutSeconds: deploymentPollTimeout,
+          pollIntervalSeconds: deploymentPollInterval,
+          productionUrlReference: productionReference,
+        },
+      );
+
+      deploymentUrl = deploymentResult.deploymentUrl;
+      await mkdir(`${runDirectory}/vercel`, { recursive: true });
+      await writeFile(
+        getProductionDeploymentPath(runDirectory),
+        `${JSON.stringify(deploymentResult, null, 2)}\n`,
+        "utf8",
+      );
+
+      const deploymentRequired =
+        config.merge?.deploymentRequiredForSuccess ??
+        DEFAULT_MERGE_DEPLOYMENT_REQUIRED;
+
+      let deploymentWarning: string | null = null;
+      if (!deploymentUrl) {
+        deploymentWarning =
+          deploymentResult.warnings.join("; ") ||
+          "Production deployment URL not captured";
+        await events.log("deployment_not_found", "warn", {
+          warnings: deploymentResult.warnings,
+        });
+        if (deploymentRequired) {
+          throw new MergeError("deployment_not_found", deploymentWarning);
+        }
+        validationSummary = [validationSummary, deploymentWarning]
+          .filter(Boolean)
+          .join("; ");
+      } else {
+        await events.log("deployment_captured", "info", {
+          deploymentUrl,
+          source: deploymentResult.source,
+        });
       }
-      validationSummary = [validationSummary, deploymentWarning]
-        .filter(Boolean)
-        .join("; ");
     } else {
-      await events.log("deployment_captured", "info", {
-        deploymentUrl,
-        source: deploymentResult.source,
+      await events.log("deployment_poll_skipped", "info", {
+        reason: "integration_merge",
+        baseBranch: resolved.baseBranch,
+        productionBranch: resolved.productionBranch,
       });
     }
 
+    const previewLinks = resolvePreviewLinks({
+      prPreviewUrl: previewUrl,
+      integrationPreviewUrl: resolved.integrationPreviewUrl,
+      productionUrl: productionReference,
+      capturedDeploymentUrl: deploymentUrl,
+      mergedBaseBranch: postInspection.baseBranch,
+      productionBranch: resolved.productionBranch,
+    });
+
     const mergeBody = buildMergeCompletionCommentBody({
-      prTitle: postInspection.title,
       prUrl: postInspection.url,
       branch: postInspection.branch,
       targetRepo: markerTargetRepo,
@@ -810,11 +850,12 @@ export async function executeMergePhase(
       mergeCommitSha,
       mergedAt,
       baseBranch: postInspection.baseBranch,
-      deploymentUrl,
-      deploymentWarning,
+      productionBranch: resolved.productionBranch,
+      previewLinks,
+      deploymentWarning: validationSummary,
       changedFiles: changedFiles ?? [],
       checkSummary: checkSummary ?? postInspection.checkSummary,
-      finalIssueStatus: mergedDeployedStatus,
+      finalIssueStatus: mergeSuccessStatus,
       harnessRunId: runId,
       previousHandoffRunId,
       previousRevisionRunId,
@@ -843,7 +884,7 @@ export async function executeMergePhase(
       issue,
       mergeBody,
       mergeFooter,
-      mergedDeployedStatus,
+      mergeSuccessStatus,
       events,
       linearStatusBefore,
     );
@@ -886,8 +927,15 @@ export async function executeMergePhase(
     };
 
     if (prMerged && errorClassification === "linear_write_failure") {
+      const previewLinks = resolvePreviewLinks({
+        prPreviewUrl: previewUrl,
+        integrationPreviewUrl: resolved.integrationPreviewUrl,
+        productionUrl: getProductionUrlReference(config, resolved.repoConfigId),
+        capturedDeploymentUrl: deploymentUrl,
+        mergedBaseBranch: resolved.baseBranch,
+        productionBranch: resolved.productionBranch,
+      });
       const mergeBody = buildMergeCompletionCommentBody({
-        prTitle: "Merged PR",
         prUrl: prUrl ?? "unknown",
         branch: branch ?? "unknown",
         targetRepo: resolved.targetRepo,
@@ -895,11 +943,12 @@ export async function executeMergePhase(
         mergeCommitSha,
         mergedAt,
         baseBranch: resolved.baseBranch,
-        deploymentUrl,
+        productionBranch: resolved.productionBranch,
+        previewLinks,
         deploymentWarning: validationSummary,
         changedFiles: changedFiles ?? [],
         checkSummary: checkSummary ?? "n/a",
-        finalIssueStatus: mergedDeployedStatus,
+        finalIssueStatus: mergeSuccessStatus,
         harnessRunId: runId,
         previousHandoffRunId,
         previousRevisionRunId,
@@ -909,7 +958,7 @@ export async function executeMergePhase(
         prUrl,
         merged: true,
         mergeCommitSha,
-        intendedLinearStatus: mergedDeployedStatus,
+        intendedLinearStatus: mergeSuccessStatus,
         intendedCommentBody: mergeBody,
         mergeRunId: runId,
         error: message,

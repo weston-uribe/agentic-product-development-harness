@@ -1,6 +1,8 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import {
   DEFAULT_IMPLEMENTATION_TIMEOUT_SECONDS,
+  DEFAULT_PREVIEW_POLL_INTERVAL_SECONDS,
+  DEFAULT_PREVIEW_POLL_TIMEOUT_SECONDS,
   IMPLEMENTATION_PROMPT_VERSION,
   MILESTONE,
 } from "../../config/defaults.js";
@@ -29,6 +31,11 @@ import {
 import { createImplementationCloudAgent } from "../../cursor/agent-factory.js";
 import { sendAndObserve } from "../../cursor/run-observer.js";
 import { resolveModelId } from "../../cursor/model.js";
+import { assertPrBaseBranchMatches } from "../../github/base-branch.js";
+import { GitHubClient } from "../../github/client.js";
+import { classifyGitHubError, inspectPullRequest } from "../../github/pr-inspector.js";
+import { parsePrUrl } from "../../github/pr-url.js";
+import { pollForVercelPreview } from "../../preview/vercel-from-pr.js";
 import { buildBranchName } from "../../prompts/branch-name.js";
 import { buildImplementationPrompt } from "../../prompts/builder.js";
 import { ImplementationError } from "../errors.js";
@@ -115,6 +122,8 @@ async function writeFinalManifest(
             "unknown_repo_denied",
             "wrong_status",
             "missing_planning_comment",
+            "base_branch_missing",
+            "wrong_pr_base_branch",
           ].includes(errorClassification)
         ? 2
         : 3;
@@ -198,6 +207,7 @@ export async function executeImplementationPhase(
   let cursorRunId: string | null = null;
   let branch: string | null = null;
   let prUrl: string | null = null;
+  let previewUrl: string | null = null;
   let validationSummary: string | null = null;
   let enteredBuilding = false;
   let cursorCleanup: CursorCancelOutcome | null = null;
@@ -212,6 +222,7 @@ export async function executeImplementationPhase(
     model,
     promptVersion: IMPLEMENTATION_PROMPT_VERSION,
     targetRepo: resolved.targetRepo,
+    baseBranch: resolved.baseBranch,
   };
 
   const client = createLinearClient(linearApiKey);
@@ -361,6 +372,7 @@ export async function executeImplementationPhase(
             runId,
             issueKey: issue.identifier,
             targetRepo: resolved.targetRepo,
+            baseBranch: resolved.baseBranch,
             model,
             promptVersion: IMPLEMENTATION_PROMPT_VERSION,
             branch: branchName,
@@ -424,18 +436,67 @@ export async function executeImplementationPhase(
       prUrl,
     });
     await events.log("pr_captured", "info", { prUrl });
+
+    if (process.env.GITHUB_TOKEN && prUrl) {
+      const parsedPr = parsePrUrl(prUrl);
+      if (!parsedPr) {
+        throw new ImplementationError("missing_pr_url", `Invalid PR URL: ${prUrl}`);
+      }
+      const github = new GitHubClient({ token: process.env.GITHUB_TOKEN });
+      try {
+        const inspection = await inspectPullRequest(
+          github,
+          parsedPr,
+          resolved.targetRepo,
+        );
+        assertPrBaseBranchMatches({
+          prUrl,
+          actualBaseBranch: inspection.baseBranch,
+          expectedBaseBranch: resolved.baseBranch,
+        });
+
+        const pollTimeout =
+          config.preview?.pollTimeoutSeconds ?? DEFAULT_PREVIEW_POLL_TIMEOUT_SECONDS;
+        const pollInterval =
+          config.preview?.pollIntervalSeconds ?? DEFAULT_PREVIEW_POLL_INTERVAL_SECONDS;
+        const previewResult = await pollForVercelPreview(
+          async () => {
+            const latest = await inspectPullRequest(github, parsedPr, resolved.targetRepo);
+            return latest.comments;
+          },
+          {
+            pollTimeoutSeconds: pollTimeout,
+            pollIntervalSeconds: pollInterval,
+          },
+        );
+        if (previewResult.previewUrl) {
+          previewUrl = previewResult.previewUrl;
+          await events.log("preview_captured", "info", {
+            previewUrl,
+            source: previewResult.source,
+            phase: "implementation",
+          });
+        } else {
+          await events.log("preview_not_found", "warn", {
+            warnings: previewResult.warnings,
+            phase: "implementation",
+          });
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.startsWith("wrong_pr_base_branch")) {
+          throw new ImplementationError("wrong_pr_base_branch", message);
+        }
+        throw new ImplementationError(classifyGitHubError(error), message);
+      }
+    }
+
     await events.log("validation_completed", "info", { validationSummary });
 
-    const implementationCommentBody = [
-      observed.assistantText,
-      "",
-      `Branch: ${branch}`,
-      `PR: ${prUrl}`,
-    ].join("\n");
     const implementationCommentId = await postImplementationComment(
       client,
       issue.id,
-      implementationCommentBody,
+      observed.assistantText,
       {
         ...footerBase,
         promptVersion,
@@ -443,9 +504,10 @@ export async function executeImplementationPhase(
         cursorRunId,
         branch: branch ?? undefined,
         prUrl: prUrl ?? undefined,
+        previewUrl: previewUrl ?? undefined,
       },
     );
-    commentsWritten.push(implementationCommentBody);
+    commentsWritten.push(observed.assistantText);
     await events.log("linear_comment_posted", "info", {
       phase: "implementation",
       commentId: implementationCommentId,
@@ -528,7 +590,7 @@ export async function executeImplementationPhase(
     cursorRunId,
     branch,
     prUrl,
-    previewUrl: null,
+    previewUrl,
     validationSummary,
     changedFiles: null,
     checkSummary: null,

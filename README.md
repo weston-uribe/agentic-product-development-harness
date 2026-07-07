@@ -62,6 +62,8 @@ See [`ROADMAP.md`](ROADMAP.md) for deferred work: lead agent, additional skills,
 
 The first real-world target for this harness is [`weston-uribe/weston-uribe-portfolio`](https://github.com/weston-uribe/weston-uribe-portfolio)—a modular Next.js portfolio used for case studies and AI-assisted product prototyping.
 
+**Branch strategy (portfolio):** harness issue PRs target and merge into **`dev`**. Linear status **`Merged to Dev`** means integrated on the dev branch but **not yet in production**. Production remains **`main`** at [`weston-uribe-portfolio.vercel.app`](https://weston-uribe-portfolio.vercel.app). Promoting **`dev` → `main`** is manual and out of scope for v0.1. Setup: [`docs/target-repo-branch-setup.md`](docs/target-repo-branch-setup.md).
+
 ## What this repo does not claim
 
 - Autonomous shipping without human review

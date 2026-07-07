@@ -7,3 +7,7 @@ export function getGitHubActionsRunUrl(): string | null {
   }
   return `${serverUrl}/${repository}/actions/runs/${runId}`;
 }
+
+export function formatGitHubActionsRunLink(url: string): string {
+  return `[GitHub Actions run](${url})`;
+}

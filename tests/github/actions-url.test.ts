@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { getGitHubActionsRunUrl } from "../../src/github/actions-url.js";
+import {
+  formatGitHubActionsRunLink,
+  getGitHubActionsRunUrl,
+} from "../../src/github/actions-url.js";
 
 describe("getGitHubActionsRunUrl", () => {
   const originalEnv = { ...process.env };
@@ -28,5 +31,15 @@ describe("getGitHubActionsRunUrl", () => {
     delete process.env.GITHUB_RUN_ID;
 
     expect(getGitHubActionsRunUrl()).toBeNull();
+  });
+
+  it("formats markdown link for Actions run URL", () => {
+    expect(
+      formatGitHubActionsRunLink(
+        "https://github.com/weston-uribe/agentic-product-development-harness/actions/runs/123",
+      ),
+    ).toBe(
+      "[GitHub Actions run](https://github.com/weston-uribe/agentic-product-development-harness/actions/runs/123)",
+    );
   });
 });

@@ -5,6 +5,7 @@ import {
   formatMergeComment,
   hasMergeCompletionMarker,
 } from "../../src/linear/comments.js";
+import { resolvePreviewLinks } from "../../src/preview/urls.js";
 
 const marker = "harness-orchestrator-v1";
 const prUrl = "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4";
@@ -26,8 +27,15 @@ describe("merge completion comment", () => {
   });
 
   it("builds merge completion body with deployment warning", () => {
+    const previewLinks = resolvePreviewLinks({
+      prPreviewUrl: null,
+      integrationPreviewUrl: "https://dev.example.vercel.app",
+      productionUrl: null,
+      capturedDeploymentUrl: null,
+      mergedBaseBranch: "main",
+      productionBranch: "main",
+    });
     const body = buildMergeCompletionCommentBody({
-      prTitle: "Test PR",
       prUrl,
       branch: "cursor/test",
       targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
@@ -35,7 +43,8 @@ describe("merge completion comment", () => {
       mergeCommitSha: "abc123",
       mergedAt: "2026-07-07T06:00:00.000Z",
       baseBranch: "main",
-      deploymentUrl: null,
+      productionBranch: "main",
+      previewLinks,
       deploymentWarning: "Production deployment URL not captured",
       changedFiles: ["app/page.tsx"],
       checkSummary: "- Passed: 1",
@@ -44,7 +53,7 @@ describe("merge completion comment", () => {
       previousHandoffRunId: "handoff-run",
       previousRevisionRunId: "revision-run",
     });
-    expect(body).toContain("PM merge complete");
+    expect(body).toContain("🤖 Harness update");
     expect(body).toContain("Production deployment URL not captured");
     expect(body).toContain("revision-run");
   });

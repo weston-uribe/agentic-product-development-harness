@@ -43,6 +43,15 @@ vi.mock("../../src/preview/vercel-from-pr.js", () => ({
   pollForVercelPreview: mocks.pollForVercelPreview,
 }));
 
+vi.mock("../../src/github/base-branch.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../src/github/base-branch.js")>();
+  return {
+    ...actual,
+    assertBaseBranchExists: vi.fn().mockResolvedValue(undefined),
+  };
+});
+
 import { executeHandoffPhase } from "../../src/runner/phases/handoff.js";
 import type { HarnessConfig } from "../../src/config/types.js";
 

@@ -33,6 +33,7 @@ import {
   transitionIssueStatus,
 } from "../../linear/writer.js";
 import { GitHubClient } from "../../github/client.js";
+import { assertPrBaseBranchMatches } from "../../github/base-branch.js";
 import {
   classifyGitHubError,
   inspectPullRequest,
@@ -122,6 +123,8 @@ async function writeFinalManifest(
             "github_auth_failure",
             "missing_implementation_marker",
             "missing_pr_url",
+            "base_branch_missing",
+            "wrong_pr_base_branch",
           ].includes(errorClassification)
         ? 2
         : 3;
@@ -260,6 +263,7 @@ export async function executeHandoffPhase(
     model,
     promptVersion: HANDOFF_PROMPT_VERSION,
     targetRepo: resolved.targetRepo,
+    baseBranch: resolved.baseBranch,
   };
 
   const client = createLinearClient(linearApiKey);
@@ -389,6 +393,18 @@ export async function executeHandoffPhase(
 
     branch = inspection.branch;
     prUrl = inspection.url;
+    try {
+      assertPrBaseBranchMatches({
+        prUrl,
+        actualBaseBranch: inspection.baseBranch,
+        expectedBaseBranch: resolved.baseBranch,
+      });
+    } catch (error) {
+      throw new HandoffError(
+        "wrong_pr_base_branch",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
     changedFiles = inspection.changedFiles.map((f) => f.path);
     checkSummary = inspection.checkSummary;
 
@@ -473,6 +489,7 @@ export async function executeHandoffPhase(
       prUrl: inspection.url,
       branch: inspection.branch,
       targetRepo: markerTargetRepo,
+      baseBranch: resolved.baseBranch,
       previewUrl,
       previewWarning,
       changedFiles,

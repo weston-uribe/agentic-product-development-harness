@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   transitionIssueStatus: vi.fn(),
   postRevisionComment: vi.fn(),
+  postPhaseStartCommentIfNeeded: vi.fn(),
   postErrorComment: vi.fn(),
   listIssueComments: vi.fn(),
   createLinearClient: vi.fn(),
@@ -19,6 +20,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../../src/linear/writer.js", () => ({
   transitionIssueStatus: mocks.transitionIssueStatus,
   postRevisionComment: mocks.postRevisionComment,
+  postPhaseStartCommentIfNeeded: mocks.postPhaseStartCommentIfNeeded,
   postErrorComment: mocks.postErrorComment,
   listIssueComments: mocks.listIssueComments,
   createLinearClient: mocks.createLinearClient,
@@ -52,6 +54,15 @@ vi.mock("../../src/github/pr-inspector.js", async (importOriginal) => {
 vi.mock("../../src/preview/vercel-from-pr.js", () => ({
   pollForVercelPreview: mocks.pollForVercelPreview,
 }));
+
+vi.mock("../../src/github/base-branch.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../src/github/base-branch.js")>();
+  return {
+    ...actual,
+    assertBaseBranchExists: vi.fn().mockResolvedValue(undefined),
+  };
+});
 
 import { executeRevisionPhase } from "../../src/runner/phases/revision.js";
 import type { HarnessConfig } from "../../src/config/types.js";

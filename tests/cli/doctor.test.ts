@@ -21,6 +21,9 @@ vi.mock("../../src/github/client.js", async (importOriginal) => {
   return {
     ...actual,
     pingGitHub: mocks.pingGitHub,
+    GitHubClient: vi.fn().mockImplementation(() => ({
+      getBranchRef: vi.fn().mockResolvedValue({ object: { sha: "abc123" } }),
+    })),
   };
 });
 

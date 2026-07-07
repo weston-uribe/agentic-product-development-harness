@@ -12,6 +12,8 @@ import { assertRepoAllowed } from "../resolver/allowed-repos.js";
 import { ResolverError } from "../resolver/errors.js";
 import { resolveTargetRepo } from "../resolver/target-repo.js";
 import type { ResolvedTarget } from "../resolver/target-repo.js";
+import { assertBaseBranchExists } from "../github/base-branch.js";
+import { GitHubClient } from "../github/client.js";
 import { inferPhaseFromStatus } from "./phase-infer.js";
 import { loadIssueFixture } from "./fixture.js";
 import type { ErrorClassification, RunPhase } from "../types/run.js";
@@ -131,6 +133,13 @@ export async function runPreflight(
       config,
     );
     assertRepoAllowed(resolved.targetRepo, config);
+    if (process.env.GITHUB_TOKEN) {
+      await assertBaseBranchExists(
+        new GitHubClient({ token: process.env.GITHUB_TOKEN }),
+        resolved.targetRepo,
+        resolved.baseBranch,
+      );
+    }
     await events.log("repo_resolved", "info", { ...resolved });
 
     return {
@@ -154,6 +163,16 @@ export async function runPreflight(
       errorClassification = error.classification;
     } else if (error instanceof Error && error.message.startsWith("wrong_status")) {
       errorClassification = "wrong_status";
+    } else if (
+      error instanceof Error &&
+      error.message.startsWith("base_branch_missing")
+    ) {
+      errorClassification = "base_branch_missing";
+    } else if (
+      error instanceof Error &&
+      error.message.startsWith("wrong_pr_base_branch")
+    ) {
+      errorClassification = "wrong_pr_base_branch";
     }
 
     const message = error instanceof Error ? error.message : String(error);

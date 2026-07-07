@@ -3,7 +3,9 @@ import { access, constants, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { Cursor } from "@cursor/sdk";
 import { loadConfig, validateRepoClosure } from "../../config/load-config.js";
-import { pingGitHub } from "../../github/client.js";
+import type { HarnessConfig } from "../../config/types.js";
+import { assertBaseBranchExists } from "../../github/base-branch.js";
+import { GitHubClient, pingGitHub } from "../../github/client.js";
 import { pingLinear } from "../../linear/client.js";
 import { EXIT_CONFIG, EXIT_SUCCESS } from "../exit-codes.js";
 
@@ -20,9 +22,10 @@ interface CheckResult {
 
 export async function runDoctor(options: DoctorOptions): Promise<number> {
   const checks: CheckResult[] = [];
+  let config: HarnessConfig | null = null;
 
   try {
-    const config = await loadConfig(options.configPath);
+    config = await loadConfig(options.configPath);
     checks.push({
       label: "harness.config.json valid",
       ok: true,
@@ -136,6 +139,26 @@ export async function runDoctor(options: DoctorOptions): Promise<number> {
         ok: false,
         detail: error instanceof Error ? error.message : String(error),
       });
+    }
+
+    if (config) {
+      const github = new GitHubClient({ token: process.env.GITHUB_TOKEN });
+      for (const repo of config.repos) {
+        try {
+          await assertBaseBranchExists(github, repo.targetRepo, repo.baseBranch);
+          checks.push({
+            label: `${repo.id} base branch exists`,
+            ok: true,
+            detail: `${repo.targetRepo}#${repo.baseBranch}`,
+          });
+        } catch (error) {
+          checks.push({
+            label: `${repo.id} base branch exists`,
+            ok: false,
+            detail: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
     }
   } else {
     checks.push({

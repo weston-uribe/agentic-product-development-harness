@@ -59,6 +59,7 @@ describe("shouldDispatchLinearIssueEvent", () => {
     "PM Review",
     "Revising",
     "Merging",
+    "Merged to Dev",
     "Merged / Deployed",
     "Blocked",
     "Canceled",

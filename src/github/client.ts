@@ -62,6 +62,11 @@ export interface GitHubCombinedStatus {
   statuses: GitHubCommitStatus[];
 }
 
+export interface GitHubGitRef {
+  ref: string;
+  object: { sha: string; type: string; url: string };
+}
+
 const GITHUB_API = "https://api.github.com";
 
 export class GitHubClient {
@@ -140,6 +145,16 @@ export class GitHubClient {
 
   async getAuthenticatedUser(): Promise<{ login: string }> {
     return this.request<{ login: string }>("/user");
+  }
+
+  async getBranchRef(
+    owner: string,
+    repo: string,
+    branch: string,
+  ): Promise<GitHubGitRef> {
+    return this.request<GitHubGitRef>(
+      `/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(branch)}`,
+    );
   }
 
   async getPullRequest(

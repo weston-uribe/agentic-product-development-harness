@@ -18,8 +18,12 @@ const repoMappingSchema = z.object({
   linearTeams: z.array(z.string()).optional(),
   targetRepo: githubRepoUrl,
   baseBranch: z.string().min(1).default("main"),
+  productionBranch: z.string().min(1).default("main"),
   previewProvider: z.string().optional(),
+  integrationPreviewUrl: z.string().url().optional(),
   productionUrl: z.string().url().optional(),
+  integrationSuccessStatus: z.string().min(1).optional(),
+  productionSuccessStatus: z.string().min(1).optional(),
   validation: z
     .object({
       commands: z.array(z.string()).optional(),
@@ -50,6 +54,7 @@ const linearConfigSchema = z.object({
       revisingInProgress: z.string().optional(),
       readyToMerge: z.string().optional(),
       mergingInProgress: z.string().optional(),
+      mergedToDev: z.string().optional(),
       mergedDeployed: z.string().optional(),
     })
     .optional(),

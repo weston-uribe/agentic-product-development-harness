@@ -1,6 +1,28 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { buildCursorCloudRunUrl } from "../cursor/urls.js";
+import {
+  formatCommitLink,
+  formatMarkdownLink,
+  formatPullRequestLink,
+} from "../github/links.js";
+import type { ResolvedPreviewLinks } from "../preview/urls.js";
 import { parseHarnessMarkers } from "./markers.js";
+import {
+  buildHarnessComment,
+  formatBulletList,
+  type HarnessCommentLink,
+} from "./comment-card.js";
+import {
+  formatHarnessErrorHeader,
+  formatHarnessUpdateHeader,
+  getCompletionLabel,
+  getPhaseStartLabel,
+  type HarnessErrorPhase,
+  type PhaseStartPhase,
+} from "./phase-labels.js";
+
+export type { PhaseStartPhase, HarnessErrorPhase };
 
 export interface HarnessCommentFooterInput {
   orchestratorMarker: string;
@@ -11,12 +33,14 @@ export interface HarnessCommentFooterInput {
   model: string;
   promptVersion: string;
   targetRepo: string;
+  baseBranch?: string;
 }
 
 export interface ImplementationCommentFooterInput
   extends HarnessCommentFooterInput {
   branch?: string;
   prUrl?: string;
+  previewUrl?: string;
 }
 
 export interface HandoffCommentFooterInput extends ImplementationCommentFooterInput {
@@ -35,12 +59,6 @@ export interface MergeCommentFooterInput extends RevisionCommentFooterInput {
   deploymentUrl?: string;
   githubActionsRunUrl?: string;
 }
-
-export type PhaseStartPhase =
-  | "planning_start"
-  | "implementation_start"
-  | "revision_start"
-  | "merge_start";
 
 export interface PhaseStartCommentFooterInput extends HarnessCommentFooterInput {
   phase: PhaseStartPhase;
@@ -81,6 +99,9 @@ export function formatHarnessCommentFooter(
     `prompt_version: ${input.promptVersion}`,
     `target_repo: ${input.targetRepo}`,
   );
+  if (input.baseBranch) {
+    lines.push(`base_branch: ${input.baseBranch}`);
+  }
   if (input.branch) {
     lines.push(`branch: ${input.branch}`);
   }
@@ -117,15 +138,63 @@ export function formatHarnessCommentFooter(
   return lines.join("\n");
 }
 
+function summarizeAgentText(text: string, maxLength = 600): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= maxLength) {
+    return trimmed;
+  }
+  return `${trimmed.slice(0, maxLength).trim()}…`;
+}
+
+function buildCursorLinks(
+  cursorAgentId?: string,
+  cursorRunId?: string,
+): HarnessCommentLink[] {
+  if (!cursorAgentId) {
+    return [];
+  }
+  return [
+    {
+      label: "Cursor Cloud run",
+      url: buildCursorCloudRunUrl(cursorAgentId, cursorRunId),
+    },
+  ];
+}
+
+function buildGithubActionsLink(
+  githubActionsRunUrl?: string | null,
+): HarnessCommentLink[] {
+  if (!githubActionsRunUrl) {
+    return [];
+  }
+  return [{ label: "GitHub Actions run", url: githubActionsRunUrl }];
+}
+
 export function formatPlanningComment(
   planBody: string,
   footer: HarnessCommentFooterInput,
 ): string {
-  const trimmed = planBody.trim();
-  const header = trimmed.startsWith("##")
-    ? trimmed
-    : `## Implementation plan\n\n${trimmed}`;
-  return `${header}\n\n${formatHarnessCommentFooter(footer)}`;
+  const summary = summarizeAgentText(planBody);
+  return buildHarnessComment({
+    header: formatHarnessUpdateHeader(getCompletionLabel("planning")),
+    statusLine: "Planning has finished.",
+    pmSection: [
+      summary || "_No plan summary reported._",
+      "",
+      "Next step: review the plan, then move the issue to **Ready for Build** when you want implementation to start.",
+    ],
+    engineerSection: [
+      ...formatBulletList([
+        `Target repo: ${footer.targetRepo}`,
+        `Harness run ID: ${footer.runId}`,
+        footer.baseBranch ? `Base branch: \`${footer.baseBranch}\`` : "",
+      ]).filter(Boolean),
+      "",
+      "### Full plan",
+      planBody.trim() || "_No plan body reported._",
+    ],
+    footer: formatHarnessCommentFooter(footer),
+  });
 }
 
 export function hasPlanningCompletionMarker(
@@ -140,15 +209,58 @@ export function hasPlanningCompletionMarker(
   );
 }
 
+export interface ImplementationCommentBodyInput {
+  summary: string;
+  branch: string;
+  prUrl: string;
+  previewUrl?: string | null;
+  baseBranch?: string;
+}
+
+export function buildImplementationCommentBody(
+  input: ImplementationCommentBodyInput,
+): string {
+  const links: HarnessCommentLink[] = [
+    { label: "Pull request", url: input.prUrl },
+  ];
+  if (input.previewUrl) {
+    links.unshift({ label: "Preview deployment", url: input.previewUrl });
+  }
+
+  return buildHarnessComment({
+    header: formatHarnessUpdateHeader(getCompletionLabel("implementation")),
+    statusLine: "Build finished and the pull request is open.",
+    links,
+    pmSection: [
+      summarizeAgentText(input.summary) || "_See the pull request for details._",
+      "",
+      `Branch: \`${input.branch}\``,
+      "",
+      "Next step: wait for PM handoff, then review the preview against acceptance criteria.",
+    ],
+    engineerSection: formatBulletList([
+      `Branch: \`${input.branch}\``,
+      `PR: ${formatPullRequestLink(input.prUrl)}`,
+      input.baseBranch ? `Base branch: \`${input.baseBranch}\`` : "",
+    ]).filter(Boolean),
+    footer: "",
+  }).replace(/\n\n$/, "");
+}
+
 export function formatImplementationComment(
   summaryBody: string,
   footer: ImplementationCommentFooterInput,
 ): string {
-  const trimmed = summaryBody.trim();
-  const header = trimmed.startsWith("##")
-    ? trimmed
-    : `## Implementation summary\n\n${trimmed}`;
-  return `${header}\n\n${formatHarnessCommentFooter(footer)}`;
+  const body = summaryBody.includes("🤖 Harness update")
+    ? summaryBody.trim()
+    : buildImplementationCommentBody({
+        summary: summaryBody,
+        branch: footer.branch ?? "unknown",
+        prUrl: footer.prUrl ?? "unknown",
+        previewUrl: footer.previewUrl,
+        baseBranch: footer.baseBranch,
+      });
+  return `${body}\n\n${formatHarnessCommentFooter(footer)}`;
 }
 
 export function hasImplementationCompletionMarker(
@@ -208,11 +320,23 @@ export function findRevisionMarkerForPmFeedback(
 
 const MAX_CHANGED_FILES_IN_COMMENT = 30;
 
+function formatChangedFiles(changedFiles: string[]): string[] {
+  const files = changedFiles.slice(0, MAX_CHANGED_FILES_IN_COMMENT);
+  const lines = files.length > 0 ? files.map((file) => `- ${file}`) : ["- _none reported_"];
+  if (changedFiles.length > MAX_CHANGED_FILES_IN_COMMENT) {
+    lines.push(
+      `- … and ${changedFiles.length - MAX_CHANGED_FILES_IN_COMMENT} more (see github/pr.json)`,
+    );
+  }
+  return lines;
+}
+
 export interface HandoffCommentBodyInput {
   prTitle: string;
   prUrl: string;
   branch: string;
   targetRepo: string;
+  baseBranch?: string;
   previewUrl: string | null;
   previewWarning: string | null;
   changedFiles: string[];
@@ -222,59 +346,42 @@ export interface HandoffCommentBodyInput {
 }
 
 export function buildHandoffCommentBody(input: HandoffCommentBodyInput): string {
-  const lines = [
-    "## PM handoff",
-    "",
-    "### PR summary",
-    `- **Title:** ${input.prTitle}`,
-    `- **URL:** ${input.prUrl}`,
-    `- **Branch:** ${input.branch}`,
-    `- **Target repo:** ${input.targetRepo}`,
-    "",
-  ];
-
+  const links: HarnessCommentLink[] = [{ label: "Pull request", url: input.prUrl }];
   if (input.previewUrl) {
-    lines.push("### Preview", `- ${input.previewUrl}`, "");
-  } else if (input.previewWarning) {
-    lines.push("### Preview", `- ${input.previewWarning}`, "");
+    links.unshift({ label: "Preview deployment", url: input.previewUrl });
   }
 
-  lines.push("### Changed files");
-  const files = input.changedFiles.slice(0, MAX_CHANGED_FILES_IN_COMMENT);
-  for (const file of files) {
-    lines.push(`- ${file}`);
-  }
-  if (input.changedFiles.length > MAX_CHANGED_FILES_IN_COMMENT) {
-    lines.push(
-      `- … and ${input.changedFiles.length - MAX_CHANGED_FILES_IN_COMMENT} more (see github/pr.json)`,
-    );
-  }
-  if (files.length === 0) {
-    lines.push("- _none reported_");
-  }
-
-  lines.push(
-    "",
-    "### Checks",
-    input.checkSummary,
-    "",
-    "### PM review instructions",
-    "- Review the PR diff and changed files above.",
-    "- Open the Vercel preview (if present) and spot-check acceptance criteria.",
-    "- Do **not** merge from the harness; merge remains a separate human step.",
-    "- To request changes, use the revision workflow (manual in this milestone).",
-    "- Reference acceptance criteria in the Linear issue description.",
-    "",
-    "### Run references",
-    `- **Handoff run ID:** ${input.harnessRunId}`,
-  );
-  if (input.previousImplementationRunId) {
-    lines.push(
-      `- **Previous implementation run ID:** ${input.previousImplementationRunId}`,
-    );
-  }
-
-  return lines.join("\n");
+  return buildHarnessComment({
+    header: formatHarnessUpdateHeader(getCompletionLabel("handoff")),
+    statusLine: "PM handoff is ready for review.",
+    links,
+    pmSection: [
+      "Please review the preview against the acceptance criteria in this issue.",
+      "",
+      "Next actions:",
+      "- Comment with requested changes and move the issue to **Needs Revision**, or",
+      "- Move the issue to **Ready to Merge** when you accept the change.",
+    ],
+    warningSection: input.previewWarning ? [input.previewWarning] : undefined,
+    engineerSection: [
+      ...formatBulletList([
+        `Target repo: ${input.targetRepo}`,
+        input.baseBranch ? `Base branch: \`${input.baseBranch}\`` : "",
+        `Branch: \`${input.branch}\``,
+        `Harness run ID: ${input.harnessRunId}`,
+        input.previousImplementationRunId
+          ? `Previous implementation run ID: ${input.previousImplementationRunId}`
+          : "",
+      ]).filter(Boolean),
+      "",
+      "### Changed files",
+      ...formatChangedFiles(input.changedFiles),
+      "",
+      "### Checks",
+      input.checkSummary,
+    ],
+    footer: "",
+  }).replace(/\n\n$/, "");
 }
 
 export function formatHandoffComment(
@@ -285,11 +392,11 @@ export function formatHandoffComment(
 }
 
 export interface RevisionCommentBodyInput {
-  pmFeedback: string;
-  prTitle: string;
+  summary: string;
   prUrl: string;
   branch: string;
   targetRepo: string;
+  baseBranch?: string;
   previewUrl: string | null;
   previewWarning: string | null;
   changedFiles: string[];
@@ -301,62 +408,44 @@ export interface RevisionCommentBodyInput {
 }
 
 export function buildRevisionCommentBody(input: RevisionCommentBodyInput): string {
-  const lines = [
-    "## PM revision",
-    "",
-    "### PM feedback applied",
-    input.pmFeedback.trim(),
-    "",
-    "### PR summary",
-    `- **Title:** ${input.prTitle}`,
-    `- **URL:** ${input.prUrl}`,
-    `- **Branch:** ${input.branch}`,
-    `- **Target repo:** ${input.targetRepo}`,
-    "",
-  ];
-
+  const links: HarnessCommentLink[] = [{ label: "Pull request", url: input.prUrl }];
   if (input.previewUrl) {
-    lines.push("### Preview", `- ${input.previewUrl}`, "");
-  } else if (input.previewWarning) {
-    lines.push("### Preview", `- ${input.previewWarning}`, "");
+    links.unshift({ label: "Preview deployment", url: input.previewUrl });
   }
 
-  lines.push("### Changed files");
-  const files = input.changedFiles.slice(0, MAX_CHANGED_FILES_IN_COMMENT);
-  for (const file of files) {
-    lines.push(`- ${file}`);
-  }
-  if (input.changedFiles.length > MAX_CHANGED_FILES_IN_COMMENT) {
-    lines.push(
-      `- … and ${input.changedFiles.length - MAX_CHANGED_FILES_IN_COMMENT} more (see github/pr.json)`,
-    );
-  }
-  if (files.length === 0) {
-    lines.push("- _see PR diff_");
-  }
-
-  lines.push(
-    "",
-    "### Checks",
-    input.checkSummary,
-    "",
-    "### Validation",
-    input.validationSummary.trim() || "_No validation summary reported._",
-    "",
-    "### PM review instructions",
-    "- Re-review the updated PR diff against the PM feedback above.",
-    "- Open the Vercel preview (if present) and spot-check acceptance criteria.",
-    "- Do **not** merge from the harness; merge remains a separate human step.",
-    "",
-    "### Run references",
-    `- **Revision run ID:** ${input.harnessRunId}`,
-    `- **PM feedback comment ID:** ${input.pmFeedbackCommentId}`,
-  );
-  if (input.previousHandoffRunId) {
-    lines.push(`- **Previous handoff run ID:** ${input.previousHandoffRunId}`);
-  }
-
-  return lines.join("\n");
+  return buildHarnessComment({
+    header: formatHarnessUpdateHeader(getCompletionLabel("revision")),
+    statusLine: "Revision finished and the pull request was updated.",
+    links,
+    pmSection: [
+      summarizeAgentText(input.summary) || "_See the pull request for details._",
+      "",
+      "Next step: review the updated preview and PR diff again.",
+    ],
+    warningSection: input.previewWarning ? [input.previewWarning] : undefined,
+    engineerSection: [
+      ...formatBulletList([
+        `Target repo: ${input.targetRepo}`,
+        input.baseBranch ? `Base branch: \`${input.baseBranch}\`` : "",
+        `Branch: \`${input.branch}\``,
+        `Harness run ID: ${input.harnessRunId}`,
+        `PM feedback comment ID: ${input.pmFeedbackCommentId}`,
+        input.previousHandoffRunId
+          ? `Previous handoff run ID: ${input.previousHandoffRunId}`
+          : "",
+      ]).filter(Boolean),
+      "",
+      "### Changed files",
+      ...formatChangedFiles(input.changedFiles),
+      "",
+      "### Checks",
+      input.checkSummary,
+      "",
+      "### Validation",
+      input.validationSummary.trim() || "_No validation summary reported._",
+    ],
+    footer: "",
+  }).replace(/\n\n$/, "");
 }
 
 export function formatRevisionComment(
@@ -397,7 +486,6 @@ export function findMergeMarkerForPrUrl(
 }
 
 export interface MergeCompletionCommentBodyInput {
-  prTitle: string;
   prUrl: string;
   branch: string;
   targetRepo: string;
@@ -405,7 +493,8 @@ export interface MergeCompletionCommentBodyInput {
   mergeCommitSha: string | null;
   mergedAt: string | null;
   baseBranch: string;
-  deploymentUrl: string | null;
+  productionBranch: string;
+  previewLinks: ResolvedPreviewLinks;
   deploymentWarning: string | null;
   changedFiles: string[];
   checkSummary: string;
@@ -418,67 +507,87 @@ export interface MergeCompletionCommentBodyInput {
 export function buildMergeCompletionCommentBody(
   input: MergeCompletionCommentBodyInput,
 ): string {
-  const lines = [
-    "## PM merge complete",
-    "",
-    "### PR summary",
-    `- **Title:** ${input.prTitle}`,
-    `- **URL:** ${input.prUrl}`,
-    `- **Branch:** ${input.branch}`,
-    `- **Target repo:** ${input.targetRepo}`,
-    `- **Merge method:** ${input.mergeMethod}`,
-    `- **Base branch:** ${input.baseBranch}`,
+  const links: HarnessCommentLink[] = [
+    { label: "Pull request", url: input.prUrl },
   ];
-
+  if (input.previewLinks.integrationPreviewUrl) {
+    links.push({
+      label: "Dev preview",
+      url: input.previewLinks.integrationPreviewUrl,
+    });
+  }
+  if (input.previewLinks.productionUrl) {
+    links.push({
+      label: "Production",
+      url: input.previewLinks.productionUrl,
+    });
+  }
   if (input.mergeCommitSha) {
-    lines.push(`- **Merge commit SHA:** ${input.mergeCommitSha}`);
-  }
-  if (input.mergedAt) {
-    lines.push(`- **Merged at:** ${input.mergedAt}`);
-  }
-
-  lines.push("", "### Deployment");
-  if (input.deploymentUrl) {
-    lines.push(`- ${input.deploymentUrl}`);
-  } else if (input.deploymentWarning) {
-    lines.push(`- ${input.deploymentWarning}`);
-  } else {
-    lines.push("- _Production deployment URL not captured_");
+    links.push({
+      label: "Merge commit",
+      url: `${input.targetRepo.replace(/\/$/, "")}/commit/${input.mergeCommitSha}`,
+    });
   }
 
-  lines.push("", "### Changed files");
-  const files = input.changedFiles.slice(0, MAX_CHANGED_FILES_IN_COMMENT);
-  for (const file of files) {
-    lines.push(`- ${file}`);
+  const pmSection = [
+    `Merged into \`${input.baseBranch}\` using **${input.mergeMethod}**.`,
+    `Final Linear status: **${input.finalIssueStatus}**.`,
+  ];
+  if (input.previewLinks.notYetInProduction) {
+    pmSection.push("This change is integrated but **not yet in production**.");
   }
-  if (input.changedFiles.length > MAX_CHANGED_FILES_IN_COMMENT) {
-    lines.push(
-      `- … and ${input.changedFiles.length - MAX_CHANGED_FILES_IN_COMMENT} more`,
+
+  const deploymentLines: string[] = [];
+  if (input.previewLinks.integrationPreviewUrl) {
+    deploymentLines.push(
+      formatMarkdownLink("Dev preview", input.previewLinks.integrationPreviewUrl),
     );
   }
-  if (files.length === 0) {
-    lines.push("- _see merged PR diff_");
+  if (input.previewLinks.productionUrl) {
+    deploymentLines.push(
+      formatMarkdownLink("Production", input.previewLinks.productionUrl),
+    );
+  } else if (input.deploymentWarning) {
+    deploymentLines.push(input.deploymentWarning);
+  } else if (input.previewLinks.mergedToProduction) {
+    deploymentLines.push("_Production deployment URL not captured_");
   }
 
-  lines.push(
-    "",
-    "### Checks",
-    input.checkSummary,
-    "",
-    "### Final status",
-    `- **Linear status:** ${input.finalIssueStatus}`,
-    "",
-    "### Run references",
-    `- **Merge run ID:** ${input.harnessRunId}`,
-  );
-  if (input.previousRevisionRunId) {
-    lines.push(`- **Previous revision run ID:** ${input.previousRevisionRunId}`);
-  }
-  if (input.previousHandoffRunId) {
-    lines.push(`- **Previous handoff run ID:** ${input.previousHandoffRunId}`);
-  }
-
-  return lines.join("\n");
+  return buildHarnessComment({
+    header: formatHarnessUpdateHeader(getCompletionLabel("merge")),
+    statusLine: `Merge finished into \`${input.baseBranch}\`.`,
+    links,
+    pmSection,
+    engineerSection: [
+      ...formatBulletList([
+        `Target repo: ${input.targetRepo}`,
+        `Branch: \`${input.branch}\``,
+        `Base branch: \`${input.baseBranch}\``,
+        `Production branch: \`${input.productionBranch}\``,
+        input.mergeCommitSha
+          ? `Merge commit: ${formatCommitLink(input.targetRepo, input.mergeCommitSha)}`
+          : "",
+        input.mergedAt ? `Merged at: ${input.mergedAt}` : "",
+        `Harness run ID: ${input.harnessRunId}`,
+        input.previousRevisionRunId
+          ? `Previous revision run ID: ${input.previousRevisionRunId}`
+          : "",
+        input.previousHandoffRunId
+          ? `Previous handoff run ID: ${input.previousHandoffRunId}`
+          : "",
+      ]).filter(Boolean),
+      "",
+      "### Deployment",
+      ...(deploymentLines.length > 0 ? deploymentLines : ["- _No deployment links captured_"]),
+      "",
+      "### Changed files",
+      ...formatChangedFiles(input.changedFiles),
+      "",
+      "### Checks",
+      input.checkSummary,
+    ],
+    footer: "",
+  }).replace(/\n\n$/, "");
 }
 
 export function formatMergeComment(
@@ -488,16 +597,10 @@ export function formatMergeComment(
   return `${body.trim()}\n\n${formatHarnessCommentFooter(footer)}`;
 }
 
-const PHASE_START_HEADERS: Record<PhaseStartPhase, string> = {
-  planning_start: "Harness: planning started",
-  implementation_start: "Harness: implementation started",
-  revision_start: "Harness: revision started",
-  merge_start: "Harness: merge started",
-};
-
 export interface PhaseStartCommentBodyInput {
   issueKey: string;
   targetRepo: string;
+  baseBranch?: string;
   branch?: string;
   prUrl?: string;
   githubActionsRunUrl?: string | null;
@@ -509,28 +612,42 @@ export function buildPhaseStartCommentBody(
   phase: PhaseStartPhase,
   input: PhaseStartCommentBodyInput,
 ): string {
-  const lines = [
-    `## ${PHASE_START_HEADERS[phase]}`,
-    "",
-    `- **Issue:** ${input.issueKey}`,
-    `- **Target repo:** ${input.targetRepo}`,
+  const label = getPhaseStartLabel(phase);
+  const statusByPhase: Record<PhaseStartPhase, string> = {
+    planning_start: "Planning has started.",
+    implementation_start: "Build has started.",
+    revision_start: "Revision has started.",
+    merge_start: input.baseBranch
+      ? `Merge has started into \`${input.baseBranch}\`.`
+      : "Merge has started.",
+  };
+
+  const links = [
+    ...buildGithubActionsLink(input.githubActionsRunUrl),
+    ...buildCursorLinks(input.cursorAgentId, input.cursorRunId),
   ];
-  if (input.branch) {
-    lines.push(`- **Branch:** ${input.branch}`);
-  }
   if (input.prUrl) {
-    lines.push(`- **PR:** ${input.prUrl}`);
+    links.push({ label: "Pull request", url: input.prUrl });
   }
-  if (input.githubActionsRunUrl) {
-    lines.push(`- **GitHub Actions run:** ${input.githubActionsRunUrl}`);
-  }
-  if (input.cursorAgentId) {
-    lines.push(`- **Cursor agent ID:** ${input.cursorAgentId}`);
-  }
-  if (input.cursorRunId) {
-    lines.push(`- **Cursor run ID:** ${input.cursorRunId}`);
-  }
-  return lines.join("\n");
+
+  return buildHarnessComment({
+    header: formatHarnessUpdateHeader(label),
+    statusLine: statusByPhase[phase],
+    links,
+    pmSection: [
+      input.branch ? `Working branch: \`${input.branch}\`` : "",
+      "Watch the links above for live progress.",
+    ].filter(Boolean),
+    engineerSection: formatBulletList([
+      `Issue: ${input.issueKey}`,
+      `Target repo: ${input.targetRepo}`,
+      input.baseBranch ? `Base branch: \`${input.baseBranch}\`` : "",
+      input.branch ? `Branch: \`${input.branch}\`` : "",
+      input.cursorAgentId ? `Cursor agent ID: ${input.cursorAgentId}` : "",
+      input.cursorRunId ? `Cursor run ID: ${input.cursorRunId}` : "",
+    ]).filter(Boolean),
+    footer: "",
+  }).replace(/\n\n$/, "");
 }
 
 export function formatPhaseStartComment(
@@ -540,6 +657,42 @@ export function formatPhaseStartComment(
 ): string {
   const body = buildPhaseStartCommentBody(phase, bodyInput);
   return `${body}\n\n${formatHarnessCommentFooter({ ...footer, phase })}`;
+}
+
+export function buildErrorCommentBody(
+  phase: HarnessErrorPhase,
+  message: string,
+  input: {
+    githubActionsRunUrl?: string | null;
+    errorClassification?: string;
+    targetRepo?: string;
+    branch?: string;
+    prUrl?: string;
+    baseBranch?: string;
+    harnessRunId?: string;
+  },
+): string {
+  return buildHarnessComment({
+    header: formatHarnessErrorHeader(phase),
+    statusLine: "The harness hit an error during this phase.",
+    links: buildGithubActionsLink(input.githubActionsRunUrl),
+    pmSection: [
+      message.trim(),
+      "",
+      "If the GitHub Actions run link is available, open it for the full log.",
+    ],
+    engineerSection: formatBulletList([
+      input.errorClassification
+        ? `Error classification: ${input.errorClassification}`
+        : "",
+      input.targetRepo ? `Target repo: ${input.targetRepo}` : "",
+      input.baseBranch ? `Base branch: \`${input.baseBranch}\`` : "",
+      input.branch ? `Branch: \`${input.branch}\`` : "",
+      input.prUrl ? `PR: ${input.prUrl}` : "",
+      input.harnessRunId ? `Harness run ID: ${input.harnessRunId}` : "",
+    ]).filter(Boolean),
+    footer: "",
+  }).replace(/\n\n$/, "");
 }
 
 export function hasPhaseStartMarker(

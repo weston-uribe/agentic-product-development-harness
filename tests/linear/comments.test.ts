@@ -43,7 +43,7 @@ describe("linear comments", () => {
       targetRepo: "https://github.com/example/repo",
     });
 
-    expect(body).toContain("## Implementation plan");
+    expect(body).toContain("🤖 Harness update");
     expect(body).toContain("Step 1: inspect repo");
     expect(body).toContain("phase: planning");
   });
@@ -92,8 +92,8 @@ describe("linear comments", () => {
       },
     );
 
-    expect(body).toContain("## Harness: implementation started");
-    expect(body).toContain("**Issue:** WES-18");
+    expect(body).toContain("🤖 Harness update — Building");
+    expect(body).toContain("Issue: WES-18");
     expect(body).toContain("phase: implementation_start");
     expect(body).toContain(
       "github_actions_run_url: https://github.com/weston-uribe/agentic-product-development-harness/actions/runs/123",

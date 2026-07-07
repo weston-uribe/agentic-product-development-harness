@@ -100,7 +100,7 @@ Planning is **optional** in the target Linear workflow. Low-risk issues may bypa
 
 **Implemented (Milestone 5):** SDK revision runner — PM feedback from Linear, Cursor cloud agent on existing PR branch, revision comment, transition back to **PM Review**. See [`docs/milestones/m5-revision-phase.md`](docs/milestones/m5-revision-phase.md).
 
-**Implemented (Milestone 6):** SDK merge runner — squash merge from **Ready to Merge**, deployment capture, completion comment, transition to **Merged / Deployed**. See [`docs/milestones/m6-merge-phase.md`](docs/milestones/m6-merge-phase.md).
+**Implemented (Milestone 6):** SDK merge runner — squash merge from **Ready to Merge**, deployment capture when merging to production branch, completion comment, transition to **Merged to Dev** (integration `baseBranch`) or **Merged / Deployed** (when `baseBranch === productionBranch`). See [`docs/milestones/m6-merge-phase.md`](docs/milestones/m6-merge-phase.md).
 
 **Inputs:** Linear issue in PM Review with handoff marker; latest implementation marker with `pr_url`.
 
@@ -124,7 +124,9 @@ Planning is **optional** in the target Linear workflow. Low-risk issues may bypa
 
 **Purpose:** Squash-merge an accepted PR and record production deployment evidence after PM approval.
 
-**Implemented (Milestone 6):** SDK merge runner from **Ready to Merge** — reads revision or handoff marker, verifies PR and checks, squash merges, captures deployment URL when available, posts completion comment, transitions to **Merged / Deployed**.
+**Implemented (Milestone 6):** SDK merge runner from **Ready to Merge** — reads revision or handoff marker, verifies PR base branch and checks, squash merges into configured `baseBranch`, captures production deployment URL only when merging to `productionBranch`, posts completion comment, transitions to integration or production success status.
+
+**Branch strategy:** `repos[].baseBranch` is the integration branch (e.g. portfolio `dev`); `productionBranch` remains `main`. Dev → main promotion is not automated in v0.1. See [`docs/target-repo-branch-setup.md`](docs/target-repo-branch-setup.md).
 
 **Inputs:** Linear issue in Ready to Merge; handoff or revision marker with `pr_url`; PM manually moved issue from PM Review.
 

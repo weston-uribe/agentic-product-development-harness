@@ -14,6 +14,7 @@ cursor_run_id: run-456
 model: composer-2.5
 prompt_version: planning@1
 target_repo: https://github.com/weston-uribe/weston-uribe-portfolio
+base_branch: dev
 ---`;
 
     const markers = parseHarnessMarkers(comment);
@@ -23,5 +24,6 @@ target_repo: https://github.com/weston-uribe/weston-uribe-portfolio
     expect(markers.runId).toBe("2026-07-06T20-30-00Z-WES-11");
     expect(markers.cursorAgentId).toBe("bc-abc123");
     expect(markers.model).toBe("composer-2.5");
+    expect(markers.baseBranch).toBe("dev");
   });
 });

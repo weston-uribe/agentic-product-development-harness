@@ -1,4 +1,5 @@
 import type { HarnessConfig } from "./types.js";
+import type { ResolvedTarget } from "../resolver/target-repo.js";
 
 const DEFAULT_TRANSITIONAL = {
   planningInProgress: "Planning",
@@ -11,6 +12,7 @@ const DEFAULT_TRANSITIONAL = {
   revisingInProgress: "Revising",
   readyToMerge: "Ready to Merge",
   mergingInProgress: "Merging",
+  mergedToDev: "Merged to Dev",
   mergedDeployed: "Merged / Deployed",
 } as const;
 
@@ -41,4 +43,21 @@ export function getEligibleRevisionStatuses(config: HarnessConfig): string[] {
 
 export function getEligibleMergeStatuses(config: HarnessConfig): string[] {
   return config.linear?.eligibleStatuses?.merge ?? ["Ready to Merge"];
+}
+
+export function resolveMergeSuccessStatus(
+  resolved: ResolvedTarget,
+  config: HarnessConfig,
+): string {
+  if (resolved.baseBranch === resolved.productionBranch) {
+    return (
+      resolved.productionSuccessStatus ??
+      getTransitionalStatus(config, "mergedDeployed")
+    );
+  }
+
+  return (
+    resolved.integrationSuccessStatus ??
+    getTransitionalStatus(config, "mergedToDev")
+  );
 }

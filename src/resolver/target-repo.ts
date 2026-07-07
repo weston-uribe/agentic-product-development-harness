@@ -12,8 +12,13 @@ export interface IssueContext {
 export interface ResolvedTarget {
   targetRepo: string;
   baseBranch: string;
+  productionBranch: string;
   repoConfigId: string;
   previewProvider: string;
+  integrationPreviewUrl?: string;
+  productionUrl?: string;
+  integrationSuccessStatus?: string;
+  productionSuccessStatus?: string;
   resolutionSource: "explicit" | "project" | "team";
 }
 
@@ -36,8 +41,13 @@ export function resolveTargetRepo(
     return {
       targetRepo,
       baseBranch: mapping?.baseBranch ?? "main",
+      productionBranch: mapping?.productionBranch ?? "main",
       repoConfigId: mapping?.id ?? "explicit",
       previewProvider: mapping?.previewProvider ?? "none",
+      integrationPreviewUrl: mapping?.integrationPreviewUrl,
+      productionUrl: mapping?.productionUrl,
+      integrationSuccessStatus: mapping?.integrationSuccessStatus,
+      productionSuccessStatus: mapping?.productionSuccessStatus,
       resolutionSource: "explicit",
     };
   }
@@ -48,8 +58,13 @@ export function resolveTargetRepo(
     return {
       targetRepo: normalizeRepoUrl(byProject.targetRepo),
       baseBranch: byProject.baseBranch,
+      productionBranch: byProject.productionBranch,
       repoConfigId: byProject.id,
       previewProvider: byProject.previewProvider ?? "none",
+      integrationPreviewUrl: byProject.integrationPreviewUrl,
+      productionUrl: byProject.productionUrl,
+      integrationSuccessStatus: byProject.integrationSuccessStatus,
+      productionSuccessStatus: byProject.productionSuccessStatus,
       resolutionSource: "project",
     };
   }
@@ -60,8 +75,13 @@ export function resolveTargetRepo(
     return {
       targetRepo: normalizeRepoUrl(byTeam.targetRepo),
       baseBranch: byTeam.baseBranch,
+      productionBranch: byTeam.productionBranch,
       repoConfigId: byTeam.id,
       previewProvider: byTeam.previewProvider ?? "none",
+      integrationPreviewUrl: byTeam.integrationPreviewUrl,
+      productionUrl: byTeam.productionUrl,
+      integrationSuccessStatus: byTeam.integrationSuccessStatus,
+      productionSuccessStatus: byTeam.productionSuccessStatus,
       resolutionSource: "team",
     };
   }

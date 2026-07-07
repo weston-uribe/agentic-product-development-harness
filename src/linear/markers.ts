@@ -7,6 +7,7 @@ export interface HarnessMarkers {
   model?: string;
   promptVersion?: string;
   targetRepo?: string;
+  baseBranch?: string;
   branch?: string;
   prUrl?: string;
   previewUrl?: string;
@@ -60,6 +61,9 @@ export function parseHarnessMarkers(commentBody: string): HarnessMarkers {
         break;
       case "target_repo":
         markers.targetRepo = value;
+        break;
+      case "base_branch":
+        markers.baseBranch = value;
         break;
       case "branch":
         markers.branch = value;

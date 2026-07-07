@@ -28,8 +28,12 @@ const config: HarnessConfig = {
       linearProjects: ["Portfolio"],
       linearTeams: ["WES"],
       targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
-      baseBranch: "main",
+      baseBranch: "dev",
+      productionBranch: "main",
       previewProvider: "vercel",
+      integrationPreviewUrl: "https://dev.example.vercel.app",
+      integrationSuccessStatus: "Merged to Dev",
+      productionSuccessStatus: "Merged / Deployed",
     },
     {
       id: "harness",
@@ -63,6 +67,9 @@ describe("resolveTargetRepo", () => {
 
     expect(resolved.resolutionSource).toBe("project");
     expect(resolved.repoConfigId).toBe("portfolio");
+    expect(resolved.baseBranch).toBe("dev");
+    expect(resolved.productionBranch).toBe("main");
+    expect(resolved.integrationPreviewUrl).toBe("https://dev.example.vercel.app");
   });
 
   it("resolves by team when project does not match", async () => {
