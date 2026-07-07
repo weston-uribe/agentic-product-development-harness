@@ -284,7 +284,7 @@ describe("executeMergePhase", () => {
         comments: [],
         rawChecks: [],
       });
-    mocks.markPullRequestReadyForReview.mockResolvedValue({});
+    mocks.markPullRequestReadyForReview.mockResolvedValue({ draft: false });
     mocks.fetchLinearIssue
       .mockResolvedValueOnce({
         id: "issue-1",

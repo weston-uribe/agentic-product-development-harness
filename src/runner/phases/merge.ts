@@ -109,6 +109,53 @@ function getProductionUrlReference(
   return mapping?.productionUrl ?? null;
 }
 
+const DRAFT_READY_POLL_TIMEOUT_MS = 30_000;
+const DRAFT_READY_POLL_INTERVAL_MS = 2_000;
+
+async function ensurePullRequestReadyForMerge(
+  github: GitHubClient,
+  parsedPr: ReturnType<typeof parsePrUrl>,
+  markerTargetRepo: string,
+  events: EventLogger,
+  prUrl: string,
+  initialInspection: Awaited<ReturnType<typeof inspectPullRequestForMerge>>,
+): Promise<Awaited<ReturnType<typeof inspectPullRequestForMerge>>> {
+  if (!initialInspection.isDraft) {
+    return initialInspection;
+  }
+
+  const updated = await github.markPullRequestReadyForReview(
+    parsedPr.owner,
+    parsedPr.repo,
+    parsedPr.pullNumber,
+  );
+  if (updated.draft === true) {
+    throw new MergeError(
+      "github_merge_failure",
+      "GitHub did not clear draft flag after mark-ready request",
+    );
+  }
+
+  const deadline = Date.now() + DRAFT_READY_POLL_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const inspection = await inspectPullRequestForMerge(
+      github,
+      parsedPr,
+      markerTargetRepo,
+    );
+    if (!inspection.isDraft) {
+      await events.log("github_pr_marked_ready", "info", { prUrl });
+      return inspection;
+    }
+    await new Promise((resolve) => setTimeout(resolve, DRAFT_READY_POLL_INTERVAL_MS));
+  }
+
+  throw new MergeError(
+    "github_merge_failure",
+    "Pull request remained draft after mark-ready request",
+  );
+}
+
 async function writeErrorArtifact(
   runDirectory: string,
   message: string,
@@ -583,16 +630,13 @@ export async function executeMergePhase(
       });
 
       if (preInspection.isDraft) {
-        await github.markPullRequestReadyForReview(
-          parsedPr.owner,
-          parsedPr.repo,
-          parsedPr.pullNumber,
-        );
-        await events.log("github_pr_marked_ready", "info", { prUrl });
-        preInspection = await inspectPullRequestForMerge(
+        preInspection = await ensurePullRequestReadyForMerge(
           github,
           parsedPr,
           markerTargetRepo,
+          events,
+          prUrl,
+          preInspection,
         );
       }
 
