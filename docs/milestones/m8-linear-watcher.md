@@ -23,7 +23,7 @@
 ## Prerequisites
 
 1. Vercel project with webhook env vars (see setup guide)
-2. GitHub Actions secrets: `LINEAR_API_KEY`, `CURSOR_API_KEY`, `GITHUB_TOKEN`
+2. GitHub Actions secrets: `LINEAR_API_KEY`, `CURSOR_API_KEY`, `HARNESS_GITHUB_TOKEN` (mapped to runtime `GITHUB_TOKEN`)
 3. Linear Issue webhook pointed at Vercel endpoint
 4. Harness repo default branch `main`
 

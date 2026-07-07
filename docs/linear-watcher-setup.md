@@ -59,9 +59,11 @@ In repo **Settings → Secrets and variables → Actions**:
 |--------|---------|
 | `LINEAR_API_KEY` | All live harness phases |
 | `CURSOR_API_KEY` | planning, implementation, revision |
-| `GITHUB_TOKEN` | handoff, revision, merge (mapped to `env: GITHUB_TOKEN` in workflow) |
+| `HARNESS_GITHUB_TOKEN` | handoff, revision, merge — mapped to runtime `GITHUB_TOKEN` in the workflow |
 
-Ensure `GITHUB_TOKEN` has `repo` access and merge permission on target repos per M4/M6.
+`HARNESS_GITHUB_TOKEN` must be a PAT with access to **target repos** used by the harness (e.g. portfolio), including `repo` scope or equivalent fine-grained permissions for PR read, checks, and merge per M4/M6.
+
+Do **not** name the Actions secret `GITHUB_TOKEN` — GitHub reserves that name for the auto-generated workflow token. The workflow maps `HARNESS_GITHUB_TOKEN` → `env: GITHUB_TOKEN` for the harness CLI.
 
 ---
 
