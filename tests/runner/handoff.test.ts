@@ -244,4 +244,69 @@ describe("executeHandoffPhase", () => {
       "Blocked",
     );
   });
+
+  it("completes PM Review when preview is missing and fallback is enabled", async () => {
+    mocks.pollForVercelPreview.mockResolvedValue({
+      previewUrl: null,
+      source: null,
+      polledSeconds: 1,
+      warnings: ["Preview not found within 1s"],
+    });
+    mocks.fetchLinearIssue
+      .mockReset()
+      .mockResolvedValueOnce({
+        id: "issue-handoff",
+        identifier: "WES-13",
+        title: "M3 implementation integration test",
+        description: issueDescription,
+        status: "PR Open",
+        projectName: "Portfolio",
+        teamName: "WES",
+        teamId: "team-1",
+        url: "https://linear.app/example/issue/WES-13/test",
+      })
+      .mockResolvedValueOnce({
+        id: "issue-handoff",
+        identifier: "WES-13",
+        title: "M3 implementation integration test",
+        description: issueDescription,
+        status: "PM Review",
+        projectName: "Portfolio",
+        teamName: "WES",
+        teamId: "team-1",
+        url: "https://linear.app/example/issue/WES-13/test",
+      });
+
+    const result = await executeHandoffPhase({
+      issueKey: "WES-13",
+      configPath,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.manifest.finalOutcome).toBe("success");
+    expect(result.manifest.previewUrl).toBeNull();
+    expect(result.manifest.linearStatusAfter).toBe("PM Review");
+    expect(mocks.postHandoffComment).toHaveBeenCalledTimes(1);
+    const handoffBody = mocks.postHandoffComment.mock.calls[0]?.[2] as string;
+    expect(handoffBody).toContain("Preview not found");
+  });
+
+  it("skips duplicate handoff when marker already exists", async () => {
+    mocks.listIssueComments.mockResolvedValue([
+      {
+        id: "handoff-1",
+        body: `## PM handoff\n\n<!--\nharness-orchestrator-v1\nphase: handoff\nrun_id: prior-run\npr_url: https://github.com/weston-uribe/weston-uribe-portfolio/pull/4\n-->`,
+      },
+    ]);
+
+    const result = await executeHandoffPhase({
+      issueKey: "WES-13",
+      configPath,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.manifest.finalOutcome).toBe("duplicate");
+    expect(mocks.postHandoffComment).not.toHaveBeenCalled();
+    expect(mocks.transitionIssueStatus).not.toHaveBeenCalled();
+  });
 });

@@ -48,6 +48,30 @@ export function extractVercelPreviewFromComments(
   };
 }
 
+async function fetchCommentsWithDeadline(
+  fetchComments: () => Promise<{ author: string; body: string }[]>,
+  deadlineMs: number,
+): Promise<{ author: string; body: string }[] | null> {
+  const remainingMs = deadlineMs - Date.now();
+  if (remainingMs <= 0) {
+    return null;
+  }
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      fetchComments(),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), remainingMs);
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
+
 export async function pollForVercelPreview(
   fetchComments: () => Promise<{ author: string; body: string }[]>,
   options: {
@@ -59,9 +83,15 @@ export async function pollForVercelPreview(
   const sleep = options.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
   const deadline = Date.now() + options.pollTimeoutSeconds * 1000;
   let polledSeconds = 0;
+  let fetchTimedOut = false;
 
   while (Date.now() <= deadline) {
-    const comments = await fetchComments();
+    const comments = await fetchCommentsWithDeadline(fetchComments, deadline);
+    if (comments === null) {
+      fetchTimedOut = true;
+      break;
+    }
+
     const result = extractVercelPreviewFromComments(comments);
     if (result.previewUrl) {
       return { ...result, polledSeconds };
@@ -77,8 +107,8 @@ export async function pollForVercelPreview(
     polledSeconds += waitMs / 1000;
   }
 
-  const finalComments = await fetchComments();
-  const finalResult = extractVercelPreviewFromComments(finalComments);
+  const finalComments = await fetchCommentsWithDeadline(fetchComments, deadline);
+  const finalResult = extractVercelPreviewFromComments(finalComments ?? []);
   return {
     ...finalResult,
     polledSeconds,
@@ -86,6 +116,7 @@ export async function pollForVercelPreview(
       ? []
       : [
           ...(finalResult.warnings ?? []),
+          ...(fetchTimedOut ? ["Preview comment fetch timed out before deadline"] : []),
           `Preview not found within ${options.pollTimeoutSeconds}s`,
         ],
   };

@@ -46,7 +46,7 @@ import {
 } from "../../github/pr-inspector.js";
 import { parsePrUrl } from "../../github/pr-url.js";
 import { pollForVercelPreview } from "../../preview/vercel-from-pr.js";
-import { createRevisionCloudAgent } from "../../cursor/agent-factory.js";
+import { createRevisionCloudAgent, disposeCloudAgent } from "../../cursor/agent-factory.js";
 import { sendAndObserve } from "../../cursor/run-observer.js";
 import { normalizeRepoUrl } from "../../resolver/normalize-repo.js";
 import { buildRevisionPrompt } from "../../prompts/revision-builder.js";
@@ -507,7 +507,7 @@ export async function executeRevisionPhase(
     await mkdir(`${runDirectory}/prompts`, { recursive: true });
     await writeFile(getRevisionPromptPath(runDirectory), `${prompt}\n`, "utf8");
 
-    await using agent = await createRevisionCloudAgent({
+    const agent = await createRevisionCloudAgent({
       apiKey: cursorApiKey,
       config,
       targetRepo: markerTargetRepo,
@@ -515,6 +515,7 @@ export async function executeRevisionPhase(
       prUrl,
     });
 
+    try {
     const timeoutMs =
       (config.revision?.timeoutSeconds ?? DEFAULT_REVISION_TIMEOUT_SECONDS) * 1000;
     const abortController = new AbortController();
@@ -699,6 +700,9 @@ export async function executeRevisionPhase(
 
     finalOutcome = "success";
     errorClassification = null;
+    } finally {
+      await disposeCloudAgent(agent);
+    }
   } catch (error) {
     if (error instanceof RevisionError) {
       errorClassification = error.classification;

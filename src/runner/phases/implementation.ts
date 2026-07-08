@@ -27,7 +27,7 @@ import {
   postPhaseStartCommentIfNeeded,
   transitionIssueStatus,
 } from "../../linear/writer.js";
-import { createImplementationCloudAgent } from "../../cursor/agent-factory.js";
+import { createImplementationCloudAgent, disposeCloudAgent } from "../../cursor/agent-factory.js";
 import { sendAndObserve } from "../../cursor/run-observer.js";
 import { resolveModelId } from "../../cursor/model.js";
 import { assertPrBaseBranchMatches } from "../../github/base-branch.js";
@@ -346,13 +346,14 @@ export async function executeImplementationPhase(
     await mkdir(`${runDirectory}/prompts`, { recursive: true });
     await writeFile(getImplementationPromptPath(runDirectory), `${prompt}\n`, "utf8");
 
-    await using agent = await createImplementationCloudAgent({
+    const agent = await createImplementationCloudAgent({
       apiKey: cursorApiKey,
       config,
       targetRepo: resolved.targetRepo,
       baseBranch: resolved.baseBranch,
     });
 
+    try {
     const timeoutMs =
       (config.implementation?.timeoutSeconds ??
         DEFAULT_IMPLEMENTATION_TIMEOUT_SECONDS) * 1000;
@@ -523,6 +524,9 @@ export async function executeImplementationPhase(
 
     finalOutcome = "success";
     errorClassification = null;
+    } finally {
+      await disposeCloudAgent(agent);
+    }
   } catch (error) {
     if (error instanceof ImplementationError) {
       errorClassification = error.classification;

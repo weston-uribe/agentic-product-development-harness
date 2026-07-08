@@ -1,5 +1,22 @@
 import { Agent } from "@cursor/sdk";
 import type { ModelSelection, SDKAgent } from "@cursor/sdk";
+
+const CLOUD_AGENT_DISPOSE_TIMEOUT_MS = 10_000;
+
+/** Best-effort agent cleanup; never blocks the harness run indefinitely. */
+export async function disposeCloudAgent(agent: SDKAgent): Promise<void> {
+  const dispose = agent[Symbol.asyncDispose];
+  if (!dispose) {
+    return;
+  }
+
+  await Promise.race([
+    dispose.call(agent),
+    new Promise<void>((resolve) => {
+      setTimeout(resolve, CLOUD_AGENT_DISPOSE_TIMEOUT_MS);
+    }),
+  ]);
+}
 import { resolveModel } from "./model.js";
 import type { HarnessConfig } from "../config/types.js";
 

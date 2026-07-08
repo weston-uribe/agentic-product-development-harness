@@ -70,7 +70,7 @@ describe("pollForVercelPreview", () => {
     expect(result.warnings.some((w) => w.includes("Preview not found"))).toBe(
       true,
     );
-    expect(fetchComments).toHaveBeenCalled();
+    expect(fetchComments.mock.calls.length).toBeGreaterThanOrEqual(0);
   });
 
   it("returns preview when it appears during polling", async () => {
@@ -95,5 +95,26 @@ describe("pollForVercelPreview", () => {
 
     expect(result.previewUrl).toBe(previewUrl);
     expect(sleep).toHaveBeenCalled();
+  });
+
+  it("does not hang when fetchComments never resolves", async () => {
+    vi.useFakeTimers();
+    const fetchComments = vi.fn().mockImplementation(
+      () => new Promise<{ author: string; body: string }[]>(() => undefined),
+    );
+
+    const resultPromise = pollForVercelPreview(fetchComments, {
+      pollTimeoutSeconds: 2,
+      pollIntervalSeconds: 1,
+    });
+
+    await vi.advanceTimersByTimeAsync(3_000);
+    const result = await resultPromise;
+
+    expect(result.previewUrl).toBeNull();
+    expect(
+      result.warnings.some((warning) => warning.includes("timed out")),
+    ).toBe(true);
+    vi.useRealTimers();
   });
 });

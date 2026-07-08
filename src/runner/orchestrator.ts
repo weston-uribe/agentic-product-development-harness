@@ -16,6 +16,33 @@ export function shouldContinueToImplementationAfterPlanning(
   return manifest.finalOutcome === "success";
 }
 
+export function shouldContinueToHandoffAfterImplementation(
+  manifest: RunManifest,
+): boolean {
+  return manifest.finalOutcome === "success" && manifest.phase === "implementation";
+}
+
+async function continueAfterImplementation(
+  options: OrchestratorOptions,
+  implResult: { exitCode: number; runDirectory?: string; manifest?: unknown },
+): Promise<{ exitCode: number; runDirectory?: string; manifest?: unknown }> {
+  const manifest = implResult.manifest as RunManifest | undefined;
+  if (!manifest || !shouldContinueToHandoffAfterImplementation(manifest)) {
+    return implResult;
+  }
+
+  const handoffResult = await executeHandoffPhase({
+    issueKey: options.issueKey,
+    configPath: options.configPath,
+    force: options.force,
+  });
+  return {
+    exitCode: handoffResult.exitCode,
+    runDirectory: handoffResult.runDirectory,
+    manifest: handoffResult.manifest,
+  };
+}
+
 export type RunPhaseArg =
   | "auto"
   | "planning"
@@ -95,11 +122,7 @@ export async function runOrchestrator(
         configPath: options.configPath,
         force: options.force,
       });
-      return {
-        exitCode: implResult.exitCode,
-        runDirectory: implResult.runDirectory,
-        manifest: implResult.manifest,
-      };
+      return continueAfterImplementation(options, implResult);
     }
     return {
       exitCode: result.exitCode,
@@ -114,11 +137,7 @@ export async function runOrchestrator(
       configPath: options.configPath,
       force: options.force,
     });
-    return {
-      exitCode: result.exitCode,
-      runDirectory: result.runDirectory,
-      manifest: result.manifest,
-    };
+    return continueAfterImplementation(options, result);
   }
 
   if (phase === "handoff") {

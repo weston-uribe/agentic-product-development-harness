@@ -23,6 +23,7 @@ vi.mock("../../src/linear/writer.js", () => ({
 
 vi.mock("../../src/cursor/agent-factory.js", () => ({
   createPlanningCloudAgent: mocks.createPlanningCloudAgent,
+  disposeCloudAgent: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../../src/cursor/run-observer.js", () => ({

@@ -28,7 +28,7 @@ jobs:
     timeout-minutes: 120
     concurrency:
       group: harness-${{ github.event.client_payload.issueKey || github.event.inputs.issue }}
-      cancel-in-progress: false
+      cancel-in-progress: true
 
     env:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
@@ -141,7 +141,7 @@ jobs:
     timeout-minutes: 30
     concurrency:
       group: harness-production-sync-${{ github.event.client_payload.repo || github.event.inputs.sync_repo }}
-      cancel-in-progress: false
+      cancel-in-progress: true
 
     env:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
