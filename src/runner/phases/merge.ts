@@ -41,7 +41,7 @@ import {
   transitionIssueStatus,
 } from "../../linear/writer.js";
 import { GitHubClient } from "../../github/client.js";
-import { assertPrBaseBranchMatches } from "../../github/base-branch.js";
+import { assertPrBaseBranchMatches, assertPullRequestMergeable } from "../../github/base-branch.js";
 import { evaluateChecksForMerge } from "../../github/check-policy.js";
 import { classifyMergeError, isAlreadyMergedError } from "../../github/merge-result.js";
 import {
@@ -746,6 +746,31 @@ export async function executeMergePhase(
           events,
           prUrl,
           preInspection,
+        );
+      }
+
+      preInspection = await inspectPullRequestForMerge(
+        github,
+        parsedPr,
+        markerTargetRepo,
+      );
+      assertPrBaseBranchMatches({
+        prUrl: preInspection.url,
+        actualBaseBranch: preInspection.baseBranch,
+        expectedBaseBranch: resolved.baseBranch,
+      });
+      try {
+        assertPullRequestMergeable({
+          prUrl: preInspection.url,
+          merged: preInspection.merged,
+          mergeable: preInspection.mergeable,
+          mergeableState: preInspection.mergeableState,
+          baseBranch: resolved.baseBranch,
+        });
+      } catch (error) {
+        throw new MergeError(
+          "github_merge_failure",
+          error instanceof Error ? error.message : String(error),
         );
       }
 

@@ -128,6 +128,8 @@ Planning is **optional** in the target Linear workflow. Low-risk issues may bypa
 
 **Branch strategy:** `repos[].baseBranch` is the integration branch (e.g. portfolio `dev`); `productionBranch` remains `main`. After manual `dev → main` promotion, run **`harness:sync-production`** (CLI or harness GHA via `production_promoted` dispatch) to move Linear issues from **Merged to Dev** to **Merged / Deployed** when GitHub proves the merge commit is reachable on `productionBranch`. See [`docs/target-repo-branch-setup.md`](docs/target-repo-branch-setup.md) and [`docs/production-sync-automation.md`](docs/production-sync-automation.md).
 
+**Concurrency (auto-runner):** The gate job resolves routing (`harness:resolve-route`); downstream jobs enforce concurrency. Non-merge phases use per-issue groups (`harness-{issueKey}`, cancel in progress). Merge runs queue on `harness-merge-{repoConfigId}-{baseBranch}` (`cancel-in-progress: false`) so only one merge into the same integration branch runs at a time. Production sync remains serialized per repo config id.
+
 **Inputs:** Linear issue in Ready to Merge; handoff or revision marker with `pr_url`; PM manually moved issue from PM Review.
 
 **Outputs:** Squash-merged PR; merge completion comment; deployment URL or warning.

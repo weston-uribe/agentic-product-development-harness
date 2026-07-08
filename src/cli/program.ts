@@ -4,6 +4,7 @@ import { runInspect } from "./commands/inspect.js";
 import { runRunCommand } from "./commands/run.js";
 import { runValidateIssue } from "./commands/validate-issue.js";
 import { runSyncProductionCommand } from "./commands/sync-production.js";
+import { runResolveRouteCommand } from "./commands/resolve-route.js";
 
 export function createProgram(): Command {
   const program = new Command();
@@ -80,6 +81,33 @@ export function createProgram(): Command {
         issueKey: opts.issue,
         intendedPhase: opts.intendedPhase,
         json: opts.json,
+      });
+      process.exitCode = exitCode;
+    });
+
+  program
+    .command("resolve-route")
+    .description("Resolve harness phase and target repo for workflow routing")
+    .requiredOption("--issue <key>", "Linear issue key, e.g. WES-11")
+    .option(
+      "--phase <phase>",
+      "Phase override: auto, planning, implementation, handoff, revision, merge",
+      "auto",
+    )
+    .option("--json", "Print route JSON to stdout", false)
+    .option(
+      "--github-output",
+      "Append route fields to GITHUB_OUTPUT for Actions",
+      false,
+    )
+    .action(async (opts) => {
+      const configPath = program.opts<{ config: string }>().config;
+      const exitCode = await runResolveRouteCommand({
+        issueKey: opts.issue,
+        configPath,
+        phase: opts.phase,
+        json: opts.json,
+        githubOutput: opts.githubOutput,
       });
       process.exitCode = exitCode;
     });

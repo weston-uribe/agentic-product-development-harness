@@ -23,6 +23,9 @@ export interface PrInspectionResult {
   state: string;
   merged: boolean;
   isDraft: boolean;
+  mergeable: boolean | null;
+  mergeableState: string | null;
+  rebaseable: boolean | null;
   mergeCommitSha: string | null;
   mergedAt: string | null;
   repoUrl: string;
@@ -242,6 +245,9 @@ async function inspectPullRequestRaw(
     state: pull.state,
     merged: pull.merged,
     isDraft: pull.draft === true,
+    mergeable: pull.mergeable ?? null,
+    mergeableState: pull.mergeable_state ?? null,
+    rebaseable: pull.rebaseable ?? null,
     mergeCommitSha: pull.merge_commit_sha,
     mergedAt: pull.merged_at,
     repoUrl: parsed.repoUrl,

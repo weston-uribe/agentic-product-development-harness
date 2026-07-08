@@ -12,6 +12,7 @@
     "harness:run": "tsx src/index.ts run",
     "harness:inspect": "tsx src/index.ts inspect",
     "harness:validate-issue": "tsx src/index.ts validate-issue",
+    "harness:resolve-route": "tsx src/index.ts resolve-route",
     "harness:sync-production": "tsx src/index.ts sync-production",
     "generate:config-schema": "tsx scripts/generate-config-schema.ts"
   },

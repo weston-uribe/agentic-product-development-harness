@@ -49,6 +49,10 @@ Harness Actions also supports **`workflow_dispatch`** with input **`sync_repo=po
 - **Preflight / doctor:** `assertBaseBranchExists()` when `GITHUB_TOKEN` is available.
 - **Implementation / handoff / revision / merge:** PR base must match `repos[].baseBranch` (`wrong_pr_base_branch` if not).
 
+## Concurrent issues
+
+Multiple issues can run planning, implementation, handoff, and revision in parallel (per-issue GitHub Actions concurrency). Merge into the same integration branch is serialized: the auto-runner gate resolves `repoConfigId` and `baseBranch`, then routes merge work to a queue group `harness-merge-{repoConfigId}-{baseBranch}`. A second issue waiting to merge into portfolio `dev` runs only after the first merge completes; the runner re-inspects PR mergeability before merging.
+
 ## Example (portfolio)
 
 ```json

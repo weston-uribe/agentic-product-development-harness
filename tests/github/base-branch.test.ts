@@ -3,6 +3,7 @@ import { GitHubApiError } from "../../src/github/client.js";
 import {
   assertBaseBranchExists,
   assertPrBaseBranchMatches,
+  assertPullRequestMergeable,
   parseGitHubRepoUrl,
 } from "../../src/github/base-branch.js";
 
@@ -53,6 +54,43 @@ describe("assertBaseBranchExists", () => {
   });
 });
 
+describe("assertPullRequestMergeable", () => {
+  it("passes when PR is mergeable", () => {
+    expect(() =>
+      assertPullRequestMergeable({
+        prUrl: "https://github.com/o/r/pull/1",
+        merged: false,
+        mergeable: true,
+        mergeableState: "clean",
+        baseBranch: "dev",
+      }),
+    ).not.toThrow();
+  });
+
+  it("passes when PR is already merged", () => {
+    expect(() =>
+      assertPullRequestMergeable({
+        prUrl: "https://github.com/o/r/pull/1",
+        merged: true,
+        mergeable: false,
+        mergeableState: "dirty",
+        baseBranch: "dev",
+      }),
+    ).not.toThrow();
+  });
+
+  it("throws pr_not_mergeable when PR is dirty", () => {
+    expect(() =>
+      assertPullRequestMergeable({
+        prUrl: "https://github.com/o/r/pull/1",
+        merged: false,
+        mergeable: false,
+        mergeableState: "dirty",
+        baseBranch: "dev",
+      }),
+    ).toThrow(/pr_not_mergeable/);
+  });
+});
 describe("assertPrBaseBranchMatches", () => {
   it("passes when PR base matches config", () => {
     expect(() =>

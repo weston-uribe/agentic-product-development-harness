@@ -21,6 +21,9 @@ export interface GitHubPullRequest {
   draft?: boolean;
   merged_at: string | null;
   merge_commit_sha: string | null;
+  mergeable?: boolean | null;
+  mergeable_state?: string | null;
+  rebaseable?: boolean | null;
   head: { ref: string; sha: string };
   base: { ref: string };
 }

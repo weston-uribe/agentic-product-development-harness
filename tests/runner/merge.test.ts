@@ -482,7 +482,7 @@ describe("executeMergePhase", () => {
     });
 
     expect(result.exitCode).toBe(0);
-    expect(mocks.inspectPullRequestForMerge).toHaveBeenCalledTimes(3);
+    expect(mocks.inspectPullRequestForMerge).toHaveBeenCalledTimes(4);
     expect(mocks.mergePullRequest).toHaveBeenCalled();
   });
 
@@ -624,6 +624,111 @@ describe("executeMergePhase", () => {
 
     expect(result.exitCode).toBe(2);
     expect(result.manifest.errorClassification).toBe("wrong_pr_base_branch");
+    expect(mocks.mergePullRequest).not.toHaveBeenCalled();
+  });
+
+  it("fails before merge when PR is dirty after waiting in merge queue", async () => {
+    mocks.inspectPullRequestForMerge.mockResolvedValue({
+      title: "[WES-13] test",
+      url: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4",
+      branch: "cursor/wes-13-test",
+      baseBranch: "main",
+      state: "open",
+      merged: false,
+      isDraft: false,
+      mergeable: false,
+      mergeableState: "dirty",
+      rebaseable: false,
+      mergeCommitSha: null,
+      mergedAt: null,
+      repoUrl: "https://github.com/weston-uribe/weston-uribe-portfolio",
+      changedFiles: [{ path: "app/hello-world/page.tsx", status: "modified" }],
+      checks: [{ name: "CI", status: "completed", conclusion: "success", detailsUrl: null }],
+      checkSummary: "- Passed: 1",
+      comments: [],
+      rawChecks: [],
+    });
+    mocks.fetchLinearIssue.mockResolvedValueOnce({
+      id: "issue-1",
+      identifier: "WES-13",
+      status: "Ready to Merge",
+      teamId: "team-1",
+      description: issueDescription,
+      projectName: "Portfolio",
+      teamName: "Weston Product Lab",
+    });
+
+    const result = await executeMergePhase({
+      issueKey: "WES-13",
+      configPath,
+    });
+
+    expect(result.exitCode).toBe(3);
+    expect(result.manifest.errorClassification).toBe("github_merge_failure");
+    expect(result.manifest.finalOutcome).toBe("failed");
+    expect(mocks.mergePullRequest).not.toHaveBeenCalled();
+    expect(mocks.transitionIssueStatus).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ identifier: "WES-13" }),
+      "Blocked",
+    );
+  });
+
+  it("no-ops duplicate merge when marker exists and PR is already merged", async () => {
+    const mergeCompletionBody = `## Merge complete
+---
+harness-orchestrator-v1
+phase: merge
+run_id: prior-merge-run
+model: composer-2.5
+prompt_version: merge@1
+target_repo: https://github.com/weston-uribe/weston-uribe-portfolio
+pr_url: https://github.com/weston-uribe/weston-uribe-portfolio/pull/4
+merge_commit_sha: merged-sha-123
+---`;
+
+    mocks.listIssueComments.mockResolvedValue([
+      { id: "rev-1", body: revisionCommentBody, createdAt: "2026-07-07T05:38:00.000Z" },
+      { id: "merge-1", body: mergeCompletionBody, createdAt: "2026-07-07T06:00:00.000Z" },
+    ]);
+    mocks.inspectPullRequestForMerge.mockResolvedValue({
+      title: "[WES-13] test",
+      url: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4",
+      branch: "cursor/wes-13-test",
+      baseBranch: "main",
+      state: "closed",
+      merged: true,
+      isDraft: false,
+      mergeable: null,
+      mergeableState: null,
+      rebaseable: null,
+      mergeCommitSha: "merged-sha-123",
+      mergedAt: "2026-07-07T06:00:00.000Z",
+      repoUrl: "https://github.com/weston-uribe/weston-uribe-portfolio",
+      changedFiles: [{ path: "app/hello-world/page.tsx", status: "modified" }],
+      checks: [],
+      checkSummary: "- Passed: 1",
+      comments: [],
+      rawChecks: [],
+    });
+    mocks.fetchLinearIssue.mockResolvedValueOnce({
+      id: "issue-1",
+      identifier: "WES-13",
+      status: "Ready to Merge",
+      teamId: "team-1",
+      description: issueDescription,
+      projectName: "Portfolio",
+      teamName: "Weston Product Lab",
+    });
+
+    const result = await executeMergePhase({
+      issueKey: "WES-13",
+      configPath,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.manifest.finalOutcome).toBe("duplicate");
+    expect(result.manifest.errorClassification).toBe("duplicate_phase_completed");
     expect(mocks.mergePullRequest).not.toHaveBeenCalled();
   });
 });

@@ -51,3 +51,28 @@ export function assertPrBaseBranchMatches(input: {
     `wrong_pr_base_branch: PR ${input.prUrl} targets "${input.actualBaseBranch}"; expected "${input.expectedBaseBranch}". Update the PR base branch before continuing.`,
   );
 }
+
+export function assertPullRequestMergeable(input: {
+  prUrl: string;
+  merged: boolean;
+  mergeable: boolean | null;
+  mergeableState: string | null;
+  baseBranch: string;
+}): void {
+  if (input.merged) {
+    return;
+  }
+
+  const state = input.mergeableState?.toLowerCase() ?? null;
+  if (state === "dirty" || state === "behind" || state === "blocked") {
+    throw new Error(
+      `pr_not_mergeable: PR ${input.prUrl} is ${state} against "${input.baseBranch}". Update or rebase the PR branch after other merges land, then retry.`,
+    );
+  }
+
+  if (input.mergeable === false) {
+    throw new Error(
+      `pr_not_mergeable: PR ${input.prUrl} is not mergeable into "${input.baseBranch}". Resolve conflicts or update the branch, then retry.`,
+    );
+  }
+}
