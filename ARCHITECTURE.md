@@ -1,6 +1,17 @@
 # Architecture
 
-Modular design for an agentic product development harness. Components are defined so v0.1 can run manually in Cursor while later phases add automation without rewriting the model.
+Modular design for an agentic product development harness. The architecture is **modular by subsystem** (product system, SCM/PR system, runner, agent provider, preview provider), but it is **not provider-agnostic yet**. Components are defined so the harness can run manually in Cursor while later phases add automation without rewriting the model — but in V0.2 the only implemented agent provider is Cursor, and Cursor SDK calls are still embedded directly in the runner phases.
+
+## Configuration and portability posture
+
+V0.2 is **Cursor-first**. Key assumptions:
+
+- **Cursor SDK calls are still embedded in runner phases today.** Future work should isolate them behind an internal provider interface so additional agent providers can be added without rewriting phases.
+- **GitHub and Linear are explicit V0.2 assumptions** — GitHub is the SCM/PR provider and cloud runner (GitHub Actions), and Linear is the product/control system.
+- **Vercel is the only implemented preview provider** when preview capture is enabled; other repos use `previewProvider: "none"`.
+- The harness does **not** claim Claude Code, Codex, VS Code local agents, GitLab, or Bitbucket support.
+
+Details: [`docs/provider-portability.md`](docs/provider-portability.md) and [`docs/decisions/0004-agent-provider-boundary.md`](docs/decisions/0004-agent-provider-boundary.md).
 
 ## Pipeline overview
 

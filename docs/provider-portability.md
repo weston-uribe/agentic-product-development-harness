@@ -1,0 +1,106 @@
+# Provider portability and configuration posture
+
+This document describes what is configurable, what is fixed, and what is
+intentionally **not** claimed for V0.2 of the harness. It complements
+[`docs/decisions/0004-agent-provider-boundary.md`](decisions/0004-agent-provider-boundary.md).
+
+## Current V0.2 posture
+
+V0.2 is a **Cursor-first** harness for **Linear + GitHub + GitHub Actions**. The
+architecture is modular by subsystem (product system, SCM/PR system, runner,
+agent provider, preview provider), but it is **not provider-agnostic yet**.
+Cursor is the only implemented agent execution provider, and Cursor SDK calls
+are still embedded directly in the runner phases.
+
+### Support matrix
+
+| Subsystem | Implemented / supported in V0.2 |
+|-----------|----------------------------------|
+| Product system | Linear |
+| Source control / PR system | GitHub |
+| Runner | GitHub Actions |
+| Agent provider | Cursor Cloud Agents only |
+| Model policy | standard / basic Composer 2.5 unless deliberately changed |
+| Preview provider | Vercel or none |
+| Target repos | GitHub repos configured in `harness.config.json` |
+
+## What is configurable today
+
+The following are configurable through `harness.config.json` (see
+[`harness.config.schema.json`](../harness.config.schema.json)):
+
+- `repos[].id`
+- `repos[].linearProjects`
+- `repos[].linearTeams`
+- `repos[].targetRepo`
+- `repos[].baseBranch`
+- `repos[].productionBranch`
+- `repos[].previewProvider`
+- `repos[].integrationPreviewUrl`
+- `repos[].productionUrl`
+- `repos[].integrationSuccessStatus`
+- `repos[].productionSuccessStatus`
+- `repos[].validation.commands`
+- `allowedTargetRepos`
+- `linear.eligibleStatuses`
+- `linear.transitionalStatuses`
+- timeouts and check/preview polling behavior
+- `defaultModel.id`, with current Cursor-specific behavior
+
+## What is fixed in V0.2
+
+The following are structural assumptions in V0.2 and are **not** configurable as
+provider swaps:
+
+- Linear as the product system
+- GitHub as the SCM / PR provider
+- GitHub Actions as the cloud runner
+- Cursor Cloud Agents as the agent provider
+- Cursor-specific run observation
+- Cursor-specific marker fields
+- Vercel-specific preview capture where preview is enabled
+
+## What is intentionally not claimed
+
+To avoid overstating maturity, the harness does **not** claim any of the
+following in V0.2:
+
+- Claude Code support
+- Codex support
+- local VS Code agent support
+- GitLab / Bitbucket support
+- generic PM-system support
+- npm package stability
+- production-grade portability
+
+## Future provider adapter requirements
+
+A future agent provider adapter should support the full run lifecycle used by
+the runner phases today:
+
+- planning run creation
+- implementation run creation
+- revision run against an existing PR branch
+- integration repair run against an existing PR branch
+- lifecycle observation
+- terminal status capture
+- assistant output capture
+- branch/PR capture
+- provider diagnostics
+- timeout/cancellation
+- generic error mapping
+- validation evidence reporting
+- raw provider artifact retention
+
+## Recommended next implementation steps
+
+1. **Make Cursor explicit** in docs and config posture rather than implying
+   provider agnosticism.
+2. **Introduce an internal provider seam** that isolates Cursor SDK calls out of
+   the runner phases behind a single interface.
+3. **Add provider config later** in a separate code change once the adapter
+   interface is defined and validated — not speculatively.
+4. **Preserve legacy markers** (`cursorAgentId`, `cursorRunId`) and Linear
+   metadata until they can be safely migrated behind the provider seam.
+5. **Validate a second adapter** end-to-end against the full lifecycle before
+   claiming any additional provider support.

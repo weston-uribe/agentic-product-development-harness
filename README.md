@@ -1,14 +1,14 @@
 # Agentic Product Development Harness
 
-**Status: Milestone 9 — ChatGPT issue intake prompt**
+**Status: V0.2 release preparation**
 
-This project explores how an AI-native PM can define product work in structured issues, guide AI-assisted implementation through Cursor, and evaluate outputs before human product and engineering review.
+This is currently a **Cursor-first harness** for **Linear + GitHub + GitHub Actions**. **Cursor is the only implemented agent provider today.** It explores how an AI-native PM can define product work in structured issues, guide AI-assisted implementation through Cursor, and evaluate outputs before human product and engineering review.
 
 ## What this is
 
-A Cursor-first harness for turning product issues into implementation plans, validation reports, and review-ready pull requests. M1–M7 SDK runners handle planning through merge; **M8 adds automatic cloud runs** when Linear status changes; **M9 adds a canonical ChatGPT intake prompt** so PMs can draft harness-compatible Linear issues by copy-pasting into a normal chat thread.
+A Cursor-first harness for turning product issues into implementation plans, validation reports, and review-ready pull requests. SDK runners handle planning through merge; automatic cloud runs are triggered when Linear status changes; a canonical ChatGPT intake prompt lets PMs draft harness-compatible Linear issues by copy-pasting into a normal chat thread.
 
-The architecture is modular: **Cursor + GitHub + Linear + Vercel previews + human review**, with a Vercel webhook bridge and GitHub Actions auto-runner.
+The architecture is modular by subsystem — **Cursor + GitHub + Linear + Vercel previews + human review**, with a Vercel webhook bridge and GitHub Actions auto-runner — but it is **not provider-agnostic yet**. See the [configuration and portability posture](#configuration-and-portability-posture) below.
 
 ## Why it exists
 
@@ -23,12 +23,13 @@ AI-assisted development makes it easy to generate code quickly. It does not, by 
 | Layer | Status |
 |-------|--------|
 | Issue intake | ChatGPT copy-paste prompt + Cursor skill + validate-issue CLI |
-| Planning / implementation / handoff / revision / merge | SDK runners (M1–M6) |
-| **Auto-run from Linear status** | **Webhook bridge + GitHub Actions (M8)** |
+| Planning / implementation / handoff / revision / merge | SDK runners (implemented) |
+| Auto-run from Linear status | Webhook bridge + GitHub Actions (implemented) |
+| Agent provider | Cursor Cloud Agents only (implemented) |
 | Human approval | Required at merge |
 | Reusable skills beyond issue intake | Deferred |
 
-## Auto-run flow (M8)
+## Auto-run flow
 
 ```text
 Linear status → Ready for Planning / Ready for Build / PR Open / Needs Revision / Ready to Merge
@@ -48,15 +49,25 @@ Each step has a template in [`templates/`](templates/). Status changes on allowl
 
 ## What exists today
 
-- SDK harness runners M1–M7 — see [`ROADMAP.md`](ROADMAP.md)
-- **M8:** [`api/linear-webhook.ts`](api/linear-webhook.ts), [`.github/workflows/harness-auto-runner.yml`](.github/workflows/harness-auto-runner.yml)
-- **M9:** ChatGPT intake prompt — [`prompts/issue-intake-chatgpt.md`](prompts/issue-intake-chatgpt.md)
+- SDK harness runners for planning, implementation, handoff, revision, and merge — see [`ROADMAP.md`](ROADMAP.md)
+- Event-driven auto-runner — [`api/linear-webhook.ts`](api/linear-webhook.ts), [`.github/workflows/harness-auto-runner.yml`](.github/workflows/harness-auto-runner.yml)
+- ChatGPT intake prompt — [`prompts/issue-intake-chatgpt.md`](prompts/issue-intake-chatgpt.md)
 - Issue intake skill — [`skills/issue-intake/`](skills/issue-intake/)
+- Cursor Cloud Agents as the single implemented agent provider
 - Templates, evals, examples, architecture docs
+
+## Configuration and portability posture
+
+V0.2 is **Cursor-first** and **not provider-agnostic yet**. Cursor is the only implemented agent execution provider, Linear and GitHub are explicit assumptions, GitHub Actions is the cloud runner, and Vercel is the only implemented preview provider when preview capture is enabled.
+
+- What is configurable, fixed, and intentionally not claimed: [`docs/provider-portability.md`](docs/provider-portability.md)
+- Why the agent provider is not a simple model/env-var swap: [`docs/decisions/0004-agent-provider-boundary.md`](docs/decisions/0004-agent-provider-boundary.md)
+
+This repo does **not** claim provider agnosticism, or support for Claude Code, Codex, local VS Code agents, GitLab, or Bitbucket.
 
 ## What is planned
 
-See [`ROADMAP.md`](ROADMAP.md) for deferred work: lead agent, additional skills, release automation.
+See [`ROADMAP.md`](ROADMAP.md) for deferred work: an internal agent-provider seam, additional skills, and release automation.
 
 ## First target repo
 
@@ -67,6 +78,8 @@ The first real-world target for this harness is [`weston-uribe/weston-uribe-port
 ## What this repo does not claim
 
 - Autonomous shipping without human review
+- Production-grade robustness or portability
+- Provider agnosticism (Cursor is the only implemented agent provider)
 - Lead agent or planner/implementer skills
 - Production release tags
 - Polling-based Linear watcher
