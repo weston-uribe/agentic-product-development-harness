@@ -29,7 +29,7 @@ describe("resolveConfigSource", () => {
     restoreEnv(envKeys);
   });
 
-  it("prefers explicit CLI --config over env vars", () => {
+  it("prefers explicit CLI --config <path> over env vars", () => {
     process.argv = ["node", "harness", "doctor", "--config", "/tmp/cli.json"];
     process.env.HARNESS_CONFIG_JSON_B64 = Buffer.from("{}").toString("base64");
     process.env.HARNESS_CONFIG_JSON = "{}";
@@ -38,6 +38,31 @@ describe("resolveConfigSource", () => {
     const source = resolveConfigSource();
     expect(source.kind).toBe("cli-config");
     expect(source.label).toBe(path.resolve("/tmp/cli.json"));
+  });
+
+  it("prefers explicit CLI --config=<path> over env vars", () => {
+    process.argv = ["node", "harness", "doctor", "--config=/tmp/cli.json"];
+    process.env.HARNESS_CONFIG_JSON_B64 = Buffer.from("{}").toString("base64");
+    process.env.HARNESS_CONFIG_JSON = "{}";
+    process.env.HARNESS_CONFIG_PATH = "/tmp/env.json";
+
+    const source = resolveConfigSource();
+    expect(source.kind).toBe("cli-config");
+    expect(source.label).toBe(path.resolve("/tmp/cli.json"));
+  });
+
+  it("throws when --config has no path argument", () => {
+    process.argv = ["node", "harness", "doctor", "--config"];
+    process.env.HARNESS_CONFIG_JSON_B64 = Buffer.from("{}").toString("base64");
+
+    expect(() => resolveConfigSource()).toThrow(/--config requires a path/i);
+  });
+
+  it("throws when --config= has an empty value", () => {
+    process.argv = ["node", "harness", "doctor", "--config="];
+    process.env.HARNESS_CONFIG_JSON_B64 = Buffer.from("{}").toString("base64");
+
+    expect(() => resolveConfigSource()).toThrow(/--config requires a path/i);
   });
 
   it("uses HARNESS_CONFIG_JSON_B64 when argv has no --config", () => {
@@ -179,10 +204,25 @@ describe("loadHarnessConfig", () => {
     expect(config.repos[0]?.id).toBe("target-app");
   });
 
-  it("explicit --config overrides HARNESS_CONFIG_JSON_B64", async () => {
+  it("explicit --config <path> overrides HARNESS_CONFIG_JSON_B64", async () => {
     const filePath = path.join(tempDir, "cli.json");
     await writeFile(filePath, JSON.stringify(minimalFixture));
     process.argv = ["node", "harness", "doctor", "--config", filePath];
+    process.env.HARNESS_CONFIG_JSON_B64 = Buffer.from(
+      JSON.stringify({ version: 1, bad: true }),
+    ).toString("base64");
+
+    const { config, source } = await loadHarnessConfig({
+      configPath: "harness.config.json",
+    });
+    expect(source.kind).toBe("cli-config");
+    expect(config.repos[0]?.id).toBe("target-app");
+  });
+
+  it("explicit --config=<path> overrides HARNESS_CONFIG_JSON_B64", async () => {
+    const filePath = path.join(tempDir, "cli.json");
+    await writeFile(filePath, JSON.stringify(minimalFixture));
+    process.argv = ["node", "harness", "doctor", `--config=${filePath}`];
     process.env.HARNESS_CONFIG_JSON_B64 = Buffer.from(
       JSON.stringify({ version: 1, bad: true }),
     ).toString("base64");

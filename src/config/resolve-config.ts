@@ -17,22 +17,30 @@ export interface ResolvedConfigSource {
 
 const DEFAULT_CONFIG_PATH = "harness.config.json";
 
-function argvContainsConfigFlag(): boolean {
-  return process.argv.includes("--config");
-}
-
 function readExplicitCliConfigPath(): string | null {
-  if (!argvContainsConfigFlag()) {
-    return null;
+  const argv = process.argv;
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+
+    if (arg === "--config") {
+      const nextArg = argv[index + 1];
+      if (nextArg === undefined || nextArg.startsWith("-")) {
+        throw new ConfigError("--config requires a path argument");
+      }
+      return nextArg;
+    }
+
+    if (arg.startsWith("--config=")) {
+      const value = arg.slice("--config=".length);
+      if (!value) {
+        throw new ConfigError("--config requires a path argument");
+      }
+      return value;
+    }
   }
 
-  const configIndex = process.argv.indexOf("--config");
-  const nextArg = process.argv[configIndex + 1];
-  if (nextArg && !nextArg.startsWith("-")) {
-    return nextArg;
-  }
-
-  return DEFAULT_CONFIG_PATH;
+  return null;
 }
 
 function decodeBase64Config(value: string): string {
