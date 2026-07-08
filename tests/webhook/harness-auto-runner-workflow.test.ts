@@ -32,6 +32,7 @@ function assertHarnessWorkflowContracts(workflow: string, label: string): void {
       const gate = extractJobSection(workflow, "gate");
       expect(gate).toContain("harness:resolve-route");
       expect(gate).not.toMatch(/^\s+concurrency:/m);
+      expect(gate).toContain("GITHUB_TOKEN");
     });
 
     it("run-harness keeps per-issue concurrency without canceling in-progress work", () => {

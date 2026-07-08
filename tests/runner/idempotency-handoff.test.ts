@@ -77,6 +77,16 @@ describe("handoff idempotency", () => {
     expect(result.skip).toBe(false);
   });
 
+  it("allows Building status for recovery handoff", () => {
+    expect(() =>
+      assertHandoffEligibleStatus(
+        config,
+        { ...issue, status: "Building" },
+        false,
+      ),
+    ).not.toThrow();
+  });
+
   it("rejects wrong handoff status", () => {
     expect(() =>
       assertHandoffEligibleStatus(

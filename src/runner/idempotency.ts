@@ -247,17 +247,22 @@ export function checkHandoffIdempotency(
 export function assertHandoffEligibleStatus(
   config: HarnessConfig,
   issue: LinearIssueSnapshot,
-  force: boolean,
+  _force: boolean,
 ): void {
   const status = issue.status?.trim() ?? "";
   const eligible = getEligibleHandoffStatuses(config);
   const prOpen = getTransitionalStatus(config, "prOpen");
+  const building = getTransitionalStatus(config, "buildingInProgress");
 
   if (eligible.some((s) => s.toLowerCase() === status.toLowerCase())) {
     return;
   }
 
-  if (force && status.toLowerCase() === prOpen.toLowerCase()) {
+  if (status.toLowerCase() === building.toLowerCase()) {
+    return;
+  }
+
+  if (_force && status.toLowerCase() === prOpen.toLowerCase()) {
     return;
   }
 

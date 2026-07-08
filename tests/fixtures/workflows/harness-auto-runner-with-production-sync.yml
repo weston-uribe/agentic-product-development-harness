@@ -41,6 +41,7 @@ jobs:
 
     env:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+      GITHUB_TOKEN: ${{ secrets.HARNESS_GITHUB_TOKEN }}
 
     steps:
       - name: Resolve inputs
