@@ -33,6 +33,7 @@ describe("harness-auto-runner workflow contract", () => {
     expect(syncSection).toContain("LINEAR_API_KEY");
     expect(syncSection).toContain("HARNESS_GITHUB_TOKEN");
     expect(syncSection).not.toContain("CURSOR_API_KEY");
+    expect(syncSection).not.toContain("harness:doctor");
   });
 
   it("supports workflow_dispatch sync_repo input", () => {

@@ -187,9 +187,6 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Doctor
-        run: npm run harness:doctor
-
       - name: Write dispatch metadata
         run: |
           mkdir -p runs
