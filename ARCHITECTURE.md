@@ -270,11 +270,25 @@ Full role contracts: [`docs/architecture/linear-automation-state-machine.md`](do
 
 ## Cursor model policy
 
-Every Cursor agent, cloud agent, or automation in this harness must use the Cursor model setting **`Auto`**.
+Every Cursor Cloud agent launched by this harness (planning, implementation,
+revision, and any future phase) uses **standard / basic Composer 2.5**.
 
-- Do **not** configure named models (Composer, GPT-5.5, Claude, or any explicit model).
-- Docs and prompts should allow changing the model setting later; **`Auto`** is the current default and only allowed setting.
-- If an automation cannot be configured with `Auto`, do not create it yet.
+- **Fast and Max modes are intentionally avoided** to control Cursor usage cost.
+  The harness must never request the Fast variant, Max mode, or high/max
+  reasoning.
+- Model selection is **centralized** in [`src/cursor/model.ts`](src/cursor/model.ts).
+  `Cursor.models.list()` reports that `composer-2.5`'s **default variant is
+  `fast: true`**, so omitting model params makes the cloud server launch the Fast
+  variant. To prevent this, the harness pins `id: "composer-2.5"` with
+  `params: [{ id: "fast", value: "false" }]`, forcing standard Composer 2.5. The
+  model exposes no `max_mode`/reasoning parameter, so no Max/high-reasoning
+  variant can be (or is) requested.
+- Changing model or mode must be a **deliberate config/code change** (via
+  `defaultModel` in `harness.config.json` or `src/cursor/model.ts`) — never an
+  accidental default.
+- **Preferred future policy** is `Auto` if/when Cursor Automations support it as
+  a model setting (see ADR 0003); until then, standard Composer 2.5 is the only
+  allowed setting.
 - Reports should mention the model setting used when relevant.
 
 ---
@@ -309,4 +323,4 @@ Agents must not advance Linear status unless the required durable artifact exist
 3. **Honest maturity labels** — distinguish implemented vs planned in every doc.
 4. **Human gates by default** — automation augments review; it does not replace it.
 5. **Router before fan-out** — one status-triggered automation that exits early beats many overlapping triggers.
-6. **Auto model only** — no named model lock-in during early spikes.
+6. **Standard Composer 2.5 only** — Fast and Max modes are intentionally avoided to control usage cost; `Auto` is the preferred future policy (ADR 0003).

@@ -1,6 +1,9 @@
 export const DEFAULT_ORCHESTRATOR_MARKER = "harness-orchestrator-v1";
 export const DEFAULT_LOG_DIRECTORY = "runs";
 export const MILESTONE = "m7";
+// Standard/basic Composer 2.5. Intentionally NOT the Fast variant
+// (`composer-2.5-fast`) and never combined with Max mode — see
+// `src/cursor/model.ts` for the cost-control rationale.
 export const DEFAULT_MODEL_ID = "composer-2.5";
 export const PLANNING_PROMPT_VERSION = "planning@1";
 export const IMPLEMENTATION_PROMPT_VERSION = "implementation@1";
