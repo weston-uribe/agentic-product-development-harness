@@ -19,6 +19,10 @@ on:
       sync_repo:
         description: "Repo config id for production sync, e.g. target-app (runs sync-production instead of harness run)"
         required: false
+      sync_dry_run:
+        description: "Production sync dry-run for workflow_dispatch (inspect Linear without writes). Default true when validating sync_repo manually."
+        required: false
+        default: "true"
 
 permissions:
   contents: read
@@ -400,6 +404,7 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           INPUT_SYNC_REPO: ${{ github.event.inputs.sync_repo }}
+          INPUT_SYNC_DRY_RUN: ${{ github.event.inputs.sync_dry_run }}
           PAYLOAD_REPO: ${{ github.event.client_payload.repo }}
           PAYLOAD_PRODUCTION_BRANCH: ${{ github.event.client_payload.productionBranch || '' }}
           PAYLOAD_SOURCE_REPO: ${{ github.event.client_payload.sourceRepo || '' }}
@@ -413,6 +418,11 @@ jobs:
             echo "source_repo=" >> "$GITHUB_OUTPUT"
             echo "after=" >> "$GITHUB_OUTPUT"
             echo "ref=" >> "$GITHUB_OUTPUT"
+            if [ -z "$INPUT_SYNC_DRY_RUN" ]; then
+              echo "dry_run=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "dry_run=$INPUT_SYNC_DRY_RUN" >> "$GITHUB_OUTPUT"
+            fi
           else
             echo "repo=$PAYLOAD_REPO" >> "$GITHUB_OUTPUT"
             echo "trigger=repository_dispatch" >> "$GITHUB_OUTPUT"
@@ -420,6 +430,7 @@ jobs:
             echo "source_repo=$PAYLOAD_SOURCE_REPO" >> "$GITHUB_OUTPUT"
             echo "after=$PAYLOAD_AFTER" >> "$GITHUB_OUTPUT"
             echo "ref=$PAYLOAD_REF" >> "$GITHUB_OUTPUT"
+            echo "dry_run=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Validate sync repo id
@@ -434,6 +445,19 @@ jobs:
             echo "Invalid repo id format."
             exit 1
           fi
+
+      - name: Validate sync dry run
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          SYNC_DRY_RUN: ${{ steps.sync.outputs.dry_run }}
+        run: |
+          case "$SYNC_DRY_RUN" in
+            true|false) ;;
+            *)
+              echo "Invalid sync_dry_run value. Expected true or false."
+              exit 1
+              ;;
+          esac
 
       - name: Checkout harness repo
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -471,6 +495,7 @@ jobs:
           SOURCE_REPO: ${{ steps.sync.outputs.source_repo }}
           PRODUCTION_BRANCH: ${{ steps.sync.outputs.production_branch }}
           REF: ${{ steps.sync.outputs.ref }}
+          SYNC_DRY_RUN: ${{ steps.sync.outputs.dry_run }}
         run: |
           set +e
           SYNC_ARGS=(--repo "$REPO_ID" --json)
@@ -482,6 +507,9 @@ jobs:
           fi
           if [ -n "$REF" ]; then
             SYNC_ARGS+=(--ref "$REF")
+          fi
+          if [ "$SYNC_DRY_RUN" = "true" ]; then
+            SYNC_ARGS+=(--dry-run)
           fi
           npm run harness:sync-production -- "${SYNC_ARGS[@]}" 2>&1 \
             | tee sync-raw-output.txt
@@ -501,12 +529,14 @@ jobs:
           SOURCE_REPO: ${{ steps.sync.outputs.source_repo }}
           AFTER: ${{ steps.sync.outputs.after }}
           EXIT_CODE: ${{ steps.sync_production.outputs.exit_code }}
+          DRY_RUN: ${{ steps.sync.outputs.dry_run }}
         run: |
           {
             echo "## Harness Production Sync"
             echo ""
             echo "- Repo: \`$REPO_ID\`"
             echo "- Trigger: \`$TRIGGER\`"
+            echo "- Dry run: \`$DRY_RUN\`"
             echo "- Production branch: \`$PRODUCTION_BRANCH\`"
             echo "- Source repo: \`$SOURCE_REPO\`"
             echo "- After commit: \`$AFTER\`"

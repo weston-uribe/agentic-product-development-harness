@@ -78,6 +78,29 @@ function assertHarnessWorkflowContracts(workflow: string, label: string): void {
       expect(workflow).toContain("sync_repo:");
     });
 
+    it("supports workflow_dispatch sync_dry_run input defaulting to true", () => {
+      expect(workflow).toContain("sync_dry_run:");
+      expect(workflow).toMatch(/sync_dry_run:[\s\S]*default:\s*"true"/);
+    });
+
+    it("validates sync_dry_run is true or false for workflow_dispatch", () => {
+      const syncSection = extractJobSection(workflow, "sync-production");
+      expect(syncSection).toContain("Validate sync dry run");
+      expect(syncSection).toContain("Invalid sync_dry_run value. Expected true or false.");
+    });
+
+    it("passes --dry-run to sync-production when dry_run is true", () => {
+      const syncSection = extractJobSection(workflow, "sync-production");
+      expect(syncSection).toContain('if [ "$SYNC_DRY_RUN" = "true" ]; then');
+      expect(syncSection).toContain("SYNC_ARGS+=(--dry-run)");
+      expect(syncSection).toContain("Dry run:");
+    });
+
+    it("does not dry-run production_promoted repository_dispatch sync", () => {
+      const syncSection = extractJobSection(workflow, "sync-production");
+      expect(syncSection).toContain('echo "dry_run=false" >> "$GITHUB_OUTPUT"');
+    });
+
     it("supports force workflow_dispatch recovery input", () => {
       expect(workflow).toContain("force:");
       expect(workflow).toContain('FORCE_FLAG="--force"');

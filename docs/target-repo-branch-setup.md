@@ -30,7 +30,7 @@ npm run harness:sync-production -- --issue WES-19
 
 **Automatic sync:** after `main` is updated, the target repo can dispatch `production_promoted` to the harness GitHub Actions workflow (see [`docs/production-sync-automation.md`](production-sync-automation.md)). Manual CLI remains the fallback.
 
-Harness Actions also supports **`workflow_dispatch`** with input **`sync_repo=target-app`** on **Harness Auto Runner**.
+Harness Actions also supports **`workflow_dispatch`** with input **`sync_repo=target-app`** on **Harness Auto Runner**. Use **`sync_dry_run=true`** (default) to validate sync routing without Linear writes; set **`sync_dry_run=false`** only for live updates.
 
 **Promotion guidance:** prefer merge or fast-forward when promoting `dev` → `main`. Squash promotion may make the original dev merge commit unreachable; sync will correctly no-op with `production_not_promoted`.
 

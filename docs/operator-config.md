@@ -157,4 +157,10 @@ npm test
 npm run test:webhook
 ```
 
-After setting `HARNESS_CONFIG_JSON_B64`, trigger a test `production_promoted` dispatch and confirm the sync job accepts your private repo id (format check in GHA; membership check at runtime).
+After setting `HARNESS_CONFIG_JSON_B64`, validate cloud config loading safely:
+
+1. **Config smoke test:** `workflow_dispatch` with `sync_repo=harness` (or a repo where integration and production branches match) — expect no-op success when branches match.
+2. **Target repo dry-run:** `workflow_dispatch` with `sync_repo=<your-repo-id>` and `sync_dry_run=true` (default) — inspects sync without Linear writes.
+3. **Live sync:** set `sync_dry_run=false` only when ready for real Linear status updates.
+
+See [`docs/production-sync-automation.md`](production-sync-automation.md) for dispatch examples. For `production_promoted` **repository_dispatch**, sync always runs live (no dry-run).

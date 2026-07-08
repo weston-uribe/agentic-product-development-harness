@@ -49,10 +49,28 @@ The harness workflow must include:
 - `repository_dispatch` type **`production_promoted`**
 - Job **`sync-production`** running `npm run harness:sync-production -- --repo … --json`
 - Optional **`workflow_dispatch`** input **`sync_repo`** (e.g. `target-app`) for manual cloud sync
+- Optional **`workflow_dispatch`** input **`sync_dry_run`** (default **`true`**) — passes `--dry-run` to `harness:sync-production` so manual cloud validation inspects Linear without writes
 
 ### Manual cloud sync (harness Actions)
 
 Actions → **Harness Auto Runner** → Run workflow → set **`sync_repo`** = `target-app` (leave **`issue`** empty).
+
+**Safe cloud validation sequence** (after `HARNESS_CONFIG_JSON_B64` is set):
+
+1. **`sync_repo=harness`** (or any repo where `baseBranch === productionBranch`) — confirms config loading and repo resolution with a no-op exit when branches match.
+2. **`sync_repo=real-target`** with **`sync_dry_run=true`** (default) — inspects production-sync routing and Linear issue candidates **without writes**.
+3. **`sync_dry_run=false`** only when ready for actual Linear status updates after a real `dev` → `main` promotion.
+
+Example dry-run dispatch:
+
+```bash
+gh workflow run "Harness Auto Runner" \
+  --repo weston-uribe/agentic-product-development-harness \
+  -f sync_repo=real-target \
+  -f sync_dry_run=true
+```
+
+`production_promoted` **repository_dispatch** runs always use live sync (no dry-run).
 
 ---
 
