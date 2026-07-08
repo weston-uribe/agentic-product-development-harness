@@ -15,6 +15,7 @@
     "harness:resolve-route": "tsx src/index.ts resolve-route",
     "harness:sync-production": "tsx src/index.ts sync-production",
     "harness:redact-output": "tsx src/index.ts redact-output",
+    "harness:operator:init": "tsx src/index.ts operator init",
     "generate:config-schema": "tsx scripts/generate-config-schema.ts"
   },
   "dependencies": {
