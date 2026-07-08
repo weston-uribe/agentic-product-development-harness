@@ -14,6 +14,7 @@
     "harness:validate-issue": "tsx src/index.ts validate-issue",
     "harness:resolve-route": "tsx src/index.ts resolve-route",
     "harness:sync-production": "tsx src/index.ts sync-production",
+    "harness:redact-output": "tsx src/index.ts redact-output",
     "generate:config-schema": "tsx scripts/generate-config-schema.ts"
   },
   "dependencies": {

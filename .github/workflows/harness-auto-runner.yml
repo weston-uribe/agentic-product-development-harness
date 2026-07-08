@@ -51,33 +51,62 @@ jobs:
     steps:
       - name: Resolve inputs
         id: inputs
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_ISSUE: ${{ github.event.inputs.issue }}
+          INPUT_PHASE: ${{ github.event.inputs.phase || 'auto' }}
+          INPUT_FORCE: ${{ github.event.inputs.force || 'false' }}
+          PAYLOAD_ISSUE_KEY: ${{ github.event.client_payload.issueKey }}
+          PAYLOAD_DELIVERY_ID: ${{ github.event.client_payload.linearDeliveryId || '' }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "issue_key=${{ github.event.inputs.issue }}" >> "$GITHUB_OUTPUT"
-            echo "phase=${{ github.event.inputs.phase || 'auto' }}" >> "$GITHUB_OUTPUT"
-            echo "force=${{ github.event.inputs.force || 'false' }}" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "issue_key=$INPUT_ISSUE" >> "$GITHUB_OUTPUT"
+            echo "phase=$INPUT_PHASE" >> "$GITHUB_OUTPUT"
+            echo "force=$INPUT_FORCE" >> "$GITHUB_OUTPUT"
             echo "trigger=workflow_dispatch" >> "$GITHUB_OUTPUT"
             echo "linear_delivery_id=" >> "$GITHUB_OUTPUT"
           else
-            echo "issue_key=${{ github.event.client_payload.issueKey }}" >> "$GITHUB_OUTPUT"
+            echo "issue_key=$PAYLOAD_ISSUE_KEY" >> "$GITHUB_OUTPUT"
             echo "phase=auto" >> "$GITHUB_OUTPUT"
             echo "force=false" >> "$GITHUB_OUTPUT"
             echo "trigger=repository_dispatch" >> "$GITHUB_OUTPUT"
-            echo "linear_delivery_id=${{ github.event.client_payload.linearDeliveryId || '' }}" >> "$GITHUB_OUTPUT"
+            echo "linear_delivery_id=$PAYLOAD_DELIVERY_ID" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Validate issue key
+      - name: Validate gate inputs
+        env:
+          ISSUE_KEY: ${{ steps.inputs.outputs.issue_key }}
+          INPUT_PHASE: ${{ steps.inputs.outputs.phase }}
+          INPUT_FORCE: ${{ steps.inputs.outputs.force }}
         run: |
-          if [ -z "${{ steps.inputs.outputs.issue_key }}" ]; then
+          if [ -z "$ISSUE_KEY" ]; then
             echo "Missing issue key in workflow inputs."
             exit 1
           fi
+          if ! [[ "$ISSUE_KEY" =~ ^[A-Z]+-[0-9]+$ ]]; then
+            echo "Invalid issue key format."
+            exit 1
+          fi
+          case "$INPUT_PHASE" in
+            auto|planning|implementation|handoff|revision|merge) ;;
+            *)
+              echo "Invalid phase: $INPUT_PHASE"
+              exit 1
+              ;;
+          esac
+          case "$INPUT_FORCE" in
+            true|false) ;;
+            *)
+              echo "Invalid force flag: $INPUT_FORCE"
+              exit 1
+              ;;
+          esac
 
       - name: Checkout harness repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "22"
           cache: npm
@@ -90,11 +119,14 @@ jobs:
 
       - name: Resolve route
         id: route
+        env:
+          ISSUE_KEY: ${{ steps.inputs.outputs.issue_key }}
+          INPUT_PHASE: ${{ steps.inputs.outputs.phase }}
         run: |
           set +e
           npm run harness:resolve-route -- \
-            --issue "${{ steps.inputs.outputs.issue_key }}" \
-            --phase "${{ steps.inputs.outputs.phase }}" \
+            --issue "$ISSUE_KEY" \
+            --phase "$INPUT_PHASE" \
             --json \
             --github-output
           EXIT_CODE=$?
@@ -105,17 +137,25 @@ jobs:
 
       - name: Write gate summary
         if: always()
+        env:
+          ISSUE_KEY: ${{ steps.inputs.outputs.issue_key }}
+          INPUT_PHASE: ${{ steps.inputs.outputs.phase }}
+          RESOLVED_PHASE: ${{ steps.route.outputs.phase }}
+          SHOULD_RUN: ${{ steps.route.outputs.should_run }}
+          REPO_CONFIG_ID: ${{ steps.route.outputs.repo_config_id }}
+          BASE_BRANCH: ${{ steps.route.outputs.base_branch }}
+          MERGE_GROUP: ${{ steps.route.outputs.merge_concurrency_group }}
         run: |
           {
             echo "## Harness Gate"
             echo ""
-            echo "- Issue: \`${{ steps.inputs.outputs.issue_key }}\`"
-            echo "- Input phase: \`${{ steps.inputs.outputs.phase }}\`"
-            echo "- Resolved phase: \`${{ steps.route.outputs.phase }}\`"
-            echo "- Should run: \`${{ steps.route.outputs.should_run }}\`"
-            echo "- Repo: \`${{ steps.route.outputs.repo_config_id }}\`"
-            echo "- Base branch: \`${{ steps.route.outputs.base_branch }}\`"
-            echo "- Merge concurrency group: \`${{ steps.route.outputs.merge_concurrency_group }}\`"
+            echo "- Issue: \`$ISSUE_KEY\`"
+            echo "- Input phase: \`$INPUT_PHASE\`"
+            echo "- Resolved phase: \`$RESOLVED_PHASE\`"
+            echo "- Should run: \`$SHOULD_RUN\`"
+            echo "- Repo: \`$REPO_CONFIG_ID\`"
+            echo "- Base branch: \`$BASE_BRANCH\`"
+            echo "- Merge concurrency group: \`$MERGE_GROUP\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
   run-harness:
@@ -137,10 +177,10 @@ jobs:
 
     steps:
       - name: Checkout harness repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "22"
           cache: npm
@@ -155,63 +195,72 @@ jobs:
         run: npm run harness:doctor
 
       - name: Write dispatch metadata
+        env:
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          LINEAR_DELIVERY_ID: ${{ needs.gate.outputs.linear_delivery_id }}
+          TRIGGER: ${{ needs.gate.outputs.trigger }}
+          ISSUE_KEY: ${{ needs.gate.outputs.issue_key }}
+          PHASE: ${{ needs.gate.outputs.phase }}
+          REPO_CONFIG_ID: ${{ needs.gate.outputs.repo_config_id }}
+          BASE_BRANCH: ${{ needs.gate.outputs.base_branch }}
         run: |
-          mkdir -p runs
-          cat > runs/dispatch-metadata.json <<EOF
-          {
-            "githubRunId": "${{ github.run_id }}",
-            "linearDeliveryId": "${{ needs.gate.outputs.linear_delivery_id }}",
-            "trigger": "${{ needs.gate.outputs.trigger }}",
-            "issueKey": "${{ needs.gate.outputs.issue_key }}",
-            "phase": "${{ needs.gate.outputs.phase }}",
-            "repoConfigId": "${{ needs.gate.outputs.repo_config_id }}",
-            "baseBranch": "${{ needs.gate.outputs.base_branch }}",
-            "receivedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          }
-          EOF
+          RECEIVED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          export RECEIVED_AT
+          npx tsx src/workflow/write-dispatch-metadata.ts
 
       - name: Run harness
         id: harness
+        env:
+          ISSUE_KEY: ${{ needs.gate.outputs.issue_key }}
+          INPUT_PHASE: ${{ needs.gate.outputs.input_phase }}
+          RESOLVED_PHASE: ${{ needs.gate.outputs.phase }}
+          FORCE_FLAG_INPUT: ${{ needs.gate.outputs.force }}
         run: |
           set +e
-          PHASE="${{ needs.gate.outputs.input_phase }}"
+          PHASE="$INPUT_PHASE"
           if [ "$PHASE" = "auto" ]; then
-            PHASE="${{ needs.gate.outputs.phase }}"
+            PHASE="$RESOLVED_PHASE"
           fi
           FORCE_FLAG=""
-          if [ "${{ needs.gate.outputs.force }}" = "true" ]; then
+          if [ "$FORCE_FLAG_INPUT" = "true" ]; then
             FORCE_FLAG="--force"
           fi
-          OUTPUT=$(npm run harness:run -- --issue "${{ needs.gate.outputs.issue_key }}" --phase "$PHASE" $FORCE_FLAG --json 2>&1)
-          EXIT_CODE=$?
-          echo "$OUTPUT"
-          echo "$OUTPUT" > harness-run-output.json
+          npm run harness:run -- --issue "$ISSUE_KEY" --phase "$PHASE" $FORCE_FLAG --json 2>&1 \
+            | tee harness-raw-output.txt
+          EXIT_CODE=${PIPESTATUS[0]}
+          npm run harness:redact-output < harness-raw-output.txt > harness-run-output.json
+          rm -f harness-raw-output.txt
+          echo "Redacted harness output written to harness-run-output.json"
           echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
           exit $EXIT_CODE
 
       - name: Write step summary
         if: always()
+        env:
+          ISSUE_KEY: ${{ needs.gate.outputs.issue_key }}
+          PHASE: ${{ needs.gate.outputs.phase }}
+          TRIGGER: ${{ needs.gate.outputs.trigger }}
+          LINEAR_DELIVERY_ID: ${{ needs.gate.outputs.linear_delivery_id }}
+          EXIT_CODE: ${{ steps.harness.outputs.exit_code }}
         run: |
           {
             echo "## Harness Auto Runner"
             echo ""
-            echo "- Issue: \`${{ needs.gate.outputs.issue_key }}\`"
-            echo "- Phase: \`${{ needs.gate.outputs.phase }}\`"
-            echo "- Trigger: \`${{ needs.gate.outputs.trigger }}\`"
-            echo "- Linear delivery ID: \`${{ needs.gate.outputs.linear_delivery_id }}\`"
-            echo "- Harness exit code: \`${{ steps.harness.outputs.exit_code }}\`"
+            echo "- Issue: \`$ISSUE_KEY\`"
+            echo "- Phase: \`$PHASE\`"
+            echo "- Trigger: \`$TRIGGER\`"
+            echo "- Linear delivery ID: \`$LINEAR_DELIVERY_ID\`"
+            echo "- Harness exit code: \`$EXIT_CODE\`"
             echo ""
             if [ -f harness-run-output.json ]; then
-              echo "### Harness output"
-              echo '```json'
-              cat harness-run-output.json
-              echo '```'
+              echo "### Harness manifest summary"
+              npx tsx src/workflow/summarize-manifest.ts harness-run-output.json
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload harness artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: harness-run-${{ needs.gate.outputs.issue_key }}-${{ github.run_id }}
           path: |
@@ -241,10 +290,10 @@ jobs:
 
     steps:
       - name: Checkout harness repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "22"
           cache: npm
@@ -259,59 +308,65 @@ jobs:
         run: npm run harness:doctor -- --profile merge
 
       - name: Write dispatch metadata
+        env:
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          LINEAR_DELIVERY_ID: ${{ needs.gate.outputs.linear_delivery_id }}
+          TRIGGER: ${{ needs.gate.outputs.trigger }}
+          ISSUE_KEY: ${{ needs.gate.outputs.issue_key }}
+          PHASE: merge
+          REPO_CONFIG_ID: ${{ needs.gate.outputs.repo_config_id }}
+          BASE_BRANCH: ${{ needs.gate.outputs.base_branch }}
+          MERGE_CONCURRENCY_GROUP: ${{ needs.gate.outputs.merge_concurrency_group }}
         run: |
-          mkdir -p runs
-          cat > runs/dispatch-metadata.json <<EOF
-          {
-            "githubRunId": "${{ github.run_id }}",
-            "linearDeliveryId": "${{ needs.gate.outputs.linear_delivery_id }}",
-            "trigger": "${{ needs.gate.outputs.trigger }}",
-            "issueKey": "${{ needs.gate.outputs.issue_key }}",
-            "phase": "merge",
-            "repoConfigId": "${{ needs.gate.outputs.repo_config_id }}",
-            "baseBranch": "${{ needs.gate.outputs.base_branch }}",
-            "mergeConcurrencyGroup": "${{ needs.gate.outputs.merge_concurrency_group }}",
-            "receivedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          }
-          EOF
+          RECEIVED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          export RECEIVED_AT
+          npx tsx src/workflow/write-dispatch-metadata.ts
 
       - name: Run merge
         id: merge
+        env:
+          ISSUE_KEY: ${{ needs.gate.outputs.issue_key }}
+          FORCE_FLAG_INPUT: ${{ needs.gate.outputs.force }}
         run: |
           set +e
           FORCE_FLAG=""
-          if [ "${{ needs.gate.outputs.force }}" = "true" ]; then
+          if [ "$FORCE_FLAG_INPUT" = "true" ]; then
             FORCE_FLAG="--force"
           fi
-          OUTPUT=$(npm run harness:run -- --issue "${{ needs.gate.outputs.issue_key }}" --phase merge $FORCE_FLAG --json 2>&1)
-          EXIT_CODE=$?
-          echo "$OUTPUT"
-          echo "$OUTPUT" > harness-run-output.json
+          npm run harness:run -- --issue "$ISSUE_KEY" --phase merge $FORCE_FLAG --json 2>&1 \
+            | tee harness-raw-output.txt
+          EXIT_CODE=${PIPESTATUS[0]}
+          npm run harness:redact-output < harness-raw-output.txt > harness-run-output.json
+          rm -f harness-raw-output.txt
+          echo "Redacted harness output written to harness-run-output.json"
           echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
           exit $EXIT_CODE
 
       - name: Write step summary
         if: always()
+        env:
+          ISSUE_KEY: ${{ needs.gate.outputs.issue_key }}
+          MERGE_GROUP: ${{ needs.gate.outputs.merge_concurrency_group }}
+          TRIGGER: ${{ needs.gate.outputs.trigger }}
+          EXIT_CODE: ${{ steps.merge.outputs.exit_code }}
         run: |
           {
             echo "## Harness Merge Runner"
             echo ""
-            echo "- Issue: \`${{ needs.gate.outputs.issue_key }}\`"
-            echo "- Merge concurrency group: \`${{ needs.gate.outputs.merge_concurrency_group }}\`"
-            echo "- Trigger: \`${{ needs.gate.outputs.trigger }}\`"
-            echo "- Harness exit code: \`${{ steps.merge.outputs.exit_code }}\`"
+            echo "- Issue: \`$ISSUE_KEY\`"
+            echo "- Merge concurrency group: \`$MERGE_GROUP\`"
+            echo "- Trigger: \`$TRIGGER\`"
+            echo "- Harness exit code: \`$EXIT_CODE\`"
             echo ""
             if [ -f harness-run-output.json ]; then
-              echo "### Harness output"
-              echo '```json'
-              cat harness-run-output.json
-              echo '```'
+              echo "### Harness manifest summary"
+              npx tsx src/workflow/summarize-manifest.ts harness-run-output.json
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload harness artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: harness-merge-${{ needs.gate.outputs.issue_key }}-${{ github.run_id }}
           path: |
@@ -338,33 +393,53 @@ jobs:
     steps:
       - name: Resolve sync inputs
         id: sync
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_SYNC_REPO: ${{ github.event.inputs.sync_repo }}
+          PAYLOAD_REPO: ${{ github.event.client_payload.repo }}
+          PAYLOAD_PRODUCTION_BRANCH: ${{ github.event.client_payload.productionBranch || '' }}
+          PAYLOAD_SOURCE_REPO: ${{ github.event.client_payload.sourceRepo || '' }}
+          PAYLOAD_AFTER: ${{ github.event.client_payload.after || '' }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "repo=${{ github.event.inputs.sync_repo }}" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "repo=$INPUT_SYNC_REPO" >> "$GITHUB_OUTPUT"
             echo "trigger=workflow_dispatch" >> "$GITHUB_OUTPUT"
             echo "production_branch=" >> "$GITHUB_OUTPUT"
             echo "source_repo=" >> "$GITHUB_OUTPUT"
             echo "after=" >> "$GITHUB_OUTPUT"
           else
-            echo "repo=${{ github.event.client_payload.repo }}" >> "$GITHUB_OUTPUT"
+            echo "repo=$PAYLOAD_REPO" >> "$GITHUB_OUTPUT"
             echo "trigger=repository_dispatch" >> "$GITHUB_OUTPUT"
-            echo "production_branch=${{ github.event.client_payload.productionBranch || '' }}" >> "$GITHUB_OUTPUT"
-            echo "source_repo=${{ github.event.client_payload.sourceRepo || '' }}" >> "$GITHUB_OUTPUT"
-            echo "after=${{ github.event.client_payload.after || '' }}" >> "$GITHUB_OUTPUT"
+            echo "production_branch=$PAYLOAD_PRODUCTION_BRANCH" >> "$GITHUB_OUTPUT"
+            echo "source_repo=$PAYLOAD_SOURCE_REPO" >> "$GITHUB_OUTPUT"
+            echo "after=$PAYLOAD_AFTER" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Validate repo id
+      - name: Validate sync repo id
+        env:
+          REPO_ID: ${{ steps.sync.outputs.repo }}
         run: |
-          if [ -z "${{ steps.sync.outputs.repo }}" ]; then
+          if [ -z "$REPO_ID" ]; then
             echo "Missing repo id in production_promoted payload or sync_repo input."
             exit 1
           fi
+          if ! [[ "$REPO_ID" =~ ^[a-z][a-z0-9-]*$ ]]; then
+            echo "Invalid repo id format."
+            exit 1
+          fi
+          case "$REPO_ID" in
+            portfolio|harness) ;;
+            *)
+              echo "Unknown repo id: $REPO_ID"
+              exit 1
+              ;;
+          esac
 
       - name: Checkout harness repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "22"
           cache: npm
@@ -376,56 +451,63 @@ jobs:
         run: npm run build
 
       - name: Write dispatch metadata
+        env:
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          TRIGGER: ${{ steps.sync.outputs.trigger }}
+          EVENT_ACTION: ${{ github.event.action }}
+          REPO: ${{ steps.sync.outputs.repo }}
+          PRODUCTION_BRANCH: ${{ steps.sync.outputs.production_branch }}
+          SOURCE_REPO: ${{ steps.sync.outputs.source_repo }}
+          AFTER: ${{ steps.sync.outputs.after }}
         run: |
-          mkdir -p runs
-          cat > runs/dispatch-metadata.json <<EOF
-          {
-            "githubRunId": "${{ github.run_id }}",
-            "trigger": "${{ steps.sync.outputs.trigger }}",
-            "eventAction": "${{ github.event.action }}",
-            "repo": "${{ steps.sync.outputs.repo }}",
-            "productionBranch": "${{ steps.sync.outputs.production_branch }}",
-            "sourceRepo": "${{ steps.sync.outputs.source_repo }}",
-            "after": "${{ steps.sync.outputs.after }}",
-            "receivedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          }
-          EOF
+          RECEIVED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          export RECEIVED_AT
+          npx tsx src/workflow/write-dispatch-metadata.ts
 
       - name: Run production sync
         id: sync_production
+        env:
+          REPO_ID: ${{ steps.sync.outputs.repo }}
         run: |
           set +e
-          OUTPUT=$(npm run harness:sync-production -- --repo "${{ steps.sync.outputs.repo }}" --json 2>&1)
-          EXIT_CODE=$?
-          echo "$OUTPUT"
-          echo "$OUTPUT" > sync-production-output.json
+          npm run harness:sync-production -- --repo "$REPO_ID" --json 2>&1 \
+            | tee sync-raw-output.txt
+          EXIT_CODE=${PIPESTATUS[0]}
+          npm run harness:redact-output < sync-raw-output.txt > sync-production-output.json
+          rm -f sync-raw-output.txt
+          echo "Redacted sync output written to sync-production-output.json"
           echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
           exit $EXIT_CODE
 
       - name: Write step summary
         if: always()
+        env:
+          REPO_ID: ${{ steps.sync.outputs.repo }}
+          TRIGGER: ${{ steps.sync.outputs.trigger }}
+          PRODUCTION_BRANCH: ${{ steps.sync.outputs.production_branch }}
+          SOURCE_REPO: ${{ steps.sync.outputs.source_repo }}
+          AFTER: ${{ steps.sync.outputs.after }}
+          EXIT_CODE: ${{ steps.sync_production.outputs.exit_code }}
         run: |
           {
             echo "## Harness Production Sync"
             echo ""
-            echo "- Repo: \`${{ steps.sync.outputs.repo }}\`"
-            echo "- Trigger: \`${{ steps.sync.outputs.trigger }}\`"
-            echo "- Production branch: \`${{ steps.sync.outputs.production_branch }}\`"
-            echo "- Source repo: \`${{ steps.sync.outputs.source_repo }}\`"
-            echo "- After commit: \`${{ steps.sync.outputs.after }}\`"
-            echo "- Exit code: \`${{ steps.sync_production.outputs.exit_code }}\`"
+            echo "- Repo: \`$REPO_ID\`"
+            echo "- Trigger: \`$TRIGGER\`"
+            echo "- Production branch: \`$PRODUCTION_BRANCH\`"
+            echo "- Source repo: \`$SOURCE_REPO\`"
+            echo "- After commit: \`$AFTER\`"
+            echo "- Exit code: \`$EXIT_CODE\`"
             echo ""
             if [ -f sync-production-output.json ]; then
-              echo "### Sync output"
-              echo '```json'
-              cat sync-production-output.json
-              echo '```'
+              echo "### Sync output (redacted JSON on disk)"
+              echo "- See workflow artifacts for sync-production-output.json"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload sync artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: harness-sync-${{ steps.sync.outputs.repo }}-${{ github.run_id }}
           path: |

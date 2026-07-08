@@ -1,0 +1,131 @@
+# Security baseline (V0.2)
+
+Operator guide for secrets, tokens, logging, and accepted automation risks for the public harness repo.
+
+**Related:** [`docs/linear-watcher-setup.md`](linear-watcher-setup.md), [`docs/decisions/0001-cursor-first-v0.1.md`](decisions/0001-cursor-first-v0.1.md)
+
+---
+
+## Threat model
+
+This repo is **public**. Untrusted users can read code, workflow definitions, and (for public repos) Actions logs. They **cannot** push to `main` or trigger secret-bearing workflows without write access or a dispatch token.
+
+Trusted automation paths:
+
+1. **Linear signed webhook** → Vercel bridge → `repository_dispatch`
+2. **Portfolio `main` push** → `production_promoted` dispatch (separate repo)
+3. **`workflow_dispatch`** — limited by GitHub Actions write permission on this repo
+
+Pass B (post-V0.2) adds branch protection so `main` changes require PR + checks.
+
+---
+
+## Token scope matrix
+
+| Secret | Where stored | Scope / permissions | Can write GitHub? | Can write Linear? | Risk if leaked |
+|--------|-------------|---------------------|-------------------|-------------------|----------------|
+| `LINEAR_WEBHOOK_SECRET` | Vercel | HMAC signing for Linear webhooks | No | Indirect (forge webhook → dispatch) | High |
+| `GITHUB_DISPATCH_TOKEN` | Vercel, portfolio repo | Fine-grained **Contents: write** on harness repo only | Triggers workflows only | No | High |
+| `LINEAR_API_KEY` | GitHub Actions secrets | Linear API as token owner | No | **Yes** | Critical |
+| `CURSOR_API_KEY` | GitHub Actions secrets | Cursor Cloud Agents | No (Cursor-side) | No | High |
+| `HARNESS_GITHUB_TOKEN` | GitHub Actions secrets | Target repos: PR merge/repair | **Yes** (configured target repos) | No | Critical |
+
+---
+
+## Vercel environment (webhook bridge only)
+
+Store **only**:
+
+| Variable | Required | Notes |
+|----------|----------|-------|
+| `LINEAR_WEBHOOK_SECRET` | yes | Linear webhook signing secret |
+| `GITHUB_DISPATCH_TOKEN` | yes | Harness-repo-scoped dispatch PAT |
+| `HARNESS_TEAM_KEY` | **yes in production** | Set to `WES` — reject non-team issue keys |
+
+Optional: `GITHUB_DISPATCH_REPOSITORY`, `GITHUB_DISPATCH_EVENT_TYPE`, `LINEAR_WEBHOOK_TIMESTAMP_TOLERANCE_MS`.
+
+**Do not** store `LINEAR_API_KEY`, `CURSOR_API_KEY`, or merge-capable `GITHUB_TOKEN` / `HARNESS_GITHUB_TOKEN` in Vercel.
+
+---
+
+## GitHub Actions secrets
+
+| Secret | Used by |
+|--------|---------|
+| `LINEAR_API_KEY` | All live harness phases |
+| `CURSOR_API_KEY` | planning, implementation, revision, merge repair |
+| `HARNESS_GITHUB_TOKEN` | Mapped to runtime `GITHUB_TOKEN` in workflows |
+
+`HARNESS_GITHUB_TOKEN` must have access to **target repos** in `harness.config.json` (classic `repo` or fine-grained **Contents: Read and write** + **Pull requests: Read and write** on each target).
+
+Do **not** name the Actions secret `GITHUB_TOKEN` — GitHub reserves that for the auto-generated workflow token.
+
+---
+
+## PAT policy
+
+- **Prefer fine-grained PATs** scoped to the minimum repos and permissions.
+- **Classic PATs** are discouraged except as a documented fallback.
+- `GITHUB_DISPATCH_TOKEN`: harness repo only, Contents: write (for `repository_dispatch`).
+- `HARNESS_GITHUB_TOKEN`: target repos only, merge/repair permissions as needed.
+
+---
+
+## Secret handling rules
+
+1. **Rotate immediately** if a secret is exposed (logs, commit, artifact, comment).
+2. **No structured JSON secrets** — store plain string env vars, not JSON blobs.
+3. **Never commit** secrets to the repo, docs, tests, or examples.
+4. **Never log** raw tokens — harness redacts stdout before logs, summaries, and artifacts.
+5. Raw command output may exist only as a **temporary file in the same workflow step**; it must be deleted before artifact upload.
+
+---
+
+## Accepted risks
+
+| Risk | Mitigation |
+|------|------------|
+| `repository_dispatch` is not Linear-signed | Requires possession of `GITHUB_DISPATCH_TOKEN` |
+| `workflow_dispatch` can target arbitrary issue keys | Limited to users with Actions write on this repo; optional Pass B `harness-manual` environment |
+| Dispatch bypasses webhook status filter | `resolve-route` uses live Linear state; cannot force wrong phase via fake payload status |
+| Public Actions logs | Redacted harness output only in logs/summaries/artifacts |
+
+---
+
+## Pinned Actions (verified 2026-07-08)
+
+Re-resolve SHAs before updating refs:
+
+| Action | Tag | SHA |
+|--------|-----|-----|
+| `actions/checkout` | v4 | `34e114876b0b11c390a56381ad16ebd13914f8d5` |
+| `actions/setup-node` | v4 | `49933ea5288caeca8642d1e84afbd3f7d6820020` |
+| `actions/upload-artifact` | v4 | `ea165f8d65b6e75b540449e92b4886f43607fa02` |
+| `github/codeql-action` | v3 | `641a925cfafe92d0fdf8b239ba4053e3f8d99d6d` |
+
+Dependabot opens PRs for npm and GitHub Actions updates weekly.
+
+---
+
+## Known transitive vulnerabilities
+
+`npm audit --audit-level=moderate` may report **high** severity issues in `undici` (transitive via `@cursor/sdk` → `@connectrpc/connect-node`). As of V0.2 implementation, **no fix is available** upstream. Accepted risk — track `@cursor/sdk` releases; do not add force-resolutions without upstream guidance.
+
+---
+
+## OpenSSF Scorecard
+
+**Deferred post-V0.2.** Scorecard uses third-party `ossf/scorecard-action`, which would require Actions allowlist changes in Pass B and adds release noise. CodeQL + CI are the V0.2 baseline.
+
+---
+
+## Pass B (not part of Build)
+
+After CI is green on `main`, apply operator settings:
+
+- `.github/CODEOWNERS` for `.github/workflows/**`
+- Ruleset on `main` (PR required, status checks, no force push)
+- Actions allowed-actions allowlist
+- Optional `harness-manual` environment for `workflow_dispatch`
+
+See the V0.2 Security Baseline implementation plan for exact `gh api` commands.

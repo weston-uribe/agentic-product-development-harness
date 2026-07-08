@@ -3,20 +3,31 @@ const SECRET_PATTERNS = [
   /ghp_[A-Za-z0-9]+/gi,
   /github_pat_[A-Za-z0-9_]+/gi,
   /cursor_[A-Za-z0-9_]+/gi,
+  /sk-[A-Za-z0-9_-]+/gi,
+  /xox[baprs]-[A-Za-z0-9-]+/gi,
   /Bearer\s+[A-Za-z0-9._-]+/gi,
 ];
+
+const MAX_REDACTED_ERROR_LENGTH = 200;
 
 export function redactSecrets<T>(value: T): T {
   return redactValue(value) as T;
 }
 
+export function redactSecretsString(value: string): string {
+  let redacted = value;
+  for (const pattern of SECRET_PATTERNS) {
+    redacted = redacted.replace(pattern, "[REDACTED]");
+  }
+  if (redacted.length > MAX_REDACTED_ERROR_LENGTH) {
+    return `${redacted.slice(0, MAX_REDACTED_ERROR_LENGTH)}…`;
+  }
+  return redacted;
+}
+
 function redactValue(value: unknown): unknown {
   if (typeof value === "string") {
-    let redacted = value;
-    for (const pattern of SECRET_PATTERNS) {
-      redacted = redacted.replace(pattern, "[REDACTED]");
-    }
-    return redacted;
+    return redactSecretsString(value);
   }
 
   if (Array.isArray(value)) {

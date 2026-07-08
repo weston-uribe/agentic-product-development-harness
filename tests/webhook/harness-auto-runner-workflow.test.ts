@@ -82,6 +82,16 @@ function assertHarnessWorkflowContracts(workflow: string, label: string): void {
       expect(workflow).toContain("force:");
       expect(workflow).toContain('FORCE_FLAG="--force"');
     });
+
+    it("validates issue key format in gate job", () => {
+      const gate = extractJobSection(workflow, "gate");
+      expect(gate).toContain("^[A-Z]+-[0-9]+$");
+    });
+
+    it("validates sync repo allowlist", () => {
+      const syncSection = extractJobSection(workflow, "sync-production");
+      expect(syncSection).toContain("portfolio|harness");
+    });
   });
 }
 

@@ -2,7 +2,7 @@
 
 Operator guide for Milestone 8: event-driven harness runs from Linear status changes.
 
-**Related:** [`docs/milestones/m8-linear-watcher.md`](milestones/m8-linear-watcher.md), [`ARCHITECTURE.md`](../ARCHITECTURE.md)
+**Related:** [`docs/milestones/m8-linear-watcher.md`](milestones/m8-linear-watcher.md), [`ARCHITECTURE.md`](../ARCHITECTURE.md), [`docs/security.md`](security.md)
 
 ---
 
@@ -32,9 +32,9 @@ Linear webhook → Vercel bridge → GitHub repository_dispatch → GitHub Actio
 | `GITHUB_DISPATCH_REPOSITORY` | no | Default: `weston-uribe/agentic-product-development-harness` |
 | `GITHUB_DISPATCH_EVENT_TYPE` | no | Default: `linear_issue_status_changed` |
 | `LINEAR_WEBHOOK_TIMESTAMP_TOLERANCE_MS` | no | Default: `60000` |
-| `HARNESS_TEAM_KEY` | no | Default: unset; set to `WES` to reject non-team issue keys |
+| `HARNESS_TEAM_KEY` | **yes in production** | Set to `WES` — reject non-team issue keys |
 
-**Do not** put `LINEAR_API_KEY`, `CURSOR_API_KEY`, or merge-capable `GITHUB_TOKEN` in Vercel.
+**Do not** put `LINEAR_API_KEY`, `CURSOR_API_KEY`, or merge-capable `GITHUB_TOKEN` in Vercel. See [`docs/security.md`](security.md) for the full token matrix.
 
 ### GitHub dispatch token
 

@@ -5,6 +5,7 @@ import { runRunCommand } from "./commands/run.js";
 import { runValidateIssue } from "./commands/validate-issue.js";
 import { runSyncProductionCommand } from "./commands/sync-production.js";
 import { runResolveRouteCommand } from "./commands/resolve-route.js";
+import { runRedactOutputCommand } from "./commands/redact-output.js";
 
 export function createProgram(): Command {
   const program = new Command();
@@ -136,6 +137,14 @@ export function createProgram(): Command {
         force: opts.force,
         json: opts.json,
       });
+      process.exitCode = exitCode;
+    });
+
+  program
+    .command("redact-output")
+    .description("Read stdin and write redacted JSON or text to stdout")
+    .action(async () => {
+      const exitCode = await runRedactOutputCommand();
       process.exitCode = exitCode;
     });
 

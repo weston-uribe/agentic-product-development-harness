@@ -1,3 +1,5 @@
+import { redactSecretsString } from "../artifacts/redact.js";
+
 export class GitHubApiError extends Error {
   readonly status: number;
 
@@ -127,10 +129,10 @@ export class GitHubClient {
 
     if (!response.ok) {
       const text = await response.text();
-      throw new GitHubApiError(
-        response.status,
+      const message = redactSecretsString(
         text || `GitHub API request failed: ${response.status}`,
       );
+      throw new GitHubApiError(response.status, message);
     }
 
     if (response.status === 204) {
@@ -157,10 +159,10 @@ export class GitHubClient {
 
     if (!response.ok) {
       const text = await response.text();
-      throw new GitHubApiError(
-        response.status,
+      const message = redactSecretsString(
         text || `GitHub GraphQL request failed: ${response.status}`,
       );
+      throw new GitHubApiError(response.status, message);
     }
 
     const payload = (await response.json()) as GraphQLResponse<T>;

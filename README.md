@@ -36,7 +36,7 @@ Linear status → Ready for Planning / Ready for Build / PR Open / Needs Revisio
   → Vercel webhook → GitHub Actions → harness run --phase auto
 ```
 
-Setup: [`docs/linear-watcher-setup.md`](docs/linear-watcher-setup.md)
+Setup: [`docs/linear-watcher-setup.md`](docs/linear-watcher-setup.md) — Security baseline: [`docs/security.md`](docs/security.md)
 
 ## Workflow
 
