@@ -12,6 +12,7 @@
 - Posts merge completion comment with durable marker footer
 - Linear transitions: **Ready to Merge** → **Merging** → **Merged / Deployed**
 - Recovery path when PR already merged without merge marker
+- Integration repair after merge-queue drift: deterministic GitHub update-branch first, then a narrow Composer 2.5 Cursor repair agent if conflicts require local resolution
 - Post-success duplicate skip from **Merged / Deployed**
 - Auto phase routing: **Ready to Merge** → `merge`
 
@@ -28,10 +29,11 @@
 
 1. Copy `.env.example` to `.env` and set:
    - `LINEAR_API_KEY`
-   - **`GITHUB_TOKEN`** with `repo` merge permissions (contents + pull requests write)
+   - **`GITHUB_TOKEN`** with `repo` merge permissions and PR head-branch write (classic `repo`, or fine-grained Contents: Read and write plus Pull requests: Read and write)
+   - `CURSOR_API_KEY` when integration repair may need an agent
 2. Issue must have a prior handoff or revision marker with `pr_url`.
 3. PM must manually move issue **PM Review → Ready to Merge** before running merge.
-4. `CURSOR_API_KEY` is **not** required for merge runs.
+4. Run `npm run harness:doctor -- --profile merge`; doctor verifies base branches and target-repo write permission needed for PR branch repair.
 
 ## Commands
 
@@ -90,6 +92,23 @@ Override via `merge.allowPendingChecks` / `merge.allowUnknownChecks` in config.
 
 **Vercel portfolio note:** When GitHub check runs and commit statuses are inconclusive but the Vercel bot comment reports **Ready**, merge proceeds with a warning (see `validationSummary` in manifest).
 
+## Integration repair
+
+When a PR becomes `behind` or `dirty` after waiting in the serialized merge queue:
+
+1. The issue stays **Merging**.
+2. The runner verifies `GITHUB_TOKEN` can write PR head branches.
+3. The runner calls GitHub update-branch, which merges the latest base branch into the PR branch.
+4. If update-branch succeeds cleanly, the runner waits for checks and returns directly to merge.
+5. If update-branch cannot resolve conflicts, the runner launches a Composer 2.5 Cursor cloud repair agent on the PR branch.
+6. The repair agent fetches the base branch, locally merges base into head, resolves conflicts, commits, runs validation, and pushes the PR branch.
+7. The runner re-inspects the PR, waits for checks, and returns directly to merge if validation passes.
+8. If repair fails, is ambiguous, violates scope, or needs broader product judgment, the issue moves to **Blocked** with an actionable reason.
+
+Repair may edit conflict files and direct dependency-closure files required to compile and pass validation. It may not make unrelated product changes, broad refactors, broad formatting sweeps, or direct edits to `dev` / `main`.
+
+Canceled repair runs recover through **Harness Auto Runner** `workflow_dispatch` with the issue key, `phase=merge`, and force enabled. There is no Merging webhook re-dispatch in v1.
+
 ## Artifacts
 
 ```text
@@ -105,6 +124,8 @@ runs/<issue>/<run-id>/
     checks-before-merge.json
     merge-result.json
     pr-after-merge.json
+  prompts/
+    integration-repair-agent.md # only when agent repair runs
   vercel/
     production-deployment.json
   outputs/

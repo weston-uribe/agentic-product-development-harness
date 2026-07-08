@@ -3,6 +3,7 @@ import { GitHubApiError } from "../../src/github/client.js";
 import {
   classifyGitHubError,
   inspectPullRequest,
+  pollPullRequestMergeability,
 } from "../../src/github/pr-inspector.js";
 
 function createMockClient(overrides: {
@@ -70,6 +71,7 @@ describe("inspectPullRequest", () => {
 
     expect(result.url).toContain("/pull/4");
     expect(result.branch).toBe("cursor/wes-13-test");
+    expect(result.headSha).toBe("abc123");
     expect(result.isDraft).toBe(false);
     expect(result.changedFiles).toHaveLength(1);
     expect(result.checkSummary).toContain("Passed: 1");
@@ -103,6 +105,45 @@ describe("inspectPullRequest", () => {
     await expect(
       inspectPullRequest(client as never, parsed, "https://github.com/o/r"),
     ).rejects.toThrow(/pr_closed/);
+  });
+
+  it("polls until GitHub computes mergeability", async () => {
+    const client = createMockClient({});
+    client.getPullRequest
+      .mockResolvedValueOnce({
+        title: "Test PR",
+        html_url: "https://github.com/o/r/pull/4",
+        head: { ref: "cursor/wes-13-test", sha: "abc123" },
+        base: { ref: "main" },
+        state: "open",
+        merged: false,
+        mergeable: null,
+        mergeable_state: "unknown",
+        merged_at: null,
+        merge_commit_sha: null,
+      })
+      .mockResolvedValueOnce({
+        title: "Test PR",
+        html_url: "https://github.com/o/r/pull/4",
+        head: { ref: "cursor/wes-13-test", sha: "def456" },
+        base: { ref: "main" },
+        state: "open",
+        merged: false,
+        mergeable: true,
+        mergeable_state: "clean",
+        merged_at: null,
+        merge_commit_sha: null,
+      });
+
+    const result = await pollPullRequestMergeability(
+      client as never,
+      parsed,
+      "https://github.com/o/r",
+      { timeoutSeconds: 1, intervalSeconds: 0 },
+    );
+
+    expect(result.mergeableState).toBe("clean");
+    expect(result.headSha).toBe("def456");
   });
 });
 

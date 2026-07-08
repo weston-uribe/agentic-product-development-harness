@@ -28,6 +28,16 @@ export interface GitHubPullRequest {
   base: { ref: string };
 }
 
+export interface GitHubRepository {
+  permissions?: {
+    admin?: boolean;
+    maintain?: boolean;
+    push?: boolean;
+    triage?: boolean;
+    pull?: boolean;
+  };
+}
+
 interface GraphQLResponse<T> {
   data?: T;
   errors?: Array<{ message: string }>;
@@ -84,6 +94,11 @@ export interface GitHubCompareResult {
 export interface GitHubGitRef {
   ref: string;
   object: { sha: string; type: string; url: string };
+}
+
+export interface GitHubUpdateBranchResponse {
+  message: string;
+  url?: string;
 }
 
 const GITHUB_API = "https://api.github.com";
@@ -176,6 +191,10 @@ export class GitHubClient {
     );
   }
 
+  async getRepository(owner: string, repo: string): Promise<GitHubRepository> {
+    return this.request<GitHubRepository>(`/repos/${owner}/${repo}`);
+  }
+
   async getPullRequest(
     owner: string,
     repo: string,
@@ -263,6 +282,25 @@ export class GitHubClient {
         body: {
           merge_method: options.mergeMethod,
           ...(options.commitTitle ? { commit_title: options.commitTitle } : {}),
+        },
+      },
+    );
+  }
+
+  async updatePullRequestBranch(
+    owner: string,
+    repo: string,
+    pullNumber: number,
+    options: { expectedHeadSha?: string } = {},
+  ): Promise<GitHubUpdateBranchResponse> {
+    return this.request<GitHubUpdateBranchResponse>(
+      `/repos/${owner}/${repo}/pulls/${pullNumber}/update-branch`,
+      {
+        method: "PUT",
+        body: {
+          ...(options.expectedHeadSha
+            ? { expected_head_sha: options.expectedHeadSha }
+            : {}),
         },
       },
     );

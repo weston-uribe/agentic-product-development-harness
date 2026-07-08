@@ -23,6 +23,7 @@ vi.mock("../../src/github/client.js", async (importOriginal) => {
     pingGitHub: mocks.pingGitHub,
     GitHubClient: vi.fn().mockImplementation(() => ({
       getBranchRef: vi.fn().mockResolvedValue({ object: { sha: "abc123" } }),
+      getRepository: vi.fn().mockResolvedValue({ permissions: { push: true } }),
     })),
   };
 });
@@ -99,5 +100,21 @@ describe("runDoctor", () => {
     const code = await runDoctor({ configPath });
     expect(code).toBe(EXIT_SUCCESS);
     expect(mocks.pingGitHub).toHaveBeenCalledWith("test-github");
+  });
+
+  it("fails merge profile when GitHub token lacks PR head-branch write", async () => {
+    const { GitHubClient } = await import("../../src/github/client.js");
+    vi.mocked(GitHubClient).mockImplementationOnce(
+      () =>
+        ({
+          getBranchRef: vi.fn().mockResolvedValue({ object: { sha: "abc123" } }),
+          getRepository: vi.fn().mockResolvedValue({ permissions: { pull: true } }),
+        }) as never,
+    );
+    process.env.GITHUB_TOKEN = "test-github";
+
+    const code = await runDoctor({ configPath, profile: "merge" });
+
+    expect(code).toBe(EXIT_CONFIG);
   });
 });

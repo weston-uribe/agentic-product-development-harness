@@ -103,4 +103,28 @@ describe("GitHubClient", () => {
       client.markPullRequestReadyForReview("owner", "repo", 1),
     ).rejects.toBeInstanceOf(GitHubApiError);
   });
+
+  it("updates a PR branch with expected head sha", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 202,
+      json: async () => ({ message: "Updating pull request branch." }),
+    });
+
+    const client = new GitHubClient({ token: "test-token" });
+    const result = await client.updatePullRequestBranch("owner", "repo", 12, {
+      expectedHeadSha: "abc123",
+    });
+
+    expect(result.message).toContain("Updating");
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [url, init] = mockFetch.mock.calls[0]!;
+    expect(url).toBe(
+      "https://api.github.com/repos/owner/repo/pulls/12/update-branch",
+    );
+    expect(init?.method).toBe("PUT");
+    expect(JSON.parse(String(init?.body))).toEqual({
+      expected_head_sha: "abc123",
+    });
+  });
 });

@@ -58,10 +58,12 @@ In repo **Settings → Secrets and variables → Actions**:
 | Secret | Used by |
 |--------|---------|
 | `LINEAR_API_KEY` | All live harness phases |
-| `CURSOR_API_KEY` | planning, implementation, revision |
+| `CURSOR_API_KEY` | planning, implementation, revision, merge repair fallback |
 | `HARNESS_GITHUB_TOKEN` | handoff, revision, merge — mapped to runtime `GITHUB_TOKEN` in the workflow |
 
-`HARNESS_GITHUB_TOKEN` must be a PAT with access to **target repos** used by the harness (e.g. portfolio), including `repo` scope or equivalent fine-grained permissions for PR read, checks, and merge per M4/M6.
+`HARNESS_GITHUB_TOKEN` must be a PAT with access to **target repos** used by the harness (e.g. portfolio), including classic `repo` scope or equivalent fine-grained permissions for PR read, checks, merge, and PR branch repair. Fine-grained PATs need **Contents: Read and write** plus **Pull requests: Read and write** on target repos.
+
+Run `npm run harness:doctor -- --profile merge` with `GITHUB_TOKEN` set before enabling merge automation. Doctor verifies target base branches and token write permission used by integration repair.
 
 Do **not** name the Actions secret `GITHUB_TOKEN` — GitHub reserves that name for the auto-generated workflow token. The workflow maps `HARNESS_GITHUB_TOKEN` → `env: GITHUB_TOKEN` for the harness CLI.
 
@@ -111,6 +113,8 @@ Requires local `.env` with harness secrets for doctor checks.
 2. Actions → **Harness Auto Runner** → Run workflow.
 3. Input: `issue=WES-XX`, `phase=auto`.
 4. Confirm harness runs in cloud; download artifact with `runs/WES-XX/<run-id>/`.
+
+For canceled or stuck integration repair while the issue is **Merging**, use `workflow_dispatch` with `issue=WES-XX`, `phase=merge`, and `force=true`. v1 intentionally does not dispatch from **Merging** automatically.
 
 ### Gate 3: repository_dispatch
 

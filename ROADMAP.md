@@ -76,6 +76,7 @@ Superseded for PM self-service by canonical ChatGPT prompt — [`prompts/issue-i
 - SDK merge runner from **Ready to Merge**
 - GitHub squash merge via REST API
 - Checks policy before merge
+- Automatic integration repair for known merge-queue drift (`behind` / `dirty`) before blocking
 - Best-effort production deployment capture
 - Linear transition to **Merged / Deployed** after completion comment
 

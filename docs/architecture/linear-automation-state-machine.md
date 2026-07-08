@@ -35,6 +35,22 @@ PM Review
   → PM Review
 ```
 
+### Merge repair sub-states
+
+Integration repair is a merge sub-mode, not a new top-level Linear phase. When a PR becomes `behind` or `dirty` after waiting in the serialized repo/base merge queue, the issue stays **Merging** while the runner attempts repair.
+
+```text
+Ready to Merge
+  → Merging
+    → repair_start
+    → repair_deterministic
+    → repair_agent_start (only if conflicts remain)
+    → repair_complete
+  → Merged to Dev / Merged / Deployed
+```
+
+If deterministic and agent repair fail, or the repair needs product judgment, the issue moves to **Blocked**. Successful repair returns directly to merge; it does not route back to PM Review solely because the PR branch changed.
+
 ### Planning bypass path
 
 For low-risk, narrow, well-scoped issues that skip planning:

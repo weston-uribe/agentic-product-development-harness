@@ -12,6 +12,10 @@ on:
         description: "Harness phase (auto, planning, implementation, handoff, revision, merge)"
         required: false
         default: auto
+      force:
+        description: "Force rerun for supported recovery paths"
+        required: false
+        default: "false"
       sync_repo:
         description: "Repo config id for production sync, e.g. portfolio (runs sync-production instead of harness run)"
         required: false
@@ -38,6 +42,7 @@ jobs:
       trigger: ${{ steps.inputs.outputs.trigger }}
       linear_delivery_id: ${{ steps.inputs.outputs.linear_delivery_id }}
       input_phase: ${{ steps.inputs.outputs.phase }}
+      force: ${{ steps.inputs.outputs.force }}
 
     env:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
@@ -50,11 +55,13 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "issue_key=${{ github.event.inputs.issue }}" >> "$GITHUB_OUTPUT"
             echo "phase=${{ github.event.inputs.phase || 'auto' }}" >> "$GITHUB_OUTPUT"
+            echo "force=${{ github.event.inputs.force || 'false' }}" >> "$GITHUB_OUTPUT"
             echo "trigger=workflow_dispatch" >> "$GITHUB_OUTPUT"
             echo "linear_delivery_id=" >> "$GITHUB_OUTPUT"
           else
             echo "issue_key=${{ github.event.client_payload.issueKey }}" >> "$GITHUB_OUTPUT"
             echo "phase=auto" >> "$GITHUB_OUTPUT"
+            echo "force=false" >> "$GITHUB_OUTPUT"
             echo "trigger=repository_dispatch" >> "$GITHUB_OUTPUT"
             echo "linear_delivery_id=${{ github.event.client_payload.linearDeliveryId || '' }}" >> "$GITHUB_OUTPUT"
           fi
@@ -171,7 +178,11 @@ jobs:
           if [ "$PHASE" = "auto" ]; then
             PHASE="${{ needs.gate.outputs.phase }}"
           fi
-          OUTPUT=$(npm run harness:run -- --issue "${{ needs.gate.outputs.issue_key }}" --phase "$PHASE" --json 2>&1)
+          FORCE_FLAG=""
+          if [ "${{ needs.gate.outputs.force }}" = "true" ]; then
+            FORCE_FLAG="--force"
+          fi
+          OUTPUT=$(npm run harness:run -- --issue "${{ needs.gate.outputs.issue_key }}" --phase "$PHASE" $FORCE_FLAG --json 2>&1)
           EXIT_CODE=$?
           echo "$OUTPUT"
           echo "$OUTPUT" > harness-run-output.json
@@ -221,9 +232,11 @@ jobs:
     concurrency:
       group: harness-merge-${{ needs.gate.outputs.merge_concurrency_group }}
       cancel-in-progress: false
+      queue: max
 
     env:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+      CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
       GITHUB_TOKEN: ${{ secrets.HARNESS_GITHUB_TOKEN }}
 
     steps:
@@ -266,7 +279,11 @@ jobs:
         id: merge
         run: |
           set +e
-          OUTPUT=$(npm run harness:run -- --issue "${{ needs.gate.outputs.issue_key }}" --phase merge --json 2>&1)
+          FORCE_FLAG=""
+          if [ "${{ needs.gate.outputs.force }}" = "true" ]; then
+            FORCE_FLAG="--force"
+          fi
+          OUTPUT=$(npm run harness:run -- --issue "${{ needs.gate.outputs.issue_key }}" --phase merge $FORCE_FLAG --json 2>&1)
           EXIT_CODE=$?
           echo "$OUTPUT"
           echo "$OUTPUT" > harness-run-output.json

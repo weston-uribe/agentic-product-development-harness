@@ -10,6 +10,7 @@ vi.mock("@cursor/sdk", () => ({
 
 import {
   createImplementationCloudAgent,
+  createIntegrationRepairCloudAgent,
   createPlanningCloudAgent,
   createRevisionCloudAgent,
   disposeCloudAgent,
@@ -155,6 +156,32 @@ describe("cloud agent factories use basic Composer 2.5", () => {
     assertStandardComposer(request.model);
   });
 
+  it("createIntegrationRepairCloudAgent requests standard Composer 2.5 with branch and PR", async () => {
+    await createIntegrationRepairCloudAgent({
+      apiKey: "key",
+      config: makeConfig(),
+      targetRepo: TARGET_REPO,
+      branch: "cursor/wes-1",
+      prUrl: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/7",
+    });
+
+    expect(createMock).toHaveBeenCalledTimes(1);
+    const request = createMock.mock.calls[0]![0];
+    expect(request.model).toEqual({ id: "composer-2.5", params: [{ id: "fast", value: "false" }] });
+    expect(request.mode).toBe("agent");
+    expect(request.cloud.repos).toEqual([
+      {
+        url: TARGET_REPO,
+        startingRef: "cursor/wes-1",
+        prUrl:
+          "https://github.com/weston-uribe/weston-uribe-portfolio/pull/7",
+      },
+    ]);
+    expect(request.cloud.autoCreatePR).toBe(false);
+    expect(request.cloud.skipReviewerRequest).toBe(true);
+    assertStandardComposer(request.model);
+  });
+
   it("never sends Fast/Max/high-reasoning in any factory request", async () => {
     await createPlanningCloudAgent({
       apiKey: "key",
@@ -169,6 +196,13 @@ describe("cloud agent factories use basic Composer 2.5", () => {
       baseBranch: "main",
     });
     await createRevisionCloudAgent({
+      apiKey: "key",
+      config: makeConfig(),
+      targetRepo: TARGET_REPO,
+      branch: "cursor/wes-1",
+      prUrl: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/7",
+    });
+    await createIntegrationRepairCloudAgent({
       apiKey: "key",
       config: makeConfig(),
       targetRepo: TARGET_REPO,

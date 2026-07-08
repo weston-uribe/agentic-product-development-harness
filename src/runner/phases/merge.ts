@@ -30,6 +30,7 @@ import {
   parsePrNumberFromUrl,
   writeCommentsArtifact,
 } from "../../linear/comments.js";
+import { parseHarnessMarkers } from "../../linear/markers.js";
 import { fetchLinearIssue } from "../../linear/client.js";
 import { findLatestMergeSourceComment } from "../../linear/merge-source-comment.js";
 import {
@@ -41,7 +42,11 @@ import {
   transitionIssueStatus,
 } from "../../linear/writer.js";
 import { GitHubClient } from "../../github/client.js";
-import { assertPrBaseBranchMatches, assertPullRequestMergeable } from "../../github/base-branch.js";
+import {
+  assertPrBaseBranchMatches,
+  assertPullRequestMergeable,
+  isIntegrationRepairEligible,
+} from "../../github/base-branch.js";
 import { evaluateChecksForMerge } from "../../github/check-policy.js";
 import { classifyMergeError, isAlreadyMergedError } from "../../github/merge-result.js";
 import {
@@ -55,6 +60,7 @@ import { resolvePreviewLinks } from "../../preview/urls.js";
 import { normalizeRepoUrl } from "../../resolver/normalize-repo.js";
 import { resolveModelId } from "../../cursor/model.js";
 import { MergeError } from "../errors.js";
+import { attemptIntegrationRepair } from "./integration-repair.js";
 import { runPreflight } from "../preflight.js";
 import {
   assertMergeEligibleStatus,
@@ -118,6 +124,22 @@ function getProductionUrlReference(
 
 const DRAFT_READY_POLL_TIMEOUT_MS = 30_000;
 const DRAFT_READY_POLL_INTERVAL_MS = 2_000;
+const MAX_REPAIR_FAILURES_PER_ISSUE = 3;
+
+function countRepairFailuresForPr(
+  comments: Awaited<ReturnType<typeof listIssueComments>>,
+  orchestratorMarker: string,
+  prUrl: string,
+): number {
+  return comments.filter((comment) => {
+    const markers = parseHarnessMarkers(comment.body);
+    return (
+      markers.orchestratorMarker === orchestratorMarker &&
+      markers.phase === "repair_failed" &&
+      markers.prUrl === prUrl
+    );
+  }).length;
+}
 
 async function ensurePullRequestReadyForMerge(
   github: GitHubClient,
@@ -768,10 +790,67 @@ export async function executeMergePhase(
           baseBranch: resolved.baseBranch,
         });
       } catch (error) {
-        throw new MergeError(
-          "github_merge_failure",
-          error instanceof Error ? error.message : String(error),
-        );
+        if (
+          isIntegrationRepairEligible({
+            mergeable: preInspection.mergeable,
+            mergeableState: preInspection.mergeableState,
+          })
+        ) {
+          const repairFailureCount = countRepairFailuresForPr(
+            comments,
+            config.orchestratorMarker,
+            preInspection.url,
+          );
+          if (repairFailureCount >= MAX_REPAIR_FAILURES_PER_ISSUE) {
+            throw new MergeError(
+              "github_merge_failure",
+              `Integration repair has already failed ${repairFailureCount} time(s) for this PR. Manual recovery is required.`,
+            );
+          }
+          const repair = await attemptIntegrationRepair({
+            github,
+            linearClient: client,
+            issue,
+            config,
+            parsedIssue: parsed,
+            resolved,
+            parsedPr,
+            markerTargetRepo,
+            runId,
+            runDirectory,
+            events,
+            model,
+            initialInspection: preInspection,
+            cursorApiKey: process.env.CURSOR_API_KEY,
+          });
+          preInspection = repair.inspection;
+          changedFiles = preInspection.changedFiles.map((f) => f.path);
+          checkSummary = preInspection.checkSummary;
+          validationSummary = [validationSummary, repair.validationSummary]
+            .filter(Boolean)
+            .join("; ");
+          try {
+            assertPullRequestMergeable({
+              prUrl: preInspection.url,
+              merged: preInspection.merged,
+              mergeable: preInspection.mergeable,
+              mergeableState: preInspection.mergeableState,
+              baseBranch: resolved.baseBranch,
+            });
+          } catch (postRepairError) {
+            throw new MergeError(
+              "github_merge_failure",
+              postRepairError instanceof Error
+                ? postRepairError.message
+                : String(postRepairError),
+            );
+          }
+        } else {
+          throw new MergeError(
+            "github_merge_failure",
+            error instanceof Error ? error.message : String(error),
+          );
+        }
       }
 
       await events.log("github_merge_requested", "info", {

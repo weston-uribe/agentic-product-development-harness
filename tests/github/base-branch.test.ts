@@ -2,8 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import { GitHubApiError } from "../../src/github/client.js";
 import {
   assertBaseBranchExists,
+  assertHeadBranchWritePermission,
   assertPrBaseBranchMatches,
   assertPullRequestMergeable,
+  isIntegrationRepairEligible,
   parseGitHubRepoUrl,
 } from "../../src/github/base-branch.js";
 
@@ -91,6 +93,46 @@ describe("assertPullRequestMergeable", () => {
     ).toThrow(/pr_not_mergeable/);
   });
 });
+
+describe("isIntegrationRepairEligible", () => {
+  it("allows dirty and behind PRs", () => {
+    expect(
+      isIntegrationRepairEligible({ mergeable: false, mergeableState: "dirty" }),
+    ).toBe(true);
+    expect(
+      isIntegrationRepairEligible({ mergeable: false, mergeableState: "behind" }),
+    ).toBe(true);
+  });
+
+  it("does not repair blocked PRs", () => {
+    expect(
+      isIntegrationRepairEligible({ mergeable: false, mergeableState: "blocked" }),
+    ).toBe(false);
+  });
+});
+
+describe("assertHeadBranchWritePermission", () => {
+  it("passes when repo permissions include push", async () => {
+    const client = {
+      getRepository: vi.fn().mockResolvedValue({ permissions: { push: true } }),
+    };
+
+    await expect(
+      assertHeadBranchWritePermission(client as never, "https://github.com/o/r"),
+    ).resolves.toBeUndefined();
+  });
+
+  it("throws setup guidance when write is missing", async () => {
+    const client = {
+      getRepository: vi.fn().mockResolvedValue({ permissions: { pull: true } }),
+    };
+
+    await expect(
+      assertHeadBranchWritePermission(client as never, "https://github.com/o/r"),
+    ).rejects.toThrow(/repair_head_branch_write_denied/);
+  });
+});
+
 describe("assertPrBaseBranchMatches", () => {
   it("passes when PR base matches config", () => {
     expect(() =>

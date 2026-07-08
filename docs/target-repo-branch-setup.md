@@ -42,16 +42,25 @@ Harness Actions also supports **`workflow_dispatch`** with input **`sync_repo=po
 
 1. Create the integration branch on the target repo (e.g. `dev` from `main`).
 2. Set `repos[].baseBranch` to that branch.
-3. Run `npm run harness:doctor` with `GITHUB_TOKEN` set — doctor verifies each mapped repo has the configured base branch.
+3. Run `npm run harness:doctor -- --profile merge` with `GITHUB_TOKEN` set — doctor verifies each mapped repo has the configured base branch and that the token can write PR head branches for integration repair.
 
 ## Validation
 
-- **Preflight / doctor:** `assertBaseBranchExists()` when `GITHUB_TOKEN` is available.
+- **Preflight / doctor:** `assertBaseBranchExists()` and PR head-branch write permission checks when `GITHUB_TOKEN` is available.
 - **Implementation / handoff / revision / merge:** PR base must match `repos[].baseBranch` (`wrong_pr_base_branch` if not).
 
 ## Concurrent issues
 
-Multiple issues can run planning, implementation, handoff, and revision in parallel (per-issue GitHub Actions concurrency). Merge into the same integration branch is serialized: the auto-runner gate resolves `repoConfigId` and `baseBranch`, then routes merge work to a queue group `harness-merge-{repoConfigId}-{baseBranch}`. A second issue waiting to merge into portfolio `dev` runs only after the first merge completes; the runner re-inspects PR mergeability before merging.
+Multiple issues can run planning, implementation, handoff, and revision in parallel (per-issue GitHub Actions concurrency). Merge into the same integration branch is serialized: the auto-runner gate resolves `repoConfigId` and `baseBranch`, then routes merge work to a queue group `harness-merge-{repoConfigId}-{baseBranch}` with `queue: max`. A second issue waiting to merge into portfolio `dev` runs only after the first merge completes; the runner re-inspects PR mergeability before merging.
+
+If a queued PR becomes `behind` or `dirty` after another PR lands, the merge runner now attempts automatic integration repair while the issue remains **Merging**:
+
+1. Deterministic GitHub update-branch merges the latest base branch into the PR branch.
+2. If GitHub reports conflicts, a Composer 2.5 repair agent starts on the PR branch, fetches `origin/<baseBranch>`, runs the local base-into-head merge, resolves conflicts, commits, validates, and pushes the PR branch.
+3. If validation and PR checks pass, the runner returns directly to merge without PM Review.
+4. If repair fails, is ambiguous, or needs broader product judgment, the issue moves to **Blocked** with a clear reason.
+
+Repair may edit conflict files and direct dependency-closure files required for validation. It must not push to the integration or production branch directly.
 
 ## Example (portfolio)
 

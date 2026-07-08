@@ -48,6 +48,7 @@ When working on or simulating harness automations:
 - **Do not advance Linear status** unless the required durable artifact exists (plan comment, PR link, revision summary, etc.).
 - **Preserve state in Linear/GitHub artifacts** — comments, PRs, commits, preview URLs — not hidden session memory.
 - **Do not rely on hidden session memory** as source of truth; a fresh agent must reconstruct context from durable artifacts.
+- **Integration repair is merge-owned** — keep the issue in **Merging**, repair only the PR branch, preserve issue acceptance criteria plus already-merged base behavior, and return directly to merge only after validation/checks pass.
 - **Planning is optional** — respect `requires-plan` and `skip-plan` labels per [`docs/architecture/linear-automation-state-machine.md`](docs/architecture/linear-automation-state-machine.md).
 - **Plan Review is deprecated** in the default workflow — do not route work to it.
 
@@ -62,6 +63,7 @@ Cursor agents working in or through this harness should report **concise, factua
 - **Validation results** — pass / fail / not run per check, with evidence
 - **Blockers** — anything that stopped or limited progress
 - **Changed files** — explicit list of paths touched
+- **Repair evidence** — for integration repair, include deterministic update result or agent conflict-resolution summary, touched-file rationale, validation, and final PR branch SHA
 - **Model setting** — state the actual configured model when relevant (currently **Composer 2.5** for automations)
 
 **Do not include unless explicitly asked:**

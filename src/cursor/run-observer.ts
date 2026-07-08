@@ -6,9 +6,19 @@ import { classifyCursorError, classifyRunResultStatus } from "./errors.js";
 import { extractTargetRepoGitResult, type CapturedGitResult } from "./git-result.js";
 import { extractRevisionGitResult } from "./revision-git-result.js";
 import { cancelCursorRun, type CursorCancelOutcome } from "./run-cleanup.js";
-import { ImplementationError, PlanningError, PhaseError, RevisionError } from "../runner/errors.js";
+import {
+  ImplementationError,
+  MergeError,
+  PlanningError,
+  PhaseError,
+  RevisionError,
+} from "../runner/errors.js";
 
-export type ObservePhase = "planning" | "implementation" | "revision";
+export type ObservePhase =
+  | "planning"
+  | "implementation"
+  | "revision"
+  | "integration_repair";
 
 export interface ObservedRunResult {
   agentId: string;
@@ -118,6 +128,9 @@ function makePhaseError(
   }
   if (phase === "revision") {
     return new RevisionError(classification, message, cancelOutcome);
+  }
+  if (phase === "integration_repair") {
+    return new MergeError(classification, message);
   }
   return new PlanningError(classification, message, cancelOutcome);
 }
@@ -321,17 +334,27 @@ export async function sendAndObserve(
     );
   }
 
-  const gitResult =
-    phase === "implementation"
-      ? extractTargetRepoGitResult(result.git, options.targetRepo ?? "")
-      : phase === "revision"
-        ? extractRevisionGitResult(
-            result.git,
-            options.targetRepo ?? "",
-            options.expectedBranch ?? "",
-            options.expectedPrUrl ?? "",
-          )
-        : null;
+  let gitResult: CapturedGitResult | null = null;
+  if (phase === "implementation") {
+    gitResult = extractTargetRepoGitResult(result.git, options.targetRepo ?? "");
+  } else if (phase === "revision" || phase === "integration_repair") {
+    try {
+      gitResult = extractRevisionGitResult(
+        result.git,
+        options.targetRepo ?? "",
+        options.expectedBranch ?? "",
+        options.expectedPrUrl ?? "",
+      );
+    } catch (error) {
+      if (phase === "integration_repair" && error instanceof RevisionError) {
+        throw new MergeError(
+          error.classification ?? "cursor_branch_attach_failure",
+          error.message,
+        );
+      }
+      throw error;
+    }
+  }
 
   return {
     agentId,

@@ -4,7 +4,10 @@ import path from "node:path";
 import { Cursor } from "@cursor/sdk";
 import { loadConfig, validateRepoClosure } from "../../config/load-config.js";
 import type { HarnessConfig } from "../../config/types.js";
-import { assertBaseBranchExists } from "../../github/base-branch.js";
+import {
+  assertBaseBranchExists,
+  assertHeadBranchWritePermission,
+} from "../../github/base-branch.js";
 import { GitHubClient, pingGitHub } from "../../github/client.js";
 import { pingLinear } from "../../linear/client.js";
 import { EXIT_CONFIG, EXIT_SUCCESS } from "../exit-codes.js";
@@ -124,7 +127,7 @@ export async function runDoctor(options: DoctorOptions): Promise<number> {
       label: "CURSOR_API_KEY set",
       ok: true,
       skipped: true,
-      detail: "not required for merge runs",
+      detail: "required only when merge integration repair needs a Cursor agent",
     });
   } else {
     checks.push({
@@ -165,6 +168,24 @@ export async function runDoctor(options: DoctorOptions): Promise<number> {
             label: `${repo.id} base branch exists`,
             ok: false,
             detail: error instanceof Error ? error.message : String(error),
+          });
+        }
+
+        try {
+          await assertHeadBranchWritePermission(github, repo.targetRepo);
+          checks.push({
+            label: `${repo.id} PR head-branch write`,
+            ok: true,
+            detail: "token can update PR branches",
+          });
+        } catch (error) {
+          checks.push({
+            label: `${repo.id} PR head-branch write`,
+            ok: false,
+            detail:
+              error instanceof Error
+                ? error.message
+                : "Grant classic repo scope, or fine-grained Contents: Read and write plus Pull requests: Read and write on the target repo.",
           });
         }
       }

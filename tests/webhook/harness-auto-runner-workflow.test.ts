@@ -42,14 +42,15 @@ function assertHarnessWorkflowContracts(workflow: string, label: string): void {
       expect(runHarness).not.toContain("harness-merge-");
     });
 
-    it("run-merge uses repo/base merge concurrency with cancel-in-progress false", () => {
+    it("run-merge uses repo/base merge concurrency with queued pending runs", () => {
       const runMerge = extractJobSection(workflow, "run-merge");
       expect(runMerge).toContain("harness-merge-${{ needs.gate.outputs.merge_concurrency_group }}");
       expect(runMerge).toContain("cancel-in-progress: false");
+      expect(runMerge).toContain("queue: max");
       expect(runMerge).toContain("harness:run");
       expect(runMerge).toContain("--phase merge");
       expect(runMerge).toContain("harness:doctor -- --profile merge");
-      expect(runMerge).not.toContain("CURSOR_API_KEY");
+      expect(runMerge).toContain("CURSOR_API_KEY");
     });
 
     it("does not treat gate concurrency as sole duplicate protection", () => {
@@ -76,6 +77,11 @@ function assertHarnessWorkflowContracts(workflow: string, label: string): void {
     it("supports workflow_dispatch sync_repo input", () => {
       expect(workflow).toContain("sync_repo:");
     });
+
+    it("supports force workflow_dispatch recovery input", () => {
+      expect(workflow).toContain("force:");
+      expect(workflow).toContain('FORCE_FLAG="--force"');
+    });
   });
 }
 
@@ -97,6 +103,7 @@ describe("harness-auto-runner concurrency behavior contracts", () => {
   it("duplicate same-issue merge dispatch queues via run-merge concurrency without cancel", () => {
     expect(runMerge).toContain("harness-merge-${{ needs.gate.outputs.merge_concurrency_group }}");
     expect(runMerge).toContain("cancel-in-progress: false");
+    expect(runMerge).toContain("queue: max");
   });
 
   it("different issues in non-merge phases use distinct run-harness groups", () => {

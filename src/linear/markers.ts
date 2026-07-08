@@ -25,6 +25,13 @@ export interface HarnessMarkers {
   productionHeadSha?: string;
   previousMergeRunId?: string;
   promotionProofMethod?: string;
+  repairAttempt?: string;
+  repairPath?: string;
+  triggerReason?: string;
+  conflictFiles?: string;
+  dependencyClosureFiles?: string;
+  touchedFiles?: string;
+  repairCycleId?: string;
 }
 
 const HARNESS_HTML_METADATA_PATTERN = /<!--\s*([\s\S]*?)\s*-->/g;
@@ -138,6 +145,27 @@ function parseHarnessMarkerLines(block: string): HarnessMarkers {
         break;
       case "promotion_proof_method":
         markers.promotionProofMethod = value;
+        break;
+      case "repair_attempt":
+        markers.repairAttempt = value;
+        break;
+      case "repair_path":
+        markers.repairPath = value;
+        break;
+      case "trigger_reason":
+        markers.triggerReason = value;
+        break;
+      case "conflict_files":
+        markers.conflictFiles = value;
+        break;
+      case "dependency_closure_files":
+        markers.dependencyClosureFiles = value;
+        break;
+      case "touched_files":
+        markers.touchedFiles = value;
+        break;
+      case "repair_cycle_id":
+        markers.repairCycleId = value;
         break;
       default:
         if (trimmed.startsWith("harness-orchestrator")) {

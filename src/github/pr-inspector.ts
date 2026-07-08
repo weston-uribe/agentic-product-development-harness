@@ -19,6 +19,7 @@ export interface PrInspectionResult {
   title: string;
   url: string;
   branch: string;
+  headSha: string;
   baseBranch: string;
   state: string;
   merged: boolean;
@@ -155,6 +156,30 @@ export async function inspectPullRequestPostMerge(
   return result;
 }
 
+export async function pollPullRequestMergeability(
+  client: GitHubClient,
+  parsed: ParsedPrUrl,
+  expectedTargetRepo: string,
+  options: {
+    timeoutSeconds: number;
+    intervalSeconds: number;
+  },
+): Promise<PrInspectionResult> {
+  const deadline = Date.now() + options.timeoutSeconds * 1000;
+  let latest = await inspectPullRequestForMerge(client, parsed, expectedTargetRepo);
+
+  while (Date.now() < deadline) {
+    const state = latest.mergeableState?.toLowerCase() ?? null;
+    if (latest.mergeable !== null && state !== "unknown") {
+      return latest;
+    }
+    await new Promise((resolve) => setTimeout(resolve, options.intervalSeconds * 1000));
+    latest = await inspectPullRequestForMerge(client, parsed, expectedTargetRepo);
+  }
+
+  return latest;
+}
+
 async function inspectPullRequestRaw(
   client: GitHubClient,
   parsed: ParsedPrUrl,
@@ -241,6 +266,7 @@ async function inspectPullRequestRaw(
     title: pull.title,
     url: pull.html_url,
     branch: pull.head.ref,
+    headSha: pull.head.sha,
     baseBranch: pull.base.ref,
     state: pull.state,
     merged: pull.merged,

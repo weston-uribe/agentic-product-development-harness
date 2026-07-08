@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   mergePullRequest: vi.fn(),
   markPullRequestReadyForReview: vi.fn(),
   pollForProductionDeployment: vi.fn(),
+  attemptIntegrationRepair: vi.fn(),
 }));
 
 vi.mock("../../src/linear/writer.js", () => ({
@@ -62,6 +63,11 @@ vi.mock("../../src/github/client.js", () => ({
 
 vi.mock("../../src/preview/production-from-merge.js", () => ({
   pollForProductionDeployment: mocks.pollForProductionDeployment,
+  inferVercelReadyFromComments: vi.fn(() => false),
+}));
+
+vi.mock("../../src/runner/phases/integration-repair.js", () => ({
+  attemptIntegrationRepair: mocks.attemptIntegrationRepair,
 }));
 
 vi.mock("../../src/github/base-branch.js", async (importOriginal) => {
@@ -627,11 +633,12 @@ describe("executeMergePhase", () => {
     expect(mocks.mergePullRequest).not.toHaveBeenCalled();
   });
 
-  it("fails before merge when PR is dirty after waiting in merge queue", async () => {
+  it("repairs and merges when PR is dirty after waiting in merge queue", async () => {
     mocks.inspectPullRequestForMerge.mockResolvedValue({
       title: "[WES-13] test",
       url: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4",
       branch: "cursor/wes-13-test",
+      headSha: "dirty-sha",
       baseBranch: "main",
       state: "open",
       merged: false,
@@ -648,6 +655,30 @@ describe("executeMergePhase", () => {
       comments: [],
       rawChecks: [],
     });
+    mocks.attemptIntegrationRepair.mockResolvedValue({
+      inspection: {
+        title: "[WES-13] test",
+        url: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4",
+        branch: "cursor/wes-13-test",
+        headSha: "repaired-sha",
+        baseBranch: "main",
+        state: "open",
+        merged: false,
+        isDraft: false,
+        mergeable: true,
+        mergeableState: "clean",
+        rebaseable: true,
+        mergeCommitSha: null,
+        mergedAt: null,
+        repoUrl: "https://github.com/weston-uribe/weston-uribe-portfolio",
+        changedFiles: [{ path: "app/hello-world/page.tsx", status: "modified" }],
+        checks: [{ name: "CI", status: "completed", conclusion: "success", detailsUrl: null }],
+        checkSummary: "- Passed: 1",
+        comments: [],
+        rawChecks: [],
+      },
+      validationSummary: "Integration repair passed",
+    });
     mocks.fetchLinearIssue.mockResolvedValueOnce({
       id: "issue-1",
       identifier: "WES-13",
@@ -663,15 +694,10 @@ describe("executeMergePhase", () => {
       configPath,
     });
 
-    expect(result.exitCode).toBe(3);
-    expect(result.manifest.errorClassification).toBe("github_merge_failure");
-    expect(result.manifest.finalOutcome).toBe("failed");
-    expect(mocks.mergePullRequest).not.toHaveBeenCalled();
-    expect(mocks.transitionIssueStatus).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ identifier: "WES-13" }),
-      "Blocked",
-    );
+    expect(result.exitCode).toBe(0);
+    expect(result.manifest.finalOutcome).toBe("success");
+    expect(mocks.attemptIntegrationRepair).toHaveBeenCalledTimes(1);
+    expect(mocks.mergePullRequest).toHaveBeenCalledTimes(1);
   });
 
   it("no-ops duplicate merge when marker exists and PR is already merged", async () => {

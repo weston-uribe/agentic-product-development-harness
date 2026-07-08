@@ -58,6 +58,13 @@ export interface MergeCommentFooterInput extends RevisionCommentFooterInput {
   prNumber?: string;
   productionBranch?: string;
   integrationSuccessStatus?: string;
+  repairAttempt?: string;
+  repairPath?: string;
+  triggerReason?: string;
+  conflictFiles?: string;
+  dependencyClosureFiles?: string;
+  touchedFiles?: string;
+  repairCycleId?: string;
 }
 
 export interface ProductionSyncCommentFooterInput extends MergeCommentFooterInput {
@@ -169,6 +176,27 @@ function buildHarnessMetadataLines(
   }
   if (input.githubActionsRunUrl) {
     lines.push(`github_actions_run_url: ${input.githubActionsRunUrl}`);
+  }
+  if (input.repairAttempt) {
+    lines.push(`repair_attempt: ${input.repairAttempt}`);
+  }
+  if (input.repairPath) {
+    lines.push(`repair_path: ${input.repairPath}`);
+  }
+  if (input.triggerReason) {
+    lines.push(`trigger_reason: ${input.triggerReason}`);
+  }
+  if (input.conflictFiles) {
+    lines.push(`conflict_files: ${input.conflictFiles}`);
+  }
+  if (input.dependencyClosureFiles) {
+    lines.push(`dependency_closure_files: ${input.dependencyClosureFiles}`);
+  }
+  if (input.touchedFiles) {
+    lines.push(`touched_files: ${input.touchedFiles}`);
+  }
+  if (input.repairCycleId) {
+    lines.push(`repair_cycle_id: ${input.repairCycleId}`);
   }
   return lines;
 }

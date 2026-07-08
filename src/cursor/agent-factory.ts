@@ -37,6 +37,8 @@ export interface RevisionAgentParams {
   prUrl: string;
 }
 
+export type IntegrationRepairAgentParams = RevisionAgentParams;
+
 export async function createPlanningCloudAgent(
   params: PlanningAgentParams,
 ): Promise<SDKAgent> {
@@ -81,6 +83,28 @@ export async function createImplementationCloudAgent(
 
 export async function createRevisionCloudAgent(
   params: RevisionAgentParams,
+): Promise<SDKAgent> {
+  const model: ModelSelection = resolveModel(params.config);
+  return Agent.create({
+    apiKey: params.apiKey,
+    model,
+    mode: "agent",
+    cloud: {
+      repos: [
+        {
+          url: params.targetRepo,
+          startingRef: params.branch,
+          prUrl: params.prUrl,
+        },
+      ],
+      autoCreatePR: false,
+      skipReviewerRequest: true,
+    },
+  });
+}
+
+export async function createIntegrationRepairCloudAgent(
+  params: IntegrationRepairAgentParams,
 ): Promise<SDKAgent> {
   const model: ModelSelection = resolveModel(params.config);
   return Agent.create({
