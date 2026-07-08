@@ -10,6 +10,8 @@ Nothing yet.
 
 ## [0.2.0] — 2026-07-08
 
+V0.2.0 moves the harness from early validated spikes to a documented source release: lifecycle runners, Linear-triggered GitHub Actions automation, production sync, provider posture, security hardening, and operator docs now tell one consistent story.
+
 **Release type:** GitHub source release (annotated tag + GitHub release). Not an npm package publication.
 
 ### Added
@@ -22,8 +24,8 @@ Nothing yet.
 - Production sync automation (`harness:sync-production`) with optional `production_promoted` dispatch
 - Portfolio integration-branch posture: PRs target `dev`; manual `dev` → `main` promotion; sync updates Linear
 - GitHub Actions hardening: pinned actions, env-var shell safety, output redaction
-- CI workflow, CodeQL analysis, Dependabot for npm and Actions
-- Public-repo security baseline documentation and operator guides
+- CI / CodeQL / Dependabot
+- Public-repo security baseline and operator guides
 - Release contract (`docs/releases/v0.2.0.md`), release process, operator getting-started guide
 
 ### Changed

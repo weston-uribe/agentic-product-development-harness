@@ -6,6 +6,24 @@ Operator guide for setting up and validating the agentic product development har
 
 **Release contract:** [`docs/releases/v0.2.0.md`](releases/v0.2.0.md)
 
+## Start here
+
+Use this order:
+
+1. Run the repo locally with no live automation.
+2. Validate an issue draft.
+3. Configure target repos and secrets.
+4. Run doctor checks.
+5. Enable the Linear webhook only after local validation passes.
+
+**If you only want to understand the project**, read:
+
+- [`README.md`](../README.md)
+- [`docs/releases/v0.2.0.md`](releases/v0.2.0.md)
+- [`ARCHITECTURE.md`](../ARCHITECTURE.md)
+
+**If you want to operate it**, continue below.
+
 ---
 
 ## Prerequisites
@@ -50,6 +68,8 @@ For merge-phase checks with a GitHub token:
 GITHUB_TOKEN=<token> npm run harness:doctor -- --profile merge
 ```
 
+Note: `harness:doctor` with live API keys is not a dry-run — it validates credentials and repo access.
+
 ---
 
 ## Where secrets go
@@ -60,13 +80,19 @@ GITHUB_TOKEN=<token> npm run harness:doctor -- --profile merge
 | `LINEAR_WEBHOOK_SECRET`, `GITHUB_DISPATCH_TOKEN` | Vercel production env | GitHub Actions (for bridge), committed files |
 | Local dev tokens | Untracked `.env` (gitignored) | Commits, docs, examples |
 
+Secret names may appear in docs; secret values must never appear in docs, commits, examples, logs, or PR comments.
+
 Full matrix: [`docs/security.md`](security.md)
 
 ---
 
-## Dry-run validation (no live APIs required)
+## Local validation before live automation
 
-Validate an issue draft:
+These commands are intended to prove parsing, config shape, and artifact inspection before you enable Linear/GitHub/Vercel automation.
+
+**Fully local** — no live APIs required:
+
+Validate an issue draft from a file:
 
 ```bash
 npm run harness:validate-issue -- --file draft.md --intended-phase planning
@@ -84,6 +110,8 @@ Inspect a run artifact directory:
 ```bash
 npm run harness:inspect -- --run runs/WES-FIXTURE/<run-id>
 ```
+
+**Not fully local** — `harness:doctor` and live harness phases require API keys and may read or write external systems.
 
 ---
 

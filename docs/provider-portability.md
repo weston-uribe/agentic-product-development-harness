@@ -1,7 +1,7 @@
 # Provider portability and configuration posture
 
 This document describes what is configurable, what is fixed, and what is
-intentionally **not** claimed for V0.2 of the harness. It complements
+intentionally **not** claimed for V0.2 of the harness. Read this as a promise boundary: what V0.2.0 supports today, and what it deliberately does not claim. It complements
 [`docs/decisions/0004-agent-provider-boundary.md`](decisions/0004-agent-provider-boundary.md).
 
 **Release contract:** [`docs/releases/v0.2.0.md`](releases/v0.2.0.md)

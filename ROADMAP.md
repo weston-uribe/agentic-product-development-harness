@@ -2,22 +2,23 @@
 
 Phased delivery for the agentic product development harness. Each phase adds capability only after the previous loop is proven manually.
 
-**Current phase: V0.2.0 release contract (docs truth audit)**
+**Current release:** V0.2.0 source release
 
 ---
 
-## V0.2.0 release contract (current)
+## V0.2.0 source release
 
-**Goal:** Land the V0.2.0 source-release contract, changelog, operator onboarding docs, and public-doc truth audit.
+**Status:** Release contract and public docs are landing in PR #14. Tagging happens only after the release-doc PR merges and required checks are green.
 
-**In progress:**
-- Release contract, changelog, getting-started, release-process docs
-- README / ROADMAP / security truth audit
+**Delivered in V0.2.0:**
+- SDK lifecycle runners through production sync
+- Event-driven auto-runner (Linear webhook → Vercel → GitHub Actions)
+- Provider posture and config seam — [`docs/decisions/0004-agent-provider-boundary.md`](docs/decisions/0004-agent-provider-boundary.md), [`docs/provider-portability.md`](docs/provider-portability.md)
+- Security baseline — [`docs/security.md`](docs/security.md) (Pass B implemented: ruleset, allowlist)
+- Release contract, changelog, getting-started, release-process docs — [`docs/releases/v0.2.0.md`](docs/releases/v0.2.0.md)
 
 **Completed (V0.2 prep):**
 - M1 maintainability cleanup — shared run-phase constants, workflow helper split
-- Provider posture and config seam — [`docs/decisions/0004-agent-provider-boundary.md`](docs/decisions/0004-agent-provider-boundary.md), [`docs/provider-portability.md`](docs/provider-portability.md)
-- Security baseline — [`docs/security.md`](docs/security.md) (Pass B implemented: ruleset, allowlist)
 
 **Tag/release:** Documented in [`docs/releases/release-process.md`](docs/releases/release-process.md) — not created until release-doc PR merges.
 

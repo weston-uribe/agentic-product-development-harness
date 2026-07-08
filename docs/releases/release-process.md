@@ -6,6 +6,12 @@ Operator guide for creating git tags and GitHub releases for this harness repo.
 
 **Related:** [`v0.2.0.md`](v0.2.0.md) (release contract), [`CHANGELOG.md`](../../CHANGELOG.md)
 
+## Summary
+
+The release process is intentionally separate from the release-doc PR.
+
+First, merge the release documentation and version bump to `main`. Then verify the merge commit, create an annotated tag, push the tag, and create the GitHub release from the curated release notes.
+
 ---
 
 ## When to tag
@@ -37,7 +43,7 @@ git push origin v0.2.0
 gh release create v0.2.0 --title "v0.2.0" --notes-file docs/releases/v0.2.0.md --latest
 ```
 
-After tagging, update **Tag status** in [`v0.2.0.md`](v0.2.0.md) to **Tagged** (in a follow-up doc PR or as part of the next change).
+After publishing the GitHub release, open a small follow-up PR that changes the **Tag status** in [`v0.2.0.md`](v0.2.0.md) from **Not yet tagged** to **Tagged**.
 
 ---
 

@@ -20,6 +20,21 @@ Trusted automation paths:
 
 ---
 
+## Plain-English security model
+
+The repo is public, but the secrets are not in the repo.
+
+A public reader can see the code and workflow definitions. They cannot push to `main`, trigger trusted secret-bearing automation, write to Linear, or merge target repo PRs unless they have one of the trusted credentials or repo permissions.
+
+The important boundary is credential access:
+
+- Vercel can only dispatch the harness workflow.
+- GitHub Actions holds the live harness secrets.
+- Local `.env` files stay untracked.
+- Target-repo write access comes from `HARNESS_GITHUB_TOKEN`, not from public repo visibility.
+
+---
+
 ## Token scope matrix
 
 | Secret | Where stored | Scope / permissions | Can write GitHub? | Can write Linear? | Risk if leaked |
