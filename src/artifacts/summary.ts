@@ -2,7 +2,7 @@ import { writeFile } from "node:fs/promises";
 import type { RunManifest } from "../types/run.js";
 import type { ParsedIssue } from "../types/parsed-issue.js";
 import type { ResolvedTarget } from "../resolver/target-repo.js";
-import type { CursorCancelOutcome } from "../cursor/run-cleanup.js";
+import type { CursorCancelOutcome } from "../agents/types.js";
 import { getSummaryPath } from "./paths.js";
 
 export interface RunSummaryExtras {

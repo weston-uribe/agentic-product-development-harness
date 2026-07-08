@@ -1,7 +1,8 @@
 import type { Run } from "@cursor/sdk";
 import type { EventLogger } from "../artifacts/events.js";
+import type { CursorCancelOutcome } from "../agents/types.js";
 
-export type CursorCancelOutcome = "cancelled" | "cancel_unavailable" | "cancel_failed";
+export type { CursorCancelOutcome } from "../agents/types.js";
 
 export async function cancelCursorRun(
   run: Pick<Run, "id" | "supports" | "unsupportedReason" | "cancel">,

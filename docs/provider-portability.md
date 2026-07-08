@@ -9,8 +9,9 @@ intentionally **not** claimed for V0.2 of the harness. It complements
 V0.2 is a **Cursor-first** harness for **Linear + GitHub + GitHub Actions**. The
 architecture is modular by subsystem (product system, SCM/PR system, runner,
 agent provider, preview provider), but it is **not provider-agnostic yet**.
-Cursor is the only implemented agent execution provider, and Cursor SDK calls
-are still embedded directly in the runner phases.
+Cursor is the only implemented agent execution provider. Runner phases import
+[`src/agents/`](../src/agents/) (provider-facing facade); the Cursor adapter
+delegates to [`src/cursor/`](../src/cursor/) for SDK-specific behavior.
 
 ### Support matrix
 
@@ -97,10 +98,11 @@ the runner phases today:
 ## Recommended next implementation steps
 
 1. **Make Cursor explicit** in docs and config posture rather than implying
-   provider agnosticism. *(Partially done: `agentProvider.id: "cursor"` config
-   shape exists, but only Cursor is implemented.)*
+   provider agnosticism. *(Done: `agentProvider.id: "cursor"` config shape and
+   `src/agents/` provider seam; only Cursor is implemented.)*
 2. **Introduce an internal provider seam** that isolates Cursor SDK calls out of
-   the runner phases behind a single interface.
+   the runner phases behind a single interface. *(Done: runner phases import
+   `src/agents/`; Cursor implementation remains in `src/cursor/`.)*
 3. **Extend provider config only when a second adapter exists** — the
    `agentProvider` shape is Cursor-only today; do not add speculative provider
    ids or a plugin system.

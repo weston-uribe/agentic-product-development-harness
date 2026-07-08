@@ -1,12 +1,12 @@
 # Architecture
 
-Modular design for an agentic product development harness. The architecture is **modular by subsystem** (product system, SCM/PR system, runner, agent provider, preview provider), but it is **not provider-agnostic yet**. Components are defined so the harness can run manually in Cursor while later phases add automation without rewriting the model — but in V0.2 the only implemented agent provider is Cursor, and Cursor SDK calls are still embedded directly in the runner phases.
+Modular design for an agentic product development harness. The architecture is **modular by subsystem** (product system, SCM/PR system, runner, agent provider, preview provider), but it is **not provider-agnostic yet**. Components are defined so the harness can run manually in Cursor while later phases add automation without rewriting the model — but in V0.2 the only implemented agent provider is Cursor. Runner phases import [`src/agents/`](src/agents/) for agent lifecycle operations; the Cursor adapter delegates to [`src/cursor/`](src/cursor/) for SDK-specific behavior.
 
 ## Configuration and portability posture
 
 V0.2 is **Cursor-first**. Key assumptions:
 
-- **Cursor SDK calls are still embedded in runner phases today.** Future work should isolate them behind an internal provider interface so additional agent providers can be added without rewriting phases.
+- **Runner phases import `src/agents/` for agent lifecycle operations.** The internal provider seam exists (`src/agents/cursor-provider.ts`); Cursor SDK calls remain in `src/cursor/`. No second adapter is implemented.
 - **`agentProvider` config makes Cursor explicit** (`id: "cursor"` only today). Model resolution prefers `agentProvider.model.id` and falls back to `defaultModel.id`.
 - **GitHub and Linear are explicit V0.2 assumptions** — GitHub is the SCM/PR provider and cloud runner (GitHub Actions), and Linear is the product/control system.
 - **Vercel is the only implemented preview provider** when preview capture is enabled; other repos use `previewProvider: "none"`.

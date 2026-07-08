@@ -2,7 +2,7 @@ import { MILESTONE } from "../config/defaults.js";
 import { emptyMergeManifestFields } from "../artifacts/manifest-fields.js";
 import { writeManifest } from "../artifacts/manifest.js";
 import { writeRunSummary } from "../artifacts/summary.js";
-import { resolveModelId } from "../cursor/model.js";
+import { resolveModelId } from "../agents/index.js";
 import { runPreflight } from "./preflight.js";
 import type { RunManifest } from "../types/run.js";
 

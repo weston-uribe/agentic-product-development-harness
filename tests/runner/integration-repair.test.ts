@@ -10,8 +10,8 @@ import type { ResolvedTarget } from "../../src/resolver/target-repo.js";
 
 const mocks = vi.hoisted(() => ({
   postIssueComment: vi.fn().mockResolvedValue("comment-1"),
-  createIntegrationRepairCloudAgent: vi.fn(),
-  disposeCloudAgent: vi.fn().mockResolvedValue(undefined),
+  createIntegrationRepairAgent: vi.fn(),
+  disposeAgent: vi.fn().mockResolvedValue(undefined),
   sendAndObserve: vi.fn(),
 }));
 
@@ -23,23 +23,11 @@ vi.mock("../../src/linear/writer.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../../src/cursor/agent-factory.js", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../../src/cursor/agent-factory.js")>();
-  return {
-    ...actual,
-    createIntegrationRepairCloudAgent: mocks.createIntegrationRepairCloudAgent,
-    disposeCloudAgent: mocks.disposeCloudAgent,
-  };
-});
-
-vi.mock("../../src/cursor/run-observer.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../../src/cursor/run-observer.js")>();
-  return {
-    ...actual,
-    sendAndObserve: mocks.sendAndObserve,
-  };
-});
+vi.mock("../../src/agents/index.js", () => ({
+  createIntegrationRepairAgent: mocks.createIntegrationRepairAgent,
+  disposeAgent: mocks.disposeAgent,
+  sendAndObserve: mocks.sendAndObserve,
+}));
 
 import { attemptIntegrationRepair } from "../../src/runner/phases/integration-repair.js";
 
@@ -194,7 +182,7 @@ describe("attemptIntegrationRepair", () => {
       23,
       { expectedHeadSha: "dirty-sha" },
     );
-    expect(mocks.createIntegrationRepairCloudAgent).not.toHaveBeenCalled();
+    expect(mocks.createIntegrationRepairAgent).not.toHaveBeenCalled();
     expect(result.inspection.mergeableState).toBe("clean");
   });
 
@@ -250,7 +238,7 @@ describe("attemptIntegrationRepair", () => {
       }),
       getIssueComments: vi.fn().mockResolvedValue([]),
     };
-    mocks.createIntegrationRepairCloudAgent.mockResolvedValue({
+    mocks.createIntegrationRepairAgent.mockResolvedValue({
       agentId: "agent-1",
       [Symbol.asyncDispose]: async () => undefined,
     });

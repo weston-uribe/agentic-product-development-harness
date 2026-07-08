@@ -58,7 +58,7 @@ import { parsePrUrl, type ParsedPrUrl } from "../../github/pr-url.js";
 import { pollForProductionDeployment, inferVercelReadyFromComments } from "../../preview/production-from-merge.js";
 import { resolvePreviewLinks } from "../../preview/urls.js";
 import { normalizeRepoUrl } from "../../resolver/normalize-repo.js";
-import { resolveModelId } from "../../cursor/model.js";
+import { resolveModelId } from "../../agents/index.js";
 import { MergeError } from "../errors.js";
 import { attemptIntegrationRepair } from "./integration-repair.js";
 import { runPreflight } from "../preflight.js";

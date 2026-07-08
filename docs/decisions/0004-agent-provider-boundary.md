@@ -1,6 +1,6 @@
 # ADR 0004: Agent provider boundary
 
-**Status:** Accepted (amended 2026-07-08 — Cursor-only `agentProvider` config shape)  
+**Status:** Accepted (amended 2026-07-08 — internal `src/agents/` provider seam)  
 **Date:** 2026-07-08
 
 ## Decision
@@ -22,10 +22,11 @@ metadata** are retained as-is.
 
 ## Context
 
-The harness today embeds Cursor SDK calls directly inside runner phases
-(planning, implementation, revision, integration repair). This is intentional
-for V0.2 — Cursor is the only execution provider that has been implemented and
-validated end-to-end against Linear + GitHub + GitHub Actions.
+The harness embeds Cursor SDK calls in [`src/cursor/`](../src/cursor/). Runner
+phases import [`src/agents/`](../src/agents/) for agent lifecycle operations;
+the Cursor adapter delegates to `src/cursor/`. This is intentional for V0.2 —
+Cursor is the only execution provider that has been implemented and validated
+end-to-end against Linear + GitHub + GitHub Actions.
 
 It is tempting to describe agent-provider portability as a configuration switch
 (e.g. picking a different model id or setting an environment variable). That
@@ -78,7 +79,8 @@ A future agent provider adapter should support:
 - **Add provider config extensions later** only when a second adapter is
   validated — do not add speculative provider ids now.
 - **Introduce an internal provider seam later** to isolate Cursor SDK calls out
-  of runner phases behind an interface.
+  of runner phases behind an interface. *(Done: `src/agents/` seam; runner phases
+  no longer import `src/cursor/` directly.)*
 - **Preserve legacy markers.** Keep `cursorAgentId` and `cursorRunId` markers
   until they can be safely migrated behind the provider seam.
 - **Preserve `defaultModel` backward compatibility** until callers migrate to
@@ -94,7 +96,7 @@ A future agent provider adapter should support:
 
 ### Negative / accepted tradeoffs
 
-- Cursor SDK calls remain embedded in runner phases in V0.2.
+- Cursor SDK calls remain in `src/cursor/`; runner phases use `src/agents/`.
 - `agentProvider` config exists but only accepts `id: "cursor"`; no second
   adapter or plugin system is implemented.
 

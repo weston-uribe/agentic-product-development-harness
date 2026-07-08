@@ -22,7 +22,7 @@ import {
 } from "../../linear/writer.js";
 import { GitHubClient } from "../../github/client.js";
 import { resolvePromotionProof } from "../../github/commit-reachability.js";
-import { resolveModelId } from "../../cursor/model.js";
+import { resolveModelId } from "../../agents/index.js";
 import { resolveTargetRepo } from "../../resolver/target-repo.js";
 import { loadConfig } from "../../config/load-config.js";
 import { checkProductionSyncIdempotency } from "../idempotency.js";

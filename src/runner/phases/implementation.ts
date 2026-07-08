@@ -27,9 +27,13 @@ import {
   postPhaseStartCommentIfNeeded,
   transitionIssueStatus,
 } from "../../linear/writer.js";
-import { createImplementationCloudAgent, disposeCloudAgent } from "../../cursor/agent-factory.js";
-import { sendAndObserve } from "../../cursor/run-observer.js";
-import { resolveModelId } from "../../cursor/model.js";
+import {
+  createImplementationAgent,
+  disposeAgent,
+  resolveModelId,
+  sendAndObserve,
+  type CursorCancelOutcome,
+} from "../../agents/index.js";
 import { assertPrBaseBranchMatches } from "../../github/base-branch.js";
 import { GitHubClient } from "../../github/client.js";
 import { classifyGitHubError, inspectPullRequest } from "../../github/pr-inspector.js";
@@ -50,7 +54,6 @@ import type {
   FinalOutcome,
   RunManifest,
 } from "../../types/run.js";
-import type { CursorCancelOutcome } from "../../cursor/run-cleanup.js";
 import type { ParsedIssue } from "../../types/parsed-issue.js";
 import type { ResolvedTarget } from "../../resolver/target-repo.js";
 
@@ -353,7 +356,7 @@ export async function executeImplementationPhase(
     await mkdir(`${runDirectory}/prompts`, { recursive: true });
     await writeFile(getImplementationPromptPath(runDirectory), `${prompt}\n`, "utf8");
 
-    const agent = await createImplementationCloudAgent({
+    const agent = await createImplementationAgent({
       apiKey: cursorApiKey,
       config,
       targetRepo: resolved.targetRepo,
@@ -532,7 +535,7 @@ export async function executeImplementationPhase(
     finalOutcome = "success";
     errorClassification = null;
     } finally {
-      await disposeCloudAgent(agent);
+      await disposeAgent(agent);
     }
   } catch (error) {
     if (error instanceof ImplementationError) {

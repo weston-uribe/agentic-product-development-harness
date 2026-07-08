@@ -46,11 +46,15 @@ import {
 } from "../../github/pr-inspector.js";
 import { parsePrUrl } from "../../github/pr-url.js";
 import { pollForVercelPreview } from "../../preview/vercel-from-pr.js";
-import { createRevisionCloudAgent, disposeCloudAgent } from "../../cursor/agent-factory.js";
-import { sendAndObserve } from "../../cursor/run-observer.js";
+import {
+  createRevisionAgent,
+  disposeAgent,
+  resolveModelId,
+  sendAndObserve,
+  type CursorCancelOutcome,
+} from "../../agents/index.js";
 import { normalizeRepoUrl } from "../../resolver/normalize-repo.js";
 import { buildRevisionPrompt } from "../../prompts/revision-builder.js";
-import { resolveModelId } from "../../cursor/model.js";
 import { RevisionError } from "../errors.js";
 import { runPreflight } from "../preflight.js";
 import {
@@ -65,7 +69,6 @@ import type {
 } from "../../types/run.js";
 import type { ParsedIssue } from "../../types/parsed-issue.js";
 import type { ResolvedTarget } from "../../resolver/target-repo.js";
-import type { CursorCancelOutcome } from "../../cursor/run-cleanup.js";
 
 export interface RevisionPhaseOptions {
   issueKey: string;
@@ -507,7 +510,7 @@ export async function executeRevisionPhase(
     await mkdir(`${runDirectory}/prompts`, { recursive: true });
     await writeFile(getRevisionPromptPath(runDirectory), `${prompt}\n`, "utf8");
 
-    const agent = await createRevisionCloudAgent({
+    const agent = await createRevisionAgent({
       apiKey: cursorApiKey,
       config,
       targetRepo: markerTargetRepo,
@@ -701,7 +704,7 @@ export async function executeRevisionPhase(
     finalOutcome = "success";
     errorClassification = null;
     } finally {
-      await disposeCloudAgent(agent);
+      await disposeAgent(agent);
     }
   } catch (error) {
     if (error instanceof RevisionError) {

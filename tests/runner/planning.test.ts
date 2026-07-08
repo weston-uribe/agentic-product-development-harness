@@ -8,7 +8,8 @@ const mocks = vi.hoisted(() => ({
   postPlanningComment: vi.fn(),
   listIssueComments: vi.fn(),
   createLinearClient: vi.fn(),
-  createPlanningCloudAgent: vi.fn(),
+  createPlanningAgent: vi.fn(),
+  disposeAgent: vi.fn(),
   sendAndObserve: vi.fn(),
   fetchLinearIssue: vi.fn(),
 }));
@@ -21,13 +22,11 @@ vi.mock("../../src/linear/writer.js", () => ({
   createLinearClient: mocks.createLinearClient,
 }));
 
-vi.mock("../../src/cursor/agent-factory.js", () => ({
-  createPlanningCloudAgent: mocks.createPlanningCloudAgent,
-  disposeCloudAgent: vi.fn().mockResolvedValue(undefined),
-}));
-
-vi.mock("../../src/cursor/run-observer.js", () => ({
+vi.mock("../../src/agents/index.js", () => ({
+  createPlanningAgent: mocks.createPlanningAgent,
+  disposeAgent: mocks.disposeAgent,
   sendAndObserve: mocks.sendAndObserve,
+  resolveModelId: vi.fn().mockReturnValue("composer-2.5"),
 }));
 
 vi.mock("../../src/linear/client.js", async (importOriginal) => {
@@ -95,11 +94,9 @@ describe("executePlanningPhase", () => {
     mocks.postPlanningComment.mockResolvedValue("comment-1");
     mocks.createLinearClient.mockReturnValue({});
 
-    const mockAgent = {
-      agentId: "agent-abc",
-      [Symbol.asyncDispose]: async () => undefined,
-    };
-    mocks.createPlanningCloudAgent.mockResolvedValue(mockAgent);
+    const mockHandle = { __brand: Symbol("AgentHandle") };
+    mocks.createPlanningAgent.mockResolvedValue(mockHandle);
+    mocks.disposeAgent.mockResolvedValue(undefined);
     mocks.sendAndObserve.mockResolvedValue({
       agentId: "agent-abc",
       runId: "run-xyz",

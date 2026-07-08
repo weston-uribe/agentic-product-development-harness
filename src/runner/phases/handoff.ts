@@ -40,7 +40,7 @@ import {
 import { parsePrUrl } from "../../github/pr-url.js";
 import { pollForVercelPreview } from "../../preview/vercel-from-pr.js";
 import { normalizeRepoUrl } from "../../resolver/normalize-repo.js";
-import { resolveModelId } from "../../cursor/model.js";
+import { resolveModelId } from "../../agents/index.js";
 import { HandoffError } from "../errors.js";
 import { runPreflight } from "../preflight.js";
 import {

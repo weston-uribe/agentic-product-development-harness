@@ -9,7 +9,8 @@ const mocks = vi.hoisted(() => ({
   postErrorComment: vi.fn(),
   listIssueComments: vi.fn(),
   createLinearClient: vi.fn(),
-  createImplementationCloudAgent: vi.fn(),
+  createImplementationAgent: vi.fn(),
+  disposeAgent: vi.fn(),
   sendAndObserve: vi.fn(),
   fetchLinearIssue: vi.fn(),
 }));
@@ -21,13 +22,11 @@ vi.mock("../../src/linear/writer.js", () => ({
   createLinearClient: mocks.createLinearClient,
 }));
 
-vi.mock("../../src/cursor/agent-factory.js", () => ({
-  createImplementationCloudAgent: mocks.createImplementationCloudAgent,
-  disposeCloudAgent: vi.fn().mockResolvedValue(undefined),
-}));
-
-vi.mock("../../src/cursor/run-observer.js", () => ({
+vi.mock("../../src/agents/index.js", () => ({
+  createImplementationAgent: mocks.createImplementationAgent,
+  disposeAgent: mocks.disposeAgent,
   sendAndObserve: mocks.sendAndObserve,
+  resolveModelId: vi.fn().mockReturnValue("composer-2.5"),
 }));
 
 vi.mock("../../src/linear/client.js", async (importOriginal) => {
@@ -124,7 +123,7 @@ describe("executeImplementationPhase", () => {
     mocks.transitionIssueStatus.mockResolvedValue(undefined);
     mocks.postErrorComment.mockResolvedValue("error-comment-1");
     mocks.createLinearClient.mockReturnValue({});
-    mocks.createImplementationCloudAgent.mockResolvedValue({
+    mocks.createImplementationAgent.mockResolvedValue({
       agentId: "agent-impl",
       [Symbol.asyncDispose]: async () => undefined,
     });

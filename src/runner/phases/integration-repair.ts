@@ -9,10 +9,10 @@ import {
 import type { HarnessConfig } from "../../config/types.js";
 import type { EventLogger } from "../../artifacts/events.js";
 import {
-  createIntegrationRepairCloudAgent,
-  disposeCloudAgent,
-} from "../../cursor/agent-factory.js";
-import { sendAndObserve } from "../../cursor/run-observer.js";
+  createIntegrationRepairAgent,
+  disposeAgent,
+  sendAndObserve,
+} from "../../agents/index.js";
 import { evaluateChecksForMerge } from "../../github/check-policy.js";
 import type { GitHubClient } from "../../github/client.js";
 import { GitHubApiError } from "../../github/client.js";
@@ -396,7 +396,7 @@ async function attemptAgentRepair(
     options.parsedPr,
     options.markerTargetRepo,
   );
-  const agent = await createIntegrationRepairCloudAgent({
+  const agent = await createIntegrationRepairAgent({
     apiKey: options.cursorApiKey,
     config: options.config,
     targetRepo: options.markerTargetRepo,
@@ -522,7 +522,7 @@ async function attemptAgentRepair(
     });
     throw error;
   } finally {
-    await disposeCloudAgent(agent);
+    await disposeAgent(agent);
   }
 }
 

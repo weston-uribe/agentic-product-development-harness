@@ -10,7 +10,8 @@ const mocks = vi.hoisted(() => ({
   postErrorComment: vi.fn(),
   listIssueComments: vi.fn(),
   createLinearClient: vi.fn(),
-  createRevisionCloudAgent: vi.fn(),
+  createRevisionAgent: vi.fn(),
+  disposeAgent: vi.fn(),
   sendAndObserve: vi.fn(),
   fetchLinearIssue: vi.fn(),
   inspectPullRequest: vi.fn(),
@@ -26,13 +27,11 @@ vi.mock("../../src/linear/writer.js", () => ({
   createLinearClient: mocks.createLinearClient,
 }));
 
-vi.mock("../../src/cursor/agent-factory.js", () => ({
-  createRevisionCloudAgent: mocks.createRevisionCloudAgent,
-  disposeCloudAgent: vi.fn().mockResolvedValue(undefined),
-}));
-
-vi.mock("../../src/cursor/run-observer.js", () => ({
+vi.mock("../../src/agents/index.js", () => ({
+  createRevisionAgent: mocks.createRevisionAgent,
+  disposeAgent: mocks.disposeAgent,
   sendAndObserve: mocks.sendAndObserve,
+  resolveModelId: vi.fn().mockReturnValue("composer-2.5"),
 }));
 
 vi.mock("../../src/linear/client.js", async (importOriginal) => {
@@ -190,7 +189,7 @@ describe("executeRevisionPhase", () => {
       polledSeconds: 0,
       warnings: [],
     });
-    mocks.createRevisionCloudAgent.mockResolvedValue({
+    mocks.createRevisionAgent.mockResolvedValue({
       agentId: "agent-rev",
       [Symbol.asyncDispose]: async () => undefined,
     });
@@ -251,7 +250,7 @@ describe("executeRevisionPhase", () => {
     expect(result.manifest.pmFeedbackCommentId).toBe("pm-feedback-1");
     expect(mocks.transitionIssueStatus).toHaveBeenCalledTimes(2);
     expect(mocks.postRevisionComment).toHaveBeenCalledTimes(1);
-    expect(mocks.createRevisionCloudAgent).toHaveBeenCalledWith(
+    expect(mocks.createRevisionAgent).toHaveBeenCalledWith(
       expect.objectContaining({
         branch: "cursor/wes-13-test",
         prUrl: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4",
@@ -298,7 +297,7 @@ describe("executeRevisionPhase", () => {
     expect(result.exitCode).toBe(0);
     expect(result.manifest.finalOutcome).toBe("duplicate");
     expect(mocks.postRevisionComment).not.toHaveBeenCalled();
-    expect(mocks.createRevisionCloudAgent).not.toHaveBeenCalled();
+    expect(mocks.createRevisionAgent).not.toHaveBeenCalled();
   });
 
   it("fails with wrong_status from PM Review without matching revision marker", async () => {

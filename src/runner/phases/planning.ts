@@ -22,9 +22,12 @@ import {
   postPlanningComment,
   transitionIssueStatus,
 } from "../../linear/writer.js";
-import { createPlanningCloudAgent, disposeCloudAgent } from "../../cursor/agent-factory.js";
-import { sendAndObserve } from "../../cursor/run-observer.js";
-import { resolveModelId } from "../../cursor/model.js";
+import {
+  createPlanningAgent,
+  disposeAgent,
+  resolveModelId,
+  sendAndObserve,
+} from "../../agents/index.js";
 import { buildPlanningPrompt } from "../../prompts/builder.js";
 import { PlanningError } from "../errors.js";
 import { runPreflight } from "../preflight.js";
@@ -270,7 +273,7 @@ export async function executePlanningPhase(
     await mkdir(`${runDirectory}/prompts`, { recursive: true });
     await writeFile(getPlanningPromptPath(runDirectory), `${prompt}\n`, "utf8");
 
-    const agent = await createPlanningCloudAgent({
+    const agent = await createPlanningAgent({
       apiKey: cursorApiKey,
       config,
       targetRepo: resolved.targetRepo,
@@ -372,7 +375,7 @@ export async function executePlanningPhase(
     finalOutcome = "success";
     errorClassification = null;
     } finally {
-      await disposeCloudAgent(agent);
+      await disposeAgent(agent);
     }
   } catch (error) {
     if (error instanceof PlanningError) {

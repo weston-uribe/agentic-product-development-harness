@@ -1,4 +1,4 @@
-import type { CursorCancelOutcome } from "../cursor/run-cleanup.js";
+import type { CursorCancelOutcome } from "../agents/types.js";
 
 export class PhaseError extends Error {
   readonly classification: import("../types/run.js").ErrorClassification;
@@ -20,7 +20,7 @@ export class PlanningError extends PhaseError {
   constructor(
     classification: NonNullable<import("../types/run.js").ErrorClassification>,
     message: string,
-    cancelOutcome: import("../cursor/run-cleanup.js").CursorCancelOutcome | null = null,
+    cancelOutcome: CursorCancelOutcome | null = null,
   ) {
     super(classification, message, cancelOutcome);
     this.name = "PlanningError";
@@ -31,7 +31,7 @@ export class ImplementationError extends PhaseError {
   constructor(
     classification: NonNullable<import("../types/run.js").ErrorClassification>,
     message: string,
-    cancelOutcome: import("../cursor/run-cleanup.js").CursorCancelOutcome | null = null,
+    cancelOutcome: CursorCancelOutcome | null = null,
   ) {
     super(classification, message, cancelOutcome);
     this.name = "ImplementationError";
@@ -52,7 +52,7 @@ export class RevisionError extends PhaseError {
   constructor(
     classification: NonNullable<import("../types/run.js").ErrorClassification>,
     message: string,
-    cancelOutcome: import("../cursor/run-cleanup.js").CursorCancelOutcome | null = null,
+    cancelOutcome: CursorCancelOutcome | null = null,
   ) {
     super(classification, message, cancelOutcome);
     this.name = "RevisionError";
