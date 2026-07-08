@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_SYNC_REPO_IDS,
   validateForce,
   validateIssueKey,
   validatePhase,
   validateRepoId,
+  validateRepoIdFormat,
 } from "../../src/workflow/validate.js";
 import { DISPATCH_PHASE_ARGS } from "../../src/runner/phase-args.js";
 
@@ -42,14 +42,29 @@ describe("validateForce", () => {
   });
 });
 
+describe("validateRepoIdFormat", () => {
+  it("accepts lowercase slug ids", () => {
+    expect(validateRepoIdFormat("target-app")).toBe(true);
+    expect(validateRepoIdFormat("real-target")).toBe(true);
+  });
+
+  it("rejects malformed ids", () => {
+    expect(validateRepoIdFormat("")).toBe(false);
+    expect(validateRepoIdFormat("../etc")).toBe(false);
+    expect(validateRepoIdFormat("Target-App")).toBe(false);
+  });
+});
+
 describe("validateRepoId", () => {
   it("accepts configured repo ids", () => {
-    expect(validateRepoId("target-app", DEFAULT_SYNC_REPO_IDS)).toBe(true);
-    expect(validateRepoId("harness", DEFAULT_SYNC_REPO_IDS)).toBe(true);
+    const allowed = ["target-app", "real-target"] as const;
+    expect(validateRepoId("target-app", allowed)).toBe(true);
+    expect(validateRepoId("real-target", allowed)).toBe(true);
   });
 
   it("rejects unknown or malformed ids", () => {
-    expect(validateRepoId("unknown", DEFAULT_SYNC_REPO_IDS)).toBe(false);
-    expect(validateRepoId("../etc", DEFAULT_SYNC_REPO_IDS)).toBe(false);
+    const allowed = ["target-app"] as const;
+    expect(validateRepoId("unknown", allowed)).toBe(false);
+    expect(validateRepoId("../etc", allowed)).toBe(false);
   });
 });

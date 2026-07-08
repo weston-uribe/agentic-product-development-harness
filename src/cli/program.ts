@@ -19,7 +19,7 @@ export function createProgram(): Command {
     .description("Agentic product development harness runner")
     .option(
       "--config <path>",
-      "Path to harness.config.json",
+      "Path to harness.config.json (explicit flag overrides HARNESS_CONFIG_* env)",
       "harness.config.json",
     );
 
@@ -128,6 +128,15 @@ export function createProgram(): Command {
     .description("Sync Linear issues from Merged to Dev to Merged / Deployed when promoted")
     .option("--repo <id>", "Repo config id, e.g. target-app")
     .option("--issue <key>", "Single Linear issue key, e.g. WES-11")
+    .option(
+      "--source-repo <slug>",
+      "Dispatch sourceRepo slug, e.g. owner/example-target-app",
+    )
+    .option(
+      "--production-branch <branch>",
+      "Dispatch productionBranch, e.g. main",
+    )
+    .option("--ref <ref>", "Dispatch git ref, e.g. refs/heads/main")
     .option("--dry-run", "Inspect without Linear writes", false)
     .option("--force", "Re-run even when markers exist", false)
     .option("--json", "Print sync summary JSON to stdout", false)
@@ -137,6 +146,9 @@ export function createProgram(): Command {
         configPath,
         repo: opts.repo,
         issue: opts.issue,
+        sourceRepo: opts.sourceRepo,
+        productionBranch: opts.productionBranch,
+        ref: opts.ref,
         dryRun: opts.dryRun,
         force: opts.force,
         json: opts.json,

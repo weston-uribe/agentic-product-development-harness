@@ -44,6 +44,7 @@ The important boundary is credential access:
 | `LINEAR_API_KEY` | GitHub Actions secrets | Linear API as token owner | No | **Yes** | Critical |
 | `CURSOR_API_KEY` | GitHub Actions secrets | Cursor Cloud Agents | No (Cursor-side) | No | High |
 | `HARNESS_GITHUB_TOKEN` | GitHub Actions secrets | Target repos: PR merge/repair | **Yes** (configured target repos) | No | Critical |
+| `HARNESS_CONFIG_JSON_B64` | GitHub Actions secrets | Private harness config JSON (base64) | No | No | High (reveals repo URLs, branch strategy) |
 
 ---
 
@@ -67,11 +68,12 @@ Optional: `GITHUB_DISPATCH_REPOSITORY`, `GITHUB_DISPATCH_EVENT_TYPE`, `LINEAR_WE
 
 | Secret | Used by |
 |--------|---------|
+| `HARNESS_CONFIG_JSON_B64` | All harness jobs (private operator config) |
 | `LINEAR_API_KEY` | All live harness phases |
 | `CURSOR_API_KEY` | planning, implementation, revision, merge repair |
 | `HARNESS_GITHUB_TOKEN` | Mapped to runtime `GITHUB_TOKEN` in workflows |
 
-`HARNESS_GITHUB_TOKEN` must have access to **target repos** in `harness.config.json` (classic `repo` or fine-grained **Contents: Read and write** + **Pull requests: Read and write** on each target).
+`HARNESS_GITHUB_TOKEN` must have access to **target repos** in the resolved harness config (classic `repo` or fine-grained **Contents: Read and write** + **Pull requests: Read and write** on each target). Target repos are typically defined in private config via `HARNESS_CONFIG_JSON_B64` — see [`docs/operator-config.md`](operator-config.md).
 
 Do **not** name the Actions secret `GITHUB_TOKEN` — GitHub reserves that for the auto-generated workflow token.
 

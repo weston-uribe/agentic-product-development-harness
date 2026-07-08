@@ -2,7 +2,7 @@ import "dotenv/config";
 import { access, constants, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { Cursor } from "@cursor/sdk";
-import { loadConfig, validateRepoClosure } from "../../config/load-config.js";
+import { loadHarnessConfig, validateRepoClosure } from "../../config/load-config.js";
 import type { HarnessConfig } from "../../config/types.js";
 import {
   assertBaseBranchExists,
@@ -30,10 +30,12 @@ export async function runDoctor(options: DoctorOptions): Promise<number> {
   let config: HarnessConfig | null = null;
 
   try {
-    config = await loadConfig(options.configPath);
+    const loaded = await loadHarnessConfig({ configPath: options.configPath });
+    config = loaded.config;
     checks.push({
-      label: "harness.config.json valid",
+      label: "harness config valid",
       ok: true,
+      detail: loaded.source.label,
     });
 
     validateRepoClosure(config);

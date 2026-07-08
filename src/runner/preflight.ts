@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { MILESTONE } from "../config/defaults.js";
-import { loadConfig } from "../config/load-config.js";
+import { loadHarnessConfig } from "../config/load-config.js";
 import type { HarnessConfig } from "../config/types.js";
 import { EventLogger } from "../artifacts/events.js";
 import { createRunId } from "../artifacts/run-id.js";
@@ -80,7 +80,8 @@ export async function runPreflight(
   let phaseInferredFromStatus: string | null = null;
 
   try {
-    config = await loadConfig(options.configPath);
+    const loaded = await loadHarnessConfig({ configPath: options.configPath });
+    config = loaded.config;
     runDirectory = getRunDirectory(config.logDirectory, options.issueKey, runId);
     events = new EventLogger(runDirectory);
     await events.init();
@@ -90,7 +91,10 @@ export async function runPreflight(
       issueKey: options.issueKey,
       milestone: MILESTONE,
     });
-    await events.log("config_loaded", "info", { configPath: options.configPath });
+    await events.log("config_loaded", "info", {
+      configSource: loaded.source.label,
+      configSourceKind: loaded.source.kind,
+    });
 
     if (options.fixturePath) {
       issue = await loadIssueFixture(options.fixturePath, options.issueKey);

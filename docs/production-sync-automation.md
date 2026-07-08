@@ -2,7 +2,7 @@
 
 Operator guide for automatic production sync after a target repo integration branch is promoted to production.
 
-**Related:** [`docs/target-repo-branch-setup.md`](target-repo-branch-setup.md), [`docs/linear-watcher-setup.md`](linear-watcher-setup.md), [`docs/releases/v0.2.0.md`](releases/v0.2.0.md)
+**Related:** [`docs/target-repo-branch-setup.md`](target-repo-branch-setup.md), [`docs/linear-watcher-setup.md`](linear-watcher-setup.md), [`docs/operator-config.md`](operator-config.md), [`docs/releases/v0.2.0.md`](releases/v0.2.0.md)
 
 ---
 
@@ -37,6 +37,8 @@ If workflow files cannot be pushed, use the exact YAML below via GitHub UI. Do *
 ---
 
 ## Harness repo: `harness-auto-runner.yml`
+
+**Operator config:** set GitHub Actions secret **`HARNESS_CONFIG_JSON_B64`** with your private harness config so sync accepts your target repo ids. See [`docs/operator-config.md`](operator-config.md).
 
 **Track A:** merge the updated workflow to [`.github/workflows/harness-auto-runner.yml`](../.github/workflows/harness-auto-runner.yml) using a credential with **`workflow` scope**.
 
@@ -138,7 +140,8 @@ The harness workflow change on `production_promoted` is **still required**; webh
 ## Validation gates
 
 1. `npm test`, `npm run test:webhook`, `npm run build`, `npm run harness:doctor`
-2. Dispatch test (`gh api … production_promoted`) → harness **sync-production** job runs (not `run-harness`)
+2. Set `HARNESS_CONFIG_JSON_B64` with private config including target repo id (see [`docs/operator-config.md`](operator-config.md))
+3. Dispatch test (`gh api … production_promoted`) → harness **sync-production** job runs (not `run-harness`)
 3. Target repo push to **`main`** → dispatch → sync job
 4. Target repo push to integration branch → no dispatch workflow run
 5. Repeat **`main`** push → idempotent (no duplicate Linear comments)
