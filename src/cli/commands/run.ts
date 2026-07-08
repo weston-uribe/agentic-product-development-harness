@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { EXIT_CONFIG } from "../exit-codes.js";
-import { runOrchestrator } from "../../runner/orchestrator.js";
+import { runOrchestrator, type RunPhaseArg } from "../../runner/orchestrator.js";
 
 export interface RunCommandOptions {
   issueKey: string;
@@ -8,7 +8,7 @@ export interface RunCommandOptions {
   dryRun?: boolean;
   fixturePath?: string;
   json?: boolean;
-  phase?: "auto" | "planning" | "implementation" | "dry-run";
+  phase?: RunPhaseArg;
   force?: boolean;
 }
 

@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { EXIT_CONFIG, EXIT_PLANNING_FAILURE, EXIT_RUN_FAILURE } from "../exit-codes.js";
+import { isDispatchPhase } from "../../runner/phase-args.js";
 import { resolveRoute, type ResolveRoutePhaseArg, LinearAuthError } from "../../runner/resolve-route.js";
 import { ResolverError } from "../../resolver/errors.js";
 
@@ -11,15 +12,6 @@ export interface ResolveRouteCommandOptions {
   githubOutput?: boolean;
 }
 
-const VALID_PHASES = new Set<ResolveRoutePhaseArg>([
-  "auto",
-  "planning",
-  "implementation",
-  "handoff",
-  "revision",
-  "merge",
-]);
-
 export async function runResolveRouteCommand(
   options: ResolveRouteCommandOptions,
 ): Promise<number> {
@@ -29,7 +21,7 @@ export async function runResolveRouteCommand(
   }
 
   const phase = options.phase ?? "auto";
-  if (!VALID_PHASES.has(phase)) {
+  if (!isDispatchPhase(phase)) {
     console.error(`Invalid --phase "${phase}".`);
     return EXIT_CONFIG;
   }

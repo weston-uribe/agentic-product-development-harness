@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Repo-agnostic Cursor SDK orchestration harness (Milestone 8: Linear watcher)",
+  "description": "Cursor-first Linear/GitHub/GitHub Actions orchestration harness (SDK runners planning–merge, event-driven auto-run).",
   "scripts": {
     "build": "tsc",
     "test": "vitest run",

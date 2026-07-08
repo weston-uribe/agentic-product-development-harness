@@ -1,4 +1,8 @@
 import { Command } from "commander";
+import {
+  DISPATCH_PHASE_CLI_DESCRIPTION,
+  RUN_PHASE_CLI_DESCRIPTION,
+} from "../runner/phase-args.js";
 import { runDoctor } from "./commands/doctor.js";
 import { runInspect } from "./commands/inspect.js";
 import { runRunCommand } from "./commands/run.js";
@@ -41,7 +45,7 @@ export function createProgram(): Command {
     .option("--dry-run", "Parse and resolve without side effects", false)
     .option(
       "--phase <phase>",
-      "Run phase: auto, planning, implementation, handoff, revision, merge, or dry-run (default: auto for live runs)",
+      `Run phase: ${RUN_PHASE_CLI_DESCRIPTION} (default: auto for live runs)`,
       "auto",
     )
     .option("--force", "Re-run planning even when idempotency markers exist", false)
@@ -98,7 +102,7 @@ export function createProgram(): Command {
     .requiredOption("--issue <key>", "Linear issue key, e.g. WES-11")
     .option(
       "--phase <phase>",
-      "Phase override: auto, planning, implementation, handoff, revision, merge",
+      `Phase override: ${DISPATCH_PHASE_CLI_DESCRIPTION}`,
       "auto",
     )
     .option("--json", "Print route JSON to stdout", false)

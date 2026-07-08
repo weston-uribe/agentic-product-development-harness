@@ -41,7 +41,7 @@ function baseManifest(overrides: Partial<RunManifest> = {}): RunManifest {
     errorClassification: null,
     startedAt: "2026-07-08T00:00:00.000Z",
     finishedAt: "2026-07-08T00:01:00.000Z",
-    milestone: "m7",
+    milestone: "v0.2-prep",
     promptVersion: "planning@1",
     cursorAgentId: "agent-1",
     cursorRunId: "run-1",
