@@ -10,14 +10,9 @@ import { findImplementationPullRequest } from "../github/pr-discovery.js";
 import { isImplementationStartStale } from "./building-recovery.js";
 import { inferPhaseFromStatus } from "./phase-infer.js";
 import type { RunPhase } from "../types/run.js";
+import type { DispatchPhaseArg } from "./phase-args.js";
 
-export type ResolveRoutePhaseArg =
-  | "auto"
-  | "planning"
-  | "implementation"
-  | "handoff"
-  | "revision"
-  | "merge";
+export type ResolveRoutePhaseArg = DispatchPhaseArg;
 
 export interface ResolveRouteResult {
   issueKey: string;

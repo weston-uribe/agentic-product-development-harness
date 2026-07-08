@@ -6,6 +6,7 @@ import {
   validatePhase,
   validateRepoId,
 } from "../../src/workflow/validate.js";
+import { DISPATCH_PHASE_ARGS } from "../../src/runner/phase-args.js";
 
 describe("validateIssueKey", () => {
   it("accepts valid keys", () => {
@@ -23,14 +24,7 @@ describe("validateIssueKey", () => {
 
 describe("validatePhase", () => {
   it("accepts allowed phases", () => {
-    for (const phase of [
-      "auto",
-      "planning",
-      "implementation",
-      "handoff",
-      "revision",
-      "merge",
-    ]) {
+    for (const phase of DISPATCH_PHASE_ARGS) {
       expect(validatePhase(phase)).toBe(true);
     }
   });

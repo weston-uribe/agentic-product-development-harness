@@ -2,11 +2,25 @@
 
 Phased delivery for the agentic product development harness. Each phase adds capability only after the previous loop is proven manually.
 
-**Current phase: ChatGPT issue intake prompt (Milestone 9)**
+**Current phase: V0.2 release preparation (maintainability / code quality)**
 
 ---
 
-## ChatGPT issue intake (current)
+## V0.2 release preparation (current)
+
+**Goal:** Remove obvious maintainability drift and centralize small shared primitives without changing runtime behavior — preparing the harness for V0.2 release.
+
+**In progress:**
+- Shared run-phase constants and stale type/metadata alignment
+- Workflow helper library split for import-safe testability
+
+**Completed (V0.2 prep):**
+- Provider posture and config seam — [`docs/decisions/0004-agent-provider-boundary.md`](docs/decisions/0004-agent-provider-boundary.md), [`docs/provider-portability.md`](docs/provider-portability.md)
+- Security baseline — [`docs/security.md`](docs/security.md)
+
+---
+
+## ChatGPT issue intake (completed)
 
 **Goal:** Productize issue intake so PMs can create harness-compatible Linear issues via a normal ChatGPT thread without Custom GPT setup or repo template copying.
 

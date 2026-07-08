@@ -1,14 +1,7 @@
+import { isDispatchPhase } from "../runner/phase-args.js";
+
 const ISSUE_KEY_PATTERN = /^[A-Z]+-[0-9]+$/;
 const REPO_ID_PATTERN = /^[a-z][a-z0-9-]*$/;
-
-const VALID_PHASES = new Set([
-  "auto",
-  "planning",
-  "implementation",
-  "handoff",
-  "revision",
-  "merge",
-]);
 
 const VALID_FORCE = new Set(["true", "false"]);
 
@@ -20,10 +13,7 @@ export function validateIssueKey(value: string | null | undefined): boolean {
 }
 
 export function validatePhase(value: string | null | undefined): boolean {
-  if (!value || typeof value !== "string") {
-    return false;
-  }
-  return VALID_PHASES.has(value.trim().toLowerCase());
+  return isDispatchPhase(value);
 }
 
 export function validateForce(value: string | null | undefined): boolean {

@@ -47,14 +47,8 @@ async function continueAfterImplementation(
   };
 }
 
-export type RunPhaseArg =
-  | "auto"
-  | "planning"
-  | "implementation"
-  | "handoff"
-  | "revision"
-  | "merge"
-  | "dry-run";
+export type { RunPhaseArg } from "./phase-args.js";
+import type { RunPhaseArg } from "./phase-args.js";
 
 export interface OrchestratorOptions {
   issueKey: string;
