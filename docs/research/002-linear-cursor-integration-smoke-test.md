@@ -35,7 +35,7 @@ Whether assigning or mentioning Cursor from a Linear issue can:
 ## Scope boundaries (honored)
 
 - No Cursor Automations
-- No changes to `weston-uribe-portfolio` or other target repos
+- No changes to `example-target-app` or other target repos
 - No new skills under `skills/`
 - No releases or version bumps
 - No implementation code or CI changes

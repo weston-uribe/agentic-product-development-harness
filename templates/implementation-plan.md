@@ -5,7 +5,7 @@
 ## Issue reference
 
 - Issue: [link or file path]
-- Target repo: [e.g. weston-uribe-portfolio]
+- Target repo: [e.g. example-target-app]
 - Branch name (proposed): `feat/...` or `fix/...`
 
 ## Context

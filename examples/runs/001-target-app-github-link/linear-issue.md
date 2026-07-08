@@ -1,28 +1,28 @@
-# Issue: Add GitHub link to portfolio contact or footer
+# Issue: Add GitHub link to site contact or footer
 
 <!-- Run 001 — manual v0.1 harness. Based on templates/linear-issue.md -->
 
 ## Problem
 
-Hiring managers and technical reviewers visiting the live portfolio cannot easily reach the public GitHub repository from the site. The repo was recently renamed and publicized (`weston-uribe/weston-uribe-portfolio`); the portfolio should surface that link where contact and professional links already live so reviewers can inspect code, commit history, and harness-related work without leaving the site context.
+Hiring managers and technical reviewers visiting the live target app site cannot easily reach the public GitHub repository from the site. The repo was recently renamed and publicized (`owner/example-target-app`); the target app should surface that link where contact and professional links already live so reviewers can inspect code, commit history, and harness-related work without leaving the site context.
 
 ## User / job story
 
-As a **hiring manager or technical reviewer**, I want **a clear GitHub link on the portfolio site** so that **I can open the public repository directly and evaluate how the candidate builds and documents product work**.
+As a **hiring manager or technical reviewer**, I want **a clear GitHub link on the target app site** so that **I can open the public repository directly and evaluate how the candidate builds and documents product work**.
 
 ## Acceptance criteria
 
-- [ ] A visible GitHub link is present in the portfolio **contact section and/or footer** (exact placement TBD after repo inspection).
-- [ ] The link URL is `https://github.com/weston-uribe/weston-uribe-portfolio`.
+- [ ] A visible GitHub link is present in the target app **contact section and/or footer** (exact placement TBD after repo inspection).
+- [ ] The link URL is `https://github.com/owner/example-target-app`.
 - [ ] The link opens in a new tab with appropriate `rel` attributes (e.g. `noopener noreferrer`) consistent with other external links on the site.
 - [ ] Visual treatment matches existing contact/social link patterns (icon, label, spacing, hover/focus states).
 - [ ] Link is keyboard-focusable and has an accessible name (visible text and/or `aria-label` consistent with site patterns).
 - [ ] Existing contact, resume, and LinkedIn links continue to work unchanged.
-- [ ] `npm run lint` and `npm run build` pass in the portfolio repo.
+- [ ] `npm run lint` and `npm run build` pass in the target repo.
 
 ## Out of scope
 
-- Changing copy or layout of unrelated portfolio sections (hero, case studies, about narrative).
+- Changing copy or layout of unrelated unrelated site sections (hero, case studies, about narrative).
 - Adding links to other GitHub repos or private repositories.
 - Redesigning the entire contact or footer component.
 - Analytics, tracking, or new dependencies unless required by an existing link pattern.
@@ -31,15 +31,15 @@ As a **hiring manager or technical reviewer**, I want **a clear GitHub link on t
 
 ## Context and links
 
-- **Target repo (GitHub):** `weston-uribe/weston-uribe-portfolio`
-- **Target local path:** `/Users/weston/Code/weston-uribe-portfolio`
-- **Live site:** https://weston-uribe-portfolio.vercel.app (or local dev preview)
-- **Harness run folder:** `examples/runs/001-portfolio-github-link/`
-- Related: portfolio rename from `wedge-1`; public repo readiness work on `main`
+- **Target repo (GitHub):** `owner/example-target-app`
+- **Target local path:** `/Users/weston/Code/example-target-app`
+- **Live site:** https://www.example.com (or local dev preview)
+- **Harness run folder:** `examples/runs/001-target-app-github-link/`
+- Related: repo rename from `wedge-1`; public repo readiness work on `main`
 
 ## Product review method
 
-- **Primary:** Local preview via `npm run dev` in the portfolio repo (desktop + mobile viewport).
+- **Primary:** Local preview via `npm run dev` in the target repo (desktop + mobile viewport).
 - **Optional:** Vercel preview URL on the PR branch for hiring-manager-style review.
 
 ## Human approval gates
@@ -71,4 +71,4 @@ Criteria for [`eval-scorecard.md`](eval-scorecard.md):
 - [x] Out of scope is documented
 - [x] Target repo identified
 - [ ] PM / owner assigned for review — Weston Uribe
-- [ ] Implementation plan approved after portfolio repo inspection
+- [ ] Implementation plan approved after target repo inspection

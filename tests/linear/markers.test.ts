@@ -19,7 +19,7 @@ cursor_agent_id: bc-abc123
 cursor_run_id: run-456
 model: composer-2.5
 prompt_version: planning@1
-target_repo: https://github.com/weston-uribe/weston-uribe-portfolio
+target_repo: https://github.com/owner/example-target-app
 base_branch: dev
 ---`;
 

@@ -24,7 +24,7 @@ For PM self-service intake, use the canonical ChatGPT prompt — see [ChatGPT pa
 
 Ask for **all fields in one message**:
 
-1. **Linear project** (primary) — e.g. Portfolio, Agentic Product Development Harness
+1. **Linear project** (primary) — e.g. Example Target App, Agentic Product Development Harness
 2. **Target repo** (optional override) — only when project metadata does not include `Harness metadata: Target repo: ...`
 3. Desired outcome
 4. Current problem / current behavior
@@ -65,7 +65,7 @@ Recommend **Linear status** (not a description section):
 
 ### Labels (optional)
 
-Use only **existing** WES team labels. Suggest: `portfolio` / `harness` by project; `requires-plan` + `planning-agent` for Ready for Planning; `skip-plan` + `implementation-agent` for Ready for Build; `Feature`/`Improvement`/`Bug` when obvious. Runner does not enforce labels.
+Use only **existing** WES team labels. Suggest: `target-app` / `harness` by project; `requires-plan` + `planning-agent` for Ready for Planning; `skip-plan` + `implementation-agent` for Ready for Build; `Feature`/`Improvement`/`Bug` when obvious. Runner does not enforce labels.
 
 ### Project metadata
 

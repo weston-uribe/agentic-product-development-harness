@@ -42,19 +42,19 @@ import type { HarnessConfig } from "../../src/config/types.js";
 
 const issueDescription = `## Target repo
 
-weston-uribe/weston-uribe-portfolio
+owner/example-target-app
 
 ## Task
 
-Add a temporary Hello World page to the portfolio app and add a top-nav link to that page.
+Add a temporary Hello World page to the target app and add a top-nav link to that page.
 
 ## Acceptance criteria
 
-- [ ] A temporary Hello World page exists in the portfolio app
+- [ ] A temporary Hello World page exists in the target app
 - [ ] A visible top-nav link opens the Hello World page
 - [ ] The change is narrow and reversible
 - [ ] Validation commands are run
-- [ ] A PR is opened against the portfolio repo
+- [ ] A PR is opened against the target repo
 - [ ] No merge is performed
 - [ ] No preview capture or PM Review transition is required in this milestone
 
@@ -97,9 +97,9 @@ describe("executeImplementationPhase", () => {
       implementation: { timeoutSeconds: 60, branchPrefix: "cursor" },
       repos: [
         {
-          id: "portfolio",
-          linearProjects: ["Portfolio"],
-          targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+          id: "target-app",
+          linearProjects: ["Example Target App"],
+          targetRepo: "https://github.com/owner/example-target-app",
           baseBranch: "main",
           previewProvider: "vercel",
           validation: {
@@ -108,7 +108,7 @@ describe("executeImplementationPhase", () => {
         },
       ],
       allowedTargetRepos: [
-        "https://github.com/weston-uribe/weston-uribe-portfolio",
+        "https://github.com/owner/example-target-app",
       ],
     };
     configPath = path.join(tempRoot, "harness.config.json");
@@ -133,7 +133,7 @@ describe("executeImplementationPhase", () => {
       title: "M3 implementation integration test",
       description: issueDescription,
       status: "Ready for Build",
-      projectName: "Portfolio",
+      projectName: "Example Target App",
       teamName: "WES",
       teamId: "team-1",
       url: "https://linear.app/example/issue/WES-12/test",
@@ -152,9 +152,9 @@ describe("executeImplementationPhase", () => {
       runId: "run-impl",
       assistantText: "## Implementation summary\n\nDone",
       gitResult: {
-        repoUrl: "https://github.com/weston-uribe/weston-uribe-portfolio",
+        repoUrl: "https://github.com/owner/example-target-app",
         branch: "cursor/wes-12-m3-implementation-integration-test",
-        prUrl: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/12",
+        prUrl: "https://github.com/owner/example-target-app/pull/12",
       },
       result: { id: "run-impl", status: "finished" },
     });

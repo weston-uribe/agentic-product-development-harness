@@ -3,10 +3,10 @@ import { extractRevisionGitResult } from "../../src/cursor/revision-git-result.j
 import { RevisionError } from "../../src/runner/errors.js";
 
 describe("extractRevisionGitResult", () => {
-  const targetRepo = "https://github.com/weston-uribe/weston-uribe-portfolio";
+  const targetRepo = "https://github.com/owner/example-target-app";
   const expectedBranch = "cursor/wes-13-test";
   const expectedPrUrl =
-    "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4";
+    "https://github.com/owner/example-target-app/pull/4";
 
   it("accepts git metadata matching existing PR and branch", () => {
     const result = extractRevisionGitResult(
@@ -36,7 +36,7 @@ describe("extractRevisionGitResult", () => {
             {
               repoUrl: targetRepo,
               branch: expectedBranch,
-              prUrl: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/99",
+              prUrl: "https://github.com/owner/example-target-app/pull/99",
             },
           ],
         },

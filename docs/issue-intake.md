@@ -93,7 +93,7 @@ Template: [`templates/linear-issue.md`](../templates/linear-issue.md)
 
 | Linear project (WES) | Resolved target repo |
 |----------------------|----------------------|
-| Portfolio | `weston-uribe/weston-uribe-portfolio` |
+| Example Target App | `owner/example-target-app` |
 | Agentic Product Development Harness | `weston-uribe/agentic-product-development-harness` |
 
 Project descriptions may include:

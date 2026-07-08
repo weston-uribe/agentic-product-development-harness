@@ -21,9 +21,9 @@ jobs:
             -H "X-GitHub-Api-Version: 2022-11-28" \
             https://api.github.com/repos/weston-uribe/agentic-product-development-harness/dispatches \
             -d "$(jq -n \
-              --arg repo portfolio \
+              --arg repo target-app \
               --arg branch main \
-              --arg source weston-uribe/weston-uribe-portfolio \
+              --arg source owner/example-target-app \
               --arg after "${{ github.sha }}" \
               --arg ref "${{ github.ref }}" \
               --arg run_id "${{ github.run_id }}" \

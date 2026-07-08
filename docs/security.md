@@ -13,7 +13,7 @@ This repo is **public**. Untrusted users can read code, workflow definitions, an
 Trusted automation paths:
 
 1. **Linear signed webhook** → Vercel bridge → `repository_dispatch`
-2. **Portfolio `main` push** → `production_promoted` dispatch (separate repo)
+2. **Target repo `main` push** → `production_promoted` dispatch (separate repo)
 3. **`workflow_dispatch`** — limited by GitHub Actions write permission on this repo
 
 **Pass B (implemented):** Branch protection ruleset on `main` — PR required, required status checks, no direct push, no force push. GitHub Actions allowed-actions allowlist is active.
@@ -40,7 +40,7 @@ The important boundary is credential access:
 | Secret | Where stored | Scope / permissions | Can write GitHub? | Can write Linear? | Risk if leaked |
 |--------|-------------|---------------------|-------------------|-------------------|----------------|
 | `LINEAR_WEBHOOK_SECRET` | Vercel | HMAC signing for Linear webhooks | No | Indirect (forge webhook → dispatch) | High |
-| `GITHUB_DISPATCH_TOKEN` | Vercel, portfolio repo | Fine-grained **Contents: write** on harness repo only | Triggers workflows only | No | High |
+| `GITHUB_DISPATCH_TOKEN` | Vercel, target repo | Fine-grained **Contents: write** on harness repo only | Triggers workflows only | No | High |
 | `LINEAR_API_KEY` | GitHub Actions secrets | Linear API as token owner | No | **Yes** | Critical |
 | `CURSOR_API_KEY` | GitHub Actions secrets | Cursor Cloud Agents | No (Cursor-side) | No | High |
 | `HARNESS_GITHUB_TOKEN` | GitHub Actions secrets | Target repos: PR merge/repair | **Yes** (configured target repos) | No | Critical |

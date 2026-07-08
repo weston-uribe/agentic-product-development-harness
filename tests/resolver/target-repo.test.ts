@@ -24,10 +24,10 @@ const config: HarnessConfig = {
   logDirectory: "runs",
   repos: [
     {
-      id: "portfolio",
-      linearProjects: ["Portfolio"],
+      id: "target-app",
+      linearProjects: ["Example Target App"],
       linearTeams: ["WES"],
-      targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+      targetRepo: "https://github.com/owner/example-target-app",
       baseBranch: "dev",
       productionBranch: "main",
       previewProvider: "vercel",
@@ -44,7 +44,7 @@ const config: HarnessConfig = {
     },
   ],
   allowedTargetRepos: [
-    "https://github.com/weston-uribe/weston-uribe-portfolio",
+    "https://github.com/owner/example-target-app",
     "https://github.com/weston-uribe/agentic-product-development-harness",
   ],
 };
@@ -52,7 +52,7 @@ const config: HarnessConfig = {
 describe("resolveTargetRepo", () => {
   it("prefers explicit target repo over project mapping", async () => {
     const parsed = parseIssueDescription(await loadFixtureBody("explicit-target-repo.md"));
-    const resolved = resolveTargetRepo(parsed, { projectName: "Portfolio" }, config);
+    const resolved = resolveTargetRepo(parsed, { projectName: "Example Target App" }, config);
 
     expect(resolved.resolutionSource).toBe("explicit");
     expect(resolved.targetRepo).toBe(
@@ -63,10 +63,10 @@ describe("resolveTargetRepo", () => {
   it("resolves by project when explicit repo missing", async () => {
     const description = `## Task\nDo work\n\n## Acceptance criteria\n- [ ] ok\n\n## Out of scope\n- [ ] none`;
     const parsed = parseIssueDescription(description);
-    const resolved = resolveTargetRepo(parsed, { projectName: "Portfolio" }, config);
+    const resolved = resolveTargetRepo(parsed, { projectName: "Example Target App" }, config);
 
     expect(resolved.resolutionSource).toBe("project");
-    expect(resolved.repoConfigId).toBe("portfolio");
+    expect(resolved.repoConfigId).toBe("target-app");
     expect(resolved.baseBranch).toBe("dev");
     expect(resolved.productionBranch).toBe("main");
     expect(resolved.integrationPreviewUrl).toBe("https://dev.example.vercel.app");
@@ -78,7 +78,7 @@ describe("resolveTargetRepo", () => {
     const resolved = resolveTargetRepo(parsed, { teamName: "WES" }, config);
 
     expect(resolved.resolutionSource).toBe("team");
-    expect(resolved.repoConfigId).toBe("portfolio");
+    expect(resolved.repoConfigId).toBe("target-app");
   });
 
   it("fails when no mapping exists", () => {

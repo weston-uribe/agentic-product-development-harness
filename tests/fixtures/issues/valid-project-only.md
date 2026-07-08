@@ -1,11 +1,11 @@
 ---
-title: Portfolio nav tweak from project mapping
-projectName: Portfolio
+title: Target app nav tweak from project mapping
+projectName: Example Target App
 ---
 
 ## Task
 
-Add a small visual tweak to the portfolio navigation.
+Add a small visual tweak to the target app navigation.
 
 ## Acceptance criteria
 

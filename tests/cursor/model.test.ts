@@ -14,14 +14,14 @@ function makeConfig(overrides: Partial<HarnessConfig> = {}): HarnessConfig {
     logDirectory: "runs",
     repos: [
       {
-        id: "portfolio",
-        targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+        id: "target-app",
+        targetRepo: "https://github.com/owner/example-target-app",
         baseBranch: "main",
         productionBranch: "main",
       },
     ],
     allowedTargetRepos: [
-      "https://github.com/weston-uribe/weston-uribe-portfolio",
+      "https://github.com/owner/example-target-app",
     ],
     ...overrides,
   } as HarnessConfig;

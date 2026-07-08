@@ -1,6 +1,6 @@
 # Production sync automation
 
-Operator guide for automatic production sync after portfolio `dev → main` promotion.
+Operator guide for automatic production sync after a target repo integration branch is promoted to production.
 
 **Related:** [`docs/target-repo-branch-setup.md`](target-repo-branch-setup.md), [`docs/linear-watcher-setup.md`](linear-watcher-setup.md), [`docs/releases/v0.2.0.md`](releases/v0.2.0.md)
 
@@ -8,18 +8,18 @@ Operator guide for automatic production sync after portfolio `dev → main` prom
 
 ## Overview
 
-When `weston-uribe/weston-uribe-portfolio` **`main`** receives a push (after manual `dev → main` promotion), the harness should run production sync automatically:
+When `owner/example-target-app` **`main`** receives a push (after manual integration branch → production branch promotion), the harness should run production sync automatically:
 
 ```text
-portfolio push to main → repository_dispatch production_promoted → harness GHA → harness:sync-production --repo portfolio
+target repo push to main → repository_dispatch production_promoted → harness GHA → harness:sync-production --repo target-app
 ```
 
-Powerful tokens stay in the **harness repo** GitHub Actions secrets only. The portfolio repo receives at most **`HARNESS_DISPATCH_TOKEN`** (dispatch-only PAT scoped to the harness repo).
+Powerful tokens stay in the **harness repo** GitHub Actions secrets only. The target repo receives at most **`HARNESS_DISPATCH_TOKEN`** (dispatch-only PAT scoped to the harness repo).
 
 Manual CLI remains supported:
 
 ```bash
-npm run harness:sync-production -- --repo portfolio
+npm run harness:sync-production -- --repo target-app
 ```
 
 ---
@@ -46,11 +46,11 @@ The harness workflow must include:
 
 - `repository_dispatch` type **`production_promoted`**
 - Job **`sync-production`** running `npm run harness:sync-production -- --repo … --json`
-- Optional **`workflow_dispatch`** input **`sync_repo`** (e.g. `portfolio`) for manual cloud sync
+- Optional **`workflow_dispatch`** input **`sync_repo`** (e.g. `target-app`) for manual cloud sync
 
 ### Manual cloud sync (harness Actions)
 
-Actions → **Harness Auto Runner** → Run workflow → set **`sync_repo`** = `portfolio` (leave **`issue`** empty).
+Actions → **Harness Auto Runner** → Run workflow → set **`sync_repo`** = `target-app` (leave **`issue`** empty).
 
 ---
 
@@ -60,9 +60,9 @@ Actions → **Harness Auto Runner** → Run workflow → set **`sync_repo`** = `
 
 ```json
 {
-  "repo": "portfolio",
+  "repo": "target-app",
   "productionBranch": "main",
-  "sourceRepo": "weston-uribe/weston-uribe-portfolio",
+  "sourceRepo": "owner/example-target-app",
   "after": "<commit-sha-on-main>",
   "ref": "refs/heads/main",
   "receivedAt": "2026-07-07T23:46:00.000Z"
@@ -71,7 +71,7 @@ Actions → **Harness Auto Runner** → Run workflow → set **`sync_repo`** = `
 
 Optional: `githubRunId`, `githubDeliveryId` (audit only). Harness ignores `after` for promotion proof; per-issue strong proof is unchanged.
 
-### Test dispatch (no portfolio push)
+### Test dispatch (no target repo push)
 
 Requires harness workflow on origin with `production_promoted` handler (see Track B fixture). Use JSON body:
 
@@ -80,9 +80,9 @@ gh api repos/weston-uribe/agentic-product-development-harness/dispatches --metho
 {
   "event_type": "production_promoted",
   "client_payload": {
-    "repo": "portfolio",
+    "repo": "target-app",
     "productionBranch": "main",
-    "sourceRepo": "weston-uribe/weston-uribe-portfolio",
+    "sourceRepo": "owner/example-target-app",
     "after": "<main-sha>",
     "ref": "refs/heads/main",
     "receivedAt": "2026-07-07T23:46:00.000Z"
@@ -95,11 +95,11 @@ Requires a PAT with **Contents: write** on the harness repo (same class as Verce
 
 ---
 
-## Portfolio repo: trigger workflow
+## Target repo: trigger workflow
 
-**Track A:** add the file below to **`weston-uribe/weston-uribe-portfolio`** using a **`workflow`-scoped** credential.
+**Track A:** add the file below to **`owner/example-target-app`** using a **`workflow`-scoped** credential.
 
-**Track B:** copy from [`tests/fixtures/workflows/trigger-harness-production-sync.yml`](../tests/fixtures/workflows/trigger-harness-production-sync.yml) via GitHub web UI → **Add file** on portfolio `main`.
+**Track B:** copy from [`tests/fixtures/workflows/trigger-harness-production-sync.yml`](../tests/fixtures/workflows/trigger-harness-production-sync.yml) via GitHub web UI → **Add file** on production branch.
 
 Path: `.github/workflows/trigger-harness-production-sync.yml`
 
@@ -107,11 +107,11 @@ Path: `.github/workflows/trigger-harness-production-sync.yml`
 # See tests/fixtures/workflows/trigger-harness-production-sync.yml for canonical content.
 ```
 
-**Guards:** runs only on **`main`** pushes — not `dev`, not issue branches.
+**Guards:** runs only on **`main`** pushes — not the integration branch, not issue branches.
 
-### Portfolio secret
+### Target repo secret
 
-In **portfolio** repo → Settings → Secrets and variables → Actions:
+In the **target repo** → Settings → Secrets and variables → Actions:
 
 | Secret | Permission |
 |--------|------------|
@@ -119,19 +119,19 @@ In **portfolio** repo → Settings → Secrets and variables → Actions:
 
 Can reuse the same PAT as Vercel `GITHUB_DISPATCH_TOKEN` for the Linear bridge.
 
-**Do not** add `LINEAR_API_KEY` or merge-capable portfolio `GITHUB_TOKEN` to the portfolio repo.
+**Do not** add `LINEAR_API_KEY` or merge-capable target-repo `GITHUB_TOKEN` to the target repo.
 
 ---
 
 ## Track B: webhook trigger (optional)
 
-If adding a portfolio workflow file is blocked, configure a **GitHub repo webhook** on the portfolio repo (Settings → Webhooks):
+If adding a target repo workflow file is blocked, configure a **GitHub repo webhook** on the target repo (Settings → Webhooks):
 
-- URL: future harness Vercel endpoint (not implemented in v1; prefer portfolio workflow above)
+- URL: future harness Vercel endpoint (not implemented in v1; prefer target repo workflow above)
 - Events: **Push**
 - Filter in handler: `ref == refs/heads/main` only
 
-The harness workflow change on `production_promoted` is **still required**; webhook only replaces the portfolio workflow file.
+The harness workflow change on `production_promoted` is **still required**; webhook only replaces the target repo workflow file.
 
 ---
 
@@ -139,8 +139,8 @@ The harness workflow change on `production_promoted` is **still required**; webh
 
 1. `npm test`, `npm run test:webhook`, `npm run build`, `npm run harness:doctor`
 2. Dispatch test (`gh api … production_promoted`) → harness **sync-production** job runs (not `run-harness`)
-3. Portfolio push to **`main`** → dispatch → sync job
-4. Portfolio push to **`dev`** → no dispatch workflow run
+3. Target repo push to **`main`** → dispatch → sync job
+4. Target repo push to integration branch → no dispatch workflow run
 5. Repeat **`main`** push → idempotent (no duplicate Linear comments)
 6. Issues update to **Merged / Deployed** only when merge commit is reachable on `main` (strong proof)
 
@@ -148,6 +148,6 @@ The harness workflow change on `production_promoted` is **still required**; webh
 
 ## Rollback
 
-1. Disable or delete portfolio `trigger-harness-production-sync.yml`
+1. Disable or delete target repo `trigger-harness-production-sync.yml`
 2. Remove `production_promoted` handler from harness workflow (or disable workflow)
-3. Continue manual sync: `npm run harness:sync-production -- --repo portfolio`
+3. Continue manual sync: `npm run harness:sync-production -- --repo target-app`

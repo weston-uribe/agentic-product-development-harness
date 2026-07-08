@@ -10,7 +10,7 @@ const issue: LinearIssueSnapshot = {
   title: "Hello world page",
   description: "",
   status: "Ready for Planning",
-  projectName: "Portfolio",
+  projectName: "Example Target App",
   teamName: "WES",
   teamId: "team-1",
   url: null,
@@ -24,9 +24,9 @@ const parsed: ParsedIssue = {
 };
 
 const resolved: ResolvedTarget = {
-  targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+  targetRepo: "https://github.com/owner/example-target-app",
   baseBranch: "main",
-  repoConfigId: "portfolio",
+  repoConfigId: "target-app",
   resolutionSource: "explicit",
   previewProvider: "vercel",
 };

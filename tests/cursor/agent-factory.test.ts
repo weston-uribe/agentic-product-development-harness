@@ -17,7 +17,7 @@ import {
 } from "../../src/cursor/agent-factory.js";
 import type { HarnessConfig } from "../../src/config/types.js";
 
-const TARGET_REPO = "https://github.com/weston-uribe/weston-uribe-portfolio";
+const TARGET_REPO = "https://github.com/owner/example-target-app";
 
 function makeConfig(overrides: Partial<HarnessConfig> = {}): HarnessConfig {
   return {
@@ -26,7 +26,7 @@ function makeConfig(overrides: Partial<HarnessConfig> = {}): HarnessConfig {
     logDirectory: "runs",
     repos: [
       {
-        id: "portfolio",
+        id: "target-app",
         targetRepo: TARGET_REPO,
         baseBranch: "main",
         productionBranch: "main",
@@ -136,7 +136,7 @@ describe("cloud agent factories use basic Composer 2.5", () => {
       config: makeConfig(),
       targetRepo: TARGET_REPO,
       branch: "cursor/wes-1",
-      prUrl: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/7",
+      prUrl: "https://github.com/owner/example-target-app/pull/7",
     });
 
     expect(createMock).toHaveBeenCalledTimes(1);
@@ -148,7 +148,7 @@ describe("cloud agent factories use basic Composer 2.5", () => {
         url: TARGET_REPO,
         startingRef: "cursor/wes-1",
         prUrl:
-          "https://github.com/weston-uribe/weston-uribe-portfolio/pull/7",
+          "https://github.com/owner/example-target-app/pull/7",
       },
     ]);
     expect(request.cloud.autoCreatePR).toBe(false);
@@ -162,7 +162,7 @@ describe("cloud agent factories use basic Composer 2.5", () => {
       config: makeConfig(),
       targetRepo: TARGET_REPO,
       branch: "cursor/wes-1",
-      prUrl: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/7",
+      prUrl: "https://github.com/owner/example-target-app/pull/7",
     });
 
     expect(createMock).toHaveBeenCalledTimes(1);
@@ -174,7 +174,7 @@ describe("cloud agent factories use basic Composer 2.5", () => {
         url: TARGET_REPO,
         startingRef: "cursor/wes-1",
         prUrl:
-          "https://github.com/weston-uribe/weston-uribe-portfolio/pull/7",
+          "https://github.com/owner/example-target-app/pull/7",
       },
     ]);
     expect(request.cloud.autoCreatePR).toBe(false);
@@ -200,14 +200,14 @@ describe("cloud agent factories use basic Composer 2.5", () => {
       config: makeConfig(),
       targetRepo: TARGET_REPO,
       branch: "cursor/wes-1",
-      prUrl: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/7",
+      prUrl: "https://github.com/owner/example-target-app/pull/7",
     });
     await createIntegrationRepairCloudAgent({
       apiKey: "key",
       config: makeConfig(),
       targetRepo: TARGET_REPO,
       branch: "cursor/wes-1",
-      prUrl: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/7",
+      prUrl: "https://github.com/owner/example-target-app/pull/7",
     });
 
     for (const call of createMock.mock.calls) {

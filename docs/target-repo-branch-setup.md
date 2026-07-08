@@ -19,7 +19,7 @@ When `baseBranch === productionBranch`, behavior matches the original single-bra
 When `baseBranch !== productionBranch`, merge success moves the issue to **`Merged to Dev`**, merge comments note the change is **not yet in production**, and production deployment polling is skipped. After manually promoting `dev` → `main`, run production sync:
 
 ```bash
-npm run harness:sync-production -- --repo portfolio
+npm run harness:sync-production -- --repo target-app
 ```
 
 For a single issue:
@@ -28,13 +28,13 @@ For a single issue:
 npm run harness:sync-production -- --issue WES-19
 ```
 
-**Automatic sync:** after `main` is updated, portfolio can dispatch `production_promoted` to the harness GitHub Actions workflow (see [`docs/production-sync-automation.md`](production-sync-automation.md)). Manual CLI remains the fallback.
+**Automatic sync:** after `main` is updated, the target repo can dispatch `production_promoted` to the harness GitHub Actions workflow (see [`docs/production-sync-automation.md`](production-sync-automation.md)). Manual CLI remains the fallback.
 
-Harness Actions also supports **`workflow_dispatch`** with input **`sync_repo=portfolio`** on **Harness Auto Runner**.
+Harness Actions also supports **`workflow_dispatch`** with input **`sync_repo=target-app`** on **Harness Auto Runner**.
 
 **Promotion guidance:** prefer merge or fast-forward when promoting `dev` → `main`. Squash promotion may make the original dev merge commit unreachable; sync will correctly no-op with `production_not_promoted`.
 
-## Linear setup (before changing portfolio `baseBranch`)
+## Linear setup (before changing target repo `baseBranch`)
 
 1. Add workflow status **`Merged to Dev`** on the team used by harness issues.
 2. Set `linear.transitionalStatuses.mergedToDev` in `harness.config.json` if your team uses a different label.
@@ -53,7 +53,7 @@ Harness Actions also supports **`workflow_dispatch`** with input **`sync_repo=po
 
 ## Concurrent issues
 
-Multiple issues can run planning, implementation, handoff, and revision in parallel (per-issue GitHub Actions concurrency). Merge into the same integration branch is serialized: the auto-runner gate resolves `repoConfigId` and `baseBranch`, then routes merge work to a queue group `harness-merge-{repoConfigId}-{baseBranch}` with `queue: max`. A second issue waiting to merge into portfolio `dev` runs only after the first merge completes; the runner re-inspects PR mergeability before merging.
+Multiple issues can run planning, implementation, handoff, and revision in parallel (per-issue GitHub Actions concurrency). Merge into the same integration branch is serialized: the auto-runner gate resolves `repoConfigId` and `baseBranch`, then routes merge work to a queue group `harness-merge-{repoConfigId}-{baseBranch}` with `queue: max`. A second issue waiting to merge into integration branch runs only after the first merge completes; the runner re-inspects PR mergeability before merging.
 
 If a queued PR becomes `behind` or `dirty` after another PR lands, the merge runner now attempts automatic integration repair while the issue remains **Merging**:
 
@@ -64,15 +64,16 @@ If a queued PR becomes `behind` or `dirty` after another PR lands, the merge run
 
 Repair may edit conflict files and direct dependency-closure files required for validation. It must not push to the integration or production branch directly.
 
-## Example (portfolio)
+## Example (target-app)
 
 ```json
 {
-  "id": "portfolio",
-  "targetRepo": "https://github.com/weston-uribe/weston-uribe-portfolio",
+  "id": "target-app",
+  "targetRepo": "https://github.com/owner/example-target-app",
   "baseBranch": "dev",
   "productionBranch": "main",
-  "integrationPreviewUrl": "https://your-dev-preview.example",
+  "integrationPreviewUrl": "https://staging.example.com",
+  "productionUrl": "https://www.example.com",
   "integrationSuccessStatus": "Merged to Dev",
   "productionSuccessStatus": "Merged / Deployed"
 }

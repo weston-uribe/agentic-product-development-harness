@@ -44,7 +44,7 @@ npm run harness:validate-issue -- --file draft.md --json
 
 # Regression: preflight dry-run still works
 npm run harness:run -- --issue WES-FIXTURE --dry-run \
-  --fixture tests/fixtures/issues/valid-portfolio.md
+  --fixture tests/fixtures/issues/valid-target-app.md
 ```
 
 ## Exit codes

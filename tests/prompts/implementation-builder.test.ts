@@ -12,7 +12,7 @@ const config: HarnessConfig = {
   logDirectory: "runs",
   implementation: { branchPrefix: "cursor" },
   repos: [],
-  allowedTargetRepos: ["https://github.com/weston-uribe/weston-uribe-portfolio"],
+  allowedTargetRepos: ["https://github.com/owner/example-target-app"],
 };
 
 const issue: LinearIssueSnapshot = {
@@ -21,7 +21,7 @@ const issue: LinearIssueSnapshot = {
   title: "M3 implementation integration test",
   description: "",
   status: "Ready for Build",
-  projectName: "Portfolio",
+  projectName: "Example Target App",
   teamName: "WES",
   teamId: "team-1",
   url: "https://linear.app/example/issue/WES-12/test",
@@ -36,9 +36,9 @@ const parsed: ParsedIssue = {
 };
 
 const resolved: ResolvedTarget = {
-  targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+  targetRepo: "https://github.com/owner/example-target-app",
   baseBranch: "main",
-  repoConfigId: "portfolio",
+  repoConfigId: "target-app",
   resolutionSource: "explicit",
   previewProvider: "vercel",
 };

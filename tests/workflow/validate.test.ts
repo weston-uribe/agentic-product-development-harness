@@ -44,7 +44,7 @@ describe("validateForce", () => {
 
 describe("validateRepoId", () => {
   it("accepts configured repo ids", () => {
-    expect(validateRepoId("portfolio", DEFAULT_SYNC_REPO_IDS)).toBe(true);
+    expect(validateRepoId("target-app", DEFAULT_SYNC_REPO_IDS)).toBe(true);
     expect(validateRepoId("harness", DEFAULT_SYNC_REPO_IDS)).toBe(true);
   });
 

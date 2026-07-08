@@ -38,7 +38,7 @@ vi.mock("../../src/cursor/model.js", () => ({
   resolveModelId: modelMocks.resolveModelId,
 }));
 
-const TARGET_REPO = "https://github.com/weston-uribe/weston-uribe-portfolio";
+const TARGET_REPO = "https://github.com/owner/example-target-app";
 
 function makeConfig(overrides: Partial<HarnessConfig> = {}): HarnessConfig {
   return {
@@ -47,7 +47,7 @@ function makeConfig(overrides: Partial<HarnessConfig> = {}): HarnessConfig {
     logDirectory: "runs",
     repos: [
       {
-        id: "portfolio",
+        id: "target-app",
         targetRepo: TARGET_REPO,
         baseBranch: "main",
         productionBranch: "main",

@@ -17,7 +17,7 @@ describe("GitHubClient", () => {
     const pull = {
       node_id: "PR_kwDOExample",
       title: "[WES-18] test",
-      html_url: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/7",
+      html_url: "https://github.com/owner/example-target-app/pull/7",
       state: "open",
       merged: false,
       draft: true,
@@ -53,7 +53,7 @@ describe("GitHubClient", () => {
     const client = new GitHubClient({ token: "test-token" });
     const result = await client.markPullRequestReadyForReview(
       "weston-uribe",
-      "weston-uribe-portfolio",
+      "example-target-app",
       7,
     );
 

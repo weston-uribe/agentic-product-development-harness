@@ -31,7 +31,7 @@ vi.mock("../../src/github/client.js", async (importOriginal) => {
 vi.mock("@cursor/sdk", () => ({
   Cursor: {
     models: { list: vi.fn().mockResolvedValue([{ id: "composer-2.5" }]) },
-    repositories: { list: vi.fn().mockResolvedValue([{ name: "portfolio" }]) },
+    repositories: { list: vi.fn().mockResolvedValue([{ name: "target-app" }]) },
   },
 }));
 
@@ -53,16 +53,16 @@ describe("runDoctor", () => {
         logDirectory: path.join(tempRoot, "runs"),
         repos: [
           {
-            id: "portfolio",
-            linearProjects: ["Portfolio"],
-            targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+            id: "target-app",
+            linearProjects: ["Example Target App"],
+            targetRepo: "https://github.com/owner/example-target-app",
             baseBranch: "main",
             previewProvider: "vercel",
             validation: { commands: ["npm run lint"] },
           },
         ],
         allowedTargetRepos: [
-          "https://github.com/weston-uribe/weston-uribe-portfolio",
+          "https://github.com/owner/example-target-app",
         ],
       }),
       "utf8",

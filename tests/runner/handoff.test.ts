@@ -45,7 +45,7 @@ vi.mock("../../src/preview/vercel-from-pr.js", () => ({
 
 vi.mock("../../src/github/pr-discovery.js", () => ({
   findImplementationPullRequest: vi.fn().mockResolvedValue({
-    prUrl: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4",
+    prUrl: "https://github.com/owner/example-target-app/pull/4",
     prNumber: 4,
     branch: "cursor/wes-13-test",
     headSha: "abc123",
@@ -67,7 +67,7 @@ import type { HarnessConfig } from "../../src/config/types.js";
 
 const issueDescription = `## Target repo
 
-weston-uribe/weston-uribe-portfolio
+owner/example-target-app
 
 ## Task
 
@@ -112,16 +112,16 @@ describe("executeHandoffPhase", () => {
       preview: { pollTimeoutSeconds: 1, pollIntervalSeconds: 1 },
       repos: [
         {
-          id: "portfolio",
-          linearProjects: ["Portfolio"],
-          targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+          id: "target-app",
+          linearProjects: ["Example Target App"],
+          targetRepo: "https://github.com/owner/example-target-app",
           baseBranch: "main",
           previewProvider: "vercel",
           validation: { commands: ["npm run lint", "npm run build"] },
         },
       ],
       allowedTargetRepos: [
-        "https://github.com/weston-uribe/weston-uribe-portfolio",
+        "https://github.com/owner/example-target-app",
       ],
     };
     configPath = path.join(tempRoot, "harness.config.json");
@@ -139,12 +139,12 @@ describe("executeHandoffPhase", () => {
     mocks.createLinearClient.mockReturnValue({});
     mocks.inspectPullRequest.mockResolvedValue({
       title: "M3 hello world",
-      url: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4",
+      url: "https://github.com/owner/example-target-app/pull/4",
       branch: "cursor/wes-13-test",
       baseBranch: "main",
       state: "open",
       merged: false,
-      repoUrl: "https://github.com/weston-uribe/weston-uribe-portfolio",
+      repoUrl: "https://github.com/owner/example-target-app",
       changedFiles: [{ path: "src/app/hello/page.tsx", status: "added" }],
       checks: [],
       checkSummary: "No GitHub check runs reported for the PR head commit.",
@@ -164,7 +164,7 @@ describe("executeHandoffPhase", () => {
         title: "M3 implementation integration test",
         description: issueDescription,
         status: "PR Open",
-        projectName: "Portfolio",
+        projectName: "Example Target App",
         teamName: "WES",
         teamId: "team-1",
         url: "https://linear.app/example/issue/WES-13/test",
@@ -175,7 +175,7 @@ describe("executeHandoffPhase", () => {
         title: "M3 implementation integration test",
         description: issueDescription,
         status: "PM Review",
-        projectName: "Portfolio",
+        projectName: "Example Target App",
         teamName: "WES",
         teamId: "team-1",
         url: "https://linear.app/example/issue/WES-13/test",
@@ -225,7 +225,7 @@ describe("executeHandoffPhase", () => {
 
   it("moves to Blocked after failure once handoff was entered", async () => {
     mocks.inspectPullRequest.mockRejectedValue(
-      new Error("pr_closed: PR https://github.com/weston-uribe/weston-uribe-portfolio/pull/4 is not open"),
+      new Error("pr_closed: PR https://github.com/owner/example-target-app/pull/4 is not open"),
     );
 
     const result = await executeHandoffPhase({
@@ -260,7 +260,7 @@ describe("executeHandoffPhase", () => {
         title: "M3 implementation integration test",
         description: issueDescription,
         status: "PR Open",
-        projectName: "Portfolio",
+        projectName: "Example Target App",
         teamName: "WES",
         teamId: "team-1",
         url: "https://linear.app/example/issue/WES-13/test",
@@ -271,7 +271,7 @@ describe("executeHandoffPhase", () => {
         title: "M3 implementation integration test",
         description: issueDescription,
         status: "PM Review",
-        projectName: "Portfolio",
+        projectName: "Example Target App",
         teamName: "WES",
         teamId: "team-1",
         url: "https://linear.app/example/issue/WES-13/test",
@@ -295,7 +295,7 @@ describe("executeHandoffPhase", () => {
     mocks.listIssueComments.mockResolvedValue([
       {
         id: "handoff-1",
-        body: `## PM handoff\n\n<!--\nharness-orchestrator-v1\nphase: handoff\nrun_id: prior-run\npr_url: https://github.com/weston-uribe/weston-uribe-portfolio/pull/4\n-->`,
+        body: `## PM handoff\n\n<!--\nharness-orchestrator-v1\nphase: handoff\nrun_id: prior-run\npr_url: https://github.com/owner/example-target-app/pull/4\n-->`,
       },
     ]);
 

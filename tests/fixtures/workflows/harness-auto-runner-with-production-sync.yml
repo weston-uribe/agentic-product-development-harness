@@ -17,7 +17,7 @@ on:
         required: false
         default: "false"
       sync_repo:
-        description: "Repo config id for production sync, e.g. portfolio (runs sync-production instead of harness run)"
+        description: "Repo config id for production sync, e.g. target-app (runs sync-production instead of harness run)"
         required: false
 
 permissions:
@@ -428,7 +428,7 @@ jobs:
             exit 1
           fi
           case "$REPO_ID" in
-            portfolio|harness) ;;
+            target-app|harness) ;;
             *)
               echo "Unknown repo id: $REPO_ID"
               exit 1

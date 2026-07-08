@@ -4,11 +4,11 @@ Documented harness runs against real target repositories.
 
 ## Available examples
 
-**Run 001 (portfolio):** [`runs/001-portfolio-github-link/`](runs/001-portfolio-github-link/) — manual v0.1 loop documented with artifacts and retrospective in [`docs/research/001-manual-run-retrospective.md`](../docs/research/001-manual-run-retrospective.md).
+**Run 001 (target app):** [`runs/001-target-app-github-link/`](runs/001-target-app-github-link/) — manual v0.1 loop documented with artifacts and retrospective in [`docs/research/001-manual-run-retrospective.md`](../docs/research/001-manual-run-retrospective.md).
 
 ## Target repo
 
-**Primary target:** [`weston-uribe/weston-uribe-portfolio`](https://github.com/weston-uribe/weston-uribe-portfolio)
+**Primary target:** [`owner/example-target-app`](https://github.com/owner/example-target-app)
 
 **Expected artifacts per run:**
 

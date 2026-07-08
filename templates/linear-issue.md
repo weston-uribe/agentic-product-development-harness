@@ -1,6 +1,6 @@
 # Issue: [Short title]
 
-Assign the issue to a **mapped Linear project** (e.g. Portfolio) when possible. Routing is controlled by the **Linear status field** (e.g. Ready for Planning, Ready for Build), not by any section in this description.
+Assign the issue to a **mapped Linear project** (e.g. Example Target App) when possible. Routing is controlled by the **Linear status field** (e.g. Ready for Planning, Ready for Build), not by any section in this description.
 
 > `## Problem` is a parser fallback for `## Task`; prefer `## Task` for new issues.
 

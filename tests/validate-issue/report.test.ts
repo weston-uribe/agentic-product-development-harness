@@ -10,7 +10,7 @@ function baseResult(
     validForDirectImplementation: false,
     intendedPhase: "implementation",
     passesIntendedPhase: false,
-    targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+    targetRepo: "https://github.com/owner/example-target-app",
     resolutionSource: "explicit",
     parseErrors: [],
     resolverError: null,

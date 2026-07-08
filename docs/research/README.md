@@ -10,14 +10,14 @@ Capture what works and what fails when running the harness loop manually—befor
 
 - Manual loop retrospectives (issue → plan → Cursor → eval → PR)
 - Friction points in templates or rubrics
-- Target repo-specific notes (e.g. portfolio conventions)
+- Target repo-specific notes (e.g. target-app conventions)
 - Comparisons of tool options (Linear vs GitHub Issues, etc.)
 
 ## Entries
 
 | ID | Topic | Status |
 |----|-------|--------|
-| [001](001-manual-run-retrospective.md) | Manual harness run 001 (portfolio GitHub link) | Complete |
+| [001](001-manual-run-retrospective.md) | Manual harness run 001 (target-app GitHub link) | Complete |
 | [002](002-linear-cursor-integration-smoke-test.md) | Native Cursor ↔ Linear integration smoke test (WES-6) | Complete |
 | [003](003-cursor-automation-planning-router-spike.md) | Cursor Automation planning router spike (WES-9, WES-10) | Complete |
 

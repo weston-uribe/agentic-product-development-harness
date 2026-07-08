@@ -1,8 +1,8 @@
 # Retrospective: Manual harness run 001
 
-**Run:** [`examples/runs/001-portfolio-github-link/`](../examples/runs/001-portfolio-github-link/)  
-**Target:** `weston-uribe/weston-uribe-portfolio`  
-**Outcome:** PR [#1](https://github.com/weston-uribe/weston-uribe-portfolio/pull/1) squash-merged; production deployed  
+**Run:** [`examples/runs/001-target-app-github-link/`](../examples/runs/001-target-app-github-link/)  
+**Target:** `owner/example-target-app`  
+**Outcome:** PR [#1](https://github.com/owner/example-target-app/pull/1) squash-merged; production deployed  
 **Date:** 2026-07-06
 
 This documents one **manual** v0.1 loop. It does not prove the harness is automated, reusable at scale, or ready for skills.
@@ -19,7 +19,7 @@ This documents one **manual** v0.1 loop. It does not prove the harness is automa
 
 ## What slowed the loop
 
-- **Cross-repo context switching** — harness repo for artifacts, portfolio repo for implementation; manual copy of evidence between them.
+- **Cross-repo context switching** — harness repo for artifacts, target repo for implementation; manual copy of evidence between them.
 - **Preliminary plan → post-inspection update** — plan started with TBD file list; agent had to discover `contact-section.tsx`, `content.ts`, `breakpoints.ts` during execution.
 - **Icon library surprise** — Lucide `Github` not in pinned version; unplanned inline SVG workaround (acceptable, but added a decision mid-run).
 - **Artifact updates in two passes** — readiness artifacts updated after implementation, then again after merge; no automation linking PR state to harness folder.
@@ -38,16 +38,16 @@ These are **template edits** for v0.1 — not automations.
 
 ## What should not become a skill yet
 
-- **“Add social link to portfolio”** — one data point; pattern may differ on kinterra or non-Next.js repos.
+- **"Add social link to site"** — one data point; pattern may differ on kinterra or non-Next.js repos.
 - **PR → harness artifact sync** — only one run; manual updates worked; automation premature.
 - **Vercel deploy polling** — no repeated pain at scale yet.
-- **Portfolio repo bootstrap** — agent still needs `AGENTS.md` and local conventions; don’t encode until run 002 confirms repetition.
+- **Target repo bootstrap** — agent still needs `AGENTS.md` and local conventions; don’t encode until run 002 confirms repetition.
 
 Skills require **validated repetition** across runs, not one successful merge.
 
 ## Next hypothesis for run 002
 
-**Candidate:** A slightly larger portfolio change that still fits one PR — e.g. copy or content update in an existing case study section, or a small UX fix that touches `lib/portfolio/content.ts` plus one component.
+**Candidate:** A slightly larger target-app change that still fits one PR — e.g. copy or content update in an existing case study section, or a small UX fix that touches `lib/content.ts` plus one component.
 
 **Hypothesis to test:**
 

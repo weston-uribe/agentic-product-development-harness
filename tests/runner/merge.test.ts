@@ -89,16 +89,16 @@ phase: revision
 run_id: 2026-07-07T05-36-17-216Z-WES-13
 model: composer-2.5
 prompt_version: revision@1
-target_repo: https://github.com/weston-uribe/weston-uribe-portfolio
+target_repo: https://github.com/owner/example-target-app
 branch: cursor/wes-13-test
-pr_url: https://github.com/weston-uribe/weston-uribe-portfolio/pull/4
+pr_url: https://github.com/owner/example-target-app/pull/4
 previous_handoff_run_id: 2026-07-07T05-13-15-231Z-WES-13
 pm_feedback_comment_id: feedback-1
 ---`;
 
 const issueDescription = `## Target repo
 
-weston-uribe/weston-uribe-portfolio
+owner/example-target-app
 
 ## Task
 
@@ -146,15 +146,15 @@ describe("executeMergePhase", () => {
       },
       repos: [
         {
-          id: "portfolio",
-          linearProjects: ["Portfolio"],
-          targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+          id: "target-app",
+          linearProjects: ["Example Target App"],
+          targetRepo: "https://github.com/owner/example-target-app",
           baseBranch: "main",
-          productionUrl: "https://weston-uribe-portfolio.vercel.app",
+          productionUrl: "https://www.example.com",
         },
       ],
       allowedTargetRepos: [
-        "https://github.com/weston-uribe/weston-uribe-portfolio",
+        "https://github.com/owner/example-target-app",
       ],
     };
     configPath = path.join(tempRoot, "harness.config.json");
@@ -170,7 +170,7 @@ describe("executeMergePhase", () => {
     mocks.postPhaseStartCommentIfNeeded.mockResolvedValue("merge-start-1");
     mocks.inspectPullRequestForMerge.mockResolvedValue({
       title: "[WES-13] test",
-      url: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4",
+      url: "https://github.com/owner/example-target-app/pull/4",
       branch: "cursor/wes-13-test",
       baseBranch: "main",
       state: "open",
@@ -178,7 +178,7 @@ describe("executeMergePhase", () => {
       isDraft: false,
       mergeCommitSha: null,
       mergedAt: null,
-      repoUrl: "https://github.com/weston-uribe/weston-uribe-portfolio",
+      repoUrl: "https://github.com/owner/example-target-app",
       changedFiles: [{ path: "app/hello-world/page.tsx", status: "modified" }],
       checks: [{ name: "CI", status: "completed", conclusion: "success", detailsUrl: null }],
       checkSummary: "- Passed: 1",
@@ -191,7 +191,7 @@ describe("executeMergePhase", () => {
     });
     mocks.inspectPullRequestPostMerge.mockResolvedValue({
       title: "[WES-13] test",
-      url: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4",
+      url: "https://github.com/owner/example-target-app/pull/4",
       branch: "cursor/wes-13-test",
       baseBranch: "main",
       state: "closed",
@@ -199,7 +199,7 @@ describe("executeMergePhase", () => {
       isDraft: false,
       mergeCommitSha: "merged-sha-123",
       mergedAt: "2026-07-07T06:00:00.000Z",
-      repoUrl: "https://github.com/weston-uribe/weston-uribe-portfolio",
+      repoUrl: "https://github.com/owner/example-target-app",
       changedFiles: [{ path: "app/hello-world/page.tsx", status: "modified" }],
       checks: [],
       checkSummary: "- Passed: 1",
@@ -207,7 +207,7 @@ describe("executeMergePhase", () => {
       rawChecks: [],
     });
     mocks.pollForProductionDeployment.mockResolvedValue({
-      deploymentUrl: "https://weston-uribe-portfolio.vercel.app",
+      deploymentUrl: "https://www.example.com",
       source: "config_reference",
       polledSeconds: 0,
       warnings: [],
@@ -218,7 +218,7 @@ describe("executeMergePhase", () => {
       status: "Merged / Deployed",
       teamId: "team-1",
       description: issueDescription,
-      projectName: "Portfolio",
+      projectName: "Example Target App",
       teamName: "Weston Product Lab",
     });
   });
@@ -235,7 +235,7 @@ describe("executeMergePhase", () => {
         status: "Ready to Merge",
         teamId: "team-1",
         description: issueDescription,
-        projectName: "Portfolio",
+        projectName: "Example Target App",
         teamName: "Weston Product Lab",
       })
       .mockResolvedValueOnce({
@@ -244,7 +244,7 @@ describe("executeMergePhase", () => {
         status: "Merged / Deployed",
         teamId: "team-1",
         description: issueDescription,
-        projectName: "Portfolio",
+        projectName: "Example Target App",
         teamName: "Weston Product Lab",
       });
 
@@ -281,7 +281,7 @@ describe("executeMergePhase", () => {
       callOrder.push("inspect");
       return {
         title: "[WES-13] test",
-        url: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4",
+        url: "https://github.com/owner/example-target-app/pull/4",
         branch: "cursor/wes-13-test",
         baseBranch: "main",
         state: "open",
@@ -289,7 +289,7 @@ describe("executeMergePhase", () => {
         isDraft: false,
         mergeCommitSha: null,
         mergedAt: null,
-        repoUrl: "https://github.com/weston-uribe/weston-uribe-portfolio",
+        repoUrl: "https://github.com/owner/example-target-app",
         changedFiles: [{ path: "app/hello-world/page.tsx", status: "modified" }],
         checks: [{ name: "CI", status: "completed", conclusion: "success", detailsUrl: null }],
         checkSummary: "- Passed: 1",
@@ -313,7 +313,7 @@ describe("executeMergePhase", () => {
         status: "Ready to Merge",
         teamId: "team-1",
         description: issueDescription,
-        projectName: "Portfolio",
+        projectName: "Example Target App",
         teamName: "Weston Product Lab",
       })
       .mockResolvedValueOnce({
@@ -322,7 +322,7 @@ describe("executeMergePhase", () => {
         status: "Merged / Deployed",
         teamId: "team-1",
         description: issueDescription,
-        projectName: "Portfolio",
+        projectName: "Example Target App",
         teamName: "Weston Product Lab",
       });
 
@@ -341,7 +341,7 @@ describe("executeMergePhase", () => {
     mocks.inspectPullRequestForMerge
       .mockResolvedValueOnce({
         title: "[WES-13] test",
-        url: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4",
+        url: "https://github.com/owner/example-target-app/pull/4",
         branch: "cursor/wes-13-test",
         baseBranch: "main",
         state: "open",
@@ -349,7 +349,7 @@ describe("executeMergePhase", () => {
         isDraft: true,
         mergeCommitSha: null,
         mergedAt: null,
-        repoUrl: "https://github.com/weston-uribe/weston-uribe-portfolio",
+        repoUrl: "https://github.com/owner/example-target-app",
         changedFiles: [{ path: "app/hello-world/page.tsx", status: "modified" }],
         checks: [{ name: "CI", status: "completed", conclusion: "success", detailsUrl: null }],
         checkSummary: "- Passed: 1",
@@ -358,7 +358,7 @@ describe("executeMergePhase", () => {
       })
       .mockResolvedValueOnce({
         title: "[WES-13] test",
-        url: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4",
+        url: "https://github.com/owner/example-target-app/pull/4",
         branch: "cursor/wes-13-test",
         baseBranch: "main",
         state: "open",
@@ -366,7 +366,7 @@ describe("executeMergePhase", () => {
         isDraft: false,
         mergeCommitSha: null,
         mergedAt: null,
-        repoUrl: "https://github.com/weston-uribe/weston-uribe-portfolio",
+        repoUrl: "https://github.com/owner/example-target-app",
         changedFiles: [{ path: "app/hello-world/page.tsx", status: "modified" }],
         checks: [{ name: "CI", status: "completed", conclusion: "success", detailsUrl: null }],
         checkSummary: "- Passed: 1",
@@ -381,7 +381,7 @@ describe("executeMergePhase", () => {
         status: "Ready to Merge",
         teamId: "team-1",
         description: issueDescription,
-        projectName: "Portfolio",
+        projectName: "Example Target App",
         teamName: "Weston Product Lab",
       })
       .mockResolvedValueOnce({
@@ -390,7 +390,7 @@ describe("executeMergePhase", () => {
         status: "Merged / Deployed",
         teamId: "team-1",
         description: issueDescription,
-        projectName: "Portfolio",
+        projectName: "Example Target App",
         teamName: "Weston Product Lab",
       });
 
@@ -401,8 +401,8 @@ describe("executeMergePhase", () => {
 
     expect(result.exitCode).toBe(0);
     expect(mocks.markPullRequestReadyForReview).toHaveBeenCalledWith(
-      "weston-uribe",
-      "weston-uribe-portfolio",
+      "owner",
+      "example-target-app",
       4,
     );
     expect(mocks.mergePullRequest).toHaveBeenCalled();
@@ -412,7 +412,7 @@ describe("executeMergePhase", () => {
     mocks.inspectPullRequestForMerge
       .mockResolvedValueOnce({
         title: "[WES-13] test",
-        url: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4",
+        url: "https://github.com/owner/example-target-app/pull/4",
         branch: "cursor/wes-13-test",
         baseBranch: "main",
         state: "open",
@@ -420,7 +420,7 @@ describe("executeMergePhase", () => {
         isDraft: true,
         mergeCommitSha: null,
         mergedAt: null,
-        repoUrl: "https://github.com/weston-uribe/weston-uribe-portfolio",
+        repoUrl: "https://github.com/owner/example-target-app",
         changedFiles: [{ path: "app/hello-world/page.tsx", status: "modified" }],
         checks: [{ name: "CI", status: "completed", conclusion: "success", detailsUrl: null }],
         checkSummary: "- Passed: 1",
@@ -429,7 +429,7 @@ describe("executeMergePhase", () => {
       })
       .mockResolvedValueOnce({
         title: "[WES-13] test",
-        url: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4",
+        url: "https://github.com/owner/example-target-app/pull/4",
         branch: "cursor/wes-13-test",
         baseBranch: "main",
         state: "open",
@@ -437,7 +437,7 @@ describe("executeMergePhase", () => {
         isDraft: true,
         mergeCommitSha: null,
         mergedAt: null,
-        repoUrl: "https://github.com/weston-uribe/weston-uribe-portfolio",
+        repoUrl: "https://github.com/owner/example-target-app",
         changedFiles: [{ path: "app/hello-world/page.tsx", status: "modified" }],
         checks: [{ name: "CI", status: "completed", conclusion: "success", detailsUrl: null }],
         checkSummary: "- Passed: 1",
@@ -446,7 +446,7 @@ describe("executeMergePhase", () => {
       })
       .mockResolvedValueOnce({
         title: "[WES-13] test",
-        url: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4",
+        url: "https://github.com/owner/example-target-app/pull/4",
         branch: "cursor/wes-13-test",
         baseBranch: "main",
         state: "open",
@@ -454,7 +454,7 @@ describe("executeMergePhase", () => {
         isDraft: false,
         mergeCommitSha: null,
         mergedAt: null,
-        repoUrl: "https://github.com/weston-uribe/weston-uribe-portfolio",
+        repoUrl: "https://github.com/owner/example-target-app",
         changedFiles: [{ path: "app/hello-world/page.tsx", status: "modified" }],
         checks: [{ name: "CI", status: "completed", conclusion: "success", detailsUrl: null }],
         checkSummary: "- Passed: 1",
@@ -469,7 +469,7 @@ describe("executeMergePhase", () => {
         status: "Ready to Merge",
         teamId: "team-1",
         description: issueDescription,
-        projectName: "Portfolio",
+        projectName: "Example Target App",
         teamName: "Weston Product Lab",
       })
       .mockResolvedValueOnce({
@@ -478,7 +478,7 @@ describe("executeMergePhase", () => {
         status: "Merged / Deployed",
         teamId: "team-1",
         description: issueDescription,
-        projectName: "Portfolio",
+        projectName: "Example Target App",
         teamName: "Weston Product Lab",
       });
 
@@ -513,23 +513,23 @@ describe("executeMergePhase", () => {
       merge: { mergeMethod: "squash", allowUnknownChecks: true },
       repos: [
         {
-          id: "portfolio",
-          linearProjects: ["Portfolio"],
-          targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+          id: "target-app",
+          linearProjects: ["Example Target App"],
+          targetRepo: "https://github.com/owner/example-target-app",
           baseBranch: "dev",
           productionBranch: "main",
           integrationPreviewUrl: "https://dev.example.vercel.app",
         },
       ],
       allowedTargetRepos: [
-        "https://github.com/weston-uribe/weston-uribe-portfolio",
+        "https://github.com/owner/example-target-app",
       ],
     };
     await writeFile(configPath, `${JSON.stringify(devConfig, null, 2)}\n`, "utf8");
 
     mocks.inspectPullRequestForMerge.mockResolvedValue({
       title: "[WES-13] test",
-      url: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4",
+      url: "https://github.com/owner/example-target-app/pull/4",
       branch: "cursor/wes-13-test",
       baseBranch: "dev",
       state: "open",
@@ -537,7 +537,7 @@ describe("executeMergePhase", () => {
       isDraft: false,
       mergeCommitSha: null,
       mergedAt: null,
-      repoUrl: "https://github.com/weston-uribe/weston-uribe-portfolio",
+      repoUrl: "https://github.com/owner/example-target-app",
       changedFiles: [{ path: "app/hello-world/page.tsx", status: "modified" }],
       checks: [{ name: "CI", status: "completed", conclusion: "success", detailsUrl: null }],
       checkSummary: "- Passed: 1",
@@ -546,14 +546,14 @@ describe("executeMergePhase", () => {
     });
     mocks.inspectPullRequestPostMerge.mockResolvedValue({
       title: "[WES-13] test",
-      url: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4",
+      url: "https://github.com/owner/example-target-app/pull/4",
       branch: "cursor/wes-13-test",
       baseBranch: "dev",
       state: "closed",
       merged: true,
       mergeCommitSha: "merged-sha-dev",
       mergedAt: "2026-07-07T06:00:00.000Z",
-      repoUrl: "https://github.com/weston-uribe/weston-uribe-portfolio",
+      repoUrl: "https://github.com/owner/example-target-app",
       changedFiles: [{ path: "app/hello-world/page.tsx", status: "modified" }],
       checks: [],
       checkSummary: "- Passed: 1",
@@ -567,7 +567,7 @@ describe("executeMergePhase", () => {
         status: "Ready to Merge",
         teamId: "team-1",
         description: issueDescription,
-        projectName: "Portfolio",
+        projectName: "Example Target App",
         teamName: "Weston Product Lab",
       })
       .mockResolvedValueOnce({
@@ -576,7 +576,7 @@ describe("executeMergePhase", () => {
         status: "Merged to Dev",
         teamId: "team-1",
         description: issueDescription,
-        projectName: "Portfolio",
+        projectName: "Example Target App",
         teamName: "Weston Product Lab",
       });
 
@@ -598,7 +598,7 @@ describe("executeMergePhase", () => {
   it("fails with wrong_pr_base_branch when PR targets unexpected base", async () => {
     mocks.inspectPullRequestForMerge.mockResolvedValue({
       title: "[WES-13] test",
-      url: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4",
+      url: "https://github.com/owner/example-target-app/pull/4",
       branch: "cursor/wes-13-test",
       baseBranch: "dev",
       state: "open",
@@ -606,7 +606,7 @@ describe("executeMergePhase", () => {
       isDraft: false,
       mergeCommitSha: null,
       mergedAt: null,
-      repoUrl: "https://github.com/weston-uribe/weston-uribe-portfolio",
+      repoUrl: "https://github.com/owner/example-target-app",
       changedFiles: [],
       checks: [],
       checkSummary: "- Passed: 0",
@@ -619,7 +619,7 @@ describe("executeMergePhase", () => {
       status: "Ready to Merge",
       teamId: "team-1",
       description: issueDescription,
-      projectName: "Portfolio",
+      projectName: "Example Target App",
       teamName: "Weston Product Lab",
     });
 
@@ -636,7 +636,7 @@ describe("executeMergePhase", () => {
   it("repairs and merges when PR is dirty after waiting in merge queue", async () => {
     mocks.inspectPullRequestForMerge.mockResolvedValue({
       title: "[WES-13] test",
-      url: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4",
+      url: "https://github.com/owner/example-target-app/pull/4",
       branch: "cursor/wes-13-test",
       headSha: "dirty-sha",
       baseBranch: "main",
@@ -648,7 +648,7 @@ describe("executeMergePhase", () => {
       rebaseable: false,
       mergeCommitSha: null,
       mergedAt: null,
-      repoUrl: "https://github.com/weston-uribe/weston-uribe-portfolio",
+      repoUrl: "https://github.com/owner/example-target-app",
       changedFiles: [{ path: "app/hello-world/page.tsx", status: "modified" }],
       checks: [{ name: "CI", status: "completed", conclusion: "success", detailsUrl: null }],
       checkSummary: "- Passed: 1",
@@ -658,7 +658,7 @@ describe("executeMergePhase", () => {
     mocks.attemptIntegrationRepair.mockResolvedValue({
       inspection: {
         title: "[WES-13] test",
-        url: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4",
+        url: "https://github.com/owner/example-target-app/pull/4",
         branch: "cursor/wes-13-test",
         headSha: "repaired-sha",
         baseBranch: "main",
@@ -670,7 +670,7 @@ describe("executeMergePhase", () => {
         rebaseable: true,
         mergeCommitSha: null,
         mergedAt: null,
-        repoUrl: "https://github.com/weston-uribe/weston-uribe-portfolio",
+        repoUrl: "https://github.com/owner/example-target-app",
         changedFiles: [{ path: "app/hello-world/page.tsx", status: "modified" }],
         checks: [{ name: "CI", status: "completed", conclusion: "success", detailsUrl: null }],
         checkSummary: "- Passed: 1",
@@ -685,7 +685,7 @@ describe("executeMergePhase", () => {
       status: "Ready to Merge",
       teamId: "team-1",
       description: issueDescription,
-      projectName: "Portfolio",
+      projectName: "Example Target App",
       teamName: "Weston Product Lab",
     });
 
@@ -708,8 +708,8 @@ phase: merge
 run_id: prior-merge-run
 model: composer-2.5
 prompt_version: merge@1
-target_repo: https://github.com/weston-uribe/weston-uribe-portfolio
-pr_url: https://github.com/weston-uribe/weston-uribe-portfolio/pull/4
+target_repo: https://github.com/owner/example-target-app
+pr_url: https://github.com/owner/example-target-app/pull/4
 merge_commit_sha: merged-sha-123
 ---`;
 
@@ -719,7 +719,7 @@ merge_commit_sha: merged-sha-123
     ]);
     mocks.inspectPullRequestForMerge.mockResolvedValue({
       title: "[WES-13] test",
-      url: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4",
+      url: "https://github.com/owner/example-target-app/pull/4",
       branch: "cursor/wes-13-test",
       baseBranch: "main",
       state: "closed",
@@ -730,7 +730,7 @@ merge_commit_sha: merged-sha-123
       rebaseable: null,
       mergeCommitSha: "merged-sha-123",
       mergedAt: "2026-07-07T06:00:00.000Z",
-      repoUrl: "https://github.com/weston-uribe/weston-uribe-portfolio",
+      repoUrl: "https://github.com/owner/example-target-app",
       changedFiles: [{ path: "app/hello-world/page.tsx", status: "modified" }],
       checks: [],
       checkSummary: "- Passed: 1",
@@ -743,7 +743,7 @@ merge_commit_sha: merged-sha-123
       status: "Ready to Merge",
       teamId: "team-1",
       description: issueDescription,
-      projectName: "Portfolio",
+      projectName: "Example Target App",
       teamName: "Weston Product Lab",
     });
 

@@ -1,11 +1,11 @@
 ---
 title: Redesign checkout navigation and information architecture
-projectName: Portfolio
+projectName: Example Target App
 ---
 
 ## Target repo
 
-https://github.com/weston-uribe/weston-uribe-portfolio
+https://github.com/owner/example-target-app
 
 ## Task
 

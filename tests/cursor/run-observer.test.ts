@@ -113,10 +113,10 @@ describe("sendAndObserve", () => {
           git: {
             branches: [
               {
-                repoUrl: "https://github.com/weston-uribe/weston-uribe-portfolio",
+                repoUrl: "https://github.com/owner/example-target-app",
                 branch: "cursor/wes-12-hello-world",
                 prUrl:
-                  "https://github.com/weston-uribe/weston-uribe-portfolio/pull/12",
+                  "https://github.com/owner/example-target-app/pull/12",
               },
             ],
           },
@@ -126,7 +126,7 @@ describe("sendAndObserve", () => {
 
     const observed = await sendAndObserve(agent as never, "prompt", dir, events, {
       phase: "implementation",
-      targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+      targetRepo: "https://github.com/owner/example-target-app",
     });
 
     expect(observed.gitResult?.branch).toBe("cursor/wes-12-hello-world");
@@ -159,7 +159,7 @@ describe("sendAndObserve", () => {
     await expect(
       sendAndObserve(agent as never, "prompt", dir, events, {
         phase: "implementation",
-        targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+        targetRepo: "https://github.com/owner/example-target-app",
       }),
     ).rejects.toBeInstanceOf(ImplementationError);
 
@@ -185,10 +185,10 @@ describe("sendAndObserve", () => {
         git: {
           branches: [
             {
-              repoUrl: "https://github.com/weston-uribe/weston-uribe-portfolio",
+              repoUrl: "https://github.com/owner/example-target-app",
               branch: "cursor/wes-16-smoke",
               prUrl:
-                "https://github.com/weston-uribe/weston-uribe-portfolio/pull/5",
+                "https://github.com/owner/example-target-app/pull/5",
             },
           ],
         },
@@ -215,7 +215,7 @@ describe("sendAndObserve", () => {
 
     const observed = await sendAndObserve(agent as never, "prompt", dir, events, {
       phase: "implementation",
-      targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+      targetRepo: "https://github.com/owner/example-target-app",
       apiKey: "cursor_test_key",
       pollIntervalMs: 1,
       fetchCloudRun,
@@ -260,7 +260,7 @@ describe("sendAndObserve", () => {
     await expect(
       sendAndObserve(agent as never, "prompt", dir, events, {
         phase: "implementation",
-        targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+        targetRepo: "https://github.com/owner/example-target-app",
         abortSignal: abortController.signal,
       }),
     ).rejects.toMatchObject({

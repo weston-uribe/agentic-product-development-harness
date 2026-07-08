@@ -53,7 +53,7 @@ npm run harness:inspect -- --run runs/WES-13/<run-id>
 
 **Issue:** WES-13 (starts **PR Open**)
 
-**PR:** [portfolio PR #4](https://github.com/weston-uribe/weston-uribe-portfolio/pull/4) (open, unmerged)
+**PR:** [target repo PR #4](https://github.com/owner/example-target-app/pull/4) (open, unmerged)
 
 **Pass criteria:**
 
@@ -64,7 +64,7 @@ npm run harness:inspect -- --run runs/WES-13/<run-id>
 - PR #4 remains **open**, **unmerged**
 - Re-run without `--force` → duplicate skip (exit 0)
 
-**Do not:** merge PR #4, rerun WES-12, modify portfolio manually, move to Engineering Review.
+**Do not:** merge PR #4, rerun WES-12, modify target repo manually, move to Engineering Review.
 
 ## Artifacts
 

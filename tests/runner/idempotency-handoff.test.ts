@@ -118,9 +118,9 @@ describe("handoff comment formatting", () => {
       runId: "2026-07-07T05-00-00Z-WES-13",
       model: "composer-2.5",
       promptVersion: "handoff@1",
-      targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+      targetRepo: "https://github.com/owner/example-target-app",
       branch: "cursor/wes-13-test",
-      prUrl: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4",
+      prUrl: "https://github.com/owner/example-target-app/pull/4",
       previewUrl: "https://example.vercel.app",
       previousImplementationRunId: "2026-07-07T04-50-00Z-WES-13",
     });
@@ -162,8 +162,8 @@ describe("repoUrlsEquivalent", () => {
   it("matches marker target repo with PR repo URL forms", () => {
     expect(
       repoUrlsEquivalent(
-        "https://github.com/weston-uribe/weston-uribe-portfolio",
-        "github.com/weston-uribe/weston-uribe-portfolio",
+        "https://github.com/owner/example-target-app",
+        "github.com/owner/example-target-app",
       ),
     ).toBe(true);
   });

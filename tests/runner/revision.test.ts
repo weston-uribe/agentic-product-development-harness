@@ -69,7 +69,7 @@ import type { HarnessConfig } from "../../src/config/types.js";
 
 const issueDescription = `## Target repo
 
-weston-uribe/weston-uribe-portfolio
+owner/example-target-app
 
 ## Task
 
@@ -95,9 +95,9 @@ phase: handoff
 run_id: 2026-07-07T05-00-00Z-WES-13
 model: composer-2.5
 prompt_version: handoff@1
-target_repo: https://github.com/weston-uribe/weston-uribe-portfolio
+target_repo: https://github.com/owner/example-target-app
 branch: cursor/wes-13-test
-pr_url: https://github.com/weston-uribe/weston-uribe-portfolio/pull/4
+pr_url: https://github.com/owner/example-target-app/pull/4
 preview_url: https://example.vercel.app
 ---`;
 
@@ -132,16 +132,16 @@ describe("executeRevisionPhase", () => {
       preview: { pollTimeoutSeconds: 1, pollIntervalSeconds: 1 },
       repos: [
         {
-          id: "portfolio",
-          linearProjects: ["Portfolio"],
-          targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+          id: "target-app",
+          linearProjects: ["Example Target App"],
+          targetRepo: "https://github.com/owner/example-target-app",
           baseBranch: "main",
           previewProvider: "vercel",
           validation: { commands: ["npm run lint", "npm run build"] },
         },
       ],
       allowedTargetRepos: [
-        "https://github.com/weston-uribe/weston-uribe-portfolio",
+        "https://github.com/owner/example-target-app",
       ],
     };
     configPath = path.join(tempRoot, "harness.config.json");
@@ -171,12 +171,12 @@ describe("executeRevisionPhase", () => {
     mocks.createLinearClient.mockReturnValue({});
     mocks.inspectPullRequest.mockResolvedValue({
       title: "M3 hello world",
-      url: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4",
+      url: "https://github.com/owner/example-target-app/pull/4",
       branch: "cursor/wes-13-test",
       baseBranch: "main",
       state: "open",
       merged: false,
-      repoUrl: "https://github.com/weston-uribe/weston-uribe-portfolio",
+      repoUrl: "https://github.com/owner/example-target-app",
       changedFiles: [{ path: "app/hello-world/page.tsx", status: "modified" }],
       checks: [],
       checkSummary: "- Passed: 1",
@@ -198,9 +198,9 @@ describe("executeRevisionPhase", () => {
       runId: "run-rev",
       assistantText: "## Revision summary\n\nUpdated copy.",
       gitResult: {
-        repoUrl: "https://github.com/weston-uribe/weston-uribe-portfolio",
+        repoUrl: "https://github.com/owner/example-target-app",
         branch: "cursor/wes-13-test",
-        prUrl: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4",
+        prUrl: "https://github.com/owner/example-target-app/pull/4",
       },
       result: { id: "run-rev", status: "finished" },
       cancelOutcome: null,
@@ -212,7 +212,7 @@ describe("executeRevisionPhase", () => {
         title: "M3 implementation integration test",
         description: issueDescription,
         status: "Needs Revision",
-        projectName: "Portfolio",
+        projectName: "Example Target App",
         teamName: "WES",
         teamId: "team-1",
         url: "https://linear.app/example/issue/WES-13/test",
@@ -223,7 +223,7 @@ describe("executeRevisionPhase", () => {
         title: "M3 implementation integration test",
         description: issueDescription,
         status: "PM Review",
-        projectName: "Portfolio",
+        projectName: "Example Target App",
         teamName: "WES",
         teamId: "team-1",
         url: "https://linear.app/example/issue/WES-13/test",
@@ -253,7 +253,7 @@ describe("executeRevisionPhase", () => {
     expect(mocks.createRevisionAgent).toHaveBeenCalledWith(
       expect.objectContaining({
         branch: "cursor/wes-13-test",
-        prUrl: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4",
+        prUrl: "https://github.com/owner/example-target-app/pull/4",
       }),
     );
   });
@@ -272,7 +272,7 @@ describe("executeRevisionPhase", () => {
       },
       {
         id: "rev-1",
-        body: `## PM revision\n\n---\nharness-orchestrator-v1\nphase: revision\nrun_id: run-rev-old\npr_url: https://github.com/weston-uribe/weston-uribe-portfolio/pull/4\npm_feedback_comment_id: pm-feedback-1\n---`,
+        body: `## PM revision\n\n---\nharness-orchestrator-v1\nphase: revision\nrun_id: run-rev-old\npr_url: https://github.com/owner/example-target-app/pull/4\npm_feedback_comment_id: pm-feedback-1\n---`,
         createdAt: "2026-07-07T05:10:00.000Z",
       },
     ]);
@@ -283,7 +283,7 @@ describe("executeRevisionPhase", () => {
       title: "M3 implementation integration test",
       description: issueDescription,
       status: "PM Review",
-      projectName: "Portfolio",
+      projectName: "Example Target App",
       teamName: "WES",
       teamId: "team-1",
       url: "https://linear.app/example/issue/WES-13/test",
@@ -308,7 +308,7 @@ describe("executeRevisionPhase", () => {
       title: "M3 implementation integration test",
       description: issueDescription,
       status: "PM Review",
-      projectName: "Portfolio",
+      projectName: "Example Target App",
       teamName: "WES",
       teamId: "team-1",
       url: "https://linear.app/example/issue/WES-13/test",

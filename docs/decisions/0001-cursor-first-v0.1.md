@@ -13,7 +13,7 @@ Weston's current product development workflow centers on:
 
 - **Cursor** for AI-assisted implementation
 - **GitHub** for version control and PR review
-- **Portfolio repo** (`weston-uribe-portfolio`) as the first real target for case study and prototype work
+- **Target repo** (`example-target-app`) as the first real target for case study and prototype work
 - **Linear-style issues** as the intended PM intake format (Linear itself is not wired in v0.1)
 - **Vercel previews** as the intended product review surface for UI changes
 
@@ -35,7 +35,7 @@ The harness is being built to structure how an AI-native PM defines work, guides
 
 - Fast path to a public, honest v0.1 repo
 - Clear boundaries for agents (no invented maturity)
-- Portfolio repo can serve as the first validation target
+- Target repo can serve as the first validation target
 
 ### Negative / accepted tradeoffs
 
