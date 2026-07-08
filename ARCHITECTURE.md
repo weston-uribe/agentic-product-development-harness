@@ -7,6 +7,7 @@ Modular design for an agentic product development harness. The architecture is *
 V0.2 is **Cursor-first**. Key assumptions:
 
 - **Cursor SDK calls are still embedded in runner phases today.** Future work should isolate them behind an internal provider interface so additional agent providers can be added without rewriting phases.
+- **`agentProvider` config makes Cursor explicit** (`id: "cursor"` only today). Model resolution prefers `agentProvider.model.id` and falls back to `defaultModel.id`.
 - **GitHub and Linear are explicit V0.2 assumptions** — GitHub is the SCM/PR provider and cloud runner (GitHub Actions), and Linear is the product/control system.
 - **Vercel is the only implemented preview provider** when preview capture is enabled; other repos use `previewProvider: "none"`.
 - The harness does **not** claim Claude Code, Codex, VS Code local agents, GitLab, or Bitbucket support.

@@ -45,7 +45,9 @@ The following are configurable through `harness.config.json` (see
 - `linear.eligibleStatuses`
 - `linear.transitionalStatuses`
 - timeouts and check/preview polling behavior
-- `defaultModel.id`, with current Cursor-specific behavior
+- `agentProvider.id` — currently only `"cursor"` is accepted
+- `agentProvider.model.id` — preferred source for model resolution
+- `defaultModel.id` — backward-compatible fallback when `agentProvider.model` is absent
 
 ## What is fixed in V0.2
 
@@ -95,11 +97,13 @@ the runner phases today:
 ## Recommended next implementation steps
 
 1. **Make Cursor explicit** in docs and config posture rather than implying
-   provider agnosticism.
+   provider agnosticism. *(Partially done: `agentProvider.id: "cursor"` config
+   shape exists, but only Cursor is implemented.)*
 2. **Introduce an internal provider seam** that isolates Cursor SDK calls out of
    the runner phases behind a single interface.
-3. **Add provider config later** in a separate code change once the adapter
-   interface is defined and validated — not speculatively.
+3. **Extend provider config only when a second adapter exists** — the
+   `agentProvider` shape is Cursor-only today; do not add speculative provider
+   ids or a plugin system.
 4. **Preserve legacy markers** (`cursorAgentId`, `cursorRunId`) and Linear
    metadata until they can be safely migrated behind the provider seam.
 5. **Validate a second adapter** end-to-end against the full lifecycle before

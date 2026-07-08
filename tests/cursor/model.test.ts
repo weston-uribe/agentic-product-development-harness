@@ -58,6 +58,22 @@ describe("resolveModelId", () => {
     const config = makeConfig({ defaultModel: { id: "composer-2.5" } });
     expect(resolveModelId(config)).toBe("composer-2.5");
   });
+
+  it("prefers agentProvider.model.id over defaultModel.id", () => {
+    const config = makeConfig({
+      agentProvider: { id: "cursor", model: { id: "composer-2.5" } },
+      defaultModel: { id: "other-model" },
+    });
+    expect(resolveModelId(config)).toBe("composer-2.5");
+  });
+
+  it("falls back to defaultModel.id when agentProvider has no model", () => {
+    const config = makeConfig({
+      agentProvider: { id: "cursor" },
+      defaultModel: { id: "composer-2.5" },
+    });
+    expect(resolveModelId(config)).toBe("composer-2.5");
+  });
 });
 
 describe("resolveModel", () => {
@@ -71,6 +87,13 @@ describe("resolveModel", () => {
     assertStandardComposer(resolveModel(makeConfig()));
     assertStandardComposer(
       resolveModel(makeConfig({ defaultModel: { id: "composer-2.5" } })),
+    );
+    assertStandardComposer(
+      resolveModel(
+        makeConfig({
+          agentProvider: { id: "cursor", model: { id: "composer-2.5" } },
+        }),
+      ),
     );
   });
 

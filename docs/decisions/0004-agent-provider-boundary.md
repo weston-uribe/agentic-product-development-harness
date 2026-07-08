@@ -1,6 +1,6 @@
 # ADR 0004: Agent provider boundary
 
-**Status:** Accepted  
+**Status:** Accepted (amended 2026-07-08 — Cursor-only `agentProvider` config shape)  
 **Date:** 2026-07-08
 
 ## Decision
@@ -72,13 +72,17 @@ A future agent provider adapter should support:
 ## Near-term migration guidance
 
 - **Make Cursor explicit.** Name Cursor as the provider in docs and config
-  posture rather than implying provider agnosticism.
-- **Add provider config later** in a separate code change once an adapter
-  interface is defined — do not add speculative config now.
+  posture rather than implying provider agnosticism. A Cursor-only
+  `agentProvider` config shape now exists (`id: "cursor"`, optional
+  `model.id`); no second adapter is implemented.
+- **Add provider config extensions later** only when a second adapter is
+  validated — do not add speculative provider ids now.
 - **Introduce an internal provider seam later** to isolate Cursor SDK calls out
   of runner phases behind an interface.
 - **Preserve legacy markers.** Keep `cursorAgentId` and `cursorRunId` markers
   until they can be safely migrated behind the provider seam.
+- **Preserve `defaultModel` backward compatibility** until callers migrate to
+  `agentProvider.model.id`.
 
 ## Consequences
 
@@ -91,8 +95,8 @@ A future agent provider adapter should support:
 ### Negative / accepted tradeoffs
 
 - Cursor SDK calls remain embedded in runner phases in V0.2.
-- No provider config surface exists yet; adding one is deferred to a later code
-  change.
+- `agentProvider` config exists but only accepts `id: "cursor"`; no second
+  adapter or plugin system is implemented.
 
 ## References
 

@@ -2,6 +2,10 @@
   "version": 1,
   "orchestratorMarker": "harness-orchestrator-v1",
   "logDirectory": "runs",
+  "agentProvider": {
+    "id": "cursor",
+    "model": { "id": "composer-2.5" }
+  },
   "defaultModel": { "id": "composer-2.5" },
   "linear": {
     "teamKey": "WES",

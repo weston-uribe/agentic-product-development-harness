@@ -90,11 +90,17 @@ const mergeConfigSchema = z.object({
   checkPollTimeoutSeconds: z.number().positive().optional(),
 });
 
+const agentProviderSchema = z.object({
+  id: z.literal("cursor"),
+  model: z.object({ id: z.string() }).optional(),
+});
+
 export const harnessConfigSchema = z
   .object({
     version: z.literal(1),
     orchestratorMarker: z.string().default(DEFAULT_ORCHESTRATOR_MARKER),
     logDirectory: z.string().default(DEFAULT_LOG_DIRECTORY),
+    agentProvider: agentProviderSchema.optional(),
     defaultModel: z.object({ id: z.string() }).optional(),
     linear: linearConfigSchema.optional(),
     planning: planningConfigSchema.optional(),

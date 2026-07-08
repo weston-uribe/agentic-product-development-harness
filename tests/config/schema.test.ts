@@ -6,16 +6,78 @@ import { describe, expect, it } from "vitest";
 import { loadConfig } from "../../src/config/load-config.js";
 import { harnessConfigSchema } from "../../src/config/schema.js";
 
+const repoRoot = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../..",
+);
 const fixturesDir = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
   "../fixtures/config",
 );
+
+function minimalConfig(overrides: Record<string, unknown> = {}) {
+  return {
+    version: 1,
+    orchestratorMarker: "harness-orchestrator-v1",
+    logDirectory: "runs",
+    repos: [
+      {
+        id: "portfolio",
+        linearProjects: ["Portfolio"],
+        targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+        baseBranch: "main",
+      },
+    ],
+    allowedTargetRepos: [
+      "https://github.com/weston-uribe/weston-uribe-portfolio",
+    ],
+    ...overrides,
+  };
+}
 
 describe("harness config schema", () => {
   it("accepts minimal valid config", async () => {
     const raw = await readFile(path.join(fixturesDir, "minimal.json"), "utf8");
     const parsed = harnessConfigSchema.parse(JSON.parse(raw));
     expect(parsed.repos).toHaveLength(1);
+  });
+
+  it("accepts config with only defaultModel", () => {
+    const parsed = harnessConfigSchema.parse(
+      minimalConfig({ defaultModel: { id: "composer-2.5" } }),
+    );
+    expect(parsed.defaultModel?.id).toBe("composer-2.5");
+    expect(parsed.agentProvider).toBeUndefined();
+  });
+
+  it("accepts config with agentProvider.model.id", () => {
+    const parsed = harnessConfigSchema.parse(
+      minimalConfig({
+        agentProvider: { id: "cursor", model: { id: "composer-2.5" } },
+      }),
+    );
+    expect(parsed.agentProvider?.id).toBe("cursor");
+    expect(parsed.agentProvider?.model?.id).toBe("composer-2.5");
+  });
+
+  it("rejects agentProvider.id values other than cursor", () => {
+    const result = harnessConfigSchema.safeParse(
+      minimalConfig({
+        agentProvider: { id: "claude-code", model: { id: "composer-2.5" } },
+      }),
+    );
+    expect(result.success).toBe(false);
+  });
+
+  it("validates the repo harness.config.json", async () => {
+    const raw = await readFile(
+      path.join(repoRoot, "harness.config.json"),
+      "utf8",
+    );
+    const parsed = harnessConfigSchema.parse(JSON.parse(raw));
+    expect(parsed.agentProvider?.id).toBe("cursor");
+    expect(parsed.agentProvider?.model?.id).toBe("composer-2.5");
+    expect(parsed.defaultModel?.id).toBe("composer-2.5");
   });
 
   it("rejects unknown top-level keys", () => {

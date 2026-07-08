@@ -32,7 +32,11 @@ export const STANDARD_MODEL_PARAMS: readonly ModelParameterValue[] = [
 ];
 
 export function resolveModelId(config: HarnessConfig): string {
-  return config.defaultModel?.id ?? DEFAULT_MODEL_ID;
+  return (
+    config.agentProvider?.model?.id ??
+    config.defaultModel?.id ??
+    DEFAULT_MODEL_ID
+  );
 }
 
 export function resolveModel(config: HarnessConfig): ModelSelection {

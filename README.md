@@ -58,7 +58,7 @@ Each step has a template in [`templates/`](templates/). Status changes on allowl
 
 ## Configuration and portability posture
 
-V0.2 is **Cursor-first** and **not provider-agnostic yet**. Cursor is the only implemented agent execution provider, Linear and GitHub are explicit assumptions, GitHub Actions is the cloud runner, and Vercel is the only implemented preview provider when preview capture is enabled.
+V0.2 is **Cursor-first** and **not provider-agnostic yet**. Cursor is the only implemented agent execution provider, Linear and GitHub are explicit assumptions, GitHub Actions is the cloud runner, and Vercel is the only implemented preview provider when preview capture is enabled. Config exposes an `agentProvider` shape with `id: "cursor"` only; `defaultModel` remains for backward compatibility.
 
 - What is configurable, fixed, and intentionally not claimed: [`docs/provider-portability.md`](docs/provider-portability.md)
 - Why the agent provider is not a simple model/env-var swap: [`docs/decisions/0004-agent-provider-boundary.md`](docs/decisions/0004-agent-provider-boundary.md)

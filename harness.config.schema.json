@@ -16,6 +16,31 @@
           "type": "string",
           "default": "runs"
         },
+        "agentProvider": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "const": "cursor"
+            },
+            "model": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        },
         "defaultModel": {
           "type": "object",
           "properties": {
