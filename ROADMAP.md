@@ -2,21 +2,35 @@
 
 Phased delivery for the agentic product development harness. Each phase adds capability only after the previous loop is proven manually.
 
-**Current phase: V0.2 release preparation (maintainability / code quality)**
+**Current release:** V0.2.0 source release
 
 ---
 
-## V0.2 release preparation (current)
+## V0.2.0 source release
+
+**Status:** Release contract and public docs are landing in PR #14. Tagging happens only after the release-doc PR merges and required checks are green.
+
+**Delivered in V0.2.0:**
+- SDK lifecycle runners through production sync
+- Event-driven auto-runner (Linear webhook → Vercel → GitHub Actions)
+- Provider posture and config seam — [`docs/decisions/0004-agent-provider-boundary.md`](docs/decisions/0004-agent-provider-boundary.md), [`docs/provider-portability.md`](docs/provider-portability.md)
+- Security baseline — [`docs/security.md`](docs/security.md) (Pass B implemented: ruleset, allowlist)
+- Release contract, changelog, getting-started, release-process docs — [`docs/releases/v0.2.0.md`](docs/releases/v0.2.0.md)
+
+**Completed (V0.2 prep):**
+- M1 maintainability cleanup — shared run-phase constants, workflow helper split
+
+**Tag/release:** Documented in [`docs/releases/release-process.md`](docs/releases/release-process.md) — not created until release-doc PR merges.
+
+---
+
+## V0.2 release preparation (completed)
 
 **Goal:** Remove obvious maintainability drift and centralize small shared primitives without changing runtime behavior — preparing the harness for V0.2 release.
 
-**In progress:**
+**Delivered:**
 - Shared run-phase constants and stale type/metadata alignment
 - Workflow helper library split for import-safe testability
-
-**Completed (V0.2 prep):**
-- Provider posture and config seam — [`docs/decisions/0004-agent-provider-boundary.md`](docs/decisions/0004-agent-provider-boundary.md), [`docs/provider-portability.md`](docs/provider-portability.md)
-- Security baseline — [`docs/security.md`](docs/security.md)
 
 ---
 
@@ -54,7 +68,8 @@ See [`docs/milestones/m8-linear-watcher.md`](docs/milestones/m8-linear-watcher.m
 - Polling Linear
 - Database-backed queue
 - Lead agent / autonomous repair
-- Production release tags
+
+Tag and GitHub release: see [`docs/releases/release-process.md`](docs/releases/release-process.md).
 
 ---
 
@@ -216,9 +231,11 @@ See [`docs/milestones/m3-implementation-phase.md`](docs/milestones/m3-implementa
 
 ---
 
-## v0.2 — Eval / readiness contract
+## Historical / deferred: eval readiness contract
 
-**Goal:** Formalize what “ready for review” means with repeatable, human-readable rubrics that can later become automated checks.
+> **Superseded for V0.2.0.** The V0.2.0 release is a Cursor-first source release (SDK runners, auto-runner, security baseline) — not this eval automation milestone. Evals remain manual rubrics. See [`evals/README.md`](evals/README.md).
+
+**Goal (original v0.2 roadmap item):** Formalize what “ready for review” means with repeatable, human-readable rubrics that can later become automated checks.
 
 **Deliverables:**
 - Standard eval criteria per work type (UI change, content, API, etc.)

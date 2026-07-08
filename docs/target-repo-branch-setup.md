@@ -2,6 +2,8 @@
 
 The harness merges pull requests into an **integration branch** configured per repo (`repos[].baseBranch`, e.g. `dev`). Production promotion (`dev` → `main`) is a **manual git step** followed by an explicit harness sync.
 
+**Release contract:** [`docs/releases/v0.2.0.md`](releases/v0.2.0.md)
+
 ## Config fields
 
 | Field | Purpose |

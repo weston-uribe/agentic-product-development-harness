@@ -2,13 +2,13 @@
 
 Documented harness runs against real target repositories.
 
-## v0.1 status
+## Available examples
 
-**No examples yet.** This directory will hold anonymized or redacted artifacts from manual v0.1 loops once they are run.
+**Run 001 (portfolio):** [`runs/001-portfolio-github-link/`](runs/001-portfolio-github-link/) — manual v0.1 loop documented with artifacts and retrospective in [`docs/research/001-manual-run-retrospective.md`](../docs/research/001-manual-run-retrospective.md).
 
-## First planned example
+## Target repo
 
-**Target repo:** [`weston-uribe/weston-uribe-portfolio`](https://github.com/weston-uribe/weston-uribe-portfolio)
+**Primary target:** [`weston-uribe/weston-uribe-portfolio`](https://github.com/weston-uribe/weston-uribe-portfolio)
 
 **Expected artifacts per run:**
 

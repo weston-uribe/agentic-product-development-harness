@@ -2,7 +2,7 @@
 
 Operator guide for automatic production sync after portfolio `dev → main` promotion.
 
-**Related:** [`docs/target-repo-branch-setup.md`](target-repo-branch-setup.md), [`docs/linear-watcher-setup.md`](linear-watcher-setup.md)
+**Related:** [`docs/target-repo-branch-setup.md`](target-repo-branch-setup.md), [`docs/linear-watcher-setup.md`](linear-watcher-setup.md), [`docs/releases/v0.2.0.md`](releases/v0.2.0.md)
 
 ---
 

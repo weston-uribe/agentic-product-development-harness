@@ -1,14 +1,30 @@
 # Agentic Product Development Harness
 
-**Status: V0.2 release preparation**
+**Current release: v0.2.0** (GitHub source release — see [`docs/releases/v0.2.0.md`](docs/releases/v0.2.0.md))
 
-This is currently a **Cursor-first harness** for **Linear + GitHub + GitHub Actions**. **Cursor is the only implemented agent provider today.** It explores how an AI-native PM can define product work in structured issues, guide AI-assisted implementation through Cursor, and evaluate outputs before human product and engineering review.
+## TL;DR
 
-## What this is
+This repo is a Cursor-first orchestration harness for turning structured Linear issues into GitHub PRs through a controlled AI-assisted workflow.
 
-A Cursor-first harness for turning product issues into implementation plans, validation reports, and review-ready pull requests. SDK runners handle planning through merge; automatic cloud runs are triggered when Linear status changes; a canonical ChatGPT intake prompt lets PMs draft harness-compatible Linear issues by copy-pasting into a normal chat thread.
+It supports:
 
-The architecture is modular by subsystem — **Cursor + GitHub + Linear + Vercel previews + human review**, with a Vercel webhook bridge and GitHub Actions auto-runner — but it is **not provider-agnostic yet**. See the [configuration and portability posture](#configuration-and-portability-posture) below.
+- Linear as the product/control system
+- GitHub as the repo and PR system
+- GitHub Actions as the runner
+- Cursor Cloud Agents as the only implemented agent provider
+- Vercel as the webhook bridge and preview source when configured
+
+It is not provider-agnostic, not an npm package, and not a plug-and-play product. V0.2.0 is a source release of the working harness, security baseline, and operator docs.
+
+## Quick links
+
+| Topic | Doc |
+|-------|-----|
+| Getting started | [`docs/getting-started.md`](docs/getting-started.md) |
+| Release contract (v0.2.0) | [`docs/releases/v0.2.0.md`](docs/releases/v0.2.0.md) |
+| Security baseline | [`docs/security.md`](docs/security.md) |
+| Provider portability | [`docs/provider-portability.md`](docs/provider-portability.md) |
+| Linear watcher setup | [`docs/linear-watcher-setup.md`](docs/linear-watcher-setup.md) |
 
 ## Why it exists
 
@@ -18,15 +34,31 @@ AI-assisted development makes it easy to generate code quickly. It does not, by 
 - AI execution happens in a bounded, reviewable context
 - Outputs are evaluated against explicit criteria before humans sign off
 
+## What this is
+
+The harness coordinates a product-development loop:
+
+```text
+Linear issue → planning/build/review phases → GitHub PR → Linear/status gate → merge or revision
+```
+
+The goal is not to remove human judgment. The goal is to make AI-assisted development traceable: intent, execution, validation, and review all leave durable artifacts.
+
+SDK runners handle planning through merge and production sync. Linear status changes can trigger cloud runs automatically. A ChatGPT intake prompt helps PMs draft harness-compatible issues without copying repo templates.
+
+The architecture is modular by subsystem, but it is **not provider-agnostic**. See [configuration and portability posture](#configuration-and-portability-posture) below.
+
 ## Current capability
 
 | Layer | Status |
 |-------|--------|
 | Issue intake | ChatGPT copy-paste prompt + Cursor skill + validate-issue CLI |
 | Planning / implementation / handoff / revision / merge | SDK runners (implemented) |
+| Production sync | SDK runner + optional `production_promoted` dispatch (implemented) |
 | Auto-run from Linear status | Webhook bridge + GitHub Actions (implemented) |
 | Agent provider | Cursor Cloud Agents only (implemented) |
-| Human approval | Required at merge |
+| Linear / status gates | Required — automation respects allowlisted statuses |
+| GitHub review requirement (solo repo) | **0 approvals** — PR + required checks only |
 | Reusable skills beyond issue intake | Deferred |
 
 ## Auto-run flow
@@ -41,15 +73,15 @@ Setup: [`docs/linear-watcher-setup.md`](docs/linear-watcher-setup.md) — Securi
 ## Workflow
 
 ```text
-Structured issue → Implementation plan → Cursor execution
-  → Eval scorecard → PR readiness report → Human review → PR / preview
+Structured issue → optional plan → Cursor execution → GitHub PR
+  → handoff / preview → PM review → revision or Ready to Merge → merge / sync
 ```
 
-Each step has a template in [`templates/`](templates/). Status changes on allowlisted Linear statuses trigger harness phases automatically; human gates remain at review and merge.
+Each step has a template in [`templates/`](templates/). Status changes on allowlisted Linear statuses trigger harness phases automatically. **Linear/status gates** remain at review and merge. GitHub required review is disabled (0 approvals) in solo-maintainer mode — see [`docs/security.md`](docs/security.md).
 
 ## What exists today
 
-- SDK harness runners for planning, implementation, handoff, revision, and merge — see [`ROADMAP.md`](ROADMAP.md)
+- SDK harness runners for planning, implementation, handoff, revision, merge, and production sync — see [`ROADMAP.md`](ROADMAP.md)
 - Event-driven auto-runner — [`api/linear-webhook.ts`](api/linear-webhook.ts), [`.github/workflows/harness-auto-runner.yml`](.github/workflows/harness-auto-runner.yml)
 - ChatGPT intake prompt — [`prompts/issue-intake-chatgpt.md`](prompts/issue-intake-chatgpt.md)
 - Issue intake skill — [`skills/issue-intake/`](skills/issue-intake/)
@@ -67,7 +99,7 @@ This repo does **not** claim provider agnosticism, or support for Claude Code, C
 
 ## What is planned
 
-See [`ROADMAP.md`](ROADMAP.md) for deferred work: an internal agent-provider seam, additional skills, and release automation.
+See [`ROADMAP.md`](ROADMAP.md) for deferred work: additional skills, automated eval contract, and future portability.
 
 ## First target repo
 
@@ -77,16 +109,20 @@ The first real-world target for this harness is [`weston-uribe/weston-uribe-port
 
 ## What this repo does not claim
 
-- Autonomous shipping without human review
+- Autonomous shipping without Linear/status gates
 - Production-grade robustness or portability
 - Provider agnosticism (Cursor is the only implemented agent provider)
 - Lead agent or planner/implementer skills
-- Production release tags
+- npm package publication
 - Polling-based Linear watcher
+
+Git tags and GitHub releases are operator-controlled milestones — see [`docs/releases/release-process.md`](docs/releases/release-process.md). They are not created from doc PRs.
 
 Issue intake is implemented via [`prompts/issue-intake-chatgpt.md`](prompts/issue-intake-chatgpt.md) (ChatGPT) and [`skills/issue-intake/`](skills/issue-intake/) (Cursor). Additional skills remain deferred.
 
 ## Getting started
+
+See [`docs/getting-started.md`](docs/getting-started.md) for the full operator guide. Quick path:
 
 1. Read [`ARCHITECTURE.md`](ARCHITECTURE.md) for the modular component model
 2. Read [`AGENTS.md`](AGENTS.md) if you are an AI agent working in this repo

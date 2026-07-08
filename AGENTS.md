@@ -4,7 +4,7 @@ Instructions for AI agents working in **agentic-product-development-harness**. R
 
 ## What this repo is
 
-v0.1+ harness repo: SDK runners (M1–M8), templates, eval contracts, and event-driven Linear auto-run. Read this before making changes.
+v0.2.0 harness repo: SDK runners (M1–M8), templates, eval contracts, and event-driven Linear auto-run. Read this before making changes.
 
 The harness has **M1–M8 SDK runners and tooling** (planning through merge, issue intake validation, and event-driven auto-run via Linear webhook + GitHub Actions).
 
@@ -85,7 +85,7 @@ These are distinct artifacts. Do not conflate them in docs or reports.
 | **Tag** | A named pointer to a specific commit | When marking a version milestone |
 | **Release** | A published, externally useful milestone (often tied to a tag) | Only when the milestone is externally useful **and** explicitly approved |
 
-**Never create releases** unless the milestone is externally useful and explicitly approved by the human operator. Internal harness improvements and spike work do not need releases.
+**Never create releases or tags** unless the milestone is externally useful and explicitly approved by the human operator. Do **not** create the `v0.2.0` tag or GitHub release from a release-doc PR — follow [`docs/releases/release-process.md`](docs/releases/release-process.md) after merge. Internal harness improvements and spike work do not need releases.
 
 ## Before acting
 
@@ -108,8 +108,9 @@ These are distinct artifacts. Do not conflate them in docs or reports.
 ## File map
 
 ```text
-README.md           → Public overview and honest v0.1 positioning
+README.md           → Public overview and v0.2.0 source-release positioning
 ROADMAP.md          → Phased delivery plan
+docs/releases/      → Release contract and tag/release process
 ARCHITECTURE.md     → Modular component model
 AGENTS.md           → This file
 docs/architecture/  → Linear automation state machine
@@ -123,4 +124,4 @@ examples/           → Example runs (portfolio first)
 
 ## Tone
 
-Write for hiring managers and technical reviewers: clear, honest, structured. Early-stage is a feature—do not dress v0.1 up as v1.0.
+Write for hiring managers and technical reviewers: clear, honest, structured. Early-stage is a feature—do not dress v0.2 up as production-grade.
