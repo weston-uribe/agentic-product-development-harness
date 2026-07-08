@@ -22,6 +22,36 @@ If the resolved source is missing, unreadable, or invalid, harness commands exit
 
 ---
 
+## Recommended local setup
+
+1. `npm run harness:operator:init` — scaffolds `.env.local` and `.harness/config.local.json` from committed examples (does not overwrite unless `--force`)
+2. Edit `.harness/config.local.json` with your real target repo mapping
+3. Keep `HARNESS_CONFIG_PATH=.harness/config.local.json` in `.env.local`
+4. `npm run harness:doctor`
+
+| File | Role |
+|------|------|
+| `.env.local` | Local secrets and `HARNESS_CONFIG_PATH` pointer (gitignored) |
+| `.harness/config.local.json` | Structured private target-repo config (gitignored) |
+| [`.harness/config.example.json`](../.harness/config.example.json) | Committed starter template (single target repo) |
+| [`harness.config.json`](../harness.config.json) | Committed public example/fallback when no private source is set |
+
+The starter config in `.harness/config.example.json` is for first-time users with **one** target repo. Add more entries to `repos[]` and `allowedTargetRepos[]` for every repo you want the harness to manage.
+
+---
+
+## Private config is a full replacement (not an overlay)
+
+**`HARNESS_CONFIG_JSON_B64` and other private config sources replace the whole harness config for that run.** They do **not** merge with or overlay committed [`harness.config.json`](../harness.config.json).
+
+When a private source wins the resolution chain, only that JSON is used. Any repo id the harness must resolve in cloud automation must appear in the private config itself, with matching entries in both `repos[]` and `allowedTargetRepos[]`.
+
+**Example:** If an operator sets `HARNESS_CONFIG_JSON_B64` with only one private target repo, harness self-automation may stop resolving the `harness` repo id from the committed fallback. For an operator managing multiple repos (e.g. `my-app` and the harness repo itself), the private config must include **every** repo the harness should manage — not just the newest target.
+
+Do not solve this by committing operator-specific values to the public repo. Document and maintain the full private JSON locally and in `HARNESS_CONFIG_JSON_B64`.
+
+---
+
 ## Local development
 
 Point at a private config file:
@@ -48,15 +78,16 @@ npm run harness:doctor
 
 ## GitHub Actions (private operator config)
 
-1. Maintain a **private** `harness.config.json` locally — do not commit operator target repos to the public harness repo.
-2. Base64-encode the full config (no newlines):
+1. Maintain a **private** config locally at `.harness/config.local.json` (via `npm run harness:operator:init`) — do not commit operator target repos to the public harness repo.
+2. Ensure the private JSON includes **every** repo the harness should manage in `repos[]` and `allowedTargetRepos[]` (full replacement — see above).
+3. Base64-encode the full config (no newlines):
 
    ```bash
-   base64 < private.harness.config.json | tr -d '\n'
+   base64 < .harness/config.local.json | tr -d '\n'
    ```
 
-3. Store the result as GitHub Actions secret **`HARNESS_CONFIG_JSON_B64`** on the harness repo.
-4. The secret must include all operator `repos[]` entries, Linear mappings, and `allowedTargetRepos`.
+4. Store the result as GitHub Actions secret **`HARNESS_CONFIG_JSON_B64`** on the harness repo.
+5. The secret must include all operator `repos[]` entries, Linear mappings, and `allowedTargetRepos` — it replaces committed `harness.config.json` for cloud runs.
 
 The harness workflow sets `HARNESS_CONFIG_JSON_B64` on all jobs (`gate`, `run-harness`, `run-merge`, `sync-production`). Because GHA does not pass `--config`, the secret is used automatically.
 

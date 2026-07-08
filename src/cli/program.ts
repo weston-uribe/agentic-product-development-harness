@@ -10,6 +10,7 @@ import { runValidateIssue } from "./commands/validate-issue.js";
 import { runSyncProductionCommand } from "./commands/sync-production.js";
 import { runResolveRouteCommand } from "./commands/resolve-route.js";
 import { runRedactOutputCommand } from "./commands/redact-output.js";
+import { runOperatorInit } from "./commands/operator-init.js";
 
 export function createProgram(): Command {
   const program = new Command();
@@ -161,6 +162,19 @@ export function createProgram(): Command {
     .description("Read stdin and write redacted JSON or text to stdout")
     .action(async () => {
       const exitCode = await runRedactOutputCommand();
+      process.exitCode = exitCode;
+    });
+
+  const operator = program
+    .command("operator")
+    .description("Operator setup helpers");
+
+  operator
+    .command("init")
+    .description("Create local .env.local and .harness/config.local.json from examples")
+    .option("--force", "Overwrite existing local files", false)
+    .action(async (opts: { force?: boolean }) => {
+      const exitCode = await runOperatorInit({ force: opts.force ?? false });
       process.exitCode = exitCode;
     });
 

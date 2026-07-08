@@ -1,4 +1,3 @@
-import "dotenv/config";
 import { EXIT_CONFIG } from "../exit-codes.js";
 import { loadHarnessConfig } from "../../config/load-config.js";
 import { createLinearClient } from "../../linear/writer.js";

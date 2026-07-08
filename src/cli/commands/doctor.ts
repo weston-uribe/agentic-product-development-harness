@@ -1,4 +1,3 @@
-import "dotenv/config";
 import { access, constants, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { Cursor } from "@cursor/sdk";

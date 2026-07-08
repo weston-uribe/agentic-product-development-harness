@@ -1,4 +1,3 @@
-import "dotenv/config";
 import { EXIT_CONFIG } from "../exit-codes.js";
 import { runOrchestrator, type RunPhaseArg } from "../../runner/orchestrator.js";
 

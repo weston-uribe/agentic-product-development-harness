@@ -1,4 +1,3 @@
-import "dotenv/config";
 import { EXIT_CONFIG, EXIT_PLANNING_FAILURE, EXIT_RUN_FAILURE } from "../exit-codes.js";
 import { isDispatchPhase } from "../../runner/phase-args.js";
 import { resolveRoute, type ResolveRoutePhaseArg, LinearAuthError } from "../../runner/resolve-route.js";

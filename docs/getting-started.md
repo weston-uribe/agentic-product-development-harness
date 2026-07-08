@@ -54,28 +54,26 @@ npm test
 
 ## Configuration
 
-The committed [`harness.config.json`](../harness.config.json) is a generic example. For real target repos, use private operator config — see [`docs/operator-config.md`](operator-config.md).
+The committed [`harness.config.json`](../harness.config.json) is a generic example/fallback. For real target repos, use private operator config — see [`docs/operator-config.md`](operator-config.md).
 
-1. Copy or create a config file (see schema: [`harness.config.schema.json`](../harness.config.schema.json)).
-2. Set target repos, Linear project/team mappings, branch strategy, and `agentProvider.id: "cursor"`.
-3. Run doctor:
+**Recommended local setup:**
 
-```bash
-npm run harness:doctor
-```
+1. `npm install` (or `npm ci`)
+2. `npm run harness:operator:init` — creates gitignored `.env.local` and `.harness/config.local.json` from committed examples
+3. Edit `.harness/config.local.json` with your target repo mapping, Linear team/project, and branch rules
+4. `npm run harness:doctor` — validates config (reads `HARNESS_CONFIG_PATH` from `.env.local` when present)
+5. Base64-encode `.harness/config.local.json` and set GitHub Actions secret **`HARNESS_CONFIG_JSON_B64`** on the harness repo for cloud runs
+6. Configure remaining GitHub Actions secrets (`LINEAR_API_KEY`, `CURSOR_API_KEY`, `HARNESS_GITHUB_TOKEN`)
 
-Local private config via env:
-
-```bash
-export HARNESS_CONFIG_PATH=/path/to/private/harness.config.json
-npm run harness:doctor
-```
+Add more entries to `repos[]` and `allowedTargetRepos[]` for every repo you want the harness to manage. The starter example includes one target repo only.
 
 For merge-phase checks with a GitHub token:
 
 ```bash
-GITHUB_TOKEN=<token> npm run harness:doctor -- --profile merge
+npm run harness:doctor -- --profile merge
 ```
+
+(Set `GITHUB_TOKEN` in `.env.local`.)
 
 Note: `harness:doctor` with live API keys is not a dry-run — it validates credentials and repo access.
 
@@ -87,7 +85,7 @@ Note: `harness:doctor` with live API keys is not a dry-run — it validates cred
 |--------------|------------|------------------|
 | `LINEAR_API_KEY`, `CURSOR_API_KEY`, `HARNESS_GITHUB_TOKEN` | GitHub Actions secrets | Vercel, committed files |
 | `LINEAR_WEBHOOK_SECRET`, `GITHUB_DISPATCH_TOKEN` | Vercel production env | GitHub Actions (for bridge), committed files |
-| Local dev tokens | Untracked `.env` (gitignored) | Commits, docs, examples |
+| Local dev tokens and config pointer | Untracked `.env.local` (gitignored) | Commits, docs, examples |
 
 Secret names may appear in docs; secret values must never appear in docs, commits, examples, logs, or PR comments.
 
