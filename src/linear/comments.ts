@@ -823,6 +823,29 @@ export function findPhaseStartMarker(
   );
 }
 
+export function findLatestPhaseStartRunId(
+  comments: { body: string }[],
+  orchestratorMarker: string,
+  phase: PhaseStartPhase,
+): string | null {
+  for (let index = comments.length - 1; index >= 0; index -= 1) {
+    const comment = comments[index];
+    if (!comment) {
+      continue;
+    }
+    const markers = parseHarnessMarkers(comment.body);
+    if (
+      markers.orchestratorMarker === orchestratorMarker &&
+      markers.phase === phase &&
+      markers.runId
+    ) {
+      return markers.runId;
+    }
+  }
+
+  return null;
+}
+
 export async function writeCommentsArtifact(
   runDirectory: string,
   comments: string[],

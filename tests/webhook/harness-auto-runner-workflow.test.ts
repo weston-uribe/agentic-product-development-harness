@@ -34,10 +34,10 @@ function assertHarnessWorkflowContracts(workflow: string, label: string): void {
       expect(gate).not.toMatch(/^\s+concurrency:/m);
     });
 
-    it("run-harness keeps per-issue concurrency with cancel-in-progress true", () => {
+    it("run-harness keeps per-issue concurrency without canceling in-progress work", () => {
       const runHarness = extractJobSection(workflow, "run-harness");
       expect(runHarness).toMatch(/group:\s*harness-\$\{\{/);
-      expect(runHarness).toContain("cancel-in-progress: true");
+      expect(runHarness).toContain("cancel-in-progress: false");
       expect(runHarness).not.toContain("harness-merge-");
     });
 
@@ -86,9 +86,9 @@ describe("harness-auto-runner concurrency behavior contracts", () => {
   const runHarness = extractJobSection(workflow, "run-harness");
   const runMerge = extractJobSection(workflow, "run-merge");
 
-  it("duplicate same-issue non-merge dispatch cancels via run-harness concurrency", () => {
+  it("duplicate same-issue non-merge dispatch queues via run-harness concurrency without cancel", () => {
     expect(runHarness).toContain("group: harness-${{ needs.gate.outputs.issue_key }}");
-    expect(runHarness).toContain("cancel-in-progress: true");
+    expect(runHarness).toContain("cancel-in-progress: false");
   });
 
   it("duplicate same-issue merge dispatch queues via run-merge concurrency without cancel", () => {

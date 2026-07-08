@@ -88,6 +88,16 @@ describe("shouldContinueToHandoffAfterImplementation", () => {
     ).toBe(true);
     expect(
       shouldContinueToHandoffAfterImplementation(
+        baseManifest({
+          phase: "implementation",
+          finalOutcome: "duplicate",
+          errorClassification: "recovery_handoff",
+          prUrl: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/12",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      shouldContinueToHandoffAfterImplementation(
         baseManifest({ phase: "planning", finalOutcome: "success" }),
       ),
     ).toBe(false);
@@ -151,6 +161,45 @@ describe("runOrchestrator planning continuation", () => {
         linearStatusAfter: "PM Review",
       }),
     );
+    expect(result.exitCode).toBe(0);
+  });
+
+  it("chains handoff after implementation recovery skip with existing PR", async () => {
+    const implementationManifest = baseManifest({
+      phase: "implementation",
+      finalOutcome: "duplicate",
+      errorClassification: "recovery_handoff",
+      linearStatusBefore: "Building",
+      linearStatusAfter: "Building",
+      prUrl: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/12",
+    });
+    const handoffManifest = baseManifest({
+      phase: "handoff",
+      finalOutcome: "success",
+      linearStatusBefore: "Building",
+      linearStatusAfter: "PM Review",
+      prUrl: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/12",
+    });
+
+    mocks.executeImplementationPhase.mockResolvedValue({
+      exitCode: 0,
+      runDirectory: "runs/WES-22/implementation",
+      manifest: implementationManifest,
+    });
+    mocks.executeHandoffPhase.mockResolvedValue({
+      exitCode: 0,
+      runDirectory: "runs/WES-22/handoff",
+      manifest: handoffManifest,
+    });
+
+    const result = await runOrchestrator({
+      issueKey: "WES-22",
+      configPath: "harness.config.json",
+      phase: "implementation",
+    });
+
+    expect(mocks.executeHandoffPhase).toHaveBeenCalledOnce();
+    expect(result.manifest).toEqual(handoffManifest);
     expect(result.exitCode).toBe(0);
   });
 

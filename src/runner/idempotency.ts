@@ -4,6 +4,7 @@ import type { LinearCommentRecord } from "../linear/writer.js";
 import {
   findMergeMarkerForPrUrl,
   findRevisionMarkerForPmFeedback,
+  findLatestPhaseStartRunId,
   hasHandoffCompletionMarker,
   hasPlanningCompletionMarker,
   findProductionSyncMarkerForMergeCommit,
@@ -23,10 +24,13 @@ import {
   NARROW_AC_MAX_COUNT,
   NARROW_TASK_MAX_LENGTH,
 } from "../validate/constants.js";
+import { isImplementationStartStale } from "./building-recovery.js";
 
 export interface IdempotencyResult {
   skip: boolean;
   reason?: string;
+  recoveryHandoff?: boolean;
+  discoveredPrUrl?: string;
 }
 
 export function checkPlanningIdempotency(
@@ -129,9 +133,29 @@ export async function checkImplementationIdempotency(
       return {
         skip: true,
         reason:
-          "duplicate_phase_completed: open implementation PR already exists on GitHub",
+          "recovery_handoff: open implementation PR already exists on GitHub",
+        recoveryHandoff: true,
+        discoveredPrUrl: discovered.prUrl,
       };
     }
+  }
+
+  const building = getTransitionalStatus(config, "buildingInProgress");
+  const latestImplementationStartRunId = findLatestPhaseStartRunId(
+    _comments,
+    config.orchestratorMarker,
+    "implementation_start",
+  );
+  if (
+    issue.status?.toLowerCase() === building.toLowerCase() &&
+    latestImplementationStartRunId &&
+    !isImplementationStartStale(latestImplementationStartRunId)
+  ) {
+    return {
+      skip: true,
+      reason:
+        "implementation_in_progress: Building with active implementation_start marker",
+    };
   }
 
   return { skip: false };
@@ -140,7 +164,7 @@ export async function checkImplementationIdempotency(
 export function assertImplementationEligibleStatus(
   config: HarnessConfig,
   issue: LinearIssueSnapshot,
-  force: boolean,
+  _force: boolean,
 ): void {
   const status = issue.status?.trim() ?? "";
   const eligible = getEligibleImplementationStatuses(config);
@@ -150,7 +174,7 @@ export function assertImplementationEligibleStatus(
     return;
   }
 
-  if (force && status.toLowerCase() === building.toLowerCase()) {
+  if (status.toLowerCase() === building.toLowerCase()) {
     return;
   }
 

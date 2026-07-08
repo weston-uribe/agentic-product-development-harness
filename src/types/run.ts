@@ -50,6 +50,8 @@ export type ErrorClassification =
   | "checks_unknown"
   | "github_merge_failure"
   | "deployment_not_found"
+  | "recovery_handoff"
+  | "implementation_in_progress"
   | null;
 
 export interface RunManifest {

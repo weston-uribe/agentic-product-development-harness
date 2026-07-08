@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { HarnessConfig } from "../../src/config/types.js";
 import type { LinearIssueSnapshot } from "../../src/linear/client.js";
 import {
@@ -70,14 +70,64 @@ describe("implementation idempotency", () => {
     ).toThrow(/wrong_status/);
   });
 
-  it("allows Building status when force is set", () => {
+  it("allows Building status for recovery retries", () => {
     expect(() =>
       assertImplementationEligibleStatus(
         config,
         { ...issue, status: "Building" },
-        true,
+        false,
       ),
     ).not.toThrow();
+  });
+
+  it("requests handoff recovery when an implementation PR already exists", async () => {
+    const github = {
+      listPullRequests: async () => [
+        {
+          number: 12,
+          html_url: "https://github.com/o/r/pull/12",
+          head: { ref: "cursor/wes-12-test", sha: "abc" },
+          base: { ref: "dev" },
+        },
+      ],
+    };
+
+    const result = await checkImplementationIdempotency(
+      config,
+      issue,
+      [],
+      false,
+      {
+        github: github as never,
+        targetRepo: "https://github.com/o/r",
+        baseBranch: "dev",
+      },
+    );
+
+    expect(result.skip).toBe(true);
+    expect(result.recoveryHandoff).toBe(true);
+    expect(result.discoveredPrUrl).toBe("https://github.com/o/r/pull/12");
+  });
+
+  it("suppresses duplicate implementation while Building is fresh", async () => {
+    vi.setSystemTime(new Date("2026-07-08T02:50:00.000Z"));
+
+    const result = await checkImplementationIdempotency(
+      config,
+      { ...issue, status: "Building" },
+      [
+        {
+          id: "comment-1",
+          body: `<!--\nharness-orchestrator-v1\nphase: implementation_start\nrun_id: 2026-07-08T02-49-25-188Z-WES-12\n-->`,
+        },
+      ],
+      false,
+    );
+
+    expect(result.skip).toBe(true);
+    expect(result.reason).toContain("implementation_in_progress");
+
+    vi.useRealTimers();
   });
 
   it("identifies narrow implementation issues", () => {

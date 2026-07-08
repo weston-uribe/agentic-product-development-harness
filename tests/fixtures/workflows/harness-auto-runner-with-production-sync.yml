@@ -120,7 +120,7 @@ jobs:
     timeout-minutes: 120
     concurrency:
       group: harness-${{ needs.gate.outputs.issue_key }}
-      cancel-in-progress: true
+      cancel-in-progress: false
 
     env:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}

@@ -10,10 +10,21 @@ import type { HarnessConfig } from "../../src/config/types.js";
 
 const mocks = vi.hoisted(() => ({
   fetchLinearIssue: vi.fn(),
+  listIssueComments: vi.fn(),
+  findImplementationPullRequest: vi.fn(),
 }));
 
 vi.mock("../../src/linear/client.js", () => ({
   fetchLinearIssue: mocks.fetchLinearIssue,
+}));
+
+vi.mock("../../src/linear/writer.js", () => ({
+  createLinearClient: vi.fn(() => ({})),
+  listIssueComments: mocks.listIssueComments,
+}));
+
+vi.mock("../../src/github/pr-discovery.js", () => ({
+  findImplementationPullRequest: mocks.findImplementationPullRequest,
 }));
 
 const portfolioConfig: HarnessConfig = {
@@ -61,6 +72,10 @@ describe("resolveRoute", () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    mocks.listIssueComments.mockResolvedValue([]);
+    mocks.findImplementationPullRequest.mockResolvedValue(null);
+    process.env.GITHUB_TOKEN = "test-github-token";
+    process.env.LINEAR_API_KEY = "test-key";
     tempRoot = await mkdtemp(path.join(tmpdir(), "harness-resolve-route-"));
     configPath = path.join(tempRoot, "harness.config.json");
     await writeFile(configPath, `${JSON.stringify(portfolioConfig, null, 2)}\n`, "utf8");
@@ -119,6 +134,70 @@ describe("resolveRoute", () => {
 
     expect(result.phase).toBe("merge");
     expect(result.shouldRun).toBe(true);
+  });
+
+  it("routes Building issues with an open PR to handoff recovery", async () => {
+    mocks.fetchLinearIssue.mockResolvedValue({
+      id: "issue-1",
+      identifier: "WES-22",
+      title: "Recovery",
+      description: `## Target repo\n\nweston-uribe/weston-uribe-portfolio\n\n## Task\n\nTest\n\n## Acceptance criteria\n\n- [ ] Done\n\n## Out of scope\n\n- [ ] N/A`,
+      status: "Building",
+      projectName: "Portfolio",
+      teamName: "WES",
+      teamId: "team-1",
+      url: "https://linear.app/example/issue/WES-22",
+    });
+    mocks.findImplementationPullRequest.mockResolvedValue({
+      prUrl: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/12",
+      prNumber: 12,
+      branch: "cursor/wes-22-test",
+      headSha: "abc",
+      baseBranch: "dev",
+    });
+
+    const result = await resolveRoute({
+      issueKey: "WES-22",
+      configPath,
+      linearApiKey: "test-key",
+    });
+
+    expect(result.phase).toBe("handoff");
+    expect(result.shouldRun).toBe(true);
+  });
+
+  it("suppresses duplicate Building implementation dispatches while fresh", async () => {
+    const freshRunId = "2026-07-08T02-49-25-188Z-WES-22";
+    vi.setSystemTime(new Date("2026-07-08T02:50:00.000Z"));
+
+    mocks.fetchLinearIssue.mockResolvedValue({
+      id: "issue-1",
+      identifier: "WES-22",
+      title: "In progress",
+      description: `## Target repo\n\nweston-uribe/weston-uribe-portfolio\n\n## Task\n\nTest\n\n## Acceptance criteria\n\n- [ ] Done\n\n## Out of scope\n\n- [ ] N/A`,
+      status: "Building",
+      projectName: "Portfolio",
+      teamName: "WES",
+      teamId: "team-1",
+      url: "https://linear.app/example/issue/WES-22",
+    });
+    mocks.listIssueComments.mockResolvedValue([
+      {
+        id: "comment-1",
+        body: `<!--\nharness-orchestrator-v1\nphase: implementation_start\nrun_id: ${freshRunId}\n-->`,
+      },
+    ]);
+
+    const result = await resolveRoute({
+      issueKey: "WES-22",
+      configPath,
+      linearApiKey: "test-key",
+    });
+
+    expect(result.phase).toBe("implementation");
+    expect(result.shouldRun).toBe(false);
+
+    vi.useRealTimers();
   });
 
   it("returns shouldRun false for ineligible status with auto phase", async () => {

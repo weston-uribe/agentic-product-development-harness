@@ -255,8 +255,15 @@ export async function executeImplementationPhase(
     );
     if (idempotency.skip) {
       await events.log("idempotency_skip", "info", { reason: idempotency.reason });
-      finalOutcome = "duplicate";
-      errorClassification = "duplicate_phase_completed";
+      finalOutcome = idempotency.recoveryHandoff ? "duplicate" : "duplicate";
+      errorClassification = idempotency.recoveryHandoff
+        ? "recovery_handoff"
+        : idempotency.reason?.startsWith("implementation_in_progress")
+          ? "implementation_in_progress"
+          : "duplicate_phase_completed";
+      if (idempotency.discoveredPrUrl) {
+        prUrl = idempotency.discoveredPrUrl;
+      }
       const manifest: RunManifest = {
         runId,
         issueKey: options.issueKey,

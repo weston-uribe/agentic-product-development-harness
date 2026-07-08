@@ -1,7 +1,13 @@
 import { loadConfig } from "../config/load-config.js";
+import { getTransitionalStatus } from "../config/status-names.js";
 import { fetchLinearIssue } from "../linear/client.js";
+import { findLatestPhaseStartRunId } from "../linear/comments.js";
+import { createLinearClient, listIssueComments } from "../linear/writer.js";
 import { parseIssueDescription } from "../linear/parser.js";
 import { resolveTargetRepo } from "../resolver/target-repo.js";
+import { GitHubClient } from "../github/client.js";
+import { findImplementationPullRequest } from "../github/pr-discovery.js";
+import { isImplementationStartStale } from "./building-recovery.js";
 import { inferPhaseFromStatus } from "./phase-infer.js";
 import type { RunPhase } from "../types/run.js";
 
@@ -40,6 +46,52 @@ function resolvePhase(
     return inferredPhase;
   }
   return phaseArg;
+}
+
+async function applyBuildingRecoveryRouting(
+  issue: Awaited<ReturnType<typeof fetchLinearIssue>>,
+  config: Awaited<ReturnType<typeof loadConfig>>,
+  phase: RunPhase,
+  targetRepo: string,
+  baseBranch: string,
+  linearApiKey: string,
+): Promise<{ phase: RunPhase; shouldRun: boolean }> {
+  const building = getTransitionalStatus(config, "buildingInProgress").toLowerCase();
+  const status = issue.status?.trim().toLowerCase() ?? "";
+  if (status !== building) {
+    return { phase, shouldRun: phase !== "none" };
+  }
+
+  const githubToken = process.env.GITHUB_TOKEN;
+  if (githubToken) {
+    const github = new GitHubClient({ token: githubToken });
+    const discovered = await findImplementationPullRequest(
+      github,
+      targetRepo,
+      baseBranch,
+      issue.identifier,
+    );
+    if (discovered) {
+      return { phase: "handoff", shouldRun: true };
+    }
+  }
+
+  if (phase === "implementation") {
+    const client = createLinearClient(linearApiKey);
+    const comments = await listIssueComments(client, issue.id);
+    const latestStartRunId = findLatestPhaseStartRunId(
+      comments,
+      config.orchestratorMarker,
+      "implementation_start",
+    );
+    if (latestStartRunId && !isImplementationStartStale(latestStartRunId)) {
+      return { phase: "implementation", shouldRun: false };
+    }
+
+    return { phase: "implementation", shouldRun: true };
+  }
+
+  return { phase, shouldRun: phase !== "none" };
 }
 
 export interface ResolveRouteOptions {
@@ -81,9 +133,18 @@ export async function resolveRoute(
   const phaseArg = options.phase ?? "auto";
   const phase = resolvePhase(phaseArg, inferred.phase);
 
+  const recovery = await applyBuildingRecoveryRouting(
+    issue,
+    config,
+    phase,
+    resolved.targetRepo,
+    resolved.baseBranch,
+    apiKey,
+  );
+
   return {
     issueKey,
-    phase,
+    phase: recovery.phase,
     repoConfigId: resolved.repoConfigId,
     baseBranch: resolved.baseBranch,
     targetRepo: resolved.targetRepo,
@@ -92,6 +153,6 @@ export async function resolveRoute(
       resolved.repoConfigId,
       resolved.baseBranch,
     ),
-    shouldRun: phase !== "none",
+    shouldRun: recovery.shouldRun,
   };
 }

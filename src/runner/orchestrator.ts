@@ -19,7 +19,11 @@ export function shouldContinueToImplementationAfterPlanning(
 export function shouldContinueToHandoffAfterImplementation(
   manifest: RunManifest,
 ): boolean {
-  return manifest.finalOutcome === "success" && manifest.phase === "implementation";
+  return (
+    (manifest.finalOutcome === "success" && manifest.phase === "implementation") ||
+    (manifest.finalOutcome === "duplicate" &&
+      manifest.errorClassification === "recovery_handoff")
+  );
 }
 
 async function continueAfterImplementation(
