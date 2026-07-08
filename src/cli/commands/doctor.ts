@@ -11,6 +11,7 @@ import { EXIT_CONFIG, EXIT_SUCCESS } from "../exit-codes.js";
 
 export interface DoctorOptions {
   configPath: string;
+  profile?: "full" | "merge";
 }
 
 interface CheckResult {
@@ -21,6 +22,7 @@ interface CheckResult {
 }
 
 export async function runDoctor(options: DoctorOptions): Promise<number> {
+  const profile = options.profile ?? "full";
   const checks: CheckResult[] = [];
   let config: HarnessConfig | null = null;
 
@@ -117,6 +119,13 @@ export async function runDoctor(options: DoctorOptions): Promise<number> {
         detail: `warn: ${error instanceof Error ? error.message : String(error)}`,
       });
     }
+  } else if (profile === "merge") {
+    checks.push({
+      label: "CURSOR_API_KEY set",
+      ok: true,
+      skipped: true,
+      detail: "not required for merge runs",
+    });
   } else {
     checks.push({
       label: "CURSOR_API_KEY set",

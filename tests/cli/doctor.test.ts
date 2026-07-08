@@ -87,6 +87,13 @@ describe("runDoctor", () => {
     expect(code).toBe(EXIT_CONFIG);
   });
 
+  it("passes merge profile without CURSOR_API_KEY", async () => {
+    delete process.env.CURSOR_API_KEY;
+    process.env.GITHUB_TOKEN = "test-github";
+    const code = await runDoctor({ configPath, profile: "merge" });
+    expect(code).toBe(EXIT_SUCCESS);
+  });
+
   it("passes when required tokens are valid", async () => {
     process.env.GITHUB_TOKEN = "test-github";
     const code = await runDoctor({ configPath });

@@ -48,6 +48,8 @@ function assertHarnessWorkflowContracts(workflow: string, label: string): void {
       expect(runMerge).toContain("cancel-in-progress: false");
       expect(runMerge).toContain("harness:run");
       expect(runMerge).toContain("--phase merge");
+      expect(runMerge).toContain("harness:doctor -- --profile merge");
+      expect(runMerge).not.toContain("CURSOR_API_KEY");
     });
 
     it("does not treat gate concurrency as sole duplicate protection", () => {

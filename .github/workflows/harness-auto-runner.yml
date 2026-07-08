@@ -243,7 +243,7 @@ jobs:
         run: npm run build
 
       - name: Doctor
-        run: npm run harness:doctor
+        run: npm run harness:doctor -- --profile merge
 
       - name: Write dispatch metadata
         run: |
