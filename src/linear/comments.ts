@@ -10,6 +10,7 @@ import type { ResolvedPreviewLinks } from "../preview/urls.js";
 import { parseHarnessMarkers } from "./markers.js";
 import {
   buildHarnessComment,
+  buildMinimalHarnessComment,
   formatBulletList,
   formatLinksAsMarkdown,
   type HarnessCommentLink,
@@ -87,8 +88,17 @@ export function isHarnessOrchestratorComment(
 export function formatHarnessCommentFooter(
   input: ProductionSyncCommentFooterInput,
 ): string {
+  const lines = buildHarnessMetadataLines(input);
+  return `<!--\n${lines.join("\n")}\n-->`;
+}
+
+/** Alias for machine-readable metadata hidden from Linear UI. */
+export const formatHarnessHiddenMetadata = formatHarnessCommentFooter;
+
+function buildHarnessMetadataLines(
+  input: ProductionSyncCommentFooterInput,
+): string[] {
   const lines = [
-    "---",
     input.orchestratorMarker,
     `phase: ${input.phase}`,
     `run_id: ${input.runId}`,
@@ -160,8 +170,7 @@ export function formatHarnessCommentFooter(
   if (input.githubActionsRunUrl) {
     lines.push(`github_actions_run_url: ${input.githubActionsRunUrl}`);
   }
-  lines.push("---");
-  return lines.join("\n");
+  return lines;
 }
 
 function summarizeAgentText(text: string, maxLength = 600): string {
@@ -696,43 +705,43 @@ export function buildPhaseStartCommentBody(
   input: PhaseStartCommentBodyInput,
 ): string {
   const label = getPhaseStartLabel(phase);
+
+  if (phase === "implementation_start" || phase === "merge_start") {
+    const links =
+      phase === "merge_start"
+        ? buildGithubActionsLink(input.githubActionsRunUrl)
+        : [
+            ...buildGithubActionsLink(input.githubActionsRunUrl),
+            ...buildCursorLinks(input.cursorAgentId, input.cursorRunId),
+          ];
+
+    return buildMinimalHarnessComment({
+      phaseLabel: label,
+      links,
+    }).replace(/\n\n$/, "");
+  }
+
   const statusByPhase: Record<PhaseStartPhase, string> = {
     planning_start: "Planning has started.",
     implementation_start: "Build has started.",
     revision_start: "Revision has started.",
-    merge_start: input.baseBranch
-      ? `Merge has started into \`${input.baseBranch}\`.`
-      : "Merge has started.",
+    merge_start: "Merging has started.",
   };
 
   const links = [
     ...buildGithubActionsLink(input.githubActionsRunUrl),
     ...buildCursorLinks(input.cursorAgentId, input.cursorRunId),
   ];
-  if (input.prUrl) {
-    links.push({ label: "Pull request", url: input.prUrl });
-  }
 
   const pmSection = [statusByPhase[phase], ""];
   if (links.length > 0) {
     pmSection.push(...formatLinksAsMarkdown(links), "");
   }
-  if (input.branch) {
-    pmSection.push(`Working branch: \`${input.branch}\``);
-  }
 
   return buildHarnessComment({
     phaseLabel: label,
     pmSection: pmSection.filter(Boolean),
-    engineerSection: formatBulletList([
-      `Issue: ${input.issueKey}`,
-      `Target repo: ${input.targetRepo}`,
-      input.baseBranch ? `Base branch: \`${input.baseBranch}\`` : "",
-      input.branch ? `Branch: \`${input.branch}\`` : "",
-      input.harnessRunId ? `Harness run ID: ${input.harnessRunId}` : "",
-      input.cursorAgentId ? `Cursor agent ID: ${input.cursorAgentId}` : "",
-      input.cursorRunId ? `Cursor run ID: ${input.cursorRunId}` : "",
-    ]).filter(Boolean),
+    engineerSection: [],
     footer: "",
   }).replace(/\n\n$/, "");
 }

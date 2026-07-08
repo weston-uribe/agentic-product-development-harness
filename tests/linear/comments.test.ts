@@ -7,9 +7,11 @@ import {
   hasPlanningCompletionMarker,
   hasPhaseStartMarker,
 } from "../../src/linear/comments.js";
+import { getVisibleCommentBody } from "../../src/linear/comment-card.js";
+import { hasVisibleMachineMetadata } from "./comment-assertions.js";
 
 describe("linear comments", () => {
-  it("formats harness comment footer with required marker fields", () => {
+  it("formats harness hidden metadata with required marker fields", () => {
     const footer = formatHarnessCommentFooter({
       orchestratorMarker: "harness-orchestrator-v1",
       phase: "planning",
@@ -21,6 +23,7 @@ describe("linear comments", () => {
       targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
     });
 
+    expect(footer).toContain("<!--");
     expect(footer).toContain("harness-orchestrator-v1");
     expect(footer).toContain("phase: planning");
     expect(footer).toContain("run_id: 2026-07-06T20-30-00Z-WES-11");
@@ -33,7 +36,7 @@ describe("linear comments", () => {
     );
   });
 
-  it("wraps planning body with harness comment format and footer", () => {
+  it("wraps planning body with harness comment format and hidden metadata", () => {
     const body = formatPlanningComment("Step 1: inspect repo", {
       orchestratorMarker: "harness-orchestrator-v1",
       phase: "planning",
@@ -51,7 +54,7 @@ describe("linear comments", () => {
     expect(body).toContain("No PM action is needed until the issue reaches **PM Review**.");
     expect(body).not.toContain("move the issue to **Ready for Build**");
     expect(body).toContain("Step 1: inspect repo");
-    expect(body).toContain("phase: planning");
+    expect(hasVisibleMachineMetadata(body)).toBe(false);
     expect(body).not.toContain("🤖 Harness update");
   });
 
@@ -73,7 +76,7 @@ describe("linear comments", () => {
     );
   });
 
-  it("formats phase-start comment with GitHub Actions run URL", () => {
+  it("formats building start comment with links only and no visible metadata", () => {
     const body = formatPhaseStartComment(
       "implementation_start",
       {
@@ -99,14 +102,49 @@ describe("linear comments", () => {
       },
     );
 
+    const visible = getVisibleCommentBody(body);
+
     expect(body).toContain("# Comment from harness");
     expect(body).toContain("**Phase:** Building");
-    expect(body).toContain("Issue: WES-18");
-    expect(body).toContain("phase: implementation_start");
-    expect(body).toContain(
-      "github_actions_run_url: https://github.com/weston-uribe/agentic-product-development-harness/actions/runs/123",
+    expect(visible).toContain("[GitHub Actions run]");
+    expect(visible).toContain("[Cursor Cloud run]");
+    expect(visible).not.toContain("## For the PM");
+    expect(visible).not.toContain("## For the engineer");
+    expect(visible).not.toContain("Issue: WES-18");
+    expect(visible).not.toContain("cursor_agent_id");
+    expect(hasVisibleMachineMetadata(body)).toBe(false);
+  });
+
+  it("formats merging start comment with GitHub Actions link only", () => {
+    const body = formatPhaseStartComment(
+      "merge_start",
+      {
+        issueKey: "WES-18",
+        targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+        prUrl: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/7",
+        githubActionsRunUrl:
+          "https://github.com/weston-uribe/agentic-product-development-harness/actions/runs/456",
+      },
+      {
+        orchestratorMarker: "harness-orchestrator-v1",
+        runId: "run-merge-1",
+        model: "composer-2.5",
+        promptVersion: "merge@1",
+        targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+        prUrl: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/7",
+        githubActionsRunUrl:
+          "https://github.com/weston-uribe/agentic-product-development-harness/actions/runs/456",
+      },
     );
-    expect(body).toContain("cursor_agent_id: bc-agent");
+
+    const visible = getVisibleCommentBody(body);
+
+    expect(body).toContain("**Phase:** Merging");
+    expect(visible).toContain("[GitHub Actions run]");
+    expect(visible).not.toContain("[Pull request]");
+    expect(visible).not.toContain("## For the PM");
+    expect(visible).not.toContain("## For the engineer");
+    expect(hasVisibleMachineMetadata(body)).toBe(false);
   });
 
   it("detects duplicate phase-start markers by run id", () => {

@@ -445,6 +445,103 @@ export async function executeMergePhase(
       throw new MergeError("missing_pr_url", `Invalid PR URL: ${prUrl}`);
     }
 
+    const earlyIdempotency = checkMergeIdempotency(
+      config,
+      issue,
+      comments,
+      prUrl,
+      false,
+      Boolean(options.force),
+    );
+    if (earlyIdempotency.skip) {
+      await events.log("idempotency_skip", "info", { reason: earlyIdempotency.reason });
+      finalOutcome = "duplicate";
+      errorClassification = "duplicate_phase_completed";
+      const manifest: RunManifest = {
+        runId,
+        issueKey: options.issueKey,
+        phase,
+        phaseInferredFromStatus,
+        linearStatusBefore,
+        linearStatusAfter,
+        targetRepo: resolved.targetRepo,
+        baseBranch: resolved.baseBranch,
+        resolutionSource: resolved.resolutionSource,
+        dryRun: false,
+        finalOutcome,
+        errorClassification,
+        startedAt: startedAt.toISOString(),
+        finishedAt: new Date().toISOString(),
+        milestone: MILESTONE,
+        promptVersion: MERGE_PROMPT_VERSION,
+        cursorAgentId: null,
+        cursorRunId: null,
+        branch,
+        prUrl,
+        previewUrl,
+        validationSummary,
+        changedFiles,
+        checkSummary,
+        previousImplementationRunId: null,
+        previousHandoffRunId,
+        pmFeedbackCommentId: sourceMarkers.pmFeedbackCommentId ?? null,
+        previousRevisionRunId,
+        mergeCommitSha: null,
+        mergeMethod,
+        mergedAt: null,
+        deploymentUrl,
+        model,
+      };
+      return writeFinalManifest(
+        manifest,
+        runDirectory,
+        parsed,
+        resolved,
+        events,
+        finalOutcome,
+        errorClassification,
+      );
+    }
+
+    const readyToMerge = getTransitionalStatus(config, "readyToMerge");
+    const issueStatus = issue.status?.trim() ?? "";
+    if (issueStatus.toLowerCase() === readyToMerge.toLowerCase()) {
+      await transitionIssueStatus(client, issue, mergingStatus);
+      enteredMerging = true;
+      linearStatusAfter = mergingStatus;
+      await events.log("linear_status_changed", "info", {
+        from: linearStatusBefore,
+        to: mergingStatus,
+      });
+
+      const mergeStartCommentId = await postPhaseStartCommentIfNeeded(
+        client,
+        issue.id,
+        {
+          orchestratorMarker: config.orchestratorMarker,
+          phase: "merge_start",
+          runId,
+          issueKey: issue.identifier,
+          targetRepo: markerTargetRepo,
+          baseBranch: resolved.baseBranch,
+          model,
+          promptVersion: MERGE_PROMPT_VERSION,
+          branch: branch ?? undefined,
+          prUrl,
+        },
+      );
+      if (mergeStartCommentId) {
+        await events.log("phase_start_comment_posted", "info", {
+          phase: "merge_start",
+          commentId: mergeStartCommentId,
+        });
+        await events.log("linear_comment_posted", "info", {
+          phase: "merge_start",
+          commentId: mergeStartCommentId,
+        });
+      }
+    }
+
     let preInspection;
     try {
       preInspection = await inspectPullRequestForMerge(
@@ -639,41 +736,6 @@ export async function executeMergePhase(
           `${JSON.stringify({ check_runs: preInspection.rawChecks }, null, 2)}\n`,
           "utf8",
         );
-      }
-
-      await transitionIssueStatus(client, issue, mergingStatus);
-      enteredMerging = true;
-      linearStatusAfter = mergingStatus;
-      await events.log("linear_status_changed", "info", {
-        from: linearStatusBefore,
-        to: mergingStatus,
-      });
-
-      const mergeStartCommentId = await postPhaseStartCommentIfNeeded(
-        client,
-        issue.id,
-        {
-          orchestratorMarker: config.orchestratorMarker,
-          phase: "merge_start",
-          runId,
-          issueKey: issue.identifier,
-          targetRepo: markerTargetRepo,
-          baseBranch: resolved.baseBranch,
-          model,
-          promptVersion: MERGE_PROMPT_VERSION,
-          branch: preInspection.branch,
-          prUrl,
-        },
-      );
-      if (mergeStartCommentId) {
-        await events.log("phase_start_comment_posted", "info", {
-          phase: "merge_start",
-          commentId: mergeStartCommentId,
-        });
-        await events.log("linear_comment_posted", "info", {
-          phase: "merge_start",
-          commentId: mergeStartCommentId,
-        });
       }
 
       if (preInspection.isDraft) {

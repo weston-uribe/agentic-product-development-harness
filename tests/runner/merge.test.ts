@@ -261,6 +261,76 @@ describe("executeMergePhase", () => {
     );
   });
 
+  it("transitions to Merging and posts start comment before PR inspect and merge", async () => {
+    const callOrder: string[] = [];
+
+    mocks.transitionIssueStatus.mockImplementation(async () => {
+      callOrder.push("status");
+    });
+    mocks.postPhaseStartCommentIfNeeded.mockImplementation(async () => {
+      callOrder.push("startComment");
+      return "merge-start-1";
+    });
+    mocks.inspectPullRequestForMerge.mockImplementation(async () => {
+      callOrder.push("inspect");
+      return {
+        title: "[WES-13] test",
+        url: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4",
+        branch: "cursor/wes-13-test",
+        baseBranch: "main",
+        state: "open",
+        merged: false,
+        isDraft: false,
+        mergeCommitSha: null,
+        mergedAt: null,
+        repoUrl: "https://github.com/weston-uribe/weston-uribe-portfolio",
+        changedFiles: [{ path: "app/hello-world/page.tsx", status: "modified" }],
+        checks: [{ name: "CI", status: "completed", conclusion: "success", detailsUrl: null }],
+        checkSummary: "- Passed: 1",
+        comments: [],
+        rawChecks: [],
+      };
+    });
+    mocks.mergePullRequest.mockImplementation(async () => {
+      callOrder.push("merge");
+      return { sha: "merged-sha-123", merged: true };
+    });
+    mocks.postMergeCompletionComment.mockImplementation(async () => {
+      callOrder.push("completeComment");
+      return "merge-comment-1";
+    });
+
+    mocks.fetchLinearIssue
+      .mockResolvedValueOnce({
+        id: "issue-1",
+        identifier: "WES-13",
+        status: "Ready to Merge",
+        teamId: "team-1",
+        description: issueDescription,
+        projectName: "Portfolio",
+        teamName: "Weston Product Lab",
+      })
+      .mockResolvedValueOnce({
+        id: "issue-1",
+        identifier: "WES-13",
+        status: "Merged / Deployed",
+        teamId: "team-1",
+        description: issueDescription,
+        projectName: "Portfolio",
+        teamName: "Weston Product Lab",
+      });
+
+    await executeMergePhase({
+      issueKey: "WES-13",
+      configPath,
+    });
+
+    expect(callOrder.indexOf("status")).toBeLessThan(callOrder.indexOf("inspect"));
+    expect(callOrder.indexOf("startComment")).toBeLessThan(callOrder.indexOf("inspect"));
+    expect(callOrder.indexOf("inspect")).toBeLessThan(callOrder.indexOf("merge"));
+    expect(callOrder.indexOf("merge")).toBeLessThan(callOrder.indexOf("completeComment"));
+  });
+
   it("marks draft PR ready before merge", async () => {
     mocks.inspectPullRequestForMerge
       .mockResolvedValueOnce({

@@ -27,19 +27,26 @@ export interface HarnessMarkers {
   promotionProofMethod?: string;
 }
 
-export function parseHarnessMarkers(commentBody: string): HarnessMarkers {
+const HARNESS_HTML_METADATA_PATTERN = /<!--\s*([\s\S]*?)\s*-->/g;
+
+export function extractHarnessMetadataBlock(commentBody: string): string | null {
+  const matches = [...commentBody.matchAll(HARNESS_HTML_METADATA_PATTERN)];
+  for (let index = matches.length - 1; index >= 0; index -= 1) {
+    const block = matches[index]?.[1]?.trim();
+    if (
+      block &&
+      (block.includes("harness-orchestrator-v1") ||
+        /\nphase:\s*\S+/m.test(block) ||
+        /^phase:\s*\S+/m.test(block))
+    ) {
+      return block;
+    }
+  }
+  return null;
+}
+
+function parseHarnessMarkerLines(block: string): HarnessMarkers {
   const markers: HarnessMarkers = {};
-  const segments = commentBody.split(/\n---\n/);
-  const footerSegment =
-    [...segments]
-      .reverse()
-      .find(
-        (segment) =>
-          segment.includes("harness-orchestrator-v1") ||
-          /\nphase:\s*\S+/m.test(segment) ||
-          /^phase:\s*\S+/m.test(segment),
-      ) ?? segments.at(-1) ?? commentBody;
-  const block = footerSegment;
 
   for (const line of block.split("\n")) {
     const trimmed = line.trim();
@@ -47,7 +54,7 @@ export function parseHarnessMarkers(commentBody: string): HarnessMarkers {
 
     const colonIndex = trimmed.indexOf(":");
     if (colonIndex === -1) {
-      if (trimmed === "harness-orchestrator-v1") {
+      if (trimmed.startsWith("harness-orchestrator")) {
         markers.orchestratorMarker = trimmed;
       }
       continue;
@@ -133,16 +140,39 @@ export function parseHarnessMarkers(commentBody: string): HarnessMarkers {
         markers.promotionProofMethod = value;
         break;
       default:
-        if (trimmed === "harness-orchestrator-v1") {
+        if (trimmed.startsWith("harness-orchestrator")) {
           markers.orchestratorMarker = trimmed;
         }
         break;
     }
   }
 
-  if (block.includes("harness-orchestrator-v1")) {
+  if (block.includes("harness-orchestrator-v1") && !markers.orchestratorMarker) {
     markers.orchestratorMarker = "harness-orchestrator-v1";
   }
 
   return markers;
+}
+
+function parseLegacyVisibleFooter(commentBody: string): HarnessMarkers {
+  const segments = commentBody.split(/\n---\n/);
+  const footerSegment =
+    [...segments]
+      .reverse()
+      .find(
+        (segment) =>
+          segment.includes("harness-orchestrator-v1") ||
+          /\nphase:\s*\S+/m.test(segment) ||
+          /^phase:\s*\S+/m.test(segment),
+      ) ?? segments.at(-1) ?? commentBody;
+
+  return parseHarnessMarkerLines(footerSegment);
+}
+
+export function parseHarnessMarkers(commentBody: string): HarnessMarkers {
+  const htmlBlock = extractHarnessMetadataBlock(commentBody);
+  if (htmlBlock) {
+    return parseHarnessMarkerLines(htmlBlock);
+  }
+  return parseLegacyVisibleFooter(commentBody);
 }

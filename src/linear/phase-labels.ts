@@ -16,7 +16,7 @@ const PHASE_START_LABELS: Record<PhaseStartPhase, string> = {
   planning_start: "Planning",
   implementation_start: "Building",
   revision_start: "Revision",
-  merge_start: "Merge",
+  merge_start: "Merging",
 };
 
 const COMPLETION_LABELS: Record<string, string> = {

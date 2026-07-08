@@ -33,8 +33,40 @@ export function buildHarnessComment(input: HarnessCommentCardInput): string {
     lines.push(...input.engineerSection);
   }
 
-  lines.push("", input.footer);
+  if (input.footer) {
+    lines.push("", input.footer);
+  }
   return lines.join("\n");
+}
+
+export interface MinimalHarnessCommentInput {
+  phaseLabel: string;
+  links?: HarnessCommentLink[];
+  note?: string;
+  footer?: string;
+}
+
+/** Phase-start comments with links only — no PM/engineer sections. */
+export function buildMinimalHarnessComment(
+  input: MinimalHarnessCommentInput,
+): string {
+  const lines = ["# Comment from harness", "", `**Phase:** ${input.phaseLabel}`, ""];
+
+  if (input.links && input.links.length > 0) {
+    lines.push(...formatLinksAsMarkdown(input.links));
+  }
+  if (input.note) {
+    lines.push("", input.note);
+  }
+  if (input.footer) {
+    lines.push("", input.footer);
+  }
+  return lines.join("\n");
+}
+
+/** Strips HTML comments so tests can assert visible markdown only. */
+export function getVisibleCommentBody(body: string): string {
+  return body.replace(/<!--[\s\S]*?-->/g, "").trim();
 }
 
 export function formatBulletList(items: string[]): string[] {
