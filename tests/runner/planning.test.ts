@@ -70,15 +70,15 @@ describe("executePlanningPhase", () => {
       planning: { timeoutSeconds: 60 },
       repos: [
         {
-          id: "portfolio",
-          linearProjects: ["Portfolio"],
-          targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+          id: "target-app",
+          linearProjects: ["Example Target App"],
+          targetRepo: "https://github.com/owner/example-target-app",
           baseBranch: "main",
           previewProvider: "vercel",
         },
       ],
       allowedTargetRepos: [
-        "https://github.com/weston-uribe/weston-uribe-portfolio",
+        "https://github.com/owner/example-target-app",
       ],
     };
     configPath = path.join(tempRoot, "harness.config.json");
@@ -110,9 +110,9 @@ describe("executePlanningPhase", () => {
           id: "issue-plan",
           identifier: "WES-PLAN",
           title: "Plan hello world",
-          description: `## Target repo\n\nweston-uribe/weston-uribe-portfolio\n\n## Task\n\nAdd hello page\n\n## Acceptance criteria\n\n- [ ] Route works\n\n## Out of scope\n\n- Harness`,
+          description: `## Target repo\n\nowner/example-target-app\n\n## Task\n\nAdd hello page\n\n## Acceptance criteria\n\n- [ ] Route works\n\n## Out of scope\n\n- Harness`,
           status: "Ready for Planning",
-          projectName: "Portfolio",
+          projectName: "Example Target App",
           teamName: "WES",
           teamId: "team-1",
           url: null,
@@ -124,7 +124,7 @@ describe("executePlanningPhase", () => {
         title: "Plan hello world",
         description: "",
         status: "Ready for Build",
-        projectName: "Portfolio",
+        projectName: "Example Target App",
         teamName: "WES",
         teamId: "team-1",
         url: null,

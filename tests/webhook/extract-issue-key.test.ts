@@ -8,7 +8,7 @@ import {
 describe("extractIssueKeyFromUrl", () => {
   it("extracts issue key from Linear URL", () => {
     expect(
-      extractIssueKeyFromUrl("https://linear.app/weston/issue/WES-13/portfolio-link"),
+      extractIssueKeyFromUrl("https://linear.app/weston/issue/WES-13/target-app-link"),
     ).toBe("WES-13");
   });
 

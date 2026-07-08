@@ -1,12 +1,12 @@
 ---
 title: Incomplete issue
 status: Ready for Build
-projectName: Portfolio
+projectName: Example Target App
 ---
 
 ## Target repo
 
-weston-uribe/weston-uribe-portfolio
+owner/example-target-app
 
 ## Task
 

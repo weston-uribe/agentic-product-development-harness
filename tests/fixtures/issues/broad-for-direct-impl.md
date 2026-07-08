@@ -1,15 +1,15 @@
 ---
 title: Broad issue for direct impl
-projectName: Portfolio
+projectName: Example Target App
 ---
 
 ## Target repo
 
-weston-uribe/weston-uribe-portfolio
+owner/example-target-app
 
 ## Task
 
-Redesign the portfolio site navigation and information architecture so visitors can find case studies, about, and contact flows without confusion. This task is intentionally long to exceed the narrow task character limit for build-direct validation testing purposes and should trigger the narrow heuristic failure path.
+Redesign the target app site navigation and information architecture so visitors can find case studies, about, and contact flows without confusion. This task is intentionally long to exceed the narrow task character limit for build-direct validation testing purposes and should trigger the narrow heuristic failure path.
 
 ## Acceptance criteria
 

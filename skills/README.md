@@ -24,6 +24,6 @@ Add a skill only when all of the following are true:
 ## Planned examples (not implemented)
 
 - PR readiness report generation from a diff
-- Portfolio-specific context loading
+- Target-repo-specific context loading
 
 See [`ROADMAP.md`](../ROADMAP.md) for phased delivery.

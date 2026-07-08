@@ -6,7 +6,7 @@ This is a **GitHub source release** changelog. The harness is `private: true` an
 
 ## Unreleased
 
-Nothing yet.
+- Generalized public target-repo examples and removed personal target repo references from docs.
 
 ## [0.2.0] — 2026-07-08
 
@@ -22,7 +22,7 @@ V0.2.0 moves the harness from early validated spikes to a documented source rele
 - Explicit `agentProvider.id: "cursor"` config shape and internal provider seam (`src/agents/`)
 - Issue intake: ChatGPT copy-paste prompt, Cursor issue-intake skill, parser-aligned template, `harness validate-issue` CLI
 - Production sync automation (`harness:sync-production`) with optional `production_promoted` dispatch
-- Portfolio integration-branch posture: PRs target `dev`; manual `dev` → `main` promotion; sync updates Linear
+- Target-repo integration-branch posture: PRs target `dev`; manual `dev` → `main` promotion; sync updates Linear
 - GitHub Actions hardening: pinned actions, env-var shell safety, output redaction
 - CI / CodeQL / Dependabot
 - Public-repo security baseline and operator guides

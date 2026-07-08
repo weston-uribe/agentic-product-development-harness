@@ -101,11 +101,22 @@ This repo does **not** claim provider agnosticism, or support for Claude Code, C
 
 See [`ROADMAP.md`](ROADMAP.md) for deferred work: additional skills, automated eval contract, and future portability.
 
-## First target repo
+## Target repos
 
-The first real-world target for this harness is [`weston-uribe/weston-uribe-portfolio`](https://github.com/weston-uribe/weston-uribe-portfolio)—a modular Next.js portfolio used for case studies and AI-assisted product prototyping.
+The harness is configured per target repo in `harness.config.json`.
 
-**Branch strategy (portfolio):** harness issue PRs target and merge into **`dev`**. Linear status **`Merged to Dev`** means integrated on the dev branch but **not yet in production**. Production remains **`main`** at [`weston-uribe-portfolio.vercel.app`](https://weston-uribe-portfolio.vercel.app). After manually promoting **`dev` → `main`**, run **`npm run harness:sync-production -- --repo portfolio`**. Setup: [`docs/target-repo-branch-setup.md`](docs/target-repo-branch-setup.md).
+A target repo defines:
+
+- GitHub repo URL
+- Linear project/team mapping
+- integration branch
+- production branch
+- validation commands
+- optional preview and production URLs
+
+V0.2.0 assumes GitHub target repos. It does not ship a universal target-repo template.
+
+See [`docs/target-repo-branch-setup.md`](docs/target-repo-branch-setup.md) for integration-branch and production-sync setup.
 
 ## What this repo does not claim
 

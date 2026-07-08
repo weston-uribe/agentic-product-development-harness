@@ -1,15 +1,15 @@
 ---
 title: Minimal valid issue
-projectName: Portfolio
+projectName: Example Target App
 ---
 
 ## Target repo
 
-weston-uribe/weston-uribe-portfolio
+owner/example-target-app
 
 ## Task
 
-Add a docs note to the portfolio readme.
+Add a docs note to the target app readme.
 
 ## Acceptance criteria
 

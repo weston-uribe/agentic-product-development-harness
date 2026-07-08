@@ -75,7 +75,7 @@ describe("pollForVercelPreview", () => {
 
   it("returns preview when it appears during polling", async () => {
     const previewUrl =
-      "https://weston-uribe-portfolio-git-cursor-wes-8ad21f-kinterra-team-url.vercel.app";
+      "https://staging-git-cursor-example.vercel.app";
     const fetchComments = vi
       .fn()
       .mockResolvedValueOnce([{ author: "user", body: "Waiting..." }])

@@ -1,10 +1,10 @@
-# PR readiness report: Add GitHub link to portfolio contact or footer
+# PR readiness report: Add GitHub link to site contact or footer
 
 <!-- Run 001 — merged and deployed. Based on templates/pr-readiness-report.md -->
 
 ## Summary
 
-PR [#1](https://github.com/weston-uribe/weston-uribe-portfolio/pull/1) added a GitHub contact card to the portfolio contact section so hiring managers can open the public repo (`weston-uribe-portfolio`) directly from the site. Card order: Email → LinkedIn → GitHub → Resume; balanced 2×2 grid from `md` breakpoint upward. Squash-merged to `main`; production deployment succeeded.
+PR [#1](https://github.com/owner/example-target-app/pull/1) added a GitHub contact card to the target app contact section so hiring managers can open the public repo (`example-target-app`) directly from the site. Card order: Email → LinkedIn → GitHub → Resume; balanced 2×2 grid from `md` breakpoint upward. Squash-merged to `main`; production deployment succeeded.
 
 **Status:** **Merged and deployed.**
 
@@ -12,13 +12,13 @@ PR [#1](https://github.com/weston-uribe/weston-uribe-portfolio/pull/1) added a G
 
 - Issue: [`linear-issue.md`](linear-issue.md)
 - Implementation plan: [`implementation-plan.md`](implementation-plan.md)
-- Branch: `feat/portfolio-github-link` (kept on local and origin)
-- PR: https://github.com/weston-uribe/weston-uribe-portfolio/pull/1 (#1) — **merged** (squash)
+- Branch: `feat/target-app-github-link` (kept on local and origin)
+- PR: https://github.com/owner/example-target-app/pull/1 (#1) — **merged** (squash)
 - Feature commit: `1a4a4e3406bc9e8e7f86c85fc2660ad71263e92a` — Add GitHub contact link
 - Main commit (post-merge): `9a58a7e283b1bee07fc33894174830e2578e08b5`
-- Portfolio repo: https://github.com/weston-uribe/weston-uribe-portfolio
-- Vercel preview (pre-merge): https://weston-uribe-portfolio-git-feat-portfo-f948b1-kinterra-team-url.vercel.app
-- Production deployment: https://vercel.com/kinterra-team-url/weston-uribe-portfolio/8TPFTiY79nviGt95rwFWMi2DVeqq — **success**
+- Target repo: https://github.com/owner/example-target-app
+- Vercel preview (pre-merge): https://example-target-app-git-feat-portfo-f948b1-kinterra-team-url.vercel.app
+- Production deployment: https://vercel.com/kinterra-team-url/example-target-app/8TPFTiY79nviGt95rwFWMi2DVeqq — **success**
 
 ## Scope check
 
@@ -30,8 +30,8 @@ PR [#1](https://github.com/weston-uribe/weston-uribe-portfolio/pull/1) added a G
 
 | File | Change |
 |------|--------|
-| `components/custom/portfolio/contact-section.tsx` | GitHub card UI; inline GitHub SVG icon |
-| `lib/portfolio/content.ts` | GitHub link entry in contact data |
+| `components/custom/contact-section.tsx` | GitHub card UI; inline GitHub SVG icon |
+| `lib/content.ts` | GitHub link entry in contact data |
 | `lib/constants/breakpoints.ts` | Grid/layout support for 2×2 contact cards |
 
 ### Acceptance criteria status
@@ -39,7 +39,7 @@ PR [#1](https://github.com/weston-uribe/weston-uribe-portfolio/pull/1) added a G
 | Criterion | Status | Notes |
 |-----------|--------|-------|
 | GitHub link in contact section | Done | Contact section only; footer unchanged |
-| Correct repo URL | Done | `https://github.com/weston-uribe/weston-uribe-portfolio` |
+| Correct repo URL | Done | `https://github.com/owner/example-target-app` |
 | New tab + rel attributes | Done | `target="_blank"`, `rel="noopener noreferrer"` |
 | Visual consistency | Done | Matches card pattern; inline SVG like LinkedIn |
 | Accessible link | Done | Manual contact-section inspection passed |
@@ -54,7 +54,7 @@ PR [#1](https://github.com/weston-uribe/weston-uribe-portfolio/pull/1) added a G
 | Dev server / build | **Pass** | `npm run build` — passed |
 | Manual UI review (contact section) | **Pass** | Manual contact-section inspection — passed |
 | Vercel preview | **Pass** | Pre-merge preview check — success |
-| Production deployment | **Pass** | [Deployment](https://vercel.com/kinterra-team-url/weston-uribe-portfolio/8TPFTiY79nviGt95rwFWMi2DVeqq) — success |
+| Production deployment | **Pass** | [Deployment](https://vercel.com/kinterra-team-url/example-target-app/8TPFTiY79nviGt95rwFWMi2DVeqq) — success |
 
 ## Eval scorecard
 

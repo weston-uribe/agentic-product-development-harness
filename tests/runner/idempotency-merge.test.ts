@@ -22,15 +22,15 @@ const config: HarnessConfig = {
   },
   repos: [
     {
-      id: "portfolio",
-      targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+      id: "target-app",
+      targetRepo: "https://github.com/owner/example-target-app",
       baseBranch: "main",
     },
   ],
-  allowedTargetRepos: ["https://github.com/weston-uribe/weston-uribe-portfolio"],
+  allowedTargetRepos: ["https://github.com/owner/example-target-app"],
 };
 
-const prUrl = "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4";
+const prUrl = "https://github.com/owner/example-target-app/pull/4";
 
 function mergeComment() {
   return formatMergeComment("done", {
@@ -39,7 +39,7 @@ function mergeComment() {
     runId: "merge-run",
     model: "composer-2.5",
     promptVersion: "merge@1",
-    targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+    targetRepo: "https://github.com/owner/example-target-app",
     prUrl,
   });
 }

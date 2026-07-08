@@ -33,7 +33,7 @@ function baseManifest(overrides: Partial<RunManifest> = {}): RunManifest {
     phaseInferredFromStatus: "Ready for Planning",
     linearStatusBefore: "Ready for Planning",
     linearStatusAfter: "Ready for Build",
-    targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+    targetRepo: "https://github.com/owner/example-target-app",
     baseBranch: "dev",
     resolutionSource: "linear_project",
     dryRun: false,
@@ -92,7 +92,7 @@ describe("shouldContinueToHandoffAfterImplementation", () => {
           phase: "implementation",
           finalOutcome: "duplicate",
           errorClassification: "recovery_handoff",
-          prUrl: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/12",
+          prUrl: "https://github.com/owner/example-target-app/pull/12",
         }),
       ),
     ).toBe(true);
@@ -171,14 +171,14 @@ describe("runOrchestrator planning continuation", () => {
       errorClassification: "recovery_handoff",
       linearStatusBefore: "Building",
       linearStatusAfter: "Building",
-      prUrl: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/12",
+      prUrl: "https://github.com/owner/example-target-app/pull/12",
     });
     const handoffManifest = baseManifest({
       phase: "handoff",
       finalOutcome: "success",
       linearStatusBefore: "Building",
       linearStatusAfter: "PM Review",
-      prUrl: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/12",
+      prUrl: "https://github.com/owner/example-target-app/pull/12",
     });
 
     mocks.executeImplementationPhase.mockResolvedValue({
@@ -209,14 +209,14 @@ describe("runOrchestrator planning continuation", () => {
       finalOutcome: "success",
       linearStatusBefore: "Ready for Build",
       linearStatusAfter: "PR Open",
-      prUrl: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/10",
+      prUrl: "https://github.com/owner/example-target-app/pull/10",
     });
     const handoffManifest = baseManifest({
       phase: "handoff",
       finalOutcome: "success",
       linearStatusBefore: "PR Open",
       linearStatusAfter: "PM Review",
-      prUrl: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/10",
+      prUrl: "https://github.com/owner/example-target-app/pull/10",
     });
 
     mocks.executeImplementationPhase.mockResolvedValue({

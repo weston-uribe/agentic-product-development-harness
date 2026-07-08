@@ -23,7 +23,7 @@
 1. Copy `.env.example` to `.env` and set:
    - `LINEAR_API_KEY`
    - `CURSOR_API_KEY`
-2. Portfolio repo must be connected in Cursor cloud settings (validated by live planning run; doctor warns if `Cursor.repositories.list()` is unavailable).
+2. Target repo must be connected in Cursor cloud settings (validated by live planning run; doctor warns if `Cursor.repositories.list()` is unavailable).
 3. Linear issue must include required sections (see Milestone 1 docs) and be in **Ready for Planning**.
 
 ## Commands
@@ -38,7 +38,7 @@ npm run harness:doctor
 
 # M1 regression (fixture, no network)
 npm run harness:run -- --issue WES-FIXTURE --dry-run \
-  --fixture tests/fixtures/issues/valid-portfolio.md
+  --fixture tests/fixtures/issues/valid-target-app.md
 
 # Optional live preflight (read-only)
 npm run harness:run -- --issue WES-XX --dry-run
@@ -56,9 +56,9 @@ npm run harness:run -- --issue WES-XX --phase planning --force
 npm run harness:inspect -- --run runs/WES-XX/<run-id>
 ```
 
-## Manual portfolio integration test
+## Manual target-app integration test
 
-Create a Linear issue in **Ready for Planning** targeting the portfolio repo.
+Create a Linear issue in **Ready for Planning** targeting the target repo.
 
 **Suggested task (planning-only, harmless):**
 
@@ -77,7 +77,7 @@ npm run harness:run -- --issue WES-XX --phase planning
 - Linear issue moves to **Ready for Build**
 - One planning comment with full marker footer
 - `runs/WES-XX/<run-id>/manifest.json` has `cursorAgentId`, `cursorRunId`, `finalOutcome: success`
-- No PR or branch on the portfolio repo
+- No PR or branch on the target repo
 - Re-run without `--force` exits with duplicate skip and does not post a new comment
 
 ## Artifacts (planning run)

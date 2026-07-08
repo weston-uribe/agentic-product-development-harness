@@ -66,9 +66,9 @@ describe("dispatchRepositoryEvent", () => {
       repository: "weston-uribe/agentic-product-development-harness",
       eventType: "production_promoted",
       clientPayload: {
-        repo: "portfolio",
+        repo: "target-app",
         productionBranch: "main",
-        sourceRepo: "weston-uribe/weston-uribe-portfolio",
+        sourceRepo: "owner/example-target-app",
         after: "abc123def456",
         ref: "refs/heads/main",
         receivedAt: "2026-07-07T23:46:00.000Z",
@@ -79,7 +79,7 @@ describe("dispatchRepositoryEvent", () => {
 
     const body = JSON.parse(String(fetchMock.mock.calls[0]![1]!.body));
     expect(body.event_type).toBe("production_promoted");
-    expect(body.client_payload.repo).toBe("portfolio");
+    expect(body.client_payload.repo).toBe("target-app");
     expect(body.client_payload.productionBranch).toBe("main");
     expect(body.client_payload.after).toBe("abc123def456");
   });

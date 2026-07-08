@@ -27,7 +27,7 @@ vi.mock("../../src/github/pr-discovery.js", () => ({
   findImplementationPullRequest: mocks.findImplementationPullRequest,
 }));
 
-const portfolioConfig: HarnessConfig = {
+const targetAppConfig: HarnessConfig = {
   version: 1,
   orchestratorMarker: "harness-orchestrator-v1",
   logDirectory: "runs",
@@ -43,25 +43,25 @@ const portfolioConfig: HarnessConfig = {
   },
   repos: [
     {
-      id: "portfolio",
-      linearProjects: ["Portfolio"],
-      targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+      id: "target-app",
+      linearProjects: ["Example Target App"],
+      targetRepo: "https://github.com/owner/example-target-app",
       baseBranch: "dev",
       productionBranch: "main",
       previewProvider: "vercel",
     },
   ],
-  allowedTargetRepos: ["https://github.com/weston-uribe/weston-uribe-portfolio"],
+  allowedTargetRepos: ["https://github.com/owner/example-target-app"],
 };
 
 describe("buildMergeConcurrencyGroup", () => {
   it("builds repo and base branch slug", () => {
-    expect(buildMergeConcurrencyGroup("portfolio", "dev")).toBe("portfolio-dev");
+    expect(buildMergeConcurrencyGroup("target-app", "dev")).toBe("target-app-dev");
   });
 
   it("sanitizes branch characters", () => {
-    expect(buildMergeConcurrencyGroup("portfolio", "feature/foo")).toBe(
-      "portfolio-feature-foo",
+    expect(buildMergeConcurrencyGroup("target-app", "feature/foo")).toBe(
+      "target-app-feature-foo",
     );
   });
 });
@@ -78,7 +78,7 @@ describe("resolveRoute", () => {
     process.env.LINEAR_API_KEY = "test-key";
     tempRoot = await mkdtemp(path.join(tmpdir(), "harness-resolve-route-"));
     configPath = path.join(tempRoot, "harness.config.json");
-    await writeFile(configPath, `${JSON.stringify(portfolioConfig, null, 2)}\n`, "utf8");
+    await writeFile(configPath, `${JSON.stringify(targetAppConfig, null, 2)}\n`, "utf8");
   });
 
   afterEach(async () => {
@@ -86,14 +86,14 @@ describe("resolveRoute", () => {
     await rm(tempRoot, { recursive: true, force: true });
   });
 
-  it("resolves merge phase and portfolio dev merge group", async () => {
+  it("resolves merge phase and integration branch merge group", async () => {
     mocks.fetchLinearIssue.mockResolvedValue({
       id: "issue-1",
       identifier: "WES-21",
       title: "Merge test",
-      description: `## Target repo\n\nweston-uribe/weston-uribe-portfolio\n\n## Task\n\nTest\n\n## Acceptance criteria\n\n- [ ] Done\n\n## Out of scope\n\n- [ ] N/A`,
+      description: `## Target repo\n\nowner/example-target-app\n\n## Task\n\nTest\n\n## Acceptance criteria\n\n- [ ] Done\n\n## Out of scope\n\n- [ ] N/A`,
       status: "Ready to Merge",
-      projectName: "Portfolio",
+      projectName: "Example Target App",
       teamName: "WES",
       teamId: "team-1",
       url: "https://linear.app/example/issue/WES-21",
@@ -106,9 +106,9 @@ describe("resolveRoute", () => {
     });
 
     expect(result.phase).toBe("merge");
-    expect(result.repoConfigId).toBe("portfolio");
+    expect(result.repoConfigId).toBe("target-app");
     expect(result.baseBranch).toBe("dev");
-    expect(result.mergeConcurrencyGroup).toBe("portfolio-dev");
+    expect(result.mergeConcurrencyGroup).toBe("target-app-dev");
     expect(result.shouldRun).toBe(true);
   });
 
@@ -117,9 +117,9 @@ describe("resolveRoute", () => {
       id: "issue-1",
       identifier: "WES-21",
       title: "Recovery",
-      description: `## Target repo\n\nweston-uribe/weston-uribe-portfolio\n\n## Task\n\nTest\n\n## Acceptance criteria\n\n- [ ] Done\n\n## Out of scope\n\n- [ ] N/A`,
+      description: `## Target repo\n\nowner/example-target-app\n\n## Task\n\nTest\n\n## Acceptance criteria\n\n- [ ] Done\n\n## Out of scope\n\n- [ ] N/A`,
       status: "Merging",
-      projectName: "Portfolio",
+      projectName: "Example Target App",
       teamName: "WES",
       teamId: "team-1",
       url: "https://linear.app/example/issue/WES-21",
@@ -141,15 +141,15 @@ describe("resolveRoute", () => {
       id: "issue-1",
       identifier: "WES-22",
       title: "Recovery",
-      description: `## Target repo\n\nweston-uribe/weston-uribe-portfolio\n\n## Task\n\nTest\n\n## Acceptance criteria\n\n- [ ] Done\n\n## Out of scope\n\n- [ ] N/A`,
+      description: `## Target repo\n\nowner/example-target-app\n\n## Task\n\nTest\n\n## Acceptance criteria\n\n- [ ] Done\n\n## Out of scope\n\n- [ ] N/A`,
       status: "Building",
-      projectName: "Portfolio",
+      projectName: "Example Target App",
       teamName: "WES",
       teamId: "team-1",
       url: "https://linear.app/example/issue/WES-22",
     });
     mocks.findImplementationPullRequest.mockResolvedValue({
-      prUrl: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/12",
+      prUrl: "https://github.com/owner/example-target-app/pull/12",
       prNumber: 12,
       branch: "cursor/wes-22-test",
       headSha: "abc",
@@ -174,9 +174,9 @@ describe("resolveRoute", () => {
       id: "issue-1",
       identifier: "WES-22",
       title: "In progress",
-      description: `## Target repo\n\nweston-uribe/weston-uribe-portfolio\n\n## Task\n\nTest\n\n## Acceptance criteria\n\n- [ ] Done\n\n## Out of scope\n\n- [ ] N/A`,
+      description: `## Target repo\n\nowner/example-target-app\n\n## Task\n\nTest\n\n## Acceptance criteria\n\n- [ ] Done\n\n## Out of scope\n\n- [ ] N/A`,
       status: "Building",
-      projectName: "Portfolio",
+      projectName: "Example Target App",
       teamName: "WES",
       teamId: "team-1",
       url: "https://linear.app/example/issue/WES-22",
@@ -205,9 +205,9 @@ describe("resolveRoute", () => {
       id: "issue-1",
       identifier: "WES-21",
       title: "Idle",
-      description: `## Target repo\n\nweston-uribe/weston-uribe-portfolio\n\n## Task\n\nTest\n\n## Acceptance criteria\n\n- [ ] Done\n\n## Out of scope\n\n- [ ] N/A`,
+      description: `## Target repo\n\nowner/example-target-app\n\n## Task\n\nTest\n\n## Acceptance criteria\n\n- [ ] Done\n\n## Out of scope\n\n- [ ] N/A`,
       status: "Backlog",
-      projectName: "Portfolio",
+      projectName: "Example Target App",
       teamName: "WES",
       teamId: "team-1",
       url: "https://linear.app/example/issue/WES-21",

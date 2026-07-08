@@ -20,7 +20,7 @@ describe("linear comments", () => {
       cursorRunId: "run-456",
       model: "composer-2.5",
       promptVersion: "planning@1",
-      targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+      targetRepo: "https://github.com/owner/example-target-app",
     });
 
     expect(footer).toContain("<!--");
@@ -32,7 +32,7 @@ describe("linear comments", () => {
     expect(footer).toContain("model: composer-2.5");
     expect(footer).toContain("prompt_version: planning@1");
     expect(footer).toContain(
-      "target_repo: https://github.com/weston-uribe/weston-uribe-portfolio",
+      "target_repo: https://github.com/owner/example-target-app",
     );
   });
 
@@ -81,7 +81,7 @@ describe("linear comments", () => {
       "implementation_start",
       {
         issueKey: "WES-18",
-        targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+        targetRepo: "https://github.com/owner/example-target-app",
         branch: "cursor/wes-18-test",
         githubActionsRunUrl:
           "https://github.com/weston-uribe/agentic-product-development-harness/actions/runs/123",
@@ -93,7 +93,7 @@ describe("linear comments", () => {
         runId: "2026-07-07T21-00-00Z-WES-18",
         model: "composer-2.5",
         promptVersion: "implementation@1",
-        targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+        targetRepo: "https://github.com/owner/example-target-app",
         branch: "cursor/wes-18-test",
         githubActionsRunUrl:
           "https://github.com/weston-uribe/agentic-product-development-harness/actions/runs/123",
@@ -120,8 +120,8 @@ describe("linear comments", () => {
       "merge_start",
       {
         issueKey: "WES-18",
-        targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
-        prUrl: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/7",
+        targetRepo: "https://github.com/owner/example-target-app",
+        prUrl: "https://github.com/owner/example-target-app/pull/7",
         githubActionsRunUrl:
           "https://github.com/weston-uribe/agentic-product-development-harness/actions/runs/456",
       },
@@ -130,8 +130,8 @@ describe("linear comments", () => {
         runId: "run-merge-1",
         model: "composer-2.5",
         promptVersion: "merge@1",
-        targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
-        prUrl: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/7",
+        targetRepo: "https://github.com/owner/example-target-app",
+        prUrl: "https://github.com/owner/example-target-app/pull/7",
         githubActionsRunUrl:
           "https://github.com/weston-uribe/agentic-product-development-harness/actions/runs/456",
       },
@@ -152,16 +152,16 @@ describe("linear comments", () => {
       "merge_start",
       {
         issueKey: "WES-18",
-        targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
-        prUrl: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/7",
+        targetRepo: "https://github.com/owner/example-target-app",
+        prUrl: "https://github.com/owner/example-target-app/pull/7",
       },
       {
         orchestratorMarker: "harness-orchestrator-v1",
         runId: "run-merge-1",
         model: "composer-2.5",
         promptVersion: "merge@1",
-        targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
-        prUrl: "https://github.com/weston-uribe/weston-uribe-portfolio/pull/7",
+        targetRepo: "https://github.com/owner/example-target-app",
+        prUrl: "https://github.com/owner/example-target-app/pull/7",
       },
     );
 

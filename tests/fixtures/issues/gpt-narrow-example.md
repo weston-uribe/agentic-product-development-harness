@@ -1,11 +1,11 @@
 ---
 title: Add order confirmation toast on checkout success
-projectName: Portfolio
+projectName: Example Target App
 ---
 
 ## Target repo
 
-https://github.com/weston-uribe/weston-uribe-portfolio
+https://github.com/owner/example-target-app
 
 ## Task
 

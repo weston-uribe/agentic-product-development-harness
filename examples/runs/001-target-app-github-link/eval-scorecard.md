@@ -1,4 +1,4 @@
-# Eval scorecard: Add GitHub link to portfolio contact or footer
+# Eval scorecard: Add GitHub link to site contact or footer
 
 <!-- Run 001 — complete; merged and deployed. Based on templates/eval-scorecard.md -->
 
@@ -7,12 +7,12 @@
 | Field | Value |
 |-------|-------|
 | Issue | [`linear-issue.md`](linear-issue.md) |
-| Target repo | `weston-uribe/weston-uribe-portfolio` |
-| Target local path | `/Users/weston/Code/weston-uribe-portfolio` |
-| Branch / PR | `feat/portfolio-github-link` / [PR #1](https://github.com/weston-uribe/weston-uribe-portfolio/pull/1) — **merged** |
+| Target repo | `owner/example-target-app` |
+| Target local path | `/Users/weston/Code/example-target-app` |
+| Branch / PR | `feat/target-app-github-link` / [PR #1](https://github.com/owner/example-target-app/pull/1) — **merged** |
 | Feature commit | `1a4a4e3406bc9e8e7f86c85fc2660ad71263e92a` — Add GitHub contact link |
 | Main commit (post-merge) | `9a58a7e283b1bee07fc33894174830e2578e08b5` |
-| Production deployment | [Success](https://vercel.com/kinterra-team-url/weston-uribe-portfolio/8TPFTiY79nviGt95rwFWMi2DVeqq) |
+| Production deployment | [Success](https://vercel.com/kinterra-team-url/example-target-app/8TPFTiY79nviGt95rwFWMi2DVeqq) |
 | Agent / executor | Cursor (manual v0.1 loop) |
 | Date | 2026-07-06 |
 
@@ -29,7 +29,7 @@
 
 | # | Criterion | Score | Evidence |
 |---|-----------|-------|----------|
-| 1 | GitHub link exists and points to `https://github.com/weston-uribe/weston-uribe-portfolio` | **Pass** | Shipped on `main`; live in contact section |
+| 1 | GitHub link exists and points to `https://github.com/owner/example-target-app` | **Pass** | Shipped on `main`; live in contact section |
 | 2 | Link is visually consistent with existing contact/social links | **Pass** | Card pattern; inline GitHub SVG (Lucide unavailable) — accepted at merge |
 | 3 | Link is accessible (keyboard focus, visible name or aria-label, sufficient contrast) | **Pass** | Manual inspection; no post-merge accessibility issues reported |
 | 4 | No existing contact, resume, or LinkedIn behavior breaks | **Pass** | Verified pre-merge and post-deploy |

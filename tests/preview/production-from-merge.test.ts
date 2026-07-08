@@ -21,19 +21,19 @@ describe("production-from-merge", () => {
     const url = extractProductionUrlFromComments([
       {
         author: "vercel[bot]",
-        body: "Deployed. [Production](https://weston-uribe-portfolio.vercel.app)",
+        body: "Deployed. [Production](https://example-target-app.vercel.app)",
       },
     ]);
-    expect(url).toBe("https://weston-uribe-portfolio.vercel.app");
+    expect(url).toBe("https://example-target-app.vercel.app");
   });
 
   it("extracts production URL from check details", () => {
     const url = extractProductionUrlFromChecks([
       {
         name: "Vercel",
-        detailsUrl: "https://vercel.com/deployments/https://weston-uribe-portfolio.vercel.app",
+        detailsUrl: "https://vercel.com/deployments/https://example-target-app.vercel.app",
       },
     ]);
-    expect(url).toContain("weston-uribe-portfolio.vercel.app");
+    expect(url).toContain("example-target-app.vercel.app");
   });
 });

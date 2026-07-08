@@ -8,12 +8,12 @@ const baseConfig: HarnessConfig = {
   logDirectory: "runs",
   repos: [
     {
-      id: "portfolio",
-      targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+      id: "target-app",
+      targetRepo: "https://github.com/owner/example-target-app",
       baseBranch: "main",
     },
   ],
-  allowedTargetRepos: ["https://github.com/weston-uribe/weston-uribe-portfolio"],
+  allowedTargetRepos: ["https://github.com/owner/example-target-app"],
 };
 
 describe("evaluateChecksForMerge", () => {

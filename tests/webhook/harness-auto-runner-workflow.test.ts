@@ -90,7 +90,7 @@ function assertHarnessWorkflowContracts(workflow: string, label: string): void {
 
     it("validates sync repo allowlist", () => {
       const syncSection = extractJobSection(workflow, "sync-production");
-      expect(syncSection).toContain("portfolio|harness");
+      expect(syncSection).toContain("target-app|harness");
     });
   });
 }

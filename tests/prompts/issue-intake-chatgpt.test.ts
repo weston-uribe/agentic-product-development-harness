@@ -20,8 +20,8 @@ const config: HarnessConfig = {
   },
   repos: [
     {
-      id: "portfolio",
-      linearProjects: ["Portfolio"],
+      id: "target-app",
+      linearProjects: ["Example Target App"],
       targetRepo: "https://github.com/o/r",
       baseBranch: "dev",
       productionBranch: "main",
@@ -38,7 +38,7 @@ const issue: LinearIssueSnapshot = {
   title: "Test",
   description: "",
   status: "Merged to Dev",
-  projectName: "Portfolio",
+  projectName: "Example Target App",
   teamName: null,
   teamId: "team-1",
   url: null,

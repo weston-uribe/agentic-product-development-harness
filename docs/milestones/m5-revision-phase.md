@@ -52,7 +52,7 @@ npm run harness:inspect -- --run runs/WES-13/<run-id>
 
 **Issue:** WES-13
 
-**PR:** [portfolio PR #4](https://github.com/weston-uribe/weston-uribe-portfolio/pull/4) (open, unmerged)
+**PR:** [target repo PR #4](https://github.com/owner/example-target-app/pull/4) (open, unmerged)
 
 **Human setup:**
 

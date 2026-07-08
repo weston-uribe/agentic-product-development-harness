@@ -102,7 +102,7 @@ Dry-run harness routing with a fixture:
 
 ```bash
 npm run harness:run -- --issue WES-FIXTURE --dry-run \
-  --fixture tests/fixtures/issues/valid-portfolio.md
+  --fixture tests/fixtures/issues/valid-target-app.md
 ```
 
 Inspect a run artifact directory:

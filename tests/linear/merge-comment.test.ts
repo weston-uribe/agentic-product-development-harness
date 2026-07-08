@@ -8,7 +8,7 @@ import {
 import { resolvePreviewLinks } from "../../src/preview/urls.js";
 
 const marker = "harness-orchestrator-v1";
-const prUrl = "https://github.com/weston-uribe/weston-uribe-portfolio/pull/4";
+const prUrl = "https://github.com/owner/example-target-app/pull/4";
 
 describe("merge completion comment", () => {
   it("detects merge completion marker", () => {
@@ -18,7 +18,7 @@ describe("merge completion comment", () => {
       runId: "merge-run",
       model: "composer-2.5",
       promptVersion: "merge@1",
-      targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+      targetRepo: "https://github.com/owner/example-target-app",
       prUrl,
       mergeCommitSha: "abc123",
     });
@@ -38,7 +38,7 @@ describe("merge completion comment", () => {
     const body = buildMergeCompletionCommentBody({
       prUrl,
       branch: "cursor/test",
-      targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+      targetRepo: "https://github.com/owner/example-target-app",
       mergeMethod: "squash",
       mergeCommitSha: "abc123",
       mergedAt: "2026-07-07T06:00:00.000Z",

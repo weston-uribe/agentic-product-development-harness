@@ -1,11 +1,11 @@
 ---
 title: Invalid missing task
-projectName: Portfolio
+projectName: Example Target App
 ---
 
 ## Target repo
 
-weston-uribe/weston-uribe-portfolio
+owner/example-target-app
 
 ## Acceptance criteria
 

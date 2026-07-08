@@ -9,13 +9,13 @@ const config: HarnessConfig = {
   logDirectory: "runs",
   repos: [
     {
-      id: "portfolio",
-      targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+      id: "target-app",
+      targetRepo: "https://github.com/owner/example-target-app",
       baseBranch: "main",
     },
   ],
   allowedTargetRepos: [
-    "https://github.com/weston-uribe/weston-uribe-portfolio",
+    "https://github.com/owner/example-target-app",
   ],
 };
 
@@ -23,7 +23,7 @@ describe("assertRepoAllowed", () => {
   it("allows configured repo", () => {
     expect(() =>
       assertRepoAllowed(
-        "https://github.com/weston-uribe/weston-uribe-portfolio",
+        "https://github.com/owner/example-target-app",
         config,
       ),
     ).not.toThrow();

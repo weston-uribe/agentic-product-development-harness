@@ -16,7 +16,7 @@
 npm install
 npm test
 npm run harness:doctor
-npm run harness:run -- --issue WES-FIXTURE --dry-run --fixture tests/fixtures/issues/valid-portfolio.md
+npm run harness:run -- --issue WES-FIXTURE --dry-run --fixture tests/fixtures/issues/valid-target-app.md
 npm run harness:inspect -- --run runs/WES-FIXTURE/<run-id>
 ```
 

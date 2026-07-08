@@ -31,7 +31,7 @@ vi.mock("../../src/agents/index.js", () => ({
 
 import { attemptIntegrationRepair } from "../../src/runner/phases/integration-repair.js";
 
-const targetRepo = "https://github.com/weston-uribe/weston-uribe-portfolio";
+const targetRepo = "https://github.com/owner/example-target-app";
 
 function makeInspection(overrides: Partial<PrInspectionResult> = {}): PrInspectionResult {
   return {
@@ -67,7 +67,7 @@ function makeConfig(): HarnessConfig {
     merge: { allowUnknownChecks: true, deploymentPollIntervalSeconds: 0 },
     repos: [
       {
-        id: "portfolio",
+        id: "target-app",
         targetRepo,
         baseBranch: "dev",
         productionBranch: "main",
@@ -79,7 +79,7 @@ function makeConfig(): HarnessConfig {
 }
 
 const parsedIssue: ParsedIssue = {
-  targetRepo: "weston-uribe/weston-uribe-portfolio",
+  targetRepo: "owner/example-target-app",
   task: "Resolve merge queue conflict.",
   acceptanceCriteria: ["PR merges"],
   outOfScope: ["New product behavior"],
@@ -88,7 +88,7 @@ const parsedIssue: ParsedIssue = {
 
 const resolved: ResolvedTarget = {
   targetRepo,
-  repoConfigId: "portfolio",
+  repoConfigId: "target-app",
   baseBranch: "dev",
   productionBranch: "main",
   resolutionSource: "explicit",
@@ -114,7 +114,7 @@ function makeOptions(
     resolved,
     parsedPr: {
       owner: "weston-uribe",
-      repo: "weston-uribe-portfolio",
+      repo: "example-target-app",
       pullNumber: 23,
       repoUrl: targetRepo,
     },
@@ -178,7 +178,7 @@ describe("attemptIntegrationRepair", () => {
 
     expect(github.updatePullRequestBranch).toHaveBeenCalledWith(
       "weston-uribe",
-      "weston-uribe-portfolio",
+      "example-target-app",
       23,
       { expectedHeadSha: "dirty-sha" },
     );

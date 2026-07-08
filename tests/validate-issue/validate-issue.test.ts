@@ -31,10 +31,10 @@ const testConfig: HarnessConfig = {
   logDirectory: "runs",
   repos: [
     {
-      id: "portfolio",
-      linearProjects: ["Portfolio"],
+      id: "target-app",
+      linearProjects: ["Example Target App"],
       linearTeams: ["WES"],
-      targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+      targetRepo: "https://github.com/owner/example-target-app",
       baseBranch: "main",
       previewProvider: "vercel",
     },
@@ -47,15 +47,15 @@ const testConfig: HarnessConfig = {
     },
   ],
   allowedTargetRepos: [
-    "https://github.com/weston-uribe/weston-uribe-portfolio",
+    "https://github.com/owner/example-target-app",
     "https://github.com/weston-uribe/agentic-product-development-harness",
   ],
 };
 
 describe("validateIssueFromFile", () => {
-  it("validates valid-portfolio for planning and direct implementation", async () => {
+  it("validates valid-target-app for planning and direct implementation", async () => {
     const result = await validateIssueFromFile(
-      path.join(fixturesDir, "valid-portfolio.md"),
+      path.join(fixturesDir, "valid-target-app.md"),
       testConfig,
     );
 
@@ -64,7 +64,7 @@ describe("validateIssueFromFile", () => {
     expect(result.narrowIssue).toBe(true);
     expect(result.hasPlanningMarker).toBe(false);
     expect(result.targetRepo).toBe(
-      "https://github.com/weston-uribe/weston-uribe-portfolio",
+      "https://github.com/owner/example-target-app",
     );
   });
 
@@ -127,7 +127,7 @@ describe("validateIssueFromFile", () => {
     expect(result.validForPlanning).toBe(true);
     expect(result.resolutionSource).toBe("project");
     expect(result.targetRepo).toBe(
-      "https://github.com/weston-uribe/weston-uribe-portfolio",
+      "https://github.com/owner/example-target-app",
     );
     expect(result.routingNotes).toContain(
       "Target repo derived from Linear project mapping.",
@@ -140,7 +140,7 @@ describe("computeIssueValidation intended phase", () => {
     const body = await loadFixtureBody("valid-minimal.md");
     const result = computeIssueValidation(
       body,
-      { projectName: "Portfolio" },
+      { projectName: "Example Target App" },
       testConfig,
       { intendedPhase: "planning", planningMarkerMode: "file" },
     );
@@ -153,7 +153,7 @@ describe("computeIssueValidation intended phase", () => {
     const body = await loadFixtureBody("valid-minimal.md");
     const result = computeIssueValidation(
       body,
-      { projectName: "Portfolio" },
+      { projectName: "Example Target App" },
       testConfig,
       { intendedPhase: "implementation", planningMarkerMode: "file" },
     );
@@ -166,7 +166,7 @@ describe("computeIssueValidation intended phase", () => {
     const body = await loadFixtureBody("broad-for-direct-impl.md");
     const result = computeIssueValidation(
       body,
-      { projectName: "Portfolio" },
+      { projectName: "Example Target App" },
       testConfig,
       {
         intendedPhase: "implementation",
@@ -184,7 +184,7 @@ describe("computeIssueValidation intended phase", () => {
     const body = await loadFixtureBody("broad-for-direct-impl.md");
     const result = computeIssueValidation(
       body,
-      { projectName: "Portfolio" },
+      { projectName: "Example Target App" },
       testConfig,
       { intendedPhase: "implementation", planningMarkerMode: "file" },
     );

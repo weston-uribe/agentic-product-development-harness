@@ -19,14 +19,14 @@ describe("executeDryRun", () => {
       logDirectory: tempRoot,
       repos: [
         {
-          id: "portfolio",
-          linearProjects: ["Portfolio"],
-          targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+          id: "target-app",
+          linearProjects: ["Example Target App"],
+          targetRepo: "https://github.com/owner/example-target-app",
           baseBranch: "main",
         },
       ],
       allowedTargetRepos: [
-        "https://github.com/weston-uribe/weston-uribe-portfolio",
+        "https://github.com/owner/example-target-app",
       ],
     };
     const configPath = path.join(tempRoot, "harness.config.json");
@@ -36,7 +36,7 @@ describe("executeDryRun", () => {
 
     const fixturePath = path.join(
       repoRoot,
-      "tests/fixtures/issues/valid-portfolio.md",
+      "tests/fixtures/issues/valid-target-app.md",
     );
 
     const result = await executeDryRun({
@@ -48,7 +48,7 @@ describe("executeDryRun", () => {
     expect(result.exitCode).toBe(0);
     expect(result.manifest.finalOutcome).toBe("success");
     expect(result.manifest.targetRepo).toBe(
-      "https://github.com/weston-uribe/weston-uribe-portfolio",
+      "https://github.com/owner/example-target-app",
     );
     expect(result.manifest.dryRun).toBe(true);
 

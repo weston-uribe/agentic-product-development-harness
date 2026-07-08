@@ -1,13 +1,13 @@
 ---
-title: Add portfolio hello world page
+title: Add target app hello world page
 status: Ready for Build
-projectName: Portfolio
+projectName: Example Target App
 teamName: WES
 ---
 
 ## Target repo
 
-weston-uribe/weston-uribe-portfolio
+owner/example-target-app
 
 ## Task
 
@@ -17,7 +17,7 @@ Add a temporary Hello World page and a top-nav link to it.
 
 - [ ] A `/hello` route renders "Hello World"
 - [ ] Top navigation includes a link to the new page
-- [ ] Change is limited to portfolio repo scope
+- [ ] Change is limited to target repo scope
 
 ## Out of scope
 

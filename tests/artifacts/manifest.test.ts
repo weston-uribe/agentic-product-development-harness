@@ -16,7 +16,7 @@ describe("manifest writer", () => {
       phaseInferredFromStatus: "Ready for Build",
       linearStatusBefore: "Ready for Planning",
       linearStatusAfter: "Ready for Planning",
-      targetRepo: "https://github.com/weston-uribe/weston-uribe-portfolio",
+      targetRepo: "https://github.com/owner/example-target-app",
       baseBranch: "main",
       resolutionSource: "explicit",
       dryRun: true,

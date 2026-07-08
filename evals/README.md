@@ -8,7 +8,7 @@ Evals start as **manual scorecards**, not automated test suites. Use [`templates
 
 ## Why manual first
 
-Automated evals are only useful when the criteria are stable. v0.1 runs against real issues (starting with the portfolio repo) will reveal which criteria repeat and which are one-offs.
+Automated evals are only useful when the criteria are stable. v0.1 runs against real issues (starting with the target repo) will reveal which criteria repeat and which are one-offs.
 
 ## Future direction (planned)
 

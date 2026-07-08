@@ -6,16 +6,16 @@ import {
 } from "../../src/resolver/normalize-repo.js";
 
 describe("normalizeRepoUrl", () => {
-  const canonical = "https://github.com/weston-uribe/weston-uribe-portfolio";
+  const canonical = "https://github.com/owner/example-target-app";
 
   it.each([
-    ["https://github.com/weston-uribe/weston-uribe-portfolio", canonical],
-    ["https://github.com/weston-uribe/weston-uribe-portfolio/", canonical],
-    ["github.com/weston-uribe/weston-uribe-portfolio", canonical],
-    ["github.com/weston-uribe/weston-uribe-portfolio/", canonical],
-    ["weston-uribe/weston-uribe-portfolio", canonical],
-    ["weston-uribe/weston-uribe-portfolio/", canonical],
-    ["http://github.com/weston-uribe/weston-uribe-portfolio", canonical],
+    ["https://github.com/owner/example-target-app", canonical],
+    ["https://github.com/owner/example-target-app/", canonical],
+    ["github.com/owner/example-target-app", canonical],
+    ["github.com/owner/example-target-app/", canonical],
+    ["owner/example-target-app", canonical],
+    ["owner/example-target-app/", canonical],
+    ["http://github.com/owner/example-target-app", canonical],
   ])("normalizes %s to canonical https URL", (input, expected) => {
     expect(normalizeRepoUrl(input)).toBe(expected);
   });
@@ -23,21 +23,21 @@ describe("normalizeRepoUrl", () => {
   it("treats equivalent forms as the same repo", () => {
     expect(
       repoUrlsEquivalent(
-        "github.com/weston-uribe/weston-uribe-portfolio",
-        "https://github.com/weston-uribe/weston-uribe-portfolio",
+        "github.com/owner/example-target-app",
+        "https://github.com/owner/example-target-app",
       ),
     ).toBe(true);
     expect(
       repoUrlsEquivalent(
-        "weston-uribe/weston-uribe-portfolio",
-        "https://github.com/weston-uribe/weston-uribe-portfolio/",
+        "owner/example-target-app",
+        "https://github.com/owner/example-target-app/",
       ),
     ).toBe(true);
   });
 
   it("validates canonical github URLs", () => {
     expect(isValidGithubRepoUrl(canonical)).toBe(true);
-    expect(isValidGithubRepoUrl("github.com/weston-uribe/weston-uribe-portfolio")).toBe(
+    expect(isValidGithubRepoUrl("github.com/owner/example-target-app")).toBe(
       false,
     );
   });

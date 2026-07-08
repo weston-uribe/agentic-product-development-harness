@@ -26,7 +26,7 @@ Status changes on allowlisted Linear statuses trigger cloud harness runs automat
 
 6. **Report validation clearly.** State what was checked, what passed, what was not run, and what requires human review.
 
-7. **Never touch other local repos unless explicitly instructed.** Target repos (e.g. `weston-uribe-portfolio`) are separate workspaces. This repo defines the harness; it does not modify portfolio, kinterra, or other codebases by default.
+7. **Never touch other local repos unless explicitly instructed.** Target repos (e.g. `example-target-app`) are separate workspaces. This repo defines the harness; it does not modify target apps, kinterra, or other codebases by default.
 
 ## Cursor model policy
 
@@ -119,7 +119,7 @@ docs/research/      → Workflow research notes
 templates/          → Issue, plan, readiness, eval templates
 evals/              → Eval rubric contracts (manual first)
 skills/             → Deferred until workflows are validated
-examples/           → Example runs (portfolio first)
+examples/           → Example runs
 ```
 
 ## Tone

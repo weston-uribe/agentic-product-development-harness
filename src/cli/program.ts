@@ -126,7 +126,7 @@ export function createProgram(): Command {
   program
     .command("sync-production")
     .description("Sync Linear issues from Merged to Dev to Merged / Deployed when promoted")
-    .option("--repo <id>", "Repo config id, e.g. portfolio")
+    .option("--repo <id>", "Repo config id, e.g. target-app")
     .option("--issue <key>", "Single Linear issue key, e.g. WES-11")
     .option("--dry-run", "Inspect without Linear writes", false)
     .option("--force", "Re-run even when markers exist", false)

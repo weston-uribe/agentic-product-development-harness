@@ -57,7 +57,7 @@ npm run harness:inspect -- --run runs/WES-13/<run-id>
 
 **Issue:** WES-13
 
-**PR:** [portfolio PR #4](https://github.com/weston-uribe/weston-uribe-portfolio/pull/4)
+**PR:** [target repo PR #4](https://github.com/owner/example-target-app/pull/4)
 
 **Human setup:**
 
@@ -90,7 +90,7 @@ npm run harness:run -- --issue WES-13 --phase merge
 
 Override via `merge.allowPendingChecks` / `merge.allowUnknownChecks` in config.
 
-**Vercel portfolio note:** When GitHub check runs and commit statuses are inconclusive but the Vercel bot comment reports **Ready**, merge proceeds with a warning (see `validationSummary` in manifest).
+**Vercel preview note:** When GitHub check runs and commit statuses are inconclusive but the Vercel bot comment reports **Ready**, merge proceeds with a warning (see `validationSummary` in manifest).
 
 ## Integration repair
 

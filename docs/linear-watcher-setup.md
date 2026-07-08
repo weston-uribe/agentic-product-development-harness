@@ -61,7 +61,7 @@ In repo **Settings → Secrets and variables → Actions**:
 | `CURSOR_API_KEY` | planning, implementation, revision, merge repair fallback |
 | `HARNESS_GITHUB_TOKEN` | handoff, revision, merge — mapped to runtime `GITHUB_TOKEN` in the workflow |
 
-`HARNESS_GITHUB_TOKEN` must be a PAT with access to **target repos** used by the harness (e.g. portfolio), including classic `repo` scope or equivalent fine-grained permissions for PR read, checks, merge, and PR branch repair. Fine-grained PATs need **Contents: Read and write** plus **Pull requests: Read and write** on target repos.
+`HARNESS_GITHUB_TOKEN` must be a PAT with access to **target repos** used by the harness (e.g. target-app), including classic `repo` scope or equivalent fine-grained permissions for PR read, checks, merge, and PR branch repair. Fine-grained PATs need **Contents: Read and write** plus **Pull requests: Read and write** on target repos.
 
 Run `npm run harness:doctor -- --profile merge` with `GITHUB_TOKEN` set before enabling merge automation. Doctor verifies target base branches and token write permission used by integration repair.
 

@@ -7,14 +7,14 @@ describe("extractTargetRepoGitResult", () => {
       {
         branches: [
           {
-            repoUrl: "https://github.com/weston-uribe/weston-uribe-portfolio",
+            repoUrl: "https://github.com/owner/example-target-app",
             branch: "cursor/wes-12-hello-world",
             prUrl:
-              "https://github.com/weston-uribe/weston-uribe-portfolio/pull/12",
+              "https://github.com/owner/example-target-app/pull/12",
           },
         ],
       },
-      "https://github.com/weston-uribe/weston-uribe-portfolio",
+      "https://github.com/owner/example-target-app",
     );
 
     expect(result.branch).toBe("cursor/wes-12-hello-world");
@@ -26,14 +26,14 @@ describe("extractTargetRepoGitResult", () => {
       {
         branches: [
           {
-            repoUrl: "github.com/weston-uribe/weston-uribe-portfolio",
-            branch: "cursor/wes-12-m3-implementation-integration-test-portfolio-hel",
+            repoUrl: "github.com/owner/example-target-app",
+            branch: "cursor/wes-12-m3-implementation-integration-test-target-app-hel",
             prUrl:
-              "https://github.com/weston-uribe/weston-uribe-portfolio/pull/3",
+              "https://github.com/owner/example-target-app/pull/3",
           },
         ],
       },
-      "https://github.com/weston-uribe/weston-uribe-portfolio",
+      "https://github.com/owner/example-target-app",
     );
 
     expect(result.branch).toContain("wes-12");
@@ -54,7 +54,7 @@ describe("extractTargetRepoGitResult", () => {
             },
           ],
         },
-        "https://github.com/weston-uribe/weston-uribe-portfolio",
+        "https://github.com/owner/example-target-app",
       ),
     ).toThrow(/normalized:/);
   });
@@ -65,12 +65,12 @@ describe("extractTargetRepoGitResult", () => {
         {
           branches: [
             {
-              repoUrl: "https://github.com/weston-uribe/weston-uribe-portfolio",
+              repoUrl: "https://github.com/owner/example-target-app",
               branch: "cursor/wes-12-hello-world",
             },
           ],
         },
-        "https://github.com/weston-uribe/weston-uribe-portfolio",
+        "https://github.com/owner/example-target-app",
       ),
     ).toThrow(/without a PR/);
   });

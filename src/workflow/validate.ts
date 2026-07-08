@@ -37,4 +37,4 @@ export function validateRepoId(
   return allowedIds.includes(trimmed);
 }
 
-export const DEFAULT_SYNC_REPO_IDS = ["portfolio", "harness"] as const;
+export const DEFAULT_SYNC_REPO_IDS = ["target-app", "harness"] as const;

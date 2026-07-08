@@ -8,7 +8,7 @@ const handoffBody = `## PM handoff
 ${marker}
 phase: handoff
 run_id: handoff-run
-pr_url: https://github.com/weston-uribe/weston-uribe-portfolio/pull/4
+pr_url: https://github.com/owner/example-target-app/pull/4
 ---`;
 
 const revisionBody = `## PM revision
@@ -16,7 +16,7 @@ const revisionBody = `## PM revision
 ${marker}
 phase: revision
 run_id: revision-run
-pr_url: https://github.com/weston-uribe/weston-uribe-portfolio/pull/4
+pr_url: https://github.com/owner/example-target-app/pull/4
 pm_feedback_comment_id: feedback-1
 previous_handoff_run_id: handoff-run
 ---`;

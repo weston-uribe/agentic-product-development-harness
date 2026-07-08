@@ -12,10 +12,10 @@ import {
 describe("parseGitHubRepoUrl", () => {
   it("parses canonical GitHub HTTPS URLs", () => {
     expect(
-      parseGitHubRepoUrl("https://github.com/weston-uribe/weston-uribe-portfolio"),
+      parseGitHubRepoUrl("https://github.com/owner/example-target-app"),
     ).toEqual({
-      owner: "weston-uribe",
-      repo: "weston-uribe-portfolio",
+      owner: "owner",
+      repo: "example-target-app",
     });
   });
 
@@ -33,7 +33,7 @@ describe("assertBaseBranchExists", () => {
     await expect(
       assertBaseBranchExists(
         client as never,
-        "https://github.com/weston-uribe/weston-uribe-portfolio",
+        "https://github.com/owner/example-target-app",
         "dev",
       ),
     ).resolves.toBeUndefined();
@@ -49,7 +49,7 @@ describe("assertBaseBranchExists", () => {
     await expect(
       assertBaseBranchExists(
         client as never,
-        "https://github.com/weston-uribe/weston-uribe-portfolio",
+        "https://github.com/owner/example-target-app",
         "dev",
       ),
     ).rejects.toThrow(/base_branch_missing/);

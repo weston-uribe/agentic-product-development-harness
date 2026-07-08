@@ -1,12 +1,12 @@
 ---
 title: Context target repo issue
 status: Ready for Build
-projectName: Portfolio
+projectName: Example Target App
 ---
 
 ## Problem
 
-Add a small docs tweak to the portfolio site.
+Add a small docs tweak to the target app site.
 
 ## Acceptance criteria
 
@@ -18,4 +18,4 @@ Add a small docs tweak to the portfolio site.
 
 ## Context and links
 
-- Target repo: `weston-uribe/weston-uribe-portfolio`
+- Target repo: `owner/example-target-app`

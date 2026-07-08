@@ -1,26 +1,26 @@
-# Implementation plan: Add GitHub link to portfolio contact or footer
+# Implementation plan: Add GitHub link to site contact or footer
 
 <!-- Run 001 — PRELIMINARY. Human approval required before execution. Based on templates/implementation-plan.md -->
 
 ## Issue reference
 
 - Issue: [`linear-issue.md`](linear-issue.md)
-- Target repo: `weston-uribe/weston-uribe-portfolio`
-- Target local path: `/Users/weston/Code/weston-uribe-portfolio`
-- Branch name (proposed): `feat/portfolio-github-link`
+- Target repo: `owner/example-target-app`
+- Target local path: `/Users/weston/Code/example-target-app`
+- Branch name (proposed): `feat/target-app-github-link`
 
 ## Context
 
-Add a GitHub link so hiring managers can reach `https://github.com/weston-uribe/weston-uribe-portfolio` from the live portfolio. Scope is limited to one new outbound link integrated with existing contact/social patterns.
+Add a GitHub link so hiring managers can reach `https://github.com/owner/example-target-app` from the live target app site. Scope is limited to one new outbound link integrated with existing contact/social patterns.
 
-**This plan is preliminary.** The implementation agent **must inspect the portfolio repo** before writing final file-level changes. Do not guess paths or components from the harness repo alone.
+**This plan is preliminary.** The implementation agent **must inspect the target repo** before writing final file-level changes. Do not guess paths or components from the harness repo alone.
 
 ## Required repo inspection (before implementation)
 
 The agent must determine:
 
 1. **Placement** — Whether the link belongs in the contact section, footer, or both (issue allows either; choose the pattern that matches how resume/LinkedIn are surfaced).
-2. **Source of truth** — Where portfolio contact/social links are defined (e.g. `components/custom/portfolio/contact-section.tsx`, `lib/portfolio/content.ts`, footer layout, or similar).
+2. **Source of truth** — Where site contact/social links are defined (e.g. `components/custom/contact-section.tsx`, `lib/content.ts`, footer layout, or similar).
 3. **Existing link patterns** — How external links are implemented (icons, labels, `target`, `rel`, styling utilities, marquees vs inline lists).
 4. **Validation commands** — What scripts exist in `package.json` (`lint`, `build`, `dev`) and any repo-specific checks in `AGENTS.md`.
 
@@ -44,7 +44,7 @@ Document findings in this plan (update the **Files to touch** table) before maki
 ## Files explicitly out of scope
 
 - Case study routes under `app/work/`
-- Portfolio narrative content unrelated to contact links
+- Site narrative content unrelated to contact links
 - `next.config`, deployment config, env files
 - Harness repo (`agentic-product-development-harness`)
 - Dependencies unless an existing social icon pattern requires a shared asset only

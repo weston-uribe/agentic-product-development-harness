@@ -1,6 +1,6 @@
 ## Implementation summary
 
-Added a temporary Hello World page and top-nav link in the portfolio app.
+Added a temporary Hello World page and top-nav link in the target app.
 
 ---
 harness-orchestrator-v1
@@ -10,7 +10,7 @@ cursor_agent_id: bc-example-agent
 cursor_run_id: run-example
 model: composer-2.5
 prompt_version: implementation@1
-target_repo: https://github.com/weston-uribe/weston-uribe-portfolio
+target_repo: https://github.com/owner/example-target-app
 branch: cursor/wes-13-m3-implementation-integration-test
-pr_url: https://github.com/weston-uribe/weston-uribe-portfolio/pull/4
+pr_url: https://github.com/owner/example-target-app/pull/4
 ---

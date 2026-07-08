@@ -62,16 +62,16 @@
   },
   "repos": [
     {
-      "id": "portfolio",
-      "linearProjects": ["Portfolio"],
-      "targetRepo": "https://github.com/weston-uribe/weston-uribe-portfolio",
+      "id": "target-app",
+      "linearProjects": ["Example Target App"],
+      "targetRepo": "https://github.com/owner/example-target-app",
       "baseBranch": "dev",
       "productionBranch": "main",
       "previewProvider": "vercel",
       "integrationSuccessStatus": "Merged to Dev",
       "productionSuccessStatus": "Merged / Deployed",
-      "productionUrl": "https://weston-uribe-portfolio.vercel.app",
-      "integrationPreviewUrl": "https://weston-uribe-portfolio-git-dev-kinterra-team-url.vercel.app",
+      "productionUrl": "https://www.example.com",
+      "integrationPreviewUrl": "https://staging.example.com",
       "validation": {
         "commands": ["npm run lint", "npm run build"]
       }
@@ -86,7 +86,7 @@
     }
   ],
   "allowedTargetRepos": [
-    "https://github.com/weston-uribe/weston-uribe-portfolio",
+    "https://github.com/owner/example-target-app",
     "https://github.com/weston-uribe/agentic-product-development-harness"
   ]
 }

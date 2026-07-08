@@ -16,12 +16,12 @@ async function loadFixture(name: string): Promise<string> {
 }
 
 describe("parseIssueDescription", () => {
-  it("parses a valid portfolio issue", async () => {
-    const description = await loadFixture("valid-portfolio.md");
+  it("parses a valid target-app issue", async () => {
+    const description = await loadFixture("valid-target-app.md");
     const parsed = parseIssueDescription(description);
 
     expect(parsed.parseErrors).toEqual([]);
-    expect(parsed.targetRepoRaw).toBe("weston-uribe/weston-uribe-portfolio");
+    expect(parsed.targetRepoRaw).toBe("owner/example-target-app");
     expect(parsed.task).toContain("Hello World");
     expect(parsed.acceptanceCriteria.length).toBeGreaterThan(0);
     expect(parsed.outOfScope.length).toBeGreaterThan(0);
@@ -51,7 +51,7 @@ describe("parseIssueDescription", () => {
     const description = await loadFixture("context-target-repo.md");
     const parsed = parseIssueDescription(description);
 
-    expect(parsed.targetRepoRaw).toBe("weston-uribe/weston-uribe-portfolio");
+    expect(parsed.targetRepoRaw).toBe("owner/example-target-app");
     expect(parsed.parseErrors).toEqual([]);
   });
 
@@ -72,12 +72,12 @@ Docs-only note.
 ## Out of scope
 
 * No production releases
-* No portfolio changes
+* No target-app changes
 `;
     const parsed = parseIssueDescription(description);
 
     expect(parsed.parseErrors).toEqual([]);
     expect(parsed.acceptanceCriteria).toEqual(["First criterion", "Second criterion"]);
-    expect(parsed.outOfScope).toEqual(["No production releases", "No portfolio changes"]);
+    expect(parsed.outOfScope).toEqual(["No production releases", "No target-app changes"]);
   });
 });

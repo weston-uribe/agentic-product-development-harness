@@ -26,7 +26,7 @@
 1. Copy `.env.example` to `.env` and set:
    - `LINEAR_API_KEY`
    - `CURSOR_API_KEY`
-2. Portfolio repo must be connected in Cursor cloud settings.
+2. Target repo must be connected in Cursor cloud settings.
 3. Linear issue must include required sections and be in **Ready for Build**.
 
 ## Commands
@@ -41,7 +41,7 @@ npm run harness:doctor
 
 # M1 regression (fixture, no network)
 npm run harness:run -- --issue WES-FIXTURE --dry-run \
-  --fixture tests/fixtures/issues/valid-portfolio.md
+  --fixture tests/fixtures/issues/valid-target-app.md
 
 # Live implementation
 npm run harness:run -- --issue WES-12 --phase implementation
@@ -56,33 +56,33 @@ npm run harness:run -- --issue WES-12 --phase implementation --force
 npm run harness:inspect -- --run runs/WES-12/<run-id>
 ```
 
-## Manual portfolio integration gate
+## Manual target-app integration gate
 
 Do **not** use WES-11. WES-11 was the Milestone 2 planning-only gate and explicitly prohibited implementation, branches, and PRs.
 
 Create a new Linear issue, likely **WES-12**.
 
-**Title:** M3 implementation integration test — portfolio hello world
+**Title:** M3 implementation integration test — target app hello world
 
 **Status:** Ready for Build
 
-**Labels:** `harness`, `portfolio`, `implementation-agent`
+**Labels:** `harness`, `target-app`, `implementation-agent`
 
 **Description:**
 
 ```markdown
 ## Target repo
-weston-uribe/weston-uribe-portfolio
+owner/example-target-app
 
 ## Task
-Add a temporary Hello World page to the portfolio app and add a top-nav link to that page.
+Add a temporary Hello World page to the target app and add a top-nav link to that page.
 
 ## Acceptance criteria
-- [ ] A temporary Hello World page exists in the portfolio app
+- [ ] A temporary Hello World page exists in the target app
 - [ ] A visible top-nav link opens the Hello World page
 - [ ] The change is narrow and reversible
 - [ ] Validation commands are run
-- [ ] A PR is opened against the portfolio repo
+- [ ] A PR is opened against the target repo
 - [ ] No merge is performed
 - [ ] No preview capture or PM Review transition is required in this milestone
 
@@ -97,13 +97,13 @@ Add a temporary Hello World page to the portfolio app and add a top-nav link to 
 - [ ] Skills
 
 ## Validation expectations
-Run the portfolio repo validation commands from harness config, expected to include npm run lint and npm run build if available.
+Run the target repo validation commands from harness config, expected to include npm run lint and npm run build if available.
 ```
 
 **Pass criteria:**
 
 - Issue moves **Ready for Build** → **Building** → **PR Open**
-- PR opens against `weston-uribe/weston-uribe-portfolio`
+- PR opens against `owner/example-target-app`
 - Branch matches `cursor/<issue-key>-*`
 - One implementation comment includes marker footer with `branch` and `pr_url`
 - `manifest.json` has `finalOutcome: success`, `branch`, `prUrl`, `cursorAgentId`, `cursorRunId`
