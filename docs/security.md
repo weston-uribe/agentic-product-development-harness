@@ -16,7 +16,7 @@ Trusted automation paths:
 2. **Portfolio `main` push** → `production_promoted` dispatch (separate repo)
 3. **`workflow_dispatch`** — limited by GitHub Actions write permission on this repo
 
-Pass B (post-V0.2) adds branch protection so `main` changes require PR + checks.
+**Pass B (implemented):** Branch protection ruleset on `main` — PR required, required status checks, no direct push, no force push. GitHub Actions allowed-actions allowlist is active.
 
 ---
 
@@ -86,7 +86,7 @@ Do **not** name the Actions secret `GITHUB_TOKEN` — GitHub reserves that for t
 | Risk | Mitigation |
 |------|------------|
 | `repository_dispatch` is not Linear-signed | Requires possession of `GITHUB_DISPATCH_TOKEN` |
-| `workflow_dispatch` can target arbitrary issue keys | Limited to users with Actions write on this repo; optional Pass B `harness-manual` environment |
+| `workflow_dispatch` can target arbitrary issue keys | Limited to users with Actions write on this repo; optional `harness-manual` environment |
 | Dispatch bypasses webhook status filter | `resolve-route` uses live Linear state; cannot force wrong phase via fake payload status |
 | Public Actions logs | Redacted harness output only in logs/summaries/artifacts |
 
@@ -115,17 +115,43 @@ Dependabot opens PRs for npm and GitHub Actions updates weekly.
 
 ## OpenSSF Scorecard
 
-**Deferred post-V0.2.** Scorecard uses third-party `ossf/scorecard-action`, which would require Actions allowlist changes in Pass B and adds release noise. CodeQL + CI are the V0.2 baseline.
+**Deferred.** Scorecard uses third-party `ossf/scorecard-action`, which would require expanding the Actions allowlist and adds release noise. CodeQL + CI are the V0.2 baseline.
 
 ---
 
-## Pass B (not part of Build)
+## Pass B — branch protection and solo repo policy (implemented)
 
-After CI is green on `main`, apply operator settings:
+The following operator settings are **active** on this repo:
 
-- `.github/CODEOWNERS` for `.github/workflows/**`
-- Ruleset on `main` (PR required, status checks, no force push)
-- Actions allowed-actions allowlist
-- Optional `harness-manual` environment for `workflow_dispatch`
+| Setting | Status |
+|---------|--------|
+| Ruleset on `main` (PR required, status checks, no force push) | **Implemented** |
+| Required status checks: `test`, `Analyze (javascript-typescript)` | **Implemented** |
+| Actions allowed-actions allowlist | **Implemented** |
+| `.github/CODEOWNERS` for `.github/workflows/**` | **File exists** — documents ownership |
+| Required GitHub approvals | **0** (solo-maintainer mode) |
+| CODEOWNER review enforced | **No** (not required while solo maintainer) |
+| Direct push to `main` | **Blocked** |
 
-See the V0.2 Security Baseline implementation plan for exact `gh api` commands.
+### Solo-maintainer automation policy
+
+While Weston is the only maintainer:
+
+- Changes reach `main` via **PR + required checks** — not direct push.
+- **Required GitHub approvals are 0** — merge does not wait for a separate human reviewer.
+- **Linear/status gates remain required** — harness automation respects allowlisted Linear statuses; merge runs only after **Ready to Merge**.
+
+### When to re-enable approvals and CODEOWNER review
+
+Turn on required GitHub approvals and enforce CODEOWNER review when:
+
+- A second engineer joins as maintainer, or
+- The repo begins accepting external contributions
+
+At that point, update the ruleset to require approvals and enable CODEOWNER review for `.github/workflows/**` changes.
+
+### Optional (not required for V0.2.0)
+
+- `harness-manual` environment for `workflow_dispatch` — adds an approval gate for manual cloud runs if desired later.
+
+Release contract: [`docs/releases/v0.2.0.md`](releases/v0.2.0.md)

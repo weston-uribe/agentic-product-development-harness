@@ -4,6 +4,8 @@ This document describes what is configurable, what is fixed, and what is
 intentionally **not** claimed for V0.2 of the harness. It complements
 [`docs/decisions/0004-agent-provider-boundary.md`](decisions/0004-agent-provider-boundary.md).
 
+**Release contract:** [`docs/releases/v0.2.0.md`](releases/v0.2.0.md)
+
 ## Current V0.2 posture
 
 V0.2 is a **Cursor-first** harness for **Linear + GitHub + GitHub Actions**. The

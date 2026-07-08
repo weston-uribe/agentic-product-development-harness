@@ -1,8 +1,8 @@
 # Linear watcher setup
 
-Operator guide for Milestone 8: event-driven harness runs from Linear status changes.
+Operator guide for V0.2 event-driven harness runs from Linear status changes (implemented in Milestone 8).
 
-**Related:** [`docs/milestones/m8-linear-watcher.md`](milestones/m8-linear-watcher.md), [`ARCHITECTURE.md`](../ARCHITECTURE.md), [`docs/security.md`](security.md)
+**Related:** [`docs/milestones/m8-linear-watcher.md`](milestones/m8-linear-watcher.md), [`ARCHITECTURE.md`](../ARCHITECTURE.md), [`docs/security.md`](security.md), [`docs/releases/v0.2.0.md`](releases/v0.2.0.md)
 
 ---
 

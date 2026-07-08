@@ -1,0 +1,135 @@
+# Getting started
+
+Operator guide for setting up and validating the agentic product development harness locally.
+
+**Honest positioning:** V0.2.0 is an early-stage, Cursor-first orchestration harness — not a generic plug-and-play product. Expect manual operator setup for Linear, GitHub Actions, Vercel, and target repos.
+
+**Release contract:** [`docs/releases/v0.2.0.md`](releases/v0.2.0.md)
+
+---
+
+## Prerequisites
+
+| Requirement | Notes |
+|-------------|-------|
+| Node.js 22+ | Matches CI |
+| npm | `npm ci` for reproducible installs |
+| Git | Clone this repo |
+| Linear account | Team with harness workflow statuses |
+| GitHub account | Access to harness repo and target repos |
+| Cursor API key | For live cloud agent phases (optional for dry-run) |
+| Linear API key | For live issue reads/writes (optional for dry-run) |
+
+---
+
+## Clone and install
+
+```bash
+git clone https://github.com/weston-uribe/agentic-product-development-harness.git
+cd agentic-product-development-harness
+npm ci
+npm run build
+npm test
+```
+
+---
+
+## Configuration
+
+1. Copy or create `harness.config.json` at the repo root (see schema: [`harness.config.schema.json`](../harness.config.schema.json)).
+2. Set target repos, Linear project/team mappings, branch strategy, and `agentProvider.id: "cursor"`.
+3. Run doctor:
+
+```bash
+npm run harness:doctor
+```
+
+For merge-phase checks with a GitHub token:
+
+```bash
+GITHUB_TOKEN=<token> npm run harness:doctor -- --profile merge
+```
+
+---
+
+## Where secrets go
+
+| Secret class | Store here | Never store here |
+|--------------|------------|------------------|
+| `LINEAR_API_KEY`, `CURSOR_API_KEY`, `HARNESS_GITHUB_TOKEN` | GitHub Actions secrets | Vercel, committed files |
+| `LINEAR_WEBHOOK_SECRET`, `GITHUB_DISPATCH_TOKEN` | Vercel production env | GitHub Actions (for bridge), committed files |
+| Local dev tokens | Untracked `.env` (gitignored) | Commits, docs, examples |
+
+Full matrix: [`docs/security.md`](security.md)
+
+---
+
+## Dry-run validation (no live APIs required)
+
+Validate an issue draft:
+
+```bash
+npm run harness:validate-issue -- --file draft.md --intended-phase planning
+```
+
+Dry-run harness routing with a fixture:
+
+```bash
+npm run harness:run -- --issue WES-FIXTURE --dry-run \
+  --fixture tests/fixtures/issues/valid-portfolio.md
+```
+
+Inspect a run artifact directory:
+
+```bash
+npm run harness:inspect -- --run runs/WES-FIXTURE/<run-id>
+```
+
+---
+
+## Live setup (production automation)
+
+These require operator configuration outside this repo:
+
+| Component | Guide |
+|-----------|-------|
+| Linear webhook + Vercel bridge + GHA auto-runner | [`docs/linear-watcher-setup.md`](linear-watcher-setup.md) |
+| Target repo branch strategy (`dev` / `main`) | [`docs/target-repo-branch-setup.md`](target-repo-branch-setup.md) |
+| Production sync after `dev` → `main` promotion | [`docs/production-sync-automation.md`](production-sync-automation.md) |
+| Security baseline and solo repo policy | [`docs/security.md`](security.md) |
+| Provider / portability posture | [`docs/provider-portability.md`](provider-portability.md) |
+
+---
+
+## PM issue intake
+
+1. Copy [`prompts/issue-intake-chatgpt.md`](../prompts/issue-intake-chatgpt.md) into ChatGPT, **or**
+2. Use [`skills/issue-intake/SKILL.md`](../skills/issue-intake/SKILL.md) in Cursor
+3. Validate before creating the Linear issue: `npm run harness:validate-issue`
+
+Details: [`docs/issue-intake.md`](issue-intake.md)
+
+---
+
+## What not to do
+
+- Do not commit secrets to the repo, docs, or examples
+- Do not put merge-capable GitHub tokens in Vercel
+- Do not assume provider agnosticism — Cursor is the only implemented agent provider
+- Do not run live harness phases against production issues without understanding Linear status side effects
+- Do not create git tags or GitHub releases from doc PRs — follow [`docs/releases/release-process.md`](releases/release-process.md) after merge
+
+---
+
+## Troubleshooting
+
+| Symptom | Check |
+|---------|-------|
+| `validate-issue` fails on headers | Compare draft to [`templates/linear-issue.md`](../templates/linear-issue.md) |
+| `doctor` reports missing base branch | Create integration branch on target repo; see branch setup doc |
+| Auto-run does not trigger | Vercel env vars, Linear webhook URL, dispatch token scope |
+| Merge blocked | PR checks on target repo; issue must be **Ready to Merge** in Linear |
+| Production sync no-op | Merge commit must be reachable on `productionBranch`; see promotion guidance |
+
+Architecture overview: [`ARCHITECTURE.md`](../ARCHITECTURE.md)  
+Agent working in this repo: [`AGENTS.md`](../AGENTS.md)

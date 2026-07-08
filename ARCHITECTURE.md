@@ -176,9 +176,9 @@ Planning is **optional** in the target Linear workflow. Low-risk issues may bypa
 
 ### Human approval gates
 
-**Purpose:** Ensure PM and engineering judgment remain in the loop.
+**Purpose:** Ensure PM and engineering judgment remain in the loop via **Linear/status gates** — not bypassed by automation.
 
-**v0.1:** Required at pre-PR, PM review, engineering review, and merge. No automation bypasses these gates.
+**V0.2:** Automation respects allowlisted Linear statuses. Merge runs only when the issue is **Ready to Merge** (PM moved it from PM Review). Planning, implementation, handoff, and revision phases each require the matching Linear status. **GitHub required review is 0** in solo-maintainer mode — see [`docs/security.md`](docs/security.md).
 
 **Note:** `Plan Review` is **not** part of the default active workflow. If the status exists in Linear, it is deprecated/reserved—not routed by automations.
 
