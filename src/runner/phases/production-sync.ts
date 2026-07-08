@@ -24,7 +24,7 @@ import { GitHubClient } from "../../github/client.js";
 import { resolvePromotionProof } from "../../github/commit-reachability.js";
 import { resolveModelId } from "../../agents/index.js";
 import { resolveTargetRepo } from "../../resolver/target-repo.js";
-import { loadConfig } from "../../config/load-config.js";
+import { loadHarnessConfig } from "../../config/load-config.js";
 import { checkProductionSyncIdempotency } from "../idempotency.js";
 import type { RunManifest, FinalOutcome, ErrorClassification } from "../../types/run.js";
 import type { LinearIssueSnapshot } from "../../linear/client.js";
@@ -93,7 +93,7 @@ export async function executeProductionSyncForIssue(
 ): Promise<ProductionSyncIssueResult> {
   const startedAt = new Date();
   const runId = createRunId(options.issueKey, startedAt);
-  const config = await loadConfig(options.configPath);
+  const { config } = await loadHarnessConfig({ configPath: options.configPath });
   const runDirectory = getRunDirectory(
     config.logDirectory,
     options.issueKey,

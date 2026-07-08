@@ -1,4 +1,5 @@
-import { loadConfig } from "../config/load-config.js";
+import { loadHarnessConfig } from "../config/load-config.js";
+import type { HarnessConfig } from "../config/types.js";
 import { getTransitionalStatus } from "../config/status-names.js";
 import { fetchLinearIssue } from "../linear/client.js";
 import { findLatestPhaseStartRunId } from "../linear/comments.js";
@@ -45,7 +46,7 @@ function resolvePhase(
 
 async function applyBuildingRecoveryRouting(
   issue: Awaited<ReturnType<typeof fetchLinearIssue>>,
-  config: Awaited<ReturnType<typeof loadConfig>>,
+  config: HarnessConfig,
   phase: RunPhase,
   targetRepo: string,
   baseBranch: string,
@@ -106,7 +107,7 @@ export class LinearAuthError extends Error {
 export async function resolveRoute(
   options: ResolveRouteOptions,
 ): Promise<ResolveRouteResult> {
-  const config = await loadConfig(options.configPath);
+  const { config } = await loadHarnessConfig({ configPath: options.configPath });
   const apiKey = options.linearApiKey ?? process.env.LINEAR_API_KEY ?? "";
   if (!apiKey) {
     throw new LinearAuthError("LINEAR_API_KEY is required");

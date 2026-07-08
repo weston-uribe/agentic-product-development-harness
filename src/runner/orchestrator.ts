@@ -6,7 +6,7 @@ import { executeImplementationPhase } from "./phases/implementation.js";
 import { executePlanningPhase } from "./phases/planning.js";
 import { fetchLinearIssue } from "../linear/client.js";
 import { inferPhaseFromStatus } from "./phase-infer.js";
-import { loadConfig } from "../config/load-config.js";
+import { loadHarnessConfig } from "../config/load-config.js";
 import { EXIT_CONFIG } from "../cli/exit-codes.js";
 import type { RunManifest } from "../types/run.js";
 
@@ -87,7 +87,7 @@ export async function runOrchestrator(
       console.error("LINEAR_API_KEY is required for live runs");
       return { exitCode: EXIT_CONFIG };
     }
-    const config = await loadConfig(options.configPath);
+    const { config } = await loadHarnessConfig({ configPath: options.configPath });
     const issue = await fetchLinearIssue(options.issueKey, linearApiKey);
     const inferred = inferPhaseFromStatus(issue.status, config);
     if (inferred.phase === "planning") {

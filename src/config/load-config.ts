@@ -1,7 +1,12 @@
-import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { readFile } from "node:fs/promises";
 import { harnessConfigSchema, type HarnessConfig } from "./schema.js";
 import { normalizeRepoUrl } from "../resolver/normalize-repo.js";
+import {
+  readConfigRaw,
+  resolveConfigSource,
+  type ResolvedConfigSource,
+} from "./resolve-config.js";
 
 export class ConfigError extends Error {
   constructor(message: string) {
@@ -10,21 +15,17 @@ export class ConfigError extends Error {
   }
 }
 
-export async function loadConfig(configPath: string): Promise<HarnessConfig> {
-  const absolutePath = path.resolve(configPath);
-  let raw: string;
+export interface LoadedHarnessConfig {
+  config: HarnessConfig;
+  source: ResolvedConfigSource;
+}
 
-  try {
-    raw = await readFile(absolutePath, "utf8");
-  } catch {
-    throw new ConfigError(`Config file not found: ${absolutePath}`);
-  }
-
+function parseConfigRaw(raw: string, sourceLabel: string): HarnessConfig {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    throw new ConfigError(`Config file is not valid JSON: ${absolutePath}`);
+    throw new ConfigError(`Config is not valid JSON: ${sourceLabel}`);
   }
 
   const result = harnessConfigSchema.safeParse(parsed);
@@ -37,6 +38,29 @@ export async function loadConfig(configPath: string): Promise<HarnessConfig> {
 
   validateRepoClosure(result.data);
   return result.data;
+}
+
+export async function loadHarnessConfig(options?: {
+  configPath?: string;
+}): Promise<LoadedHarnessConfig> {
+  const source = resolveConfigSource(options);
+  const raw = await readConfigRaw(source);
+  const config = parseConfigRaw(raw, source.label);
+  return { config, source };
+}
+
+/** Load config from an explicit file path (tests and direct file reads). */
+export async function loadConfig(configPath: string): Promise<HarnessConfig> {
+  const absolutePath = path.resolve(configPath);
+  let raw: string;
+
+  try {
+    raw = await readFile(absolutePath, "utf8");
+  } catch {
+    throw new ConfigError(`Config file not found: ${absolutePath}`);
+  }
+
+  return parseConfigRaw(raw, absolutePath);
 }
 
 export function validateRepoClosure(config: HarnessConfig): void {

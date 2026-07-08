@@ -88,9 +88,29 @@ function assertHarnessWorkflowContracts(workflow: string, label: string): void {
       expect(gate).toContain("^[A-Z]+-[0-9]+$");
     });
 
-    it("validates sync repo allowlist", () => {
+    it("validates sync repo id format without hard-coded allowlist", () => {
       const syncSection = extractJobSection(workflow, "sync-production");
-      expect(syncSection).toContain("target-app|harness");
+      expect(syncSection).toContain("^[a-z][a-z0-9-]*$");
+      expect(syncSection).not.toContain("target-app|harness");
+    });
+
+    it("loads private operator config from HARNESS_CONFIG_JSON_B64 on harness jobs", () => {
+      expect(workflow).toContain("HARNESS_CONFIG_JSON_B64: ${{ secrets.HARNESS_CONFIG_JSON_B64 }}");
+      const gate = extractJobSection(workflow, "gate");
+      const runHarness = extractJobSection(workflow, "run-harness");
+      const runMerge = extractJobSection(workflow, "run-merge");
+      const syncSection = extractJobSection(workflow, "sync-production");
+      expect(gate).toContain("HARNESS_CONFIG_JSON_B64");
+      expect(runHarness).toContain("HARNESS_CONFIG_JSON_B64");
+      expect(runMerge).toContain("HARNESS_CONFIG_JSON_B64");
+      expect(syncSection).toContain("HARNESS_CONFIG_JSON_B64");
+    });
+
+    it("forwards dispatch metadata to sync-production CLI", () => {
+      const syncSection = extractJobSection(workflow, "sync-production");
+      expect(syncSection).toContain("--source-repo");
+      expect(syncSection).toContain("--production-branch");
+      expect(syncSection).toContain("--ref");
     });
   });
 }

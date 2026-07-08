@@ -54,11 +54,20 @@ npm test
 
 ## Configuration
 
-1. Copy or create `harness.config.json` at the repo root (see schema: [`harness.config.schema.json`](../harness.config.schema.json)).
+The committed [`harness.config.json`](../harness.config.json) is a generic example. For real target repos, use private operator config — see [`docs/operator-config.md`](operator-config.md).
+
+1. Copy or create a config file (see schema: [`harness.config.schema.json`](../harness.config.schema.json)).
 2. Set target repos, Linear project/team mappings, branch strategy, and `agentProvider.id: "cursor"`.
 3. Run doctor:
 
 ```bash
+npm run harness:doctor
+```
+
+Local private config via env:
+
+```bash
+export HARNESS_CONFIG_PATH=/path/to/private/harness.config.json
 npm run harness:doctor
 ```
 
@@ -121,6 +130,7 @@ These require operator configuration outside this repo:
 
 | Component | Guide |
 |-----------|-------|
+| Private operator config (env / GHA secret) | [`docs/operator-config.md`](operator-config.md) |
 | Linear webhook + Vercel bridge + GHA auto-runner | [`docs/linear-watcher-setup.md`](linear-watcher-setup.md) |
 | Target repo branch strategy (`dev` / `main`) | [`docs/target-repo-branch-setup.md`](target-repo-branch-setup.md) |
 | Production sync after `dev` → `main` promotion | [`docs/production-sync-automation.md`](production-sync-automation.md) |

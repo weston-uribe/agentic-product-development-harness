@@ -47,6 +47,7 @@ jobs:
     env:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
       GITHUB_TOKEN: ${{ secrets.HARNESS_GITHUB_TOKEN }}
+      HARNESS_CONFIG_JSON_B64: ${{ secrets.HARNESS_CONFIG_JSON_B64 }}
 
     steps:
       - name: Resolve inputs
@@ -174,6 +175,7 @@ jobs:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
       CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
       GITHUB_TOKEN: ${{ secrets.HARNESS_GITHUB_TOKEN }}
+      HARNESS_CONFIG_JSON_B64: ${{ secrets.HARNESS_CONFIG_JSON_B64 }}
 
     steps:
       - name: Checkout harness repo
@@ -287,6 +289,7 @@ jobs:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
       CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
       GITHUB_TOKEN: ${{ secrets.HARNESS_GITHUB_TOKEN }}
+      HARNESS_CONFIG_JSON_B64: ${{ secrets.HARNESS_CONFIG_JSON_B64 }}
 
     steps:
       - name: Checkout harness repo
@@ -389,6 +392,7 @@ jobs:
     env:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
       GITHUB_TOKEN: ${{ secrets.HARNESS_GITHUB_TOKEN }}
+      HARNESS_CONFIG_JSON_B64: ${{ secrets.HARNESS_CONFIG_JSON_B64 }}
 
     steps:
       - name: Resolve sync inputs
@@ -400,6 +404,7 @@ jobs:
           PAYLOAD_PRODUCTION_BRANCH: ${{ github.event.client_payload.productionBranch || '' }}
           PAYLOAD_SOURCE_REPO: ${{ github.event.client_payload.sourceRepo || '' }}
           PAYLOAD_AFTER: ${{ github.event.client_payload.after || '' }}
+          PAYLOAD_REF: ${{ github.event.client_payload.ref || '' }}
         run: |
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             echo "repo=$INPUT_SYNC_REPO" >> "$GITHUB_OUTPUT"
@@ -407,12 +412,14 @@ jobs:
             echo "production_branch=" >> "$GITHUB_OUTPUT"
             echo "source_repo=" >> "$GITHUB_OUTPUT"
             echo "after=" >> "$GITHUB_OUTPUT"
+            echo "ref=" >> "$GITHUB_OUTPUT"
           else
             echo "repo=$PAYLOAD_REPO" >> "$GITHUB_OUTPUT"
             echo "trigger=repository_dispatch" >> "$GITHUB_OUTPUT"
             echo "production_branch=$PAYLOAD_PRODUCTION_BRANCH" >> "$GITHUB_OUTPUT"
             echo "source_repo=$PAYLOAD_SOURCE_REPO" >> "$GITHUB_OUTPUT"
             echo "after=$PAYLOAD_AFTER" >> "$GITHUB_OUTPUT"
+            echo "ref=$PAYLOAD_REF" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Validate sync repo id
@@ -427,13 +434,6 @@ jobs:
             echo "Invalid repo id format."
             exit 1
           fi
-          case "$REPO_ID" in
-            target-app|harness) ;;
-            *)
-              echo "Unknown repo id: $REPO_ID"
-              exit 1
-              ;;
-          esac
 
       - name: Checkout harness repo
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -468,9 +468,22 @@ jobs:
         id: sync_production
         env:
           REPO_ID: ${{ steps.sync.outputs.repo }}
+          SOURCE_REPO: ${{ steps.sync.outputs.source_repo }}
+          PRODUCTION_BRANCH: ${{ steps.sync.outputs.production_branch }}
+          REF: ${{ steps.sync.outputs.ref }}
         run: |
           set +e
-          npm run harness:sync-production -- --repo "$REPO_ID" --json 2>&1 \
+          SYNC_ARGS=(--repo "$REPO_ID" --json)
+          if [ -n "$SOURCE_REPO" ]; then
+            SYNC_ARGS+=(--source-repo "$SOURCE_REPO")
+          fi
+          if [ -n "$PRODUCTION_BRANCH" ]; then
+            SYNC_ARGS+=(--production-branch "$PRODUCTION_BRANCH")
+          fi
+          if [ -n "$REF" ]; then
+            SYNC_ARGS+=(--ref "$REF")
+          fi
+          npm run harness:sync-production -- "${SYNC_ARGS[@]}" 2>&1 \
             | tee sync-raw-output.txt
           EXIT_CODE=${PIPESTATUS[0]}
           npm run harness:redact-output < sync-raw-output.txt > sync-production-output.json

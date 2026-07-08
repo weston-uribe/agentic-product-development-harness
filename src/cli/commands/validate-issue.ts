@@ -1,4 +1,4 @@
-import { loadConfig } from "../../config/load-config.js";
+import { loadHarnessConfig } from "../../config/load-config.js";
 import { EXIT_CONFIG, EXIT_RUN_FAILURE, EXIT_SUCCESS } from "../exit-codes.js";
 import {
   resolveValidationExitCode,
@@ -47,7 +47,7 @@ export async function runValidateIssue(
   }
 
   try {
-    await loadConfig(options.configPath);
+    await loadHarnessConfig({ configPath: options.configPath });
     const result = await validateIssue({
       configPath: options.configPath,
       filePath: options.filePath,

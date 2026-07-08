@@ -1,7 +1,7 @@
 import { isDispatchPhase } from "../runner/phase-args.js";
 
 const ISSUE_KEY_PATTERN = /^[A-Z]+-[0-9]+$/;
-const REPO_ID_PATTERN = /^[a-z][a-z0-9-]*$/;
+export const REPO_ID_PATTERN = /^[a-z][a-z0-9-]*$/;
 
 const VALID_FORCE = new Set(["true", "false"]);
 
@@ -23,18 +23,21 @@ export function validateForce(value: string | null | undefined): boolean {
   return VALID_FORCE.has(value.trim().toLowerCase());
 }
 
-export function validateRepoId(
+export function validateRepoIdFormat(
   value: string | null | undefined,
-  allowedIds: readonly string[],
 ): boolean {
   if (!value || typeof value !== "string") {
     return false;
   }
-  const trimmed = value.trim();
-  if (!REPO_ID_PATTERN.test(trimmed)) {
-    return false;
-  }
-  return allowedIds.includes(trimmed);
+  return REPO_ID_PATTERN.test(value.trim());
 }
 
-export const DEFAULT_SYNC_REPO_IDS = ["target-app", "harness"] as const;
+export function validateRepoId(
+  value: string | null | undefined,
+  allowedIds: readonly string[],
+): boolean {
+  if (!validateRepoIdFormat(value)) {
+    return false;
+  }
+  return allowedIds.includes(value!.trim());
+}

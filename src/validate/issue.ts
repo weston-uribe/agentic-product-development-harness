@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
-import { loadConfig } from "../config/load-config.js";
+import { loadHarnessConfig } from "../config/load-config.js";
+import type { HarnessConfig } from "../config/types.js";
 import { parseFixtureMarkdown } from "../fixture/frontmatter.js";
 import { fetchLinearIssue } from "../linear/client.js";
 import { parseIssueDescription } from "../linear/parser.js";
@@ -120,7 +121,7 @@ function buildRoutingNotes(
 export function computeIssueValidation(
   description: string,
   context: { projectName?: string; teamName?: string },
-  config: Awaited<ReturnType<typeof loadConfig>>,
+  config: HarnessConfig,
   options: {
     intendedPhase?: IntendedPhase;
     hasPlanningMarker?: boolean;
@@ -204,7 +205,7 @@ export function computeIssueValidation(
 
 export async function validateIssueFromFile(
   filePath: string,
-  config: Awaited<ReturnType<typeof loadConfig>>,
+  config: HarnessConfig,
   intendedPhase?: IntendedPhase,
 ): Promise<IssueValidationResult> {
   const raw = await readFile(filePath, "utf8");
@@ -223,7 +224,7 @@ export async function validateIssueFromFile(
 
 export async function validateIssueFromLinear(
   issueKey: string,
-  config: Awaited<ReturnType<typeof loadConfig>>,
+  config: HarnessConfig,
   linearApiKey: string,
   intendedPhase?: IntendedPhase,
 ): Promise<IssueValidationResult> {
@@ -253,7 +254,7 @@ export async function validateIssueFromLinear(
 export async function validateIssue(
   options: ValidateIssueOptions,
 ): Promise<IssueValidationResult> {
-  const config = await loadConfig(options.configPath);
+  const { config } = await loadHarnessConfig({ configPath: options.configPath });
 
   if (options.filePath) {
     return validateIssueFromFile(options.filePath, config, options.intendedPhase);

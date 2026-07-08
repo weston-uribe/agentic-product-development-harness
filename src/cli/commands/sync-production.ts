@@ -1,17 +1,24 @@
 import "dotenv/config";
 import { EXIT_CONFIG } from "../exit-codes.js";
-import { loadConfig } from "../../config/load-config.js";
+import { loadHarnessConfig } from "../../config/load-config.js";
 import { createLinearClient } from "../../linear/writer.js";
 import { listIssuesByStatus } from "../../linear/issue-query.js";
 import { executeProductionSyncForIssue } from "../../runner/phases/production-sync.js";
 import { fetchLinearIssue } from "../../linear/client.js";
 import { parseIssueDescription } from "../../linear/parser.js";
 import { resolveTargetRepo } from "../../resolver/target-repo.js";
+import {
+  SyncDispatchError,
+  validateProductionSyncDispatch,
+} from "../../workflow/production-sync-dispatch.js";
 
 export interface SyncProductionCommandOptions {
   configPath: string;
   repo?: string;
   issue?: string;
+  sourceRepo?: string;
+  productionBranch?: string;
+  ref?: string;
   dryRun?: boolean;
   force?: boolean;
   json?: boolean;
@@ -38,7 +45,14 @@ export async function runSyncProductionCommand(
     return EXIT_CONFIG;
   }
 
-  const config = await loadConfig(options.configPath);
+  let config;
+  try {
+    ({ config } = await loadHarnessConfig({ configPath: options.configPath }));
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    return EXIT_CONFIG;
+  }
+
   const linearApiKey = process.env.LINEAR_API_KEY;
   if (!linearApiKey) {
     console.error("LINEAR_API_KEY is required.");
@@ -50,6 +64,25 @@ export async function runSyncProductionCommand(
     return EXIT_CONFIG;
   }
 
+  if (options.repo) {
+    const dispatchContext = {
+      repoId: options.repo,
+      sourceRepo: options.sourceRepo,
+      productionBranch: options.productionBranch,
+      ref: options.ref,
+    };
+
+    try {
+      validateProductionSyncDispatch(dispatchContext, config);
+    } catch (error) {
+      if (error instanceof SyncDispatchError) {
+        console.error(error.message);
+        return EXIT_CONFIG;
+      }
+      throw error;
+    }
+  }
+
   const issueKeys: string[] = [];
 
   if (options.issue) {
@@ -57,7 +90,7 @@ export async function runSyncProductionCommand(
   } else if (options.repo) {
     const repoConfig = config.repos.find((repo) => repo.id === options.repo);
     if (!repoConfig) {
-      console.error(`Unknown repo id: ${options.repo}`);
+      console.error(`unknown_repo_id: ${options.repo}`);
       return EXIT_CONFIG;
     }
 
