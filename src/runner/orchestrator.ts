@@ -8,6 +8,13 @@ import { fetchLinearIssue } from "../linear/client.js";
 import { inferPhaseFromStatus } from "./phase-infer.js";
 import { loadConfig } from "../config/load-config.js";
 import { EXIT_CONFIG } from "../cli/exit-codes.js";
+import type { RunManifest } from "../types/run.js";
+
+export function shouldContinueToImplementationAfterPlanning(
+  manifest: RunManifest,
+): boolean {
+  return manifest.finalOutcome === "success";
+}
 
 export type RunPhaseArg =
   | "auto"
@@ -82,6 +89,18 @@ export async function runOrchestrator(
       configPath: options.configPath,
       force: options.force,
     });
+    if (shouldContinueToImplementationAfterPlanning(result.manifest)) {
+      const implResult = await executeImplementationPhase({
+        issueKey: options.issueKey,
+        configPath: options.configPath,
+        force: options.force,
+      });
+      return {
+        exitCode: implResult.exitCode,
+        runDirectory: implResult.runDirectory,
+        manifest: implResult.manifest,
+      };
+    }
     return {
       exitCode: result.exitCode,
       runDirectory: result.runDirectory,

@@ -204,11 +204,11 @@ export function formatPlanningComment(
   return buildHarnessComment({
     phaseLabel: getCompletionLabel("planning"),
     pmSection: [
-      "Planning has finished.",
+      "Planning is complete.",
       "",
       summary || "_No plan summary reported._",
       "",
-      "Review the plan, then move the issue to **Ready for Build** when you want implementation to start.",
+      "Implementation will start automatically. No PM action is needed until the issue reaches **PM Review**.",
     ],
     engineerSection: [
       ...formatBulletList([

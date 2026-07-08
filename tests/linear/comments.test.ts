@@ -46,6 +46,10 @@ describe("linear comments", () => {
     expect(body).toContain("# Comment from harness");
     expect(body).toContain("**Phase:** Planning complete");
     expect(body).toContain("## For the PM");
+    expect(body).toContain("Planning is complete.");
+    expect(body).toContain("Implementation will start automatically.");
+    expect(body).toContain("No PM action is needed until the issue reaches **PM Review**.");
+    expect(body).not.toContain("move the issue to **Ready for Build**");
     expect(body).toContain("Step 1: inspect repo");
     expect(body).toContain("phase: planning");
     expect(body).not.toContain("🤖 Harness update");
