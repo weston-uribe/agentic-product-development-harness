@@ -38,6 +38,8 @@ The GUI is local-first and supports guided local setup:
 
 It does **not** write GitHub Actions secrets, target repo workflows, Linear issues, cloud workflow dispatches, or harness phases.
 
+Remote harness secret writes and target workflow branch/PR installs are available in the **Remote setup** section — see [`docs/gui-remote-setup.md`](gui-remote-setup.md).
+
 ## Guided local setup flow
 
 1. Open **Settings / Configure**.

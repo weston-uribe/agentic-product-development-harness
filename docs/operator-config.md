@@ -46,7 +46,9 @@ If the resolved source is missing, unreadable, or invalid, harness commands exit
 
 The starter config in `.harness/config.example.json` is for first-time users with **one** target repo. Add more entries to `repos[]` and `allowedTargetRepos[]` for every repo you want the harness to manage.
 
-Setup core services in [`src/setup/`](../src/setup/) power `harness:operator:init`, the local Product Development Harness GUI Settings / Configure screen (`npm run harness:gui`), and confirmation-gated local file writes (`src/setup/local-apply-actions.ts`). They support dry-run previews, local file writes after confirmation, permission classification, and manual instruction generation without changing runtime harness automation behavior.
+Setup core services in [`src/setup/`](../src/setup/) power `harness:operator:init`, the local Product Development Harness GUI Settings / Configure screen (`npm run harness:gui`), confirmation-gated local file writes (`src/setup/local-apply-actions.ts`), and confirmation-gated remote harness secret / target workflow PR writes (`src/setup/remote-apply-actions.ts`). They support dry-run previews, local and remote writes after confirmation, permission classification, and manual instruction generation without changing runtime harness automation behavior.
+
+**Remote setup (GUI):** after local config is in place, use Settings / Configure → **Remote setup** to preview and apply harness repo Actions secrets and target workflow install PRs. See [`docs/gui-remote-setup.md`](../gui-remote-setup.md).
 
 GUI-assisted fields:
 

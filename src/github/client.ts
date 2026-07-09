@@ -103,6 +103,31 @@ export interface GitHubUpdateBranchResponse {
   url?: string;
 }
 
+export interface GitHubActionsPublicKey {
+  key_id: string;
+  key: string;
+}
+
+export interface GitHubActionsSecretListItem {
+  name: string;
+}
+
+export interface GitHubRepositoryContent {
+  name: string;
+  path: string;
+  sha: string;
+  content: string;
+  encoding: string;
+}
+
+export interface GitHubCreatePullRequestResponse {
+  number: number;
+  html_url: string;
+  state: string;
+  head: { ref: string };
+  base: { ref: string };
+}
+
 const GITHUB_API = "https://api.github.com";
 
 export class GitHubClient {
@@ -135,11 +160,12 @@ export class GitHubClient {
       throw new GitHubApiError(response.status, message);
     }
 
-    if (response.status === 204) {
+    const text = await response.text();
+    if (response.status === 204 || !text.trim()) {
       return {} as T;
     }
 
-    return (await response.json()) as T;
+    return JSON.parse(text) as T;
   }
 
   private async graphqlRequest<T>(
@@ -308,12 +334,140 @@ export class GitHubClient {
     );
   }
 
+  async compareCommits(
+    owner: string,
+    repo: string,
+    base: string,
+    head: string,
+  ): Promise<GitHubCompareResult> {
+    return this.request<GitHubCompareResult>(
+      `/repos/${owner}/${repo}/compare/${base}...${head}`,
+    );
+  }
+
+  async getActionsPublicKey(
+    owner: string,
+    repo: string,
+  ): Promise<GitHubActionsPublicKey> {
+    return this.request<GitHubActionsPublicKey>(
+      `/repos/${owner}/${repo}/actions/secrets/public-key`,
+    );
+  }
+
+  async listActionsSecrets(
+    owner: string,
+    repo: string,
+  ): Promise<{ secrets: GitHubActionsSecretListItem[] }> {
+    return this.request<{ secrets: GitHubActionsSecretListItem[] }>(
+      `/repos/${owner}/${repo}/actions/secrets?per_page=100`,
+    );
+  }
+
+  async upsertActionsSecret(
+    owner: string,
+    repo: string,
+    secretName: string,
+    encryptedValue: string,
+    keyId: string,
+  ): Promise<void> {
+    await this.request(`/repos/${owner}/${repo}/actions/secrets/${secretName}`, {
+      method: "PUT",
+      body: {
+        encrypted_value: encryptedValue,
+        key_id: keyId,
+      },
+    });
+  }
+
+  async getRepositoryContent(
+    owner: string,
+    repo: string,
+    path: string,
+    ref: string,
+  ): Promise<GitHubRepositoryContent | null> {
+    try {
+      return await this.request<GitHubRepositoryContent>(
+        `/repos/${owner}/${repo}/contents/${path}?ref=${encodeURIComponent(ref)}`,
+      );
+    } catch (error) {
+      if (error instanceof GitHubApiError && error.status === 404) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  decodeRepositoryContent(content: GitHubRepositoryContent): string {
+    return Buffer.from(content.content, "base64").toString("utf8");
+  }
+
+  async createOrUpdateRepositoryFile(input: {
+    owner: string;
+    repo: string;
+    path: string;
+    branch: string;
+    message: string;
+    content: string;
+    sha?: string;
+  }): Promise<{ commitSha: string }> {
+    const response = await this.request<{
+      commit: { sha: string };
+    }>(`/repos/${input.owner}/${input.repo}/contents/${input.path}`, {
+      method: "PUT",
+      body: {
+        message: input.message,
+        content: Buffer.from(input.content, "utf8").toString("base64"),
+        branch: input.branch,
+        ...(input.sha ? { sha: input.sha } : {}),
+      },
+    });
+    return { commitSha: response.commit.sha };
+  }
+
+  async createGitRef(
+    owner: string,
+    repo: string,
+    branch: string,
+    sha: string,
+  ): Promise<GitHubGitRef> {
+    return this.request<GitHubGitRef>(`/repos/${owner}/${repo}/git/refs`, {
+      method: "POST",
+      body: {
+        ref: `refs/heads/${branch}`,
+        sha,
+      },
+    });
+  }
+
+  async createPullRequest(input: {
+    owner: string;
+    repo: string;
+    title: string;
+    head: string;
+    base: string;
+    body: string;
+  }): Promise<GitHubCreatePullRequestResponse> {
+    return this.request<GitHubCreatePullRequestResponse>(
+      `/repos/${input.owner}/${input.repo}/pulls`,
+      {
+        method: "POST",
+        body: {
+          title: input.title,
+          head: input.head,
+          base: input.base,
+          body: input.body,
+        },
+      },
+    );
+  }
+
   async listPullRequests(
     owner: string,
     repo: string,
     options: {
       state?: "open" | "closed" | "all";
       base?: string;
+      head?: string;
       sort?: "created" | "updated";
       direction?: "asc" | "desc";
     } = {},
@@ -323,21 +477,13 @@ export class GitHubClient {
     if (options.base) {
       params.set("base", options.base);
     }
+    if (options.head) {
+      params.set("head", options.head);
+    }
     params.set("sort", options.sort ?? "created");
     params.set("direction", options.direction ?? "desc");
     return this.request<GitHubPullRequestListItem[]>(
       `/repos/${owner}/${repo}/pulls?${params.toString()}`,
-    );
-  }
-
-  async compareCommits(
-    owner: string,
-    repo: string,
-    base: string,
-    head: string,
-  ): Promise<GitHubCompareResult> {
-    return this.request<GitHubCompareResult>(
-      `/repos/${owner}/${repo}/compare/${base}...${head}`,
     );
   }
 }

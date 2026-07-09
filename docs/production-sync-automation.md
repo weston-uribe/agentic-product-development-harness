@@ -117,6 +117,8 @@ Requires a PAT with **Contents: write** on the harness repo (same class as Verce
 
 ## Target repo: trigger workflow
 
+**GUI path (Milestone 5):** after local config is ready, use Settings / Configure → **Remote setup** → target repo card to preview and open an install PR on branch `harness/setup-production-sync-<repoConfigId>`. The GUI never writes directly to the production branch. See [`docs/gui-remote-setup.md`](gui-remote-setup.md).
+
 **Track A:** add the file below to **`owner/example-target-app`** using a **`workflow`-scoped** credential.
 
 **Track B:** copy from [`tests/fixtures/workflows/trigger-harness-production-sync.yml`](../tests/fixtures/workflows/trigger-harness-production-sync.yml) via GitHub web UI → **Add file** on production branch.

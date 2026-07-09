@@ -2,6 +2,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GitHubClient, GitHubApiError } from "../../src/github/client.js";
 
 const mockFetch = vi.fn();
+const SENTINEL_SECRET = "ghp_sentinelSecretValueForClientTests";
+
+function jsonResponse(status: number, body: unknown) {
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    text: async () => JSON.stringify(body),
+  };
+}
+
+function emptyBodyResponse(status: number) {
+  return {
+    ok: true,
+    status,
+    text: async () => "",
+  };
+}
 
 describe("GitHubClient", () => {
   beforeEach(() => {
@@ -28,11 +45,7 @@ describe("GitHubClient", () => {
     };
 
     mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => pull,
-      })
+      .mockResolvedValueOnce(jsonResponse(200, pull))
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
@@ -44,11 +57,7 @@ describe("GitHubClient", () => {
           },
         }),
       })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ ...pull, draft: false }),
-      });
+      .mockResolvedValueOnce(jsonResponse(200, { ...pull, draft: false }));
 
     const client = new GitHubClient({ token: "test-token" });
     const result = await client.markPullRequestReadyForReview(
@@ -74,10 +83,8 @@ describe("GitHubClient", () => {
 
   it("throws when GraphQL mutation returns errors", async () => {
     mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({
+      .mockResolvedValueOnce(
+        jsonResponse(200, {
           node_id: "PR_kwDOExample",
           title: "test",
           html_url: "https://github.com/example/repo/pull/1",
@@ -89,7 +96,7 @@ describe("GitHubClient", () => {
           head: { ref: "branch", sha: "abc" },
           base: { ref: "main" },
         }),
-      })
+      )
       .mockResolvedValueOnce({
         ok: true,
         status: 200,
@@ -105,11 +112,9 @@ describe("GitHubClient", () => {
   });
 
   it("updates a PR branch with expected head sha", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      status: 202,
-      json: async () => ({ message: "Updating pull request branch." }),
-    });
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse(202, { message: "Updating pull request branch." }),
+    );
 
     const client = new GitHubClient({ token: "test-token" });
     const result = await client.updatePullRequestBranch("owner", "repo", 12, {
@@ -126,5 +131,72 @@ describe("GitHubClient", () => {
     expect(JSON.parse(String(init?.body))).toEqual({
       expected_head_sha: "abc123",
     });
+  });
+
+  it("upsertActionsSecret resolves for 201 create with empty body", async () => {
+    mockFetch.mockResolvedValueOnce(emptyBodyResponse(201));
+
+    const client = new GitHubClient({ token: "test-token" });
+    await expect(
+      client.upsertActionsSecret(
+        "owner",
+        "repo",
+        "LINEAR_API_KEY",
+        "encrypted:payload",
+        "public-key-id",
+      ),
+    ).resolves.toBeUndefined();
+
+    const [url, init] = mockFetch.mock.calls[0]!;
+    expect(url).toBe(
+      "https://api.github.com/repos/owner/repo/actions/secrets/LINEAR_API_KEY",
+    );
+    expect(init?.method).toBe("PUT");
+    expect(JSON.parse(String(init?.body))).toEqual({
+      encrypted_value: "encrypted:payload",
+      key_id: "public-key-id",
+    });
+  });
+
+  it("upsertActionsSecret resolves for 204 update with empty body", async () => {
+    mockFetch.mockResolvedValueOnce(emptyBodyResponse(204));
+
+    const client = new GitHubClient({ token: "test-token" });
+    await expect(
+      client.upsertActionsSecret(
+        "owner",
+        "repo",
+        "CURSOR_API_KEY",
+        "encrypted:payload",
+        "public-key-id",
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("upsertActionsSecret throws sanitized GitHubApiError for non-2xx responses", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      text: async () => `token ${SENTINEL_SECRET} is invalid`,
+    });
+
+    const client = new GitHubClient({ token: "test-token" });
+    let caught: GitHubApiError | undefined;
+    try {
+      await client.upsertActionsSecret(
+        "owner",
+        "repo",
+        "HARNESS_GITHUB_TOKEN",
+        "encrypted:payload",
+        "public-key-id",
+      );
+    } catch (error) {
+      caught = error as GitHubApiError;
+    }
+
+    expect(caught).toBeInstanceOf(GitHubApiError);
+    expect(caught?.status).toBe(403);
+    expect(caught?.message).not.toContain(SENTINEL_SECRET);
+    expect(JSON.stringify(caught)).not.toContain(SENTINEL_SECRET);
   });
 });

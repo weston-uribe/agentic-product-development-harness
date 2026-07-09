@@ -15,9 +15,78 @@ import {
   getSetupStateSummary,
   type SetupGuiViewModel,
 } from "@harness/setup/gui-view-model";
+import { createLiveGitHubRemoteSetupProvider } from "@harness/setup/github-remote-setup-live";
+import type { GitHubRemoteSetupProvider } from "@harness/setup/github-remote-provider";
+import type { HarnessSecretOperatorInput } from "@harness/setup/harness-secret-setup";
+import {
+  applyRemoteHarnessSecrets,
+  applyRemoteTargetWorkflow,
+  previewRemoteHarnessSecrets,
+  previewRemoteTargetWorkflow,
+  sanitizeRemoteHarnessSecretPreview,
+} from "@harness/setup/remote-apply-actions";
+import {
+  buildRemoteSetupSummary,
+  type RemoteSetupSummary,
+} from "@harness/setup/remote-setup-summary";
+import { collectRemoteSecretInputs } from "@harness/setup/redact-secrets";
+import {
+  loadGithubTokenFromEnvLocal,
+  hasGithubTokenConfigured,
+} from "@harness/setup/setup-github-auth";
+import type {
+  RemoteHarnessSecretApplyResult,
+  RemoteHarnessSecretPreview,
+  RemoteTargetWorkflowApplyResult,
+  RemoteTargetWorkflowPreview,
+} from "@harness/setup/remote-actions";
+
+export interface RemoteSecretFormPayload {
+  linearApiKey?: string;
+  cursorApiKey?: string;
+  harnessGithubToken?: string;
+  manualHarnessDispatchRepo?: string;
+}
+
+export interface RemoteTargetWorkflowFormPayload {
+  repoConfigId: string;
+  targetRepo: string;
+  productionBranch: string;
+  manualHarnessDispatchRepo?: string;
+}
+
+function resolveCwd(): string {
+  return resolveHarnessRepoRoot();
+}
+
+async function resolveRemoteProvider(): Promise<
+  GitHubRemoteSetupProvider | undefined
+> {
+  const token = await loadGithubTokenFromEnvLocal({ cwd: resolveCwd() });
+  if (!hasGithubTokenConfigured(token)) {
+    return undefined;
+  }
+  return createLiveGitHubRemoteSetupProvider(token!);
+}
+
+function toOperatorInput(
+  payload: RemoteSecretFormPayload,
+): HarnessSecretOperatorInput {
+  return {
+    linearApiKey: payload.linearApiKey,
+    cursorApiKey: payload.cursorApiKey,
+    githubToken: payload.harnessGithubToken,
+  };
+}
 
 export async function loadSetupSummary(): Promise<SetupGuiViewModel> {
-  return getSetupStateSummary({ cwd: resolveHarnessRepoRoot() });
+  return getSetupStateSummary({ cwd: resolveCwd() });
+}
+
+export async function loadRemoteSetupSummary(): Promise<RemoteSetupSummary> {
+  const cwd = resolveCwd();
+  const provider = await resolveRemoteProvider();
+  return buildRemoteSetupSummary({ cwd, provider });
 }
 
 export async function loadSetupFormDefaults(): Promise<{
@@ -31,7 +100,7 @@ export async function loadSetupFormDefaults(): Promise<{
   };
   config: Awaited<ReturnType<typeof loadConfigFormDefaults>>;
 }> {
-  const cwd = resolveHarnessRepoRoot();
+  const cwd = resolveCwd();
   const paths = resolveLocalFilePaths(cwd);
   const existingEnv = await readExistingEnvFile(paths);
   const config = await loadConfigFormDefaults({ cwd });
@@ -54,7 +123,7 @@ export async function previewLocalFiles(
   payload: LocalSetupFormPayload,
 ): Promise<LocalSetupPreviewResult> {
   return previewLocalSetupFiles({
-    cwd: resolveHarnessRepoRoot(),
+    cwd: resolveCwd(),
     payload,
   });
 }
@@ -67,7 +136,7 @@ export async function applyLocalFiles(options: {
   apply: LocalSetupApplyResult;
   summary: SetupGuiViewModel;
 }> {
-  const cwd = resolveHarnessRepoRoot();
+  const cwd = resolveCwd();
   const apply = await applyLocalSetupFiles({
     cwd,
     payload: options.payload,
@@ -78,4 +147,84 @@ export async function applyLocalFiles(options: {
   return { apply, summary };
 }
 
-export type { SetupGuiViewModel, LocalSetupFormPayload, LocalSetupPreviewResult };
+export async function previewHarnessSecretsRemote(
+  payload: RemoteSecretFormPayload,
+): Promise<RemoteHarnessSecretPreview> {
+  const operatorInput = toOperatorInput(payload);
+  const knownSecrets = collectRemoteSecretInputs(operatorInput);
+  const preview = await previewRemoteHarnessSecrets({
+    cwd: resolveCwd(),
+    operatorInput,
+    manualHarnessDispatchRepo: payload.manualHarnessDispatchRepo,
+    provider: await resolveRemoteProvider(),
+  });
+  return sanitizeRemoteHarnessSecretPreview(preview, knownSecrets);
+}
+
+export async function applyHarnessSecretsRemote(options: {
+  payload: RemoteSecretFormPayload;
+  confirmed: boolean;
+  fingerprint: string;
+}): Promise<{
+  apply: RemoteHarnessSecretApplyResult;
+  summary: RemoteSetupSummary;
+}> {
+  const operatorInput = toOperatorInput(options.payload);
+  const apply = await applyRemoteHarnessSecrets({
+    cwd: resolveCwd(),
+    operatorInput,
+    manualHarnessDispatchRepo: options.payload.manualHarnessDispatchRepo,
+    confirmed: options.confirmed,
+    fingerprint: options.fingerprint,
+    provider: await resolveRemoteProvider(),
+  });
+  const summary = await loadRemoteSetupSummary();
+  return { apply, summary };
+}
+
+export async function previewTargetWorkflowRemote(
+  payload: RemoteTargetWorkflowFormPayload,
+): Promise<RemoteTargetWorkflowPreview> {
+  return previewRemoteTargetWorkflow({
+    cwd: resolveCwd(),
+    repoConfigId: payload.repoConfigId,
+    targetRepo: payload.targetRepo,
+    productionBranch: payload.productionBranch,
+    manualHarnessDispatchRepo: payload.manualHarnessDispatchRepo,
+    provider: await resolveRemoteProvider(),
+  });
+}
+
+export async function applyTargetWorkflowRemote(options: {
+  payload: RemoteTargetWorkflowFormPayload;
+  confirmed: boolean;
+  fingerprint: string;
+}): Promise<{
+  apply: RemoteTargetWorkflowApplyResult;
+  summary: RemoteSetupSummary;
+}> {
+  const apply = await applyRemoteTargetWorkflow({
+    cwd: resolveCwd(),
+    repoConfigId: options.payload.repoConfigId,
+    targetRepo: options.payload.targetRepo,
+    productionBranch: options.payload.productionBranch,
+    manualHarnessDispatchRepo: options.payload.manualHarnessDispatchRepo,
+    confirmed: options.confirmed,
+    fingerprint: options.fingerprint,
+    provider: await resolveRemoteProvider(),
+  });
+  const summary = await loadRemoteSetupSummary();
+  return { apply, summary };
+}
+
+export type {
+  SetupGuiViewModel,
+  LocalSetupFormPayload,
+  LocalSetupPreviewResult,
+  RemoteSetupSummary,
+  RemoteHarnessSecretPreview,
+  RemoteHarnessSecretApplyResult,
+  RemoteTargetWorkflowPreview,
+  RemoteTargetWorkflowApplyResult,
+};
+

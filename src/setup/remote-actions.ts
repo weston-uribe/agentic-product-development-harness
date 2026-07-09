@@ -116,6 +116,34 @@ export interface RemoteTargetWorkflowPreview {
   validationError?: string;
 }
 
+export interface RemoteHarnessSecretApplyResult {
+  actionId: string;
+  harnessDispatchRepo: string;
+  writtenSecrets: Array<{
+    name: HarnessActionsSecretName;
+    status: "created" | "updated";
+  }>;
+  skippedSecretNames: HarnessActionsSecretName[];
+  fingerprint: string;
+  permission: SetupPermission;
+}
+
+export interface RemoteTargetWorkflowApplyResult {
+  actionId: string;
+  harnessDispatchRepo: string;
+  repoConfigId: string;
+  outcome:
+    | "already-installed"
+    | "pr-created"
+    | "pr-updated"
+    | "branch-updated";
+  branchName: string;
+  prUrl?: string;
+  directProductionBranchWrite: false;
+  fingerprint: string;
+  permission: SetupPermission;
+}
+
 export function assertRemoteSetupPermissionScope(
   actual: SetupPermissionScope,
   expected: SetupPermissionScope,
