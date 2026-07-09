@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { SetupGuiViewModel } from "@/lib/setup-server";
 import type { RemoteSetupSummary } from "@/lib/setup-server";
 import type { LocalConfigFormInput } from "@harness/setup/config-local-editor";
@@ -54,6 +54,36 @@ export function ConfigureExperience({
     [summary, remoteSummary, uiState],
   );
 
+  const handleLocalUiStateChange = useCallback(
+    (state: { localPreviewStale: boolean }) => {
+      setUiState((current) => {
+        if (current.localPreviewStale === state.localPreviewStale) {
+          return current;
+        }
+        return {
+          ...current,
+          localPreviewStale: state.localPreviewStale,
+        };
+      });
+    },
+    [],
+  );
+
+  const handleRemoteUiStateChange = useCallback(
+    (state: { remoteSecretPreviewStale: boolean }) => {
+      setUiState((current) => {
+        if (current.remoteSecretPreviewStale === state.remoteSecretPreviewStale) {
+          return current;
+        }
+        return {
+          ...current,
+          remoteSecretPreviewStale: state.remoteSecretPreviewStale,
+        };
+      });
+    },
+    [],
+  );
+
   const renderGuidedStep = (stepId: FirstRunStepId) => {
     switch (stepId) {
       case "local-setup":
@@ -62,12 +92,7 @@ export function ConfigureExperience({
             initialEnv={formDefaults.env}
             initialConfig={formDefaults.config}
             onSummaryUpdated={setSummary}
-            onUiStateChange={(state) =>
-              setUiState((current) => ({
-                ...current,
-                localPreviewStale: state.localPreviewStale,
-              }))
-            }
+            onUiStateChange={handleLocalUiStateChange}
           />
         );
       case "local-readiness":
@@ -84,12 +109,7 @@ export function ConfigureExperience({
           <RemoteSetupSection
             initialSummary={remoteSummary}
             onSummaryUpdated={setRemoteSummary}
-            onUiStateChange={(state) =>
-              setUiState((current) => ({
-                ...current,
-                remoteSecretPreviewStale: state.remoteSecretPreviewStale,
-              }))
-            }
+            onUiStateChange={handleRemoteUiStateChange}
           />
         );
       case "ready-for-first-run":
@@ -195,18 +215,8 @@ export function ConfigureExperience({
           formDefaults={formDefaults}
           onSummaryUpdated={setSummary}
           onRemoteSummaryUpdated={setRemoteSummary}
-          onLocalUiStateChange={(state) =>
-            setUiState((current) => ({
-              ...current,
-              localPreviewStale: state.localPreviewStale,
-            }))
-          }
-          onRemoteUiStateChange={(state) =>
-            setUiState((current) => ({
-              ...current,
-              remoteSecretPreviewStale: state.remoteSecretPreviewStale,
-            }))
-          }
+          onLocalUiStateChange={handleLocalUiStateChange}
+          onRemoteUiStateChange={handleRemoteUiStateChange}
         />
       )}
     </div>

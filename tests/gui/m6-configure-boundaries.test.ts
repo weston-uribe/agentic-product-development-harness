@@ -56,6 +56,45 @@ describe("M6 configure GUI boundaries", () => {
     expect(source).toContain('useState<ConfigureMode>("guided")');
   });
 
+  it("configure experience uses stable guarded UI-state handlers", () => {
+    const source = readFileSync(
+      path.join(repoRoot, "apps/gui/components/custom/configure-experience.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain("useCallback");
+    expect(source).toContain("handleLocalUiStateChange");
+    expect(source).toContain("handleRemoteUiStateChange");
+    expect(source).toContain("onUiStateChange={handleLocalUiStateChange}");
+    expect(source).toContain("onUiStateChange={handleRemoteUiStateChange}");
+    expect(source).toContain("onLocalUiStateChange={handleLocalUiStateChange}");
+    expect(source).toContain("onRemoteUiStateChange={handleRemoteUiStateChange}");
+    expect(source).toContain("current.localPreviewStale === state.localPreviewStale");
+    expect(source).toContain(
+      "current.remoteSecretPreviewStale === state.remoteSecretPreviewStale",
+    );
+    expect(source).not.toMatch(
+      /onLocalUiStateChange=\{\(state\) =>\s*\n?\s*setUiState/,
+    );
+    expect(source).not.toMatch(
+      /onRemoteUiStateChange=\{\(state\) =>\s*\n?\s*setUiState/,
+    );
+    expect(source).not.toMatch(
+      /onUiStateChange=\{\(state\) =>\s*\n?\s*setUiState/,
+    );
+  });
+
+  it("first-run stepper follows readiness current step changes", () => {
+    const source = readFileSync(
+      path.join(repoRoot, "apps/gui/components/custom/first-run-stepper.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain("useEffect");
+    expect(source).toContain("setExpandedStepId(readiness.currentStepId)");
+    expect(source).toContain("[readiness.currentStepId]");
+  });
+
   it("local and remote workflows preserve confirmation gates", () => {
     const localSource = readFileSync(
       path.join(repoRoot, "apps/gui/components/custom/configure-workflow.tsx"),

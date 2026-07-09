@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   CheckCircle2,
   ChevronDown,
@@ -78,6 +78,10 @@ export function FirstRunStepper({
   const [expandedStepId, setExpandedStepId] = useState(
     readiness.currentStepId,
   );
+
+  useEffect(() => {
+    setExpandedStepId(readiness.currentStepId);
+  }, [readiness.currentStepId]);
 
   return (
     <div className={SPACING.section}>
