@@ -33,14 +33,96 @@ export function parseRepoSlug(slug: string): { owner: string; repo: string } {
   return { owner, repo };
 }
 
+interface GitHubApiErrorBody {
+  message?: string;
+  documentation_url?: string;
+}
+
+const WORKFLOW_SCOPE_SETUP_ERROR =
+  "GitHub token lacks the workflow scope required to create or update Actions workflow files under .github/workflows/. Use a classic PAT with the workflow scope or a fine-grained PAT with Actions/workflows write permission on the target repo, then update GITHUB_TOKEN in .env.local.";
+
+function tryParseGitHubApiErrorBody(raw: string): GitHubApiErrorBody | null {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith("{")) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as GitHubApiErrorBody;
+    return typeof parsed.message === "string" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function isWorkflowScopeError(status: number, apiMessage: string): boolean {
+  return (
+    status === 403 &&
+    /workflow/i.test(apiMessage) &&
+    (/scope/i.test(apiMessage) || /OAuth App/i.test(apiMessage))
+  );
+}
+
+function isLikelyWorkflowScopeNotFound(
+  status: number,
+  apiMessage: string,
+  body: GitHubApiErrorBody | null,
+): boolean {
+  return (
+    status === 404 &&
+    apiMessage === "Not Found" &&
+    body?.documentation_url?.includes("create-or-update-file-contents") === true
+  );
+}
+
+export function formatGitHubApiErrorMessage(
+  status: number,
+  rawBody: string,
+  options?: { workflowFileOperation?: boolean },
+): string {
+  const redacted = redactSecretsString(rawBody);
+  const parsed = tryParseGitHubApiErrorBody(redacted);
+  const apiMessage = parsed?.message ?? redacted;
+
+  if (isWorkflowScopeError(status, apiMessage)) {
+    return WORKFLOW_SCOPE_SETUP_ERROR;
+  }
+
+  if (
+    options?.workflowFileOperation &&
+    isLikelyWorkflowScopeNotFound(status, apiMessage, parsed)
+  ) {
+    return `${WORKFLOW_SCOPE_SETUP_ERROR} (GitHub returned HTTP ${status}: Not Found.)`;
+  }
+
+  if (parsed?.message) {
+    return `GitHub API ${status}: ${parsed.message}`;
+  }
+
+  if (redacted && !redacted.startsWith("{")) {
+    return `GitHub API ${status}: ${redacted}`;
+  }
+
+  return `GitHub API ${status}: request failed`;
+}
+
 export function sanitizeGitHubSetupError(error: unknown): string {
   if (error instanceof GitHubApiError) {
-    return redactSecretsString(error.message);
+    return formatGitHubApiErrorMessage(error.status, error.message);
   }
   if (error instanceof Error) {
     return redactSecretsString(error.message);
   }
   return redactSecretsString(String(error));
+}
+
+export function sanitizeGitHubWorkflowSetupError(error: unknown): string {
+  if (error instanceof GitHubApiError) {
+    return formatGitHubApiErrorMessage(error.status, error.message, {
+      workflowFileOperation: true,
+    });
+  }
+  return sanitizeGitHubSetupError(error);
 }
 
 export class LiveGitHubRemoteSetupProvider implements GitHubRemoteSetupProvider {

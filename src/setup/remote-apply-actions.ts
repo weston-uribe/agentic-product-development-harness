@@ -7,7 +7,10 @@ import type {
   GitHubRemoteSetupProvider,
   HarnessSecretWriteRequest,
 } from "./github-remote-provider.js";
-import { sanitizeGitHubSetupError } from "./github-remote-setup-live.js";
+import {
+  sanitizeGitHubSetupError,
+  sanitizeGitHubWorkflowSetupError,
+} from "./github-remote-setup-live.js";
 import {
   formatHarnessDispatchRepo,
   resolveHarnessDispatchRepo,
@@ -349,7 +352,7 @@ export async function applyRemoteTargetWorkflow(
       permission: REMOTE_SETUP_ACTIONS.applyTargetWorkflowPr.permission,
     };
   } catch (error) {
-    throw new Error(sanitizeGitHubSetupError(error));
+    throw new Error(sanitizeGitHubWorkflowSetupError(error));
   }
 }
 
