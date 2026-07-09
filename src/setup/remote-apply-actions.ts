@@ -3,13 +3,19 @@ import {
   redactKnownSecretValues,
   sanitizeSetupActionResult,
 } from "./redact-secrets.js";
-import type { GitHubRemoteSetupProvider } from "./github-remote-provider.js";
+import type {
+  GitHubRemoteSetupProvider,
+  HarnessSecretWriteRequest,
+} from "./github-remote-provider.js";
+import { sanitizeGitHubSetupError } from "./github-remote-setup-live.js";
 import {
   formatHarnessDispatchRepo,
   resolveHarnessDispatchRepo,
 } from "./harness-dispatch-repo.js";
 import {
+  generateHarnessConfigJsonB64,
   previewHarnessSecretSetup,
+  readValidatedConfigLocalBytes,
   type HarnessSecretOperatorInput,
 } from "./harness-secret-setup.js";
 import {
@@ -17,15 +23,16 @@ import {
   assertRemoteSetupConfirmed,
   assertRemoteSetupFingerprint,
   assertRemoteSetupPermissionScope,
+  type HarnessActionsSecretName,
+  type HarnessSecretWritePlanEntry,
   type RemoteAccessStatus,
+  type RemoteHarnessSecretApplyResult,
   type RemoteHarnessSecretPreview,
+  type RemoteTargetWorkflowApplyResult,
   type RemoteTargetWorkflowPreview,
 } from "./remote-actions.js";
 import { previewTargetWorkflowSetup } from "./target-workflow-setup.js";
 import { SETUP_PERMISSIONS } from "./permission-model.js";
-
-const REMOTE_WRITES_DEFERRED_MESSAGE =
-  "Remote setup writes are deferred to Milestone 5 PR 2. Use manual instructions until GUI apply is enabled.";
 
 export interface RemoteHarnessSecretPreviewOptions {
   cwd?: string;
@@ -60,6 +67,51 @@ function sanitizeRemotePreviewText(
   secrets: readonly string[],
 ): string {
   return redactKnownSecretValues(text, secrets);
+}
+
+async function buildHarnessSecretWriteRequests(input: {
+  cwd?: string;
+  operatorInput?: HarnessSecretOperatorInput;
+  secretWritePlan: HarnessSecretWritePlanEntry[];
+}): Promise<{
+  requests: HarnessSecretWriteRequest[];
+  skippedSecretNames: HarnessActionsSecretName[];
+  knownSecrets: string[];
+}> {
+  const requests: HarnessSecretWriteRequest[] = [];
+  const skippedSecretNames: HarnessActionsSecretName[] = [];
+  const knownSecrets = collectRemoteSecretInputs(input.operatorInput);
+
+  for (const entry of input.secretWritePlan) {
+    if (entry.action === "skip") {
+      skippedSecretNames.push(entry.name);
+      continue;
+    }
+
+    if (entry.name === "HARNESS_CONFIG_JSON_B64") {
+      const { bytes } = await readValidatedConfigLocalBytes(input.cwd);
+      const encoded = generateHarnessConfigJsonB64(bytes);
+      knownSecrets.push(encoded);
+      requests.push({ name: entry.name, value: encoded });
+      continue;
+    }
+
+    const operatorValue =
+      entry.name === "LINEAR_API_KEY"
+        ? input.operatorInput?.linearApiKey
+        : entry.name === "CURSOR_API_KEY"
+          ? input.operatorInput?.cursorApiKey
+          : input.operatorInput?.githubToken;
+
+    if (!operatorValue?.trim()) {
+      skippedSecretNames.push(entry.name);
+      continue;
+    }
+
+    requests.push({ name: entry.name, value: operatorValue.trim() });
+  }
+
+  return { requests, skippedSecretNames, knownSecrets };
 }
 
 export async function previewRemoteHarnessSecrets(
@@ -123,7 +175,7 @@ export async function previewRemoteHarnessSecrets(
 
 export async function applyRemoteHarnessSecrets(
   options: RemoteHarnessSecretApplyOptions,
-): Promise<never> {
+): Promise<RemoteHarnessSecretApplyResult> {
   assertRemoteSetupConfirmed(options.confirmed);
   assertRemoteSetupPermissionScope(
     REMOTE_SETUP_ACTIONS.applyHarnessSecrets.permission.scope,
@@ -137,7 +189,51 @@ export async function applyRemoteHarnessSecrets(
     throw new Error(preview.validationError);
   }
 
-  throw new Error(REMOTE_WRITES_DEFERRED_MESSAGE);
+  if (!options.provider) {
+    throw new Error("GitHub token is required for remote harness secret writes");
+  }
+
+  if (!preview.harnessDispatchRepoResolved) {
+    throw new Error("Harness dispatch repo must be resolved before applying secrets");
+  }
+
+  const { requests, skippedSecretNames, knownSecrets } =
+    await buildHarnessSecretWriteRequests({
+      cwd: options.cwd,
+      operatorInput: options.operatorInput,
+      secretWritePlan: preview.secretWritePlan,
+    });
+
+  if (requests.length === 0) {
+    throw new Error("No harness repo Actions secrets are ready to write");
+  }
+
+  try {
+    const writtenSecrets = await options.provider.writeHarnessSecrets(
+      preview.harnessDispatchRepo,
+      requests,
+    );
+
+    const result: RemoteHarnessSecretApplyResult = {
+      actionId: REMOTE_SETUP_ACTIONS.applyHarnessSecrets.id,
+      harnessDispatchRepo: preview.harnessDispatchRepo,
+      writtenSecrets,
+      skippedSecretNames,
+      fingerprint: preview.fingerprint,
+      permission: REMOTE_SETUP_ACTIONS.applyHarnessSecrets.permission,
+    };
+
+    const serialized = JSON.stringify(result);
+    for (const secret of knownSecrets) {
+      if (serialized.includes(secret)) {
+        throw new Error("Remote apply result leaked secret material");
+      }
+    }
+
+    return result;
+  } catch (error) {
+    throw new Error(sanitizeGitHubSetupError(error));
+  }
 }
 
 export async function previewRemoteTargetWorkflow(
@@ -159,7 +255,10 @@ export async function previewRemoteTargetWorkflow(
   let repoAccess: RemoteAccessStatus = "unknown";
   let productionBranchSha: string | undefined;
 
-  if (options.provider && initialPreview.plan.targetRepoSlug !== "<invalid-target-repo>") {
+  if (
+    options.provider &&
+    initialPreview.plan.targetRepoSlug !== "<invalid-target-repo>"
+  ) {
     const status = await options.provider.checkTargetWorkflowStatus({
       targetRepoSlug: initialPreview.plan.targetRepoSlug,
       workflowPath: initialPreview.plan.workflowPath,
@@ -194,7 +293,7 @@ export async function previewRemoteTargetWorkflow(
 
 export async function applyRemoteTargetWorkflow(
   options: RemoteTargetWorkflowApplyOptions,
-): Promise<never> {
+): Promise<RemoteTargetWorkflowApplyResult> {
   assertRemoteSetupConfirmed(options.confirmed);
   assertRemoteSetupPermissionScope(
     REMOTE_SETUP_ACTIONS.applyTargetWorkflowPr.permission.scope,
@@ -212,7 +311,46 @@ export async function applyRemoteTargetWorkflow(
     throw new Error("Direct production branch writes are not allowed");
   }
 
-  throw new Error(REMOTE_WRITES_DEFERRED_MESSAGE);
+  if (!options.provider) {
+    throw new Error("GitHub token is required for target workflow PR install");
+  }
+
+  try {
+    const applyResult = await options.provider.applyTargetWorkflowPr({
+      targetRepoSlug: preview.plan.targetRepoSlug,
+      productionBranch: preview.plan.productionBranch,
+      branchName: preview.plan.branchName,
+      workflowPath: preview.plan.workflowPath,
+      workflowContent: (
+        await previewTargetWorkflowSetup({
+          repoConfigId: options.repoConfigId,
+          targetRepo: options.targetRepo,
+          productionBranch: options.productionBranch,
+          harnessDispatchRepo: await resolveHarnessDispatchRepo({
+            cwd: options.cwd,
+            manualRepo: options.manualHarnessDispatchRepo,
+          }),
+          workflowStatus: preview.plan.workflowStatus,
+        })
+      ).workflowContent,
+      prTitle: preview.plan.prTitle,
+      prBody: preview.plan.prBody,
+    });
+
+    return {
+      actionId: REMOTE_SETUP_ACTIONS.applyTargetWorkflowPr.id,
+      harnessDispatchRepo: preview.plan.harnessDispatchRepo,
+      repoConfigId: preview.plan.repoConfigId,
+      outcome: applyResult.outcome,
+      branchName: applyResult.branchName,
+      prUrl: applyResult.prUrl,
+      directProductionBranchWrite: false,
+      fingerprint: preview.fingerprint,
+      permission: REMOTE_SETUP_ACTIONS.applyTargetWorkflowPr.permission,
+    };
+  } catch (error) {
+    throw new Error(sanitizeGitHubSetupError(error));
+  }
 }
 
 export function sanitizeRemoteHarnessSecretPreview(

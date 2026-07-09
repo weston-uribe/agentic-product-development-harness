@@ -36,8 +36,6 @@ import {
   formatHarnessDispatchRepo,
   resolveHarnessDispatchRepo,
 } from "./harness-dispatch-repo.js";
-import { SETUP_ACTIONS } from "./setup-actions.js";
-
 const SECRET_ENV_KEYS = [
   "LINEAR_API_KEY",
   "CURSOR_API_KEY",
@@ -546,26 +544,7 @@ export async function getSetupStateSummary(options?: {
       remoteChecksNote:
         "Live Linear, GitHub, and Cursor doctor checks remain CLI-only in Milestone 3. Run npm run harness:doctor for full validation.",
     },
-    deferredActions: [
-      {
-        actionId: SETUP_ACTIONS.futureSetGitHubSecrets.id,
-        label: SETUP_ACTIONS.futureSetGitHubSecrets.label,
-        description: SETUP_ACTIONS.futureSetGitHubSecrets.description,
-        scope: SETUP_ACTIONS.futureSetGitHubSecrets.permission.scope,
-        confirmation: SETUP_ACTIONS.futureSetGitHubSecrets.permission.confirmation,
-        deferredReason:
-          "Remote secret apply is previewable in setup core. GUI apply remains deferred to Milestone 5 PR 2.",
-      },
-      {
-        actionId: SETUP_ACTIONS.applyTargetWorkflowPr.id,
-        label: SETUP_ACTIONS.applyTargetWorkflowPr.label,
-        description: SETUP_ACTIONS.applyTargetWorkflowPr.description,
-        scope: SETUP_ACTIONS.applyTargetWorkflowPr.permission.scope,
-        confirmation: SETUP_ACTIONS.applyTargetWorkflowPr.permission.confirmation,
-        deferredReason:
-          "Target workflow branch/PR apply remains deferred to Milestone 5 PR 2.",
-      },
-    ],
+    deferredActions: [],
   };
 
   return sanitizeSetupViewModel(viewModel, collectInlineConfigSecrets());

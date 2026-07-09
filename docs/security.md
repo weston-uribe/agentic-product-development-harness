@@ -96,18 +96,21 @@ Do **not** name the Actions secret `GITHUB_TOKEN` — GitHub reserves that for t
 4. **Never log** raw tokens — harness redacts stdout before logs, summaries, and artifacts.
 5. Raw command output may exist only as a **temporary file in the same workflow step**; it must be deleted before artifact upload.
 
-### Local GUI secret handling (Milestone 4)
+### Local GUI secret handling (Milestone 4–5)
 
 The local Product Development Harness GUI (`npm run harness:gui`) handles secrets with these boundaries:
 
 - Existing `.env.local` secret values are never sent to the browser — only key presence (`Set` / `Missing`).
+- Existing harness repo GitHub Actions secret values are never readable — only `present` / `missing` / `unknown` status.
 - Newly entered secrets exist only in transient form state and POST bodies to the local Next.js server.
-- Preview responses redact secret assignment lines before returning to the browser.
-- Apply requires explicit confirmation and a matching server-side preview fingerprint.
+- Preview responses redact secret assignment lines and never include `HARNESS_CONFIG_JSON_B64` generated values.
+- Apply requires explicit confirmation and a matching server-side preview fingerprint per action.
+- Separate confirmations are required for `remote-secret-write` (harness repo Actions secrets) and `remote-repo-write` (target workflow branch/PR install).
 - The GUI does not persist secrets in `localStorage`, `sessionStorage`, cookies, or URL query params.
-- Local GUI apply writes only `.env.local` and `.harness/config.local.json` on the operator machine — no GitHub, Linear, or target-repo remote writes.
+- Local GUI apply writes only `.env.local` and `.harness/config.local.json` on the operator machine.
+- Remote GUI apply writes only encrypted harness repo Actions secrets and target-repo install branches/PRs — never directly to target production or `main` branches.
 
-See [`docs/gui-local.md`](gui-local.md).
+See [`docs/gui-local.md`](gui-local.md) and [`docs/gui-remote-setup.md`](gui-remote-setup.md).
 
 ---
 

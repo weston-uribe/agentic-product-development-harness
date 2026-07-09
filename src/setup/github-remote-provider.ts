@@ -6,6 +6,39 @@ import type {
 } from "./remote-actions.js";
 import { HARNESS_ACTIONS_SECRET_NAMES } from "./remote-actions.js";
 
+export interface HarnessSecretWriteRequest {
+  name: HarnessActionsSecretName;
+  value: string;
+}
+
+export interface HarnessSecretWriteResultEntry {
+  name: HarnessActionsSecretName;
+  status: "created" | "updated";
+}
+
+export interface TargetWorkflowApplyInput {
+  targetRepoSlug: string;
+  productionBranch: string;
+  branchName: string;
+  workflowPath: string;
+  workflowContent: string;
+  prTitle: string;
+  prBody: string;
+}
+
+export type TargetWorkflowApplyOutcome =
+  | "already-installed"
+  | "pr-created"
+  | "pr-updated"
+  | "branch-updated";
+
+export interface TargetWorkflowApplyResult {
+  outcome: TargetWorkflowApplyOutcome;
+  branchName: string;
+  prUrl?: string;
+  directProductionBranchWrite: false;
+}
+
 export interface GitHubRemoteSetupProvider {
   checkHarnessRepoAccess(harnessDispatchRepo: string): Promise<RemoteAccessStatus>;
   listHarnessSecretStatuses(
@@ -21,6 +54,13 @@ export interface GitHubRemoteSetupProvider {
     workflowStatus: RemoteWorkflowStatus;
     productionBranchSha?: string;
   }>;
+  writeHarnessSecrets(
+    harnessDispatchRepo: string,
+    secrets: HarnessSecretWriteRequest[],
+  ): Promise<HarnessSecretWriteResultEntry[]>;
+  applyTargetWorkflowPr(
+    input: TargetWorkflowApplyInput,
+  ): Promise<TargetWorkflowApplyResult>;
 }
 
 export interface MockGitHubRemoteSetupProviderState {
@@ -31,10 +71,18 @@ export interface MockGitHubRemoteSetupProviderState {
   targetRepoAccess?: RemoteAccessStatus;
   existingWorkflowContent?: string | null;
   productionBranchSha?: string;
+  existingOpenPrUrl?: string;
+  writeHarnessSecretsResult?: HarnessSecretWriteResultEntry[];
+  applyTargetWorkflowResult?: TargetWorkflowApplyResult;
 }
 
 export class MockGitHubRemoteSetupProvider implements GitHubRemoteSetupProvider {
   readonly calls: Array<{ method: string; args: unknown[] }> = [];
+  readonly encryptedWrites: Array<{
+    harnessDispatchRepo: string;
+    secretName: string;
+    encryptedValue: string;
+  }> = [];
 
   constructor(private readonly state: MockGitHubRemoteSetupProviderState = {}) {}
 
@@ -91,6 +139,74 @@ export class MockGitHubRemoteSetupProvider implements GitHubRemoteSetupProvider 
       repoAccess: this.state.targetRepoAccess ?? "unknown",
       workflowStatus,
       productionBranchSha: this.state.productionBranchSha,
+    };
+  }
+
+  async writeHarnessSecrets(
+    harnessDispatchRepo: string,
+    secrets: HarnessSecretWriteRequest[],
+  ): Promise<HarnessSecretWriteResultEntry[]> {
+    this.calls.push({
+      method: "writeHarnessSecrets",
+      args: [harnessDispatchRepo, secrets.map((entry) => entry.name)],
+    });
+
+    for (const secret of secrets) {
+      this.encryptedWrites.push({
+        harnessDispatchRepo,
+        secretName: secret.name,
+        encryptedValue: `encrypted:${secret.value.length}`,
+      });
+    }
+
+    return (
+      this.state.writeHarnessSecretsResult ??
+      secrets.map((secret) => ({
+        name: secret.name,
+        status:
+          this.state.harnessSecretStatuses?.[secret.name] === "present"
+            ? "updated"
+            : "created",
+      }))
+    );
+  }
+
+  async applyTargetWorkflowPr(
+    input: TargetWorkflowApplyInput,
+  ): Promise<TargetWorkflowApplyResult> {
+    this.calls.push({
+      method: "applyTargetWorkflowPr",
+      args: [
+        {
+          ...input,
+          workflowContent: `<redacted:${input.workflowContent.length}>`,
+        },
+      ],
+    });
+
+    if (input.branchName === input.productionBranch) {
+      throw new Error("Direct production branch writes are not allowed");
+    }
+
+    if (this.state.applyTargetWorkflowResult) {
+      return this.state.applyTargetWorkflowResult;
+    }
+
+    if (this.state.existingWorkflowContent === input.workflowContent) {
+      return {
+        outcome: "already-installed",
+        branchName: input.branchName,
+        directProductionBranchWrite: false,
+      };
+    }
+
+    return {
+      outcome: this.state.existingOpenPrUrl ? "pr-updated" : "pr-created",
+      branchName: input.branchName,
+      prUrl:
+        this.state.existingOpenPrUrl ??
+        `https://github.com/${input.targetRepoSlug}/pull/1`,
+      directProductionBranchWrite: false,
     };
   }
 }

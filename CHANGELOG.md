@@ -6,6 +6,8 @@ This is a **GitHub source release** changelog. The harness is `private: true` an
 
 ## Unreleased
 
+- Milestone 5 PR 2: remote setup GUI with confirmation-gated harness repo Actions secret writes and target workflow branch/PR installs (`preview-harness-secrets`, `apply-harness-secrets`, `preview-target-workflow`, `apply-target-workflow` API routes).
+- Milestone 5 PR 1: setup-core remote contracts, preview models, permission gates, redaction helpers, manual instructions, dispatch repo resolution, and deferred apply function signatures.
 - Milestone 4 GUI: guided local configuration with preview/confirmation-gated writes for `.env.local` and `.harness/config.local.json`.
 - Generalized public target-repo examples and removed personal target repo references from docs.
 

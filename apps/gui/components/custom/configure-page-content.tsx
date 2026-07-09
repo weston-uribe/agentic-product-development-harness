@@ -1,4 +1,5 @@
 import type { SetupGuiViewModel } from "@/lib/setup-server";
+import type { RemoteSetupSummary } from "@/lib/setup-server";
 import type { LocalConfigFormInput } from "@harness/setup/config-local-editor";
 import { LAYOUT, RESPONSIVE, SPACING } from "@/lib/constants";
 import { SectionCard } from "@/components/custom/section-card";
@@ -6,10 +7,12 @@ import { StatusBadge } from "@/components/custom/status-badge";
 import { SetupChecklist, DoctorChecklist } from "@/components/custom/setup-checklist";
 import { PreviewPanel } from "@/components/custom/preview-panel";
 import { ConfigureWorkflow } from "@/components/custom/configure-workflow";
+import { RemoteSetupSection } from "@/components/custom/remote-setup-section";
 import { Separator } from "@/components/ui/separator";
 
 interface ConfigurePageContentProps {
   summary: SetupGuiViewModel;
+  remoteSummary: RemoteSetupSummary;
   formDefaults: {
     env: {
       harnessConfigPath: string;
@@ -25,6 +28,7 @@ interface ConfigurePageContentProps {
 
 export function ConfigurePageContent({
   summary,
+  remoteSummary,
   formDefaults,
 }: ConfigurePageContentProps) {
   return (
@@ -33,9 +37,9 @@ export function ConfigurePageContent({
         <div className={SPACING.stackSm}>
           <h2 className={RESPONSIVE.pageTitle}>Settings / Configure</h2>
           <p className={RESPONSIVE.pageDescription}>
-            Guided local setup for the Product Development Harness. Edit setup
-            files, preview redacted changes, and apply local writes after
-            confirmation.
+            Guided local and remote setup for the Product Development Harness.
+            Edit setup files, preview redacted changes, and apply local or remote
+            writes after separate confirmations.
           </p>
         </div>
         <div className={SPACING.inline}>
@@ -66,6 +70,8 @@ export function ConfigurePageContent({
         initialEnv={formDefaults.env}
         initialConfig={formDefaults.config}
       />
+
+      <RemoteSetupSection initialSummary={remoteSummary} />
 
       <SectionCard
         title="Overview"
@@ -220,29 +226,8 @@ export function ConfigurePageContent({
       </SectionCard>
 
       <SectionCard
-        title="Deferred remote actions"
-        description="Remote automation writes remain disabled in Milestone 4."
-      >
-        <ul className={SPACING.list}>
-          {summary.deferredActions.map((action) => (
-            <li
-              key={action.actionId}
-              className="rounded-md border border-border bg-muted/20 p-4"
-            >
-              <div className={SPACING.inline}>
-                <p className="text-sm font-medium">{action.label}</p>
-                <StatusBadge label={action.scope} variant="secondary" />
-              </div>
-              <p className="text-sm text-muted-foreground">{action.description}</p>
-              <p className="text-xs text-muted-foreground">{action.deferredReason}</p>
-            </li>
-          ))}
-        </ul>
-      </SectionCard>
-
-      <SectionCard
         title="Manual instructions"
-        description="Copy-paste setup guidance without remote writes."
+        description="Copy-paste setup guidance for local and remote setup."
       >
         {summary.instructionPreviews.map((preview) => (
           <div key={preview.actionId} className={SPACING.stackSm}>
