@@ -6,6 +6,7 @@ This is a **GitHub source release** changelog. The harness is `private: true` an
 
 ## Unreleased
 
+- Milestone 4 GUI: guided local configuration with preview/confirmation-gated writes for `.env.local` and `.harness/config.local.json`.
 - Generalized public target-repo examples and removed personal target repo references from docs.
 
 ## [0.2.0] — 2026-07-08

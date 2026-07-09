@@ -24,6 +24,14 @@ If the resolved source is missing, unreadable, or invalid, harness commands exit
 
 ## Recommended local setup
 
+**GUI path (recommended):**
+
+1. `npm run harness:gui` — guided Settings / Configure forms with preview and confirmation-gated local writes
+2. Apply `.env.local` and `.harness/config.local.json` from the GUI, or use CLI scaffold below as fallback
+3. `npm run harness:doctor`
+
+**CLI scaffold path:**
+
 1. `npm run harness:operator:init` — scaffolds `.env.local` and `.harness/config.local.json` from committed examples via setup core services (does not overwrite unless `--force`)
 2. Edit `.harness/config.local.json` with your real target repo mapping
 3. Keep `HARNESS_CONFIG_PATH=.harness/config.local.json` in `.env.local`
@@ -38,7 +46,14 @@ If the resolved source is missing, unreadable, or invalid, harness commands exit
 
 The starter config in `.harness/config.example.json` is for first-time users with **one** target repo. Add more entries to `repos[]` and `allowedTargetRepos[]` for every repo you want the harness to manage.
 
-Setup core services in [`src/setup/`](../src/setup/) power `harness:operator:init` today and back the local Product Development Harness GUI Settings / Configure screen (`npm run harness:gui`). They support dry-run previews, local file writes, permission classification, and manual instruction generation without changing runtime harness automation behavior.
+Setup core services in [`src/setup/`](../src/setup/) power `harness:operator:init`, the local Product Development Harness GUI Settings / Configure screen (`npm run harness:gui`), and confirmation-gated local file writes (`src/setup/local-apply-actions.ts`). They support dry-run previews, local file writes after confirmation, permission classification, and manual instruction generation without changing runtime harness automation behavior.
+
+GUI-assisted fields:
+
+| Surface | Fields |
+|---------|--------|
+| `.env.local` | `HARNESS_CONFIG_PATH`, `LINEAR_API_KEY`, `CURSOR_API_KEY`, `GITHUB_TOKEN` |
+| `.harness/config.local.json` | `linear.teamKey`, model id, per-repo `id`, `targetRepo`, branches, preview provider/URLs, Linear status names, validation commands |
 
 Local GUI docs: [`docs/gui-local.md`](../gui-local.md)
 

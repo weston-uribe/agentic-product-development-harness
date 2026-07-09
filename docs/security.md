@@ -96,6 +96,19 @@ Do **not** name the Actions secret `GITHUB_TOKEN` — GitHub reserves that for t
 4. **Never log** raw tokens — harness redacts stdout before logs, summaries, and artifacts.
 5. Raw command output may exist only as a **temporary file in the same workflow step**; it must be deleted before artifact upload.
 
+### Local GUI secret handling (Milestone 4)
+
+The local Product Development Harness GUI (`npm run harness:gui`) handles secrets with these boundaries:
+
+- Existing `.env.local` secret values are never sent to the browser — only key presence (`Set` / `Missing`).
+- Newly entered secrets exist only in transient form state and POST bodies to the local Next.js server.
+- Preview responses redact secret assignment lines before returning to the browser.
+- Apply requires explicit confirmation and a matching server-side preview fingerprint.
+- The GUI does not persist secrets in `localStorage`, `sessionStorage`, cookies, or URL query params.
+- Local GUI apply writes only `.env.local` and `.harness/config.local.json` on the operator machine — no GitHub, Linear, or target-repo remote writes.
+
+See [`docs/gui-local.md`](gui-local.md).
+
 ---
 
 ## Accepted risks
