@@ -3,9 +3,11 @@ import { mkdir } from "node:fs/promises";
 import { SETUP_PERMISSIONS } from "./permission-model.js";
 import {
   collectMergedSecrets,
-  generateMergedEnvContent,
+  hashLocalFile,
+  mergeEnvFileContent,
   mergeEnvInput,
   readExistingEnvFile,
+  readExistingEnvFileContent,
   redactEnvContent,
   summarizeManagedKeyPresence,
 } from "./env-merge.js";
@@ -44,6 +46,13 @@ export interface LocalFileWritePlan {
   configExists: boolean;
   envAction: "create" | "update";
   configAction: "create" | "update";
+}
+
+export interface LocalFileBaselines {
+  envLocalPath: string;
+  configLocalPath: string;
+  envLocalHash: string;
+  configLocalHash: string;
 }
 
 export interface LocalSetupPreviewResult {
@@ -93,12 +102,37 @@ export function normalizeLocalSetupPayload(
   };
 }
 
+export async function getLocalFileBaselines(
+  paths: ReturnType<typeof resolveLocalFilePaths>,
+): Promise<LocalFileBaselines> {
+  const [envLocalHash, configLocalHash] = await Promise.all([
+    hashLocalFile(paths.envLocal),
+    hashLocalFile(paths.configLocal),
+  ]);
+
+  return {
+    envLocalPath: paths.envLocal,
+    configLocalPath: paths.configLocal,
+    envLocalHash,
+    configLocalHash,
+  };
+}
+
 export function computeLocalSetupFingerprint(
   payload: LocalSetupFormPayload,
+  baselines: LocalFileBaselines,
   cwd?: string,
 ): string {
   const normalized = {
     cwd: cwd ?? process.cwd(),
+    paths: {
+      envLocal: baselines.envLocalPath,
+      configLocal: baselines.configLocalPath,
+    },
+    baselines: {
+      envLocalHash: baselines.envLocalHash,
+      configLocalHash: baselines.configLocalHash,
+    },
     env: {
       harnessConfigPath: payload.env.harnessConfigPath?.trim() ?? "",
       linearApiKey: payload.env.linearApiKey?.trim() ?? "",
@@ -122,7 +156,9 @@ function sanitizeErrorMessage(
   return redactKnownSecretValues(message, secrets);
 }
 
-async function buildWritePlan(paths: ReturnType<typeof resolveLocalFilePaths>): Promise<LocalFileWritePlan> {
+async function buildWritePlan(
+  paths: ReturnType<typeof resolveLocalFilePaths>,
+): Promise<LocalFileWritePlan> {
   const existingEnv = await readExistingEnvFile(paths);
   const { access } = await import("node:fs/promises");
   let configExists = false;
@@ -141,19 +177,36 @@ async function buildWritePlan(paths: ReturnType<typeof resolveLocalFilePaths>): 
   };
 }
 
+async function buildMergedEnvContent(
+  paths: ReturnType<typeof resolveLocalFilePaths>,
+  envInput: SetupEnvInput,
+): Promise<{
+  mergedEnv: SetupEnvInput;
+  envContent: string;
+  knownSecrets: string[];
+}> {
+  const existingEnv = await readExistingEnvFile(paths);
+  const existingContent = await readExistingEnvFileContent(paths);
+  const mergedEnv = mergeEnvInput(existingEnv, envInput);
+  const envContent = mergeEnvFileContent(existingContent, mergedEnv);
+  const knownSecrets = [
+    ...collectMergedSecrets(mergedEnv),
+    ...collectEnvInputSecrets(envInput),
+  ];
+
+  return { mergedEnv, envContent, knownSecrets };
+}
+
 export async function previewLocalSetupFiles(options: {
   cwd?: string;
   payload: LocalSetupFormPayload;
 }): Promise<LocalSetupPreviewResult> {
   const paths = resolveLocalFilePaths(options.cwd);
-  const existingEnv = await readExistingEnvFile(paths);
   const envInput = toSetupEnvInput(options.payload.env);
-  const mergedEnv = mergeEnvInput(existingEnv, envInput);
-  const envContent = generateMergedEnvContent(mergedEnv);
-  const knownSecrets = [
-    ...collectMergedSecrets(mergedEnv),
-    ...collectEnvInputSecrets(envInput),
-  ];
+  const { mergedEnv, envContent, knownSecrets } = await buildMergedEnvContent(
+    paths,
+    envInput,
+  );
 
   let configPreview = "";
   let validationError: string | undefined;
@@ -188,14 +241,16 @@ export async function previewLocalSetupFiles(options: {
       targetPath: paths.envLocal,
       content: envContent,
       permission: SETUP_PERMISSIONS.localFileWrite,
-      reason: existingEnv ? "would update merged env" : "would create env",
+      reason: envContent ? "would update merged env" : "would create env",
     },
     knownSecrets,
   );
 
   const plan = await buildWritePlan(paths);
+  const baselines = await getLocalFileBaselines(paths);
   const fingerprint = computeLocalSetupFingerprint(
     options.payload,
+    baselines,
     options.cwd,
   );
 
@@ -221,8 +276,10 @@ export async function applyLocalSetupFiles(
   }
 
   const paths = resolveLocalFilePaths(options.cwd);
+  const baselines = await getLocalFileBaselines(paths);
   const expectedFingerprint = computeLocalSetupFingerprint(
     options.payload,
+    baselines,
     options.cwd,
   );
 
@@ -248,13 +305,17 @@ export async function applyLocalSetupFiles(
     throw new Error("Only local-file-write actions are allowed in Milestone 4");
   }
 
-  const existingEnv = await readExistingEnvFile(paths);
-  const mergedEnv = mergeEnvInput(
-    existingEnv,
-    toSetupEnvInput(options.payload.env),
+  const envInput = toSetupEnvInput(options.payload.env);
+  const { envContent, knownSecrets } = await buildMergedEnvContent(
+    paths,
+    envInput,
   );
-  const envContent = generateMergedEnvContent(mergedEnv);
-  const knownSecrets = collectMergedSecrets(mergedEnv);
+
+  if (redactEnvContent(envContent) !== preview.envPreview) {
+    throw new Error(
+      "Preview fingerprint is stale. Regenerate preview before applying.",
+    );
+  }
 
   await mkdir(paths.harnessDir, { recursive: true });
 
