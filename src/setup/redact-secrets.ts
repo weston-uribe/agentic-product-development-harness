@@ -47,6 +47,20 @@ export function collectEnvInputSecrets(input?: {
   ].filter((value): value is string => Boolean(value));
 }
 
+export function collectRemoteSecretInputs(input?: {
+  linearApiKey?: string;
+  cursorApiKey?: string;
+  githubToken?: string;
+  harnessConfigJsonB64?: string;
+}): string[] {
+  return [
+    input?.linearApiKey,
+    input?.cursorApiKey,
+    input?.githubToken,
+    input?.harnessConfigJsonB64,
+  ].filter((value): value is string => Boolean(value));
+}
+
 export function sanitizeSetupActionResult(
   result: SetupActionResult,
   knownSecrets: readonly string[] = [],

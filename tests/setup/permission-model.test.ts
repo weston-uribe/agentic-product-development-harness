@@ -28,8 +28,11 @@ describe("permission-model", () => {
     expect(SETUP_ACTIONS.generateGitHubSecretInstructions.permission).toEqual(
       SETUP_PERMISSIONS.readOnly,
     );
-    expect(SETUP_ACTIONS.futureSetGitHubSecrets.permission).toEqual(
+    expect(SETUP_ACTIONS.applyHarnessSecrets.permission).toEqual(
       SETUP_PERMISSIONS.remoteSecretWrite,
+    );
+    expect(SETUP_ACTIONS.applyTargetWorkflowPr.permission).toEqual(
+      SETUP_PERMISSIONS.remoteRepoWrite,
     );
   });
 });

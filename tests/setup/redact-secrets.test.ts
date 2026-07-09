@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  collectRemoteSecretInputs,
   redactSecretEnvContent,
   sanitizeSetupActionResult,
 } from "../../src/setup/redact-secrets.js";
@@ -62,5 +63,16 @@ describe("redact-secrets", () => {
     expect(combined).not.toContain(secret);
     expect(combined).toContain("GITHUB_TOKEN=<redacted>");
     expect(combined).toContain("<redacted>");
+  });
+
+  it("collects remote secret inputs for redaction", () => {
+    const secret = "super-secret-token";
+    const collected = collectRemoteSecretInputs({
+      linearApiKey: secret,
+      harnessConfigJsonB64: "encoded-config-value",
+    });
+
+    expect(collected).toContain(secret);
+    expect(collected).toContain("encoded-config-value");
   });
 });

@@ -32,6 +32,10 @@ import {
   type CursorModelSettingsSummary,
 } from "./model-settings.js";
 import { resolveLocalFilePaths } from "./setup-state.js";
+import {
+  formatHarnessDispatchRepo,
+  resolveHarnessDispatchRepo,
+} from "./harness-dispatch-repo.js";
 import { SETUP_ACTIONS } from "./setup-actions.js";
 
 const SECRET_ENV_KEYS = [
@@ -470,6 +474,8 @@ export async function getSetupStateSummary(options?: {
   });
 
   const exampleConfig = buildExampleTargetAppConfig();
+  const harnessDispatchRepo = await resolveHarnessDispatchRepo({ cwd });
+  const harnessDispatchRepoLabel = formatHarnessDispatchRepo(harnessDispatchRepo);
   const doctorChecks = await collectLocalDoctorChecks({
     cwd,
     config,
@@ -519,7 +525,7 @@ export async function getSetupStateSummary(options?: {
         configPath: ".harness/config.local.json",
       }),
       previewGitHubSecretInstructions({
-        harnessRepo: "owner/agentic-product-development-harness",
+        harnessRepo: harnessDispatchRepoLabel,
       }),
     ],
     generatedPreviews: {
@@ -547,7 +553,17 @@ export async function getSetupStateSummary(options?: {
         description: SETUP_ACTIONS.futureSetGitHubSecrets.description,
         scope: SETUP_ACTIONS.futureSetGitHubSecrets.permission.scope,
         confirmation: SETUP_ACTIONS.futureSetGitHubSecrets.permission.confirmation,
-        deferredReason: "Remote secret writes are deferred to Milestone 5.",
+        deferredReason:
+          "Remote secret apply is previewable in setup core. GUI apply remains deferred to Milestone 5 PR 2.",
+      },
+      {
+        actionId: SETUP_ACTIONS.applyTargetWorkflowPr.id,
+        label: SETUP_ACTIONS.applyTargetWorkflowPr.label,
+        description: SETUP_ACTIONS.applyTargetWorkflowPr.description,
+        scope: SETUP_ACTIONS.applyTargetWorkflowPr.permission.scope,
+        confirmation: SETUP_ACTIONS.applyTargetWorkflowPr.permission.confirmation,
+        deferredReason:
+          "Target workflow branch/PR apply remains deferred to Milestone 5 PR 2.",
       },
     ],
   };
