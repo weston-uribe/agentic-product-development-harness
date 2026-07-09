@@ -86,6 +86,8 @@ function fingerprintToken(value: string): string {
   if (!value) {
     return "";
   }
+  // Preview integrity token for local setup apply guards — not password storage.
+  // codeql[js/insufficient-password-hash]
   return createHmac("sha256", FINGERPRINT_PEPPER)
     .update(value, "utf8")
     .digest("hex");

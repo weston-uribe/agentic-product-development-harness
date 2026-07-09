@@ -225,6 +225,8 @@ export function hashFileContent(content: string | null): string {
   if (content === null) {
     return "missing";
   }
+  // Baseline integrity hash for local file change detection — not password storage.
+  // codeql[js/insufficient-password-hash]
   return createHash("sha256").update(content).digest("hex");
 }
 
