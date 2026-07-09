@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { LocalConfigFormInput } from "@harness/setup/config-local-editor";
 import type {
   LocalSetupFormPayload,
@@ -26,11 +26,15 @@ interface ConfigureWorkflowProps {
     secretPresence: EnvironmentFormPresence;
   };
   initialConfig: LocalConfigFormInput;
+  onSummaryUpdated?: (summary: SetupGuiViewModel) => void;
+  onUiStateChange?: (state: { localPreviewStale: boolean }) => void;
 }
 
 export function ConfigureWorkflow({
   initialEnv,
   initialConfig,
+  onSummaryUpdated,
+  onUiStateChange,
 }: ConfigureWorkflowProps) {
   const [envValues, setEnvValues] = useState<EnvironmentFormValues>({
     harnessConfigPath: initialEnv.harnessConfigPath,
@@ -66,6 +70,12 @@ export function ConfigureWorkflow({
     preview !== null &&
     previewPayload !== null &&
     JSON.stringify(previewPayload) === JSON.stringify(currentPayload);
+
+  useEffect(() => {
+    onUiStateChange?.({
+      localPreviewStale: preview !== null && !previewIsCurrent,
+    });
+  }, [onUiStateChange, preview, previewIsCurrent]);
 
   const resetApplyState = () => {
     setApplySuccess(null);
@@ -126,6 +136,7 @@ export function ConfigureWorkflow({
 
       setApplySuccess(true);
       setApplySummary(data.summary as SetupGuiViewModel);
+      onSummaryUpdated?.(data.summary as SetupGuiViewModel);
       setPresence({
         LINEAR_API_KEY: data.summary.envKeyPresence.LINEAR_API_KEY,
         CURSOR_API_KEY: data.summary.envKeyPresence.CURSOR_API_KEY,

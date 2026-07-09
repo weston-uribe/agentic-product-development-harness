@@ -12,6 +12,10 @@ import { loadConfigFormDefaults } from "@harness/setup/config-local-editor";
 import { readExistingEnvFile } from "@harness/setup/env-merge";
 import { resolveLocalFilePaths } from "@harness/setup/setup-state";
 import {
+  deriveFirstRunReadiness,
+  type FirstRunReadiness,
+} from "@harness/setup/first-run-readiness";
+import {
   getSetupStateSummary,
   type SetupGuiViewModel,
 } from "@harness/setup/gui-view-model";
@@ -87,6 +91,14 @@ export async function loadRemoteSetupSummary(): Promise<RemoteSetupSummary> {
   const cwd = resolveCwd();
   const provider = await resolveRemoteProvider();
   return buildRemoteSetupSummary({ cwd, provider });
+}
+
+export async function loadFirstRunReadiness(): Promise<FirstRunReadiness> {
+  const [summary, remoteSummary] = await Promise.all([
+    loadSetupSummary(),
+    loadRemoteSetupSummary(),
+  ]);
+  return deriveFirstRunReadiness({ summary, remoteSummary });
 }
 
 export async function loadSetupFormDefaults(): Promise<{
@@ -226,5 +238,6 @@ export type {
   RemoteHarnessSecretApplyResult,
   RemoteTargetWorkflowPreview,
   RemoteTargetWorkflowApplyResult,
+  FirstRunReadiness,
 };
 

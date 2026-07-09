@@ -31,6 +31,7 @@ import {
   summarizeCursorModelSettings,
   type CursorModelSettingsSummary,
 } from "./model-settings.js";
+import { validateRepoClosure } from "../config/load-config.js";
 import { resolveLocalFilePaths } from "./setup-state.js";
 import {
   formatHarnessDispatchRepo,
@@ -156,6 +157,15 @@ export async function summarizeEnvKeyPresence(
   return presence;
 }
 
+function computeClosureValid(config: HarnessConfig): boolean {
+  try {
+    validateRepoClosure(config);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function buildConfigSummary(config: HarnessConfig): ConfigSummary {
   return {
     repoCount: config.repos.length,
@@ -169,7 +179,7 @@ function buildConfigSummary(config: HarnessConfig): ConfigSummary {
     })),
     linearTeamKey: config.linear?.teamKey,
     allowedTargetRepos: config.allowedTargetRepos,
-    closureValid: true,
+    closureValid: computeClosureValid(config),
     model: summarizeCursorModelSettings(config),
   };
 }
@@ -325,18 +335,6 @@ function deriveMissingSteps(input: {
       detail: "Fill GITHUB_TOKEN in .env.local for local doctor GitHub checks.",
     });
   }
-
-  steps.push({
-    id: "github-actions-secrets",
-    label: "Configure GitHub Actions secrets manually",
-    detail: "Set HARNESS_CONFIG_JSON_B64, LINEAR_API_KEY, CURSOR_API_KEY, and HARNESS_GITHUB_TOKEN in the harness repo.",
-  });
-
-  steps.push({
-    id: "target-workflow",
-    label: "Install target repo production sync workflow manually",
-    detail: "Add trigger-harness-production-sync.yml in each target repo via PR or copy-paste.",
-  });
 
   return steps;
 }

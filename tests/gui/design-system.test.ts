@@ -38,8 +38,13 @@ describe("gui design-system boundaries", () => {
       path.join(customDir, "local-write-confirmation.tsx"),
       "utf8",
     );
+    const stepper = await readFile(
+      path.join(customDir, "first-run-stepper.tsx"),
+      "utf8",
+    );
 
     expect(envForm).toContain("EnvironmentConfigForm");
     expect(confirmation).toContain("LocalWriteConfirmation");
+    expect(stepper).toContain("FirstRunStepper");
   });
 });
