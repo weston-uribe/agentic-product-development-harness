@@ -16,6 +16,8 @@ Open **Settings / Configure** and scroll to **Remote setup**.
 
 Requires `GITHUB_TOKEN` in `.env.local` for live GitHub status checks and apply paths. Development and CI use mocked providers — no live remote writes during automated validation.
 
+For **target workflow install PR** writes, the token must also be able to create or update `.github/workflows/*` files on the target repo. Classic PATs need the `workflow` scope in addition to `repo`. Fine-grained PATs need Actions/workflows write permission on the target repo. Without this scope, GitHub may return a misleading `404 Not Found` instead of a clear permission error.
+
 ---
 
 ## Scope (Milestone 5 PR 2)
