@@ -1,12 +1,19 @@
+import {
+  MANUAL_HARNESS_DISPATCH_REPO_PLACEHOLDER,
+} from "./harness-dispatch-repo.js";
+
 export interface GeneratedInstructions {
   summary: string;
   steps: string[];
   command?: string;
 }
 
-const DEFAULT_HARNESS_REPO = "owner/agentic-product-development-harness";
 const TARGET_WORKFLOW_PATH =
   ".github/workflows/trigger-harness-production-sync.yml";
+
+function resolveHarnessRepoLabel(harnessRepo?: string): string {
+  return harnessRepo?.trim() || MANUAL_HARNESS_DISPATCH_REPO_PLACEHOLDER;
+}
 
 export function generateHarnessConfigB64Instructions(options?: {
   configPath?: string;
@@ -31,7 +38,7 @@ export function generateHarnessConfigB64Instructions(options?: {
 export function generateGitHubSecretInstructions(options?: {
   harnessRepo?: string;
 }): GeneratedInstructions {
-  const harnessRepo = options?.harnessRepo ?? DEFAULT_HARNESS_REPO;
+  const harnessRepo = resolveHarnessRepoLabel(options?.harnessRepo);
   const secretNames = [
     "HARNESS_CONFIG_JSON_B64",
     "LINEAR_API_KEY",
@@ -58,7 +65,7 @@ export function generateTargetRepoWorkflowInstructions(options?: {
   targetRepoSlug?: string;
   productionBranch?: string;
 }): GeneratedInstructions {
-  const harnessRepo = options?.harnessRepo ?? DEFAULT_HARNESS_REPO;
+  const harnessRepo = resolveHarnessRepoLabel(options?.harnessRepo);
   const repoConfigId = options?.repoConfigId ?? "target-app";
   const targetRepoSlug = options?.targetRepoSlug ?? "owner/example-target-app";
   const productionBranch = options?.productionBranch ?? "main";

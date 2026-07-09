@@ -11,6 +11,9 @@ import {
   generateHarnessConfigB64Instructions,
 } from "./generated-instructions.js";
 import {
+  REMOTE_SETUP_ACTIONS,
+} from "./remote-actions.js";
+import {
   resolveLocalFilePaths,
   type SetupActionOutcome,
   type SetupExecutionMode,
@@ -61,12 +64,35 @@ export const SETUP_ACTIONS = {
     description: "Produce manual copy-paste steps for harness repo secrets",
     permission: SETUP_PERMISSIONS.readOnly,
   },
+  applyHarnessSecrets: {
+    id: REMOTE_SETUP_ACTIONS.applyHarnessSecrets.id,
+    label: REMOTE_SETUP_ACTIONS.applyHarnessSecrets.label,
+    description: REMOTE_SETUP_ACTIONS.applyHarnessSecrets.description,
+    permission: REMOTE_SETUP_ACTIONS.applyHarnessSecrets.permission,
+  },
   futureSetGitHubSecrets: {
-    id: "future-set-github-secrets",
-    label: "Set GitHub Actions secrets",
-    description:
-      "Future action: write harness repo secrets after explicit confirmation",
-    permission: SETUP_PERMISSIONS.remoteSecretWrite,
+    id: REMOTE_SETUP_ACTIONS.applyHarnessSecrets.id,
+    label: REMOTE_SETUP_ACTIONS.applyHarnessSecrets.label,
+    description: REMOTE_SETUP_ACTIONS.applyHarnessSecrets.description,
+    permission: REMOTE_SETUP_ACTIONS.applyHarnessSecrets.permission,
+  },
+  previewHarnessSecrets: {
+    id: REMOTE_SETUP_ACTIONS.previewHarnessSecrets.id,
+    label: REMOTE_SETUP_ACTIONS.previewHarnessSecrets.label,
+    description: REMOTE_SETUP_ACTIONS.previewHarnessSecrets.description,
+    permission: REMOTE_SETUP_ACTIONS.previewHarnessSecrets.permission,
+  },
+  previewTargetWorkflowPr: {
+    id: REMOTE_SETUP_ACTIONS.previewTargetWorkflowPr.id,
+    label: REMOTE_SETUP_ACTIONS.previewTargetWorkflowPr.label,
+    description: REMOTE_SETUP_ACTIONS.previewTargetWorkflowPr.description,
+    permission: REMOTE_SETUP_ACTIONS.previewTargetWorkflowPr.permission,
+  },
+  applyTargetWorkflowPr: {
+    id: REMOTE_SETUP_ACTIONS.applyTargetWorkflowPr.id,
+    label: REMOTE_SETUP_ACTIONS.applyTargetWorkflowPr.label,
+    description: REMOTE_SETUP_ACTIONS.applyTargetWorkflowPr.description,
+    permission: REMOTE_SETUP_ACTIONS.applyTargetWorkflowPr.permission,
   },
 } as const satisfies Record<string, SetupActionDescriptor>;
 
@@ -142,7 +168,7 @@ export function previewGitHubSecretInstructions(options?: {
   };
 }
 
-export function describeFutureGitHubSecretWrite(): SetupActionResult {
+export function describeDeferredRemoteHarnessSecretWrite(): SetupActionResult {
   const instructions = generateGitHubSecretInstructions();
   return {
     actionId: SETUP_ACTIONS.futureSetGitHubSecrets.id,
@@ -150,7 +176,7 @@ export function describeFutureGitHubSecretWrite(): SetupActionResult {
     permission: SETUP_ACTIONS.futureSetGitHubSecrets.permission,
     manualInstructions: instructions.steps,
     reason:
-      "Remote secret writes are deferred. Use manual instructions until confirmation-gated automation is implemented.",
+      "Remote secret writes are previewable in setup core. GUI apply remains deferred to Milestone 5 PR 2.",
   };
 }
 

@@ -27,6 +27,11 @@ describe("generated-instructions", () => {
     expect(joined).not.toMatch(/LINEAR_API_KEY=[^ ]+/);
   });
 
+  it("uses manual placeholder when harness repo is unresolved", () => {
+    const instructions = generateGitHubSecretInstructions();
+    expect(instructions.steps.join("\n")).toContain("<harness-dispatch-repo>");
+  });
+
   it("uses generic target repo workflow placeholders", () => {
     const instructions = generateTargetRepoWorkflowInstructions();
 
