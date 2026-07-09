@@ -160,11 +160,12 @@ export class GitHubClient {
       throw new GitHubApiError(response.status, message);
     }
 
-    if (response.status === 204) {
+    const text = await response.text();
+    if (response.status === 204 || !text.trim()) {
       return {} as T;
     }
 
-    return (await response.json()) as T;
+    return JSON.parse(text) as T;
   }
 
   private async graphqlRequest<T>(
