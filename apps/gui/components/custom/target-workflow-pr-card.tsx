@@ -16,6 +16,7 @@ import { SetupApplyResult } from "@/components/custom/setup-apply-result";
 interface TargetWorkflowPrCardProps {
   repo: RemoteSetupRepoSummary;
   onApplied: () => void;
+  blockedByUpstream?: boolean;
 }
 
 function accessVariant(
@@ -34,7 +35,11 @@ function workflowVariant(
   return "secondary";
 }
 
-export function TargetWorkflowPrCard({ repo, onApplied }: TargetWorkflowPrCardProps) {
+export function TargetWorkflowPrCard({
+  repo,
+  onApplied,
+  blockedByUpstream = false,
+}: TargetWorkflowPrCardProps) {
   const [preview, setPreview] = useState<RemoteTargetWorkflowPreview | null>(
     null,
   );
@@ -130,6 +135,22 @@ export function TargetWorkflowPrCard({ repo, onApplied }: TargetWorkflowPrCardPr
     return `Workflow install ${applyResult.outcome} on branch ${applyResult.branchName}.`;
   }, [applyResult]);
 
+  const upstreamBlockedReason = blockedByUpstream
+    ? "Fix harness repo access before target workflow setup can be previewed."
+    : undefined;
+  const confirmDisabledReason = upstreamBlockedReason
+    ? upstreamBlockedReason
+    : !previewIsCurrent
+      ? "Generate a preview before you can confirm this write."
+      : preview?.validationError
+        ? "Fix validation errors before confirming this write."
+        : undefined;
+  const applyDisabledReason =
+    confirmDisabledReason ??
+    (!confirmed
+      ? "Confirm the preview before applying the workflow install PR."
+      : undefined);
+
   return (
     <div className="rounded-md border border-border bg-muted/10 p-4 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -161,7 +182,8 @@ export function TargetWorkflowPrCard({ repo, onApplied }: TargetWorkflowPrCardPr
       <RemoteActionConfirmation
         scope="remote-repo-write"
         confirmed={confirmed}
-        disabled={!previewIsCurrent || Boolean(preview?.validationError)}
+        disabled={!previewIsCurrent || Boolean(preview?.validationError) || blockedByUpstream}
+        disabledReason={confirmDisabledReason}
         onConfirmedChange={setConfirmed}
       />
 
@@ -169,7 +191,7 @@ export function TargetWorkflowPrCard({ repo, onApplied }: TargetWorkflowPrCardPr
         <Button
           type="button"
           onClick={handlePreview}
-          disabled={loading !== null}
+          disabled={loading !== null || blockedByUpstream}
         >
           {loading === "preview" ? "Generating preview…" : "Preview workflow PR"}
         </Button>
@@ -180,12 +202,20 @@ export function TargetWorkflowPrCard({ repo, onApplied }: TargetWorkflowPrCardPr
             loading !== null ||
             !previewIsCurrent ||
             !confirmed ||
-            Boolean(preview?.validationError)
+            Boolean(preview?.validationError) ||
+            blockedByUpstream
           }
         >
           {loading === "apply" ? "Applying…" : "Apply workflow PR"}
         </Button>
       </div>
+
+      {upstreamBlockedReason ? (
+        <p className="text-sm text-muted-foreground">{upstreamBlockedReason}</p>
+      ) : null}
+      {applyDisabledReason && !upstreamBlockedReason ? (
+        <p className="text-sm text-muted-foreground">{applyDisabledReason}</p>
+      ) : null}
 
       {error ? <SetupApplyResult success={false} message={error} /> : null}
       {successMessage ? (

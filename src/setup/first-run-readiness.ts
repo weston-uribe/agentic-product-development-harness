@@ -4,6 +4,11 @@ import {
   HARNESS_ACTIONS_SECRET_NAMES,
   type HarnessActionsSecretName,
 } from "./remote-actions.js";
+import type { StaleSmokeDiagnostics } from "./stale-smoke-repo.js";
+import {
+  remoteSetupBlockedByStaleSmoke,
+  shouldSuppressRemoteDownstreamStatus,
+} from "./stale-smoke-repo.js";
 
 export type FirstRunStepId =
   | "local-setup"
@@ -50,11 +55,25 @@ export interface FirstRunReadinessUiState {
   remoteSecretPreviewStale?: boolean;
 }
 
+export interface PrimarySetupTask {
+  id: string;
+  stepId: FirstRunStepId;
+  title: string;
+  problem: string;
+  whyItMatters: string;
+  neededFromYou: string;
+  primaryCtaLabel: string;
+  secondaryCtaLabel: string;
+}
+
 export interface FirstRunReadiness {
   steps: FirstRunStep[];
   currentStepId: FirstRunStepId;
   highestPriorityBlocker?: ReadinessBlocker;
   nextRecommendedAction?: ReadinessAction;
+  primaryTask?: PrimarySetupTask;
+  staleSmokeDiagnostics: StaleSmokeDiagnostics;
+  remoteSetupBlockedByUpstream: boolean;
   readyForFirstRun: boolean;
   nonBlockingWarnings: ReadinessBlocker[];
   prohibitedActionsNote: string;
@@ -101,6 +120,7 @@ function pushWarning(
 export function collectLocalSetupBlockers(
   summary: SetupGuiViewModel,
   uiState?: FirstRunReadinessUiState,
+  staleSmokeDiagnostics?: StaleSmokeDiagnostics,
 ): ReadinessBlocker[] {
   const blockers: ReadinessBlocker[] = [];
 
@@ -188,6 +208,32 @@ export function collectLocalSetupBlockers(
     });
   }
 
+  if (staleSmokeDiagnostics?.hasStaleConfig) {
+    if (staleSmokeDiagnostics.staleHarnessDispatchRepo) {
+      pushBlocker(blockers, {
+        id: "stale-smoke-dispatch-repo",
+        stepId: "local-setup",
+        message:
+          "Blocked: Your setup points at an old disposable smoke-test harness repo.",
+        action:
+          "Next: Reset GITHUB_DISPATCH_REPOSITORY to your current harness repo, preview local setup, then apply.",
+        priority: 108,
+      });
+    }
+
+    if (staleSmokeDiagnostics.staleTargetRepos.length > 0) {
+      pushBlocker(blockers, {
+        id: "stale-smoke-target-repo",
+        stepId: "local-setup",
+        message:
+          "Blocked: Target repo config still points at an old disposable smoke-test repo.",
+        action:
+          "Next: Enter your intended target repo in Local setup, preview local setup, then apply.",
+        priority: 109,
+      });
+    }
+  }
+
   return blockers.sort((left, right) => left.priority - right.priority);
 }
 
@@ -267,9 +313,20 @@ export function collectRemoteSetupBlockers(
   summary: SetupGuiViewModel,
   remoteSummary: RemoteSetupSummary,
   uiState?: FirstRunReadinessUiState,
+  staleSmokeDiagnostics?: StaleSmokeDiagnostics,
 ): { blockers: ReadinessBlocker[]; warnings: ReadinessBlocker[] } {
   const blockers: ReadinessBlocker[] = [];
   const warnings: ReadinessBlocker[] = [];
+  const suppressDownstream = staleSmokeDiagnostics
+    ? shouldSuppressRemoteDownstreamStatus(
+        staleSmokeDiagnostics,
+        remoteSummary.harnessRepoAccess,
+      )
+    : false;
+
+  if (suppressDownstream) {
+    return { blockers, warnings };
+  }
 
   if (!remoteSummary.githubTokenConfigured) {
     pushBlocker(blockers, {
@@ -296,9 +353,9 @@ export function collectRemoteSetupBlockers(
     pushBlocker(blockers, {
       id: "harness-repo-access-denied",
       stepId: "remote-setup",
-      message: `Blocked: GitHub access to ${remoteSummary.harnessDispatchRepo} was denied.`,
+      message: `Blocked: I tried to check ${remoteSummary.harnessDispatchRepo} and GitHub denied access.`,
       action:
-        "Next: Grant repo and Actions secret permissions to your GitHub token, then refresh.",
+        "Next: Confirm this is the repo you intend to use. If it is wrong, fix local setup first. If it is correct, update your GitHub token permissions and refresh.",
       priority: 302,
     });
   } else if (
@@ -479,20 +536,92 @@ function deriveStepStatus(input: {
   return "ready";
 }
 
+function derivePrimarySetupTask(input: {
+  highestPriorityBlocker?: ReadinessBlocker;
+  staleSmokeDiagnostics: StaleSmokeDiagnostics;
+}): PrimarySetupTask | undefined {
+  if (input.staleSmokeDiagnostics.hasStaleConfig) {
+    const needsTargetRepo =
+      input.staleSmokeDiagnostics.staleTargetRepos.length > 0;
+    const suggestedRepo =
+      input.staleSmokeDiagnostics.suggestedHarnessDispatchRepo;
+
+    return {
+      id: "fix-stale-smoke-config",
+      stepId: "local-setup",
+      title: "I need this from you now",
+      problem: "Your setup points at an old disposable smoke-test repo.",
+      whyItMatters:
+        "That repo may have been deleted after the M5.5 smoke test, so GitHub access checks fail.",
+      neededFromYou: needsTargetRepo
+        ? suggestedRepo
+          ? `Reset GITHUB_DISPATCH_REPOSITORY to ${suggestedRepo}, and enter the target repo you actually intend to use.`
+          : "Reset the stale harness dispatch repo and enter the target repo you actually intend to use."
+        : suggestedRepo
+          ? `Reset GITHUB_DISPATCH_REPOSITORY to ${suggestedRepo}.`
+          : "Reset the stale harness dispatch repo to your current harness repo.",
+      primaryCtaLabel: "Preview local setup fix",
+      secondaryCtaLabel: "Show details",
+    };
+  }
+
+  if (input.highestPriorityBlocker?.id === "harness-repo-access-denied") {
+    return {
+      id: "confirm-harness-repo-access",
+      stepId: "remote-setup",
+      title: "I need this from you now",
+      problem: input.highestPriorityBlocker.message.replace(/^Blocked:\s*/, ""),
+      whyItMatters:
+        "Remote setup cannot continue until the harness dispatch repo is reachable with your GitHub token.",
+      neededFromYou:
+        "Confirm the harness dispatch repo is the one you intend to use, or fix local setup if it is wrong.",
+      primaryCtaLabel: "Review remote setup details",
+      secondaryCtaLabel: "Show details",
+    };
+  }
+
+  if (input.highestPriorityBlocker) {
+    return {
+      id: input.highestPriorityBlocker.id,
+      stepId: input.highestPriorityBlocker.stepId,
+      title: "I need this from you now",
+      problem: input.highestPriorityBlocker.message.replace(/^Blocked:\s*/, ""),
+      whyItMatters: "Setup cannot continue until this blocker is resolved.",
+      neededFromYou: input.highestPriorityBlocker.action.replace(/^Next:\s*/, ""),
+      primaryCtaLabel: input.highestPriorityBlocker.action.replace(
+        /^Next:\s*/,
+        "",
+      ),
+      secondaryCtaLabel: "Show details",
+    };
+  }
+
+  return undefined;
+}
+
 export function deriveFirstRunReadiness(input: {
   summary: SetupGuiViewModel;
   remoteSummary: RemoteSetupSummary;
   uiState?: FirstRunReadinessUiState;
+  staleSmokeDiagnostics?: StaleSmokeDiagnostics;
 }): FirstRunReadiness {
+  const staleSmokeDiagnostics = input.staleSmokeDiagnostics ?? {
+    hasStaleConfig: false,
+    findings: [],
+    staleTargetRepos: [],
+  };
+
   const localSetupBlockers = collectLocalSetupBlockers(
     input.summary,
     input.uiState,
+    staleSmokeDiagnostics,
   );
   const localReadiness = collectLocalReadinessBlockers(input.summary);
   const remoteSetup = collectRemoteSetupBlockers(
     input.summary,
     input.remoteSummary,
     input.uiState,
+    staleSmokeDiagnostics,
   );
 
   const localSetupComplete = localSetupBlockers.length === 0;
@@ -597,11 +726,21 @@ export function deriveFirstRunReadiness(input: {
       }
     : steps.find((step) => step.id === currentStepId)?.primaryAction;
 
+  const primaryTask = derivePrimarySetupTask({
+    highestPriorityBlocker,
+    staleSmokeDiagnostics,
+  });
+
   return {
     steps,
     currentStepId,
     highestPriorityBlocker,
     nextRecommendedAction,
+    primaryTask,
+    staleSmokeDiagnostics,
+    remoteSetupBlockedByUpstream: remoteSetupBlockedByStaleSmoke(
+      staleSmokeDiagnostics,
+    ),
     readyForFirstRun,
     nonBlockingWarnings,
     prohibitedActionsNote: PROHIBITED_ACTIONS_NOTE,

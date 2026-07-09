@@ -12,6 +12,10 @@ import { loadConfigFormDefaults } from "@harness/setup/config-local-editor";
 import { readExistingEnvFile } from "@harness/setup/env-merge";
 import { resolveLocalFilePaths } from "@harness/setup/setup-state";
 import {
+  parseGitHubRepoSlug,
+  readGitRemoteOrigin,
+} from "@harness/setup/harness-dispatch-repo";
+import {
   deriveFirstRunReadiness,
   type FirstRunReadiness,
 } from "@harness/setup/first-run-readiness";
@@ -98,12 +102,18 @@ export async function loadFirstRunReadiness(): Promise<FirstRunReadiness> {
     loadSetupSummary(),
     loadRemoteSetupSummary(),
   ]);
-  return deriveFirstRunReadiness({ summary, remoteSummary });
+  return deriveFirstRunReadiness({
+    summary,
+    remoteSummary,
+    staleSmokeDiagnostics: remoteSummary.staleSmokeDiagnostics,
+  });
 }
 
 export async function loadSetupFormDefaults(): Promise<{
   env: {
     harnessConfigPath: string;
+    githubDispatchRepository: string;
+    suggestedHarnessDispatchRepo?: string;
     secretPresence: {
       LINEAR_API_KEY: boolean;
       CURSOR_API_KEY: boolean;
@@ -116,11 +126,18 @@ export async function loadSetupFormDefaults(): Promise<{
   const paths = resolveLocalFilePaths(cwd);
   const existingEnv = await readExistingEnvFile(paths);
   const config = await loadConfigFormDefaults({ cwd });
+  const gitRemoteOriginUrl = await readGitRemoteOrigin(cwd);
+  const suggestedHarnessDispatchRepo = gitRemoteOriginUrl
+    ? parseGitHubRepoSlug(gitRemoteOriginUrl) ?? undefined
+    : undefined;
 
   return {
     env: {
       harnessConfigPath:
         existingEnv?.values.HARNESS_CONFIG_PATH ?? ".harness/config.local.json",
+      githubDispatchRepository:
+        existingEnv?.values.GITHUB_DISPATCH_REPOSITORY ?? "",
+      suggestedHarnessDispatchRepo,
       secretPresence: {
         LINEAR_API_KEY: existingEnv?.presence.LINEAR_API_KEY ?? false,
         CURSOR_API_KEY: existingEnv?.presence.CURSOR_API_KEY ?? false,

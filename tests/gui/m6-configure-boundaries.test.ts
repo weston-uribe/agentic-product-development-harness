@@ -16,6 +16,7 @@ const M6_GUI_COMPONENTS = [
   "apps/gui/components/custom/setup-readonly-sections.tsx",
   "apps/gui/components/custom/configure-workflow.tsx",
   "apps/gui/components/custom/remote-setup-section.tsx",
+  "apps/gui/components/custom/primary-setup-task-card.tsx",
 ];
 
 const FORBIDDEN_STORAGE_PATTERNS = [
@@ -54,6 +55,8 @@ describe("M6 configure GUI boundaries", () => {
     expect(source).toContain("prohibitedActionsNote");
     expect(source).toContain("No live harness phase is available in M6");
     expect(source).toContain('useState<ConfigureMode>("guided")');
+    expect(source).toContain("PrimarySetupTaskCard");
+    expect(source).toContain("remoteSetupBlockedByUpstream");
   });
 
   it("configure experience uses stable guarded UI-state handlers", () => {
@@ -108,8 +111,11 @@ describe("M6 configure GUI boundaries", () => {
     expect(localSource).toContain("LocalWriteConfirmation");
     expect(localSource).toContain("confirmed: true");
     expect(localSource).toContain("fingerprint: preview.fingerprint");
+    expect(localSource).toContain("disabledReason");
     expect(remoteSource).toContain("RemoteActionConfirmation");
     expect(remoteSource).toContain("confirmed: true");
     expect(remoteSource).toContain("fingerprint: preview.fingerprint");
+    expect(remoteSource).toContain("disabledReason");
+    expect(remoteSource).toContain("blockedByUpstream");
   });
 });

@@ -10,6 +10,7 @@ interface RemoteActionConfirmationProps {
   scope: RemoteConfirmationScope;
   confirmed: boolean;
   disabled?: boolean;
+  disabledReason?: string;
   onConfirmedChange: (confirmed: boolean) => void;
 }
 
@@ -44,6 +45,7 @@ export function RemoteActionConfirmation({
   scope,
   confirmed,
   disabled = false,
+  disabledReason,
   onConfirmedChange,
 }: RemoteActionConfirmationProps) {
   const copy = COPY[scope];
@@ -67,6 +69,9 @@ export function RemoteActionConfirmation({
           {copy.label}
         </Label>
       </div>
+      {disabled && disabledReason ? (
+        <p className="text-sm text-muted-foreground">{disabledReason}</p>
+      ) : null}
     </div>
   );
 }

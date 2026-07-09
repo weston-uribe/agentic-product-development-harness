@@ -23,6 +23,7 @@ interface RemoteSetupSectionProps {
   initialSummary: RemoteSetupSummary;
   onSummaryUpdated?: (summary: RemoteSetupSummary) => void;
   onUiStateChange?: (state: { remoteSecretPreviewStale: boolean }) => void;
+  blockedByUpstream?: boolean;
 }
 
 function accessVariant(
@@ -37,6 +38,7 @@ export function RemoteSetupSection({
   initialSummary,
   onSummaryUpdated,
   onUiStateChange,
+  blockedByUpstream = false,
 }: RemoteSetupSectionProps) {
   const [summary, setSummary] = useState(initialSummary);
   const [secretValues, setSecretValues] = useState<RemoteSecretFormValues>({
@@ -56,6 +58,10 @@ export function RemoteSetupSection({
   const [error, setError] = useState<string | null>(null);
   const [applyResult, setApplyResult] =
     useState<RemoteHarnessSecretApplyResult | null>(null);
+
+  useEffect(() => {
+    setSummary(initialSummary);
+  }, [initialSummary]);
 
   const currentPayload = useMemo(
     () => ({
@@ -177,6 +183,29 @@ export function RemoteSetupSection({
     ? `Wrote ${applyResult.writtenSecrets.map((entry) => entry.name).join(", ") || "no secrets"}.`
     : null;
 
+  const upstreamBlockedReason = blockedByUpstream
+    ? "Fix harness repo access in local setup before remote secrets or workflow checks can continue."
+    : undefined;
+  const previewDisabledReason =
+    upstreamBlockedReason ??
+    (!summary.githubTokenConfigured
+      ? "Set GITHUB_TOKEN in `.env.local` before previewing remote harness secret writes."
+      : loading !== null
+        ? "Wait for the current action to finish."
+        : undefined);
+  const confirmDisabledReason = upstreamBlockedReason
+    ? upstreamBlockedReason
+    : !previewIsCurrent
+      ? "Generate a preview before you can confirm this write."
+      : preview?.validationError
+        ? "Fix validation errors before confirming this write."
+        : undefined;
+  const applyDisabledReason =
+    confirmDisabledReason ??
+    (!confirmed
+      ? "Confirm the preview before applying harness repo Actions secrets."
+      : undefined);
+
   return (
     <div className={SPACING.section}>
       <SectionCard
@@ -213,88 +242,113 @@ export function RemoteSetupSection({
         </dl>
       </SectionCard>
 
-      <SectionCard
-        title="Harness repo Actions secrets"
-        description="Write encrypted secrets to the harness dispatch repo. HARNESS_CONFIG_JSON_B64 is generated server-side."
-      >
-        <RemoteSecretForm
-          values={secretValues}
-          secretStatuses={summary.harnessSecretStatuses}
-          onChange={(values) => {
-            resetSecretApplyState();
-            setPreview(null);
-            setPreviewPayload(null);
-            setConfirmed(false);
-            setSecretValues(values);
-          }}
-        />
-
-        <RemoteActionPreview
-          harnessSecretPreview={previewIsCurrent ? preview ?? undefined : undefined}
-        />
-
-        <RemoteActionConfirmation
-          scope="remote-secret-write"
-          confirmed={confirmed}
-          disabled={!previewIsCurrent || Boolean(preview?.validationError)}
-          onConfirmedChange={setConfirmed}
-        />
-
-        <div className={FORM.actions}>
-          <Button
-            type="button"
-            onClick={handleSecretPreview}
-            disabled={loading !== null || !summary.githubTokenConfigured}
-          >
-            {loading === "preview" ? "Generating preview…" : "Preview harness secrets"}
-          </Button>
-          <Button
-            type="button"
-            onClick={handleSecretApply}
-            disabled={
-              loading !== null ||
-              !previewIsCurrent ||
-              !confirmed ||
-              Boolean(preview?.validationError)
-            }
-          >
-            {loading === "apply" ? "Applying…" : "Apply harness secrets"}
-          </Button>
-        </div>
-
-        {!summary.githubTokenConfigured ? (
+      {blockedByUpstream ? (
+        <SectionCard
+          title="Blocked until repo access is fixed"
+          description="Remote setup details stay hidden until the harness dispatch repo is corrected."
+        >
           <p className="text-sm text-muted-foreground">
-            Set GITHUB_TOKEN in `.env.local` before previewing or applying remote
-            harness secret writes.
+            {upstreamBlockedReason} Use the local setup fix above, then refresh
+            this page after applying.
           </p>
-        ) : null}
-
-        {error ? <SetupApplyResult success={false} message={error} /> : null}
-        {secretApplyMessage ? (
-          <SetupApplyResult success message={secretApplyMessage} />
-        ) : null}
-      </SectionCard>
-
-      <SectionCard
-        title="Target workflow install PRs"
-        description="One install PR card per configured target repo. Never writes directly to production branches."
-      >
-        {summary.targetRepos.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            Resolve `.harness/config.local.json` to show target workflow cards.
-          </p>
-        ) : (
-          <div className={SPACING.stackSm}>
-            {summary.targetRepos.map((repo) => (
-              <TargetWorkflowPrCard
-                key={repo.repoConfigId}
-                repo={repo}
-                onApplied={refreshSummary}
-              />
-            ))}
+          <div className={FORM.actions}>
+            <Button type="button" onClick={refreshSummary} disabled={loading !== null}>
+              {loading === "refresh" ? "Refreshing…" : "Refresh remote setup"}
+            </Button>
           </div>
-        )}
-      </SectionCard>
+        </SectionCard>
+      ) : (
+        <>
+          <SectionCard
+            title="Harness repo Actions secrets"
+            description="Write encrypted secrets to the harness dispatch repo. HARNESS_CONFIG_JSON_B64 is generated server-side."
+          >
+            <RemoteSecretForm
+              values={secretValues}
+              secretStatuses={summary.harnessSecretStatuses}
+              onChange={(values) => {
+                resetSecretApplyState();
+                setPreview(null);
+                setPreviewPayload(null);
+                setConfirmed(false);
+                setSecretValues(values);
+              }}
+            />
+
+            <RemoteActionPreview
+              harnessSecretPreview={previewIsCurrent ? preview ?? undefined : undefined}
+            />
+
+            <RemoteActionConfirmation
+              scope="remote-secret-write"
+              confirmed={confirmed}
+              disabled={!previewIsCurrent || Boolean(preview?.validationError)}
+              disabledReason={confirmDisabledReason}
+              onConfirmedChange={setConfirmed}
+            />
+
+            <div className={FORM.actions}>
+              <Button
+                type="button"
+                onClick={handleSecretPreview}
+                disabled={
+                  loading !== null ||
+                  !summary.githubTokenConfigured ||
+                  Boolean(upstreamBlockedReason)
+                }
+              >
+                {loading === "preview" ? "Generating preview…" : "Preview harness secrets"}
+              </Button>
+              <Button
+                type="button"
+                onClick={handleSecretApply}
+                disabled={
+                  loading !== null ||
+                  !previewIsCurrent ||
+                  !confirmed ||
+                  Boolean(preview?.validationError)
+                }
+              >
+                {loading === "apply" ? "Applying…" : "Apply harness secrets"}
+              </Button>
+            </div>
+
+            {previewDisabledReason ? (
+              <p className="text-sm text-muted-foreground">{previewDisabledReason}</p>
+            ) : null}
+            {applyDisabledReason ? (
+              <p className="text-sm text-muted-foreground">{applyDisabledReason}</p>
+            ) : null}
+
+            {error ? <SetupApplyResult success={false} message={error} /> : null}
+            {secretApplyMessage ? (
+              <SetupApplyResult success message={secretApplyMessage} />
+            ) : null}
+          </SectionCard>
+
+          <SectionCard
+            title="Target workflow install PRs"
+            description="One install PR card per configured target repo. Never writes directly to production branches."
+          >
+            {summary.targetRepos.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Resolve `.harness/config.local.json` to show target workflow cards.
+              </p>
+            ) : (
+              <div className={SPACING.stackSm}>
+                {summary.targetRepos.map((repo) => (
+                  <TargetWorkflowPrCard
+                    key={repo.repoConfigId}
+                    repo={repo}
+                    onApplied={refreshSummary}
+                    blockedByUpstream={blockedByUpstream}
+                  />
+                ))}
+              </div>
+            )}
+          </SectionCard>
+        </>
+      )}
     </div>
   );
 }

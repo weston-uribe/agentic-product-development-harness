@@ -10,6 +10,7 @@ interface LocalWriteConfirmationProps {
   confirmed: boolean;
   onConfirmedChange: (confirmed: boolean) => void;
   disabled?: boolean;
+  disabledReason?: string;
 }
 
 export function LocalWriteConfirmation({
@@ -17,6 +18,7 @@ export function LocalWriteConfirmation({
   confirmed,
   onConfirmedChange,
   disabled = false,
+  disabledReason,
 }: LocalWriteConfirmationProps) {
   return (
     <div className={FORM.confirmationBox}>
@@ -48,6 +50,9 @@ export function LocalWriteConfirmation({
           files.
         </Label>
       </div>
+      {disabled && disabledReason ? (
+        <p className="text-sm text-muted-foreground">{disabledReason}</p>
+      ) : null}
     </div>
   );
 }
