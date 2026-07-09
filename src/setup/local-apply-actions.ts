@@ -1,4 +1,3 @@
-import { stat } from "node:fs/promises";
 import { mkdir } from "node:fs/promises";
 import { SETUP_PERMISSIONS } from "./permission-model.js";
 import {
