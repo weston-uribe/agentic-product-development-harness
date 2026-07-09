@@ -9,6 +9,11 @@ import {
 } from "../../github/base-branch.js";
 import { GitHubClient, pingGitHub } from "../../github/client.js";
 import { pingLinear } from "../../linear/client.js";
+import {
+  doctorChecksFailed,
+  formatDoctorCheckLine,
+  type DoctorCheckResult,
+} from "../../setup/doctor-summary.js";
 import { EXIT_CONFIG, EXIT_SUCCESS } from "../exit-codes.js";
 
 export interface DoctorOptions {
@@ -16,16 +21,9 @@ export interface DoctorOptions {
   profile?: "full" | "merge";
 }
 
-interface CheckResult {
-  label: string;
-  ok: boolean;
-  detail?: string;
-  skipped?: boolean;
-}
-
 export async function runDoctor(options: DoctorOptions): Promise<number> {
   const profile = options.profile ?? "full";
-  const checks: CheckResult[] = [];
+  const checks: DoctorCheckResult[] = [];
   let config: HarnessConfig | null = null;
 
   try {
@@ -200,11 +198,8 @@ export async function runDoctor(options: DoctorOptions): Promise<number> {
   }
 
   for (const check of checks) {
-    const icon = check.skipped ? "○" : check.ok ? "✓" : "✗";
-    const suffix = check.detail ? ` — ${check.detail}` : "";
-    console.log(`${icon} ${check.label}${suffix}`);
+    console.log(formatDoctorCheckLine(check));
   }
 
-  const failed = checks.some((check) => !check.ok && !check.skipped);
-  return failed ? EXIT_CONFIG : EXIT_SUCCESS;
+  return doctorChecksFailed(checks) ? EXIT_CONFIG : EXIT_SUCCESS;
 }
