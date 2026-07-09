@@ -1,5 +1,9 @@
 import { access, copyFile, readFile, writeFile } from "node:fs/promises";
 import { SETUP_PERMISSIONS } from "./permission-model.js";
+import {
+  collectEnvInputSecrets,
+  sanitizeSetupActionResult,
+} from "./redact-secrets.js";
 import type { SetupActionResult } from "./setup-actions.js";
 import {
   DEFAULT_HARNESS_CONFIG_PATH,
@@ -26,7 +30,7 @@ export interface WriteEnvLocalOptions {
   content?: string;
 }
 
-export function generateEnvContent(input?: SetupEnvInput): string {
+function generateEnvWriteContent(input?: SetupEnvInput): string {
   const harnessConfigPath =
     input?.harnessConfigPath ?? DEFAULT_HARNESS_CONFIG_PATH;
   const linearApiKey = input?.linearApiKey ?? "";
@@ -60,6 +64,13 @@ GITHUB_TOKEN=${githubToken}
 `;
 }
 
+function presentEnvActionResult(
+  result: SetupActionResult,
+  knownSecrets: readonly string[] = [],
+): SetupActionResult {
+  return sanitizeSetupActionResult(result, knownSecrets);
+}
+
 export async function readEnvExampleContent(
   paths: LocalFilePaths,
 ): Promise<string> {
@@ -79,40 +90,40 @@ export async function scaffoldEnvFromExample(options: {
   const destExists = await fileExists(paths.envLocal);
 
   if (destExists && !force) {
-    return {
+    return presentEnvActionResult({
       actionId: "scaffold-env-local",
       outcome: "skipped",
       targetPath: paths.envLocal,
       permission: SETUP_PERMISSIONS.localFileWrite,
       reason: "already exists",
       logMessage: `skipped ${label} (already exists)`,
-    };
+    });
   }
 
-  const content = await readEnvExampleContent(paths);
+  const writeContent = await readEnvExampleContent(paths);
 
   if (mode === "dry-run") {
-    return {
+    return presentEnvActionResult({
       actionId: "scaffold-env-local",
       outcome: destExists ? "wouldChange" : "preview",
       targetPath: paths.envLocal,
-      content,
+      content: writeContent,
       permission: SETUP_PERMISSIONS.localFileWrite,
       reason: destExists ? "would overwrite with --force" : "would create",
       logMessage: destExists ? `would overwrite ${label}` : `would create ${label}`,
-    };
+    });
   }
 
   await copyFile(paths.envExample, paths.envLocal);
-  return {
+  return presentEnvActionResult({
     actionId: "scaffold-env-local",
     outcome: "changed",
     targetPath: paths.envLocal,
-    content,
+    content: writeContent,
     permission: SETUP_PERMISSIONS.localFileWrite,
     reason: destExists ? "overwrote existing file" : "created new file",
     logMessage: `${destExists ? "overwrote" : "created"} ${label}`,
-  };
+  });
 }
 
 export async function writeEnvLocal(
@@ -121,41 +132,48 @@ export async function writeEnvLocal(
   const { paths, force = false, mode = "apply" } = options;
   const label = ENV_LOCAL;
   const destExists = await fileExists(paths.envLocal);
+  const knownSecrets = collectEnvInputSecrets(options.input);
 
   if (destExists && !force) {
-    return {
+    return presentEnvActionResult({
       actionId: "write-env-local",
       outcome: "skipped",
       targetPath: paths.envLocal,
       permission: SETUP_PERMISSIONS.localFileWrite,
       reason: "already exists",
       logMessage: `skipped ${label} (already exists)`,
-    };
+    });
   }
 
-  const content =
-    options.content ?? generateEnvContent(options.input);
+  const writeContent =
+    options.content ?? generateEnvWriteContent(options.input);
 
   if (mode === "dry-run") {
-    return {
-      actionId: "write-env-local",
-      outcome: destExists ? "wouldChange" : "preview",
-      targetPath: paths.envLocal,
-      content,
-      permission: SETUP_PERMISSIONS.localFileWrite,
-      reason: destExists ? "would overwrite with --force" : "would create",
-      logMessage: destExists ? `would overwrite ${label}` : `would create ${label}`,
-    };
+    return presentEnvActionResult(
+      {
+        actionId: "write-env-local",
+        outcome: destExists ? "wouldChange" : "preview",
+        targetPath: paths.envLocal,
+        content: writeContent,
+        permission: SETUP_PERMISSIONS.localFileWrite,
+        reason: destExists ? "would overwrite with --force" : "would create",
+        logMessage: destExists ? `would overwrite ${label}` : `would create ${label}`,
+      },
+      knownSecrets,
+    );
   }
 
-  await writeFile(paths.envLocal, content, "utf8");
-  return {
-    actionId: "write-env-local",
-    outcome: "changed",
-    targetPath: paths.envLocal,
-    content,
-    permission: SETUP_PERMISSIONS.localFileWrite,
-    reason: destExists ? "overwrote existing file" : "created new file",
-    logMessage: `${destExists ? "overwrote" : "created"} ${label}`,
-  };
+  await writeFile(paths.envLocal, writeContent, "utf8");
+  return presentEnvActionResult(
+    {
+      actionId: "write-env-local",
+      outcome: "changed",
+      targetPath: paths.envLocal,
+      content: writeContent,
+      permission: SETUP_PERMISSIONS.localFileWrite,
+      reason: destExists ? "overwrote existing file" : "created new file",
+      logMessage: `${destExists ? "overwrote" : "created"} ${label}`,
+    },
+    knownSecrets,
+  );
 }
