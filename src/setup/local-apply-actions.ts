@@ -1,9 +1,9 @@
-import { createHash } from "node:crypto";
+import { stat } from "node:fs/promises";
 import { mkdir } from "node:fs/promises";
 import { SETUP_PERMISSIONS } from "./permission-model.js";
 import {
   collectMergedSecrets,
-  hashLocalFile,
+  getLocalFileBaseline,
   mergeEnvFileContent,
   mergeEnvInput,
   readExistingEnvFile,
@@ -117,8 +117,8 @@ export async function getLocalFileBaselines(
   paths: ReturnType<typeof resolveLocalFilePaths>,
 ): Promise<LocalFileBaselines> {
   const [envLocalHash, configLocalHash] = await Promise.all([
-    hashLocalFile(paths.envLocal),
-    hashLocalFile(paths.configLocal),
+    getLocalFileBaseline(paths.envLocal),
+    getLocalFileBaseline(paths.configLocal),
   ]);
 
   return {
@@ -155,9 +155,7 @@ export function computeLocalSetupFingerprint(
     },
     config: normalizeConfigFormInput(payload.config),
   };
-  return createHash("sha256")
-    .update(JSON.stringify(normalized))
-    .digest("hex");
+  return JSON.stringify(normalized);
 }
 
 function sanitizeErrorMessage(

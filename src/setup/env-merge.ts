@@ -1,5 +1,4 @@
-import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { access } from "node:fs/promises";
 import {
   collectEnvInputSecrets,
@@ -221,17 +220,10 @@ export function summarizeManagedKeyPresence(
   };
 }
 
-export function hashFileContent(content: string | null): string {
-  if (content === null) {
-    return "missing";
-  }
-  return createHash("sha256").update(content).digest("hex");
-}
-
-export async function hashLocalFile(filePath: string): Promise<string> {
+export async function getLocalFileBaseline(filePath: string): Promise<string> {
   try {
-    const content = await readFile(filePath, "utf8");
-    return hashFileContent(content);
+    const fileStat = await stat(filePath);
+    return `${fileStat.size}:${fileStat.mtimeMs}`;
   } catch {
     return "missing";
   }
