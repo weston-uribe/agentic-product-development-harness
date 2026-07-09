@@ -1,8 +1,11 @@
 import { access, readFile } from "node:fs/promises";
-import path from "node:path";
 import { loadHarnessConfig } from "../config/load-config.js";
 import { normalizeHarnessEnvPaths } from "../gui/repo-root.js";
-import type { ConfigSourceKind } from "../config/resolve-config.js";
+import {
+  resolveConfigSource,
+  type ConfigSourceKind,
+  type ResolvedConfigSource,
+} from "../config/resolve-config.js";
 import type { HarnessConfig } from "../config/types.js";
 import { buildExampleTargetAppConfig } from "./config-builder.js";
 import {
@@ -336,6 +339,44 @@ function deriveMissingSteps(input: {
   return steps;
 }
 
+const INLINE_CONFIG_SOURCE_KINDS = new Set<ConfigSourceKind>([
+  "HARNESS_CONFIG_JSON_B64",
+  "HARNESS_CONFIG_JSON",
+]);
+
+function collectInlineConfigSecrets(): string[] {
+  const secrets: string[] = [];
+  const inlineJson = process.env.HARNESS_CONFIG_JSON?.trim();
+  if (inlineJson) {
+    secrets.push(inlineJson);
+  }
+
+  const inlineB64 = process.env.HARNESS_CONFIG_JSON_B64?.trim();
+  if (inlineB64) {
+    secrets.push(inlineB64);
+    try {
+      secrets.push(Buffer.from(inlineB64, "base64").toString("utf8"));
+    } catch {
+      // ignore decode failures; invalid values are surfaced as parse errors
+    }
+  }
+
+  return secrets;
+}
+
+function toSafeConfigSourceSummary(
+  source: ResolvedConfigSource,
+  resolved: boolean,
+  parseError?: string,
+): ConfigSourceSummary {
+  return {
+    kind: source.kind,
+    label: INLINE_CONFIG_SOURCE_KINDS.has(source.kind) ? source.kind : source.label,
+    resolved,
+    parseError,
+  };
+}
+
 export function sanitizeSetupViewModel(
   viewModel: SetupGuiViewModel,
   knownSecrets: readonly string[] = [],
@@ -391,44 +432,21 @@ export async function getSetupStateSummary(options?: {
 
   let config: HarnessConfig | null = null;
   let configParseError: string | undefined;
-  let configSource: ConfigSourceSummary = {
-    kind: "default-file",
-    label: path.resolve(cwd, "harness.config.json"),
-    resolved: false,
-  };
+  const resolvedSource = resolveConfigSource({ baseDir: cwd });
+  let configSource = toSafeConfigSourceSummary(resolvedSource, false);
 
   try {
-    const loaded = await loadHarnessConfig({
-      configPath: path.join(cwd, "harness.config.json"),
-    });
+    const loaded = await loadHarnessConfig({ baseDir: cwd });
     config = loaded.config;
-    configSource = {
-      kind: loaded.source.kind,
-      label:
-        loaded.source.kind === "HARNESS_CONFIG_JSON_B64" ||
-        loaded.source.kind === "HARNESS_CONFIG_JSON"
-          ? loaded.source.kind
-          : loaded.source.label,
-      resolved: true,
-    };
+    configSource = toSafeConfigSourceSummary(loaded.source, true);
   } catch (error) {
     configParseError =
       error instanceof Error ? error.message : String(error);
-    try {
-      const loaded = await loadHarnessConfig({
-        configPath: path.join(cwd, "harness.config.json"),
-      });
-      config = loaded.config;
-      configSource = {
-        kind: loaded.source.kind,
-        label: loaded.source.label,
-        resolved: true,
-        parseError: configParseError,
-      };
-      configParseError = undefined;
-    } catch {
-      // keep original parse error
-    }
+    configSource = toSafeConfigSourceSummary(
+      resolvedSource,
+      false,
+      configParseError,
+    );
   }
 
   const scaffold = await runOperatorScaffold({ cwd, mode: "dry-run" });
@@ -550,5 +568,5 @@ export async function getSetupStateSummary(options?: {
     ],
   };
 
-  return sanitizeSetupViewModel(viewModel);
+  return sanitizeSetupViewModel(viewModel, collectInlineConfigSecrets());
 }

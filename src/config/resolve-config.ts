@@ -56,12 +56,20 @@ function decodeBase64Config(value: string): string {
   }
 }
 
+function resolvePathAgainstBase(baseDir: string, targetPath: string): string {
+  return path.isAbsolute(targetPath)
+    ? path.resolve(targetPath)
+    : path.resolve(baseDir, targetPath);
+}
+
 export function resolveConfigSource(options?: {
+  baseDir?: string;
   configPath?: string;
 }): ResolvedConfigSource {
+  const baseDir = options?.baseDir?.trim() || process.cwd();
   const explicitCliPath = readExplicitCliConfigPath();
   if (explicitCliPath) {
-    const absolutePath = path.resolve(explicitCliPath);
+    const absolutePath = resolvePathAgainstBase(baseDir, explicitCliPath);
     return {
       kind: "cli-config",
       label: absolutePath,
@@ -89,7 +97,7 @@ export function resolveConfigSource(options?: {
 
   const envPath = process.env.HARNESS_CONFIG_PATH?.trim();
   if (envPath) {
-    const absolutePath = path.resolve(envPath);
+    const absolutePath = resolvePathAgainstBase(baseDir, envPath);
     return {
       kind: "HARNESS_CONFIG_PATH",
       label: absolutePath,
@@ -98,7 +106,7 @@ export function resolveConfigSource(options?: {
   }
 
   const fallbackPath = options?.configPath?.trim() || DEFAULT_CONFIG_PATH;
-  const absolutePath = path.resolve(fallbackPath);
+  const absolutePath = resolvePathAgainstBase(baseDir, fallbackPath);
   return {
     kind: "default-file",
     label: absolutePath,
