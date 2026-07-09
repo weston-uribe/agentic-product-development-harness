@@ -818,97 +818,34 @@ Any Linear write should require strong confirmation.
 
 ---
 
-## 13. First implementation slice
+## 13. Implementation history and scope boundaries
 
-The first implementation should **not** start with the full visual UI.
+Earlier GUI milestones established the setup core and Settings / Configure capabilities that M6 productizes.
 
-It should create the setup core that the GUI will use.
+| Milestone | Status | Scope |
+| --------- | ------ | ----- |
+| Milestone 1 — Design doc | Implemented | This document and agreed direction |
+| Milestone 2 — Setup core | Implemented | Shared setup services used by CLI and GUI |
+| Milestone 3 — Local GUI shell | Implemented | `npm run harness:gui` and read-only Settings / Configure |
+| Milestone 4 — Guided configuration | Implemented | Local `.env.local` and `.harness/config.local.json` forms, redacted preview, confirmation-gated local writes |
+| Milestone 5 — Permissioned automation | Implemented | GitHub Actions secrets and target workflow install PRs after confirmation |
+| Milestone 5.5 — Live sandbox smoke | Implemented | Manual validation against real GitHub sandbox resources |
+| Milestone 6 — First-run readiness flow | Planned | In-product guided setup/readiness UX over existing setup capabilities |
+| Milestone 7 — Workspace component foundation | Planned | Reusable workspace components for issue/run/PR surfaces |
 
-### Slice 1 — setup core foundation
+M6 is **not** a text guide, markdown walkthrough, or live harness phase trigger. It is a UX/productization layer that helps a first-time PM move from fresh clone to **ready for first harness run** inside Settings / Configure.
 
-Build:
+M6 does **not**:
 
-```
+- trigger live harness phases
+- run real Linear issue automation
+- create implementation branches or issue-work PRs
+- dispatch cloud workflows or repository dispatch
+- replace CLI doctor/provider validation
 
-```
+A future **M6.5 or later** milestone may add a safe first-issue dry run or no-op harness validation once readiness is clear.
 
-```
-src/setup/
-  setup-state.ts
-  setup-actions.ts
-  config-builder.ts
-  config-writer.ts
-  env-writer.ts
-  permission-model.ts
-  generated-instructions.ts
-```
-
-Refactor existing `operator init` behavior to call setup core services.
-
-Acceptance criteria:
-
--  Existing `npm run harness:operator:init` behavior preserved. 
--  Setup core can generate `.env.local` content. 
--  Setup core can generate `.harness/config.local.json` content from structured inputs. 
--  Setup core supports dry-run vs apply. 
--  Setup core classifies actions by permission scope. 
--  Unit tests cover dry-run/apply behavior. 
--  No GUI yet. 
--  No runtime automation behavior changed. 
-
-### Milestone 3 — Local GUI shell
-
-**Status:** **Implemented** — `npm run harness:gui` launches a local Next.js Settings / Configure shell backed by setup core read-only summaries.
-
-Add:
-
-```
-
-```
-
-```
-npm run harness:gui
-```
-
-Launch local app.
-
-Initial UI:
-
-```
-
-```
-
-```
-Settings → Configure
-```
-
-Read-only or local-only actions first:
-
--  show current config source 
--  show missing setup steps 
--  show generated config preview 
--  run local doctor summary 
-
-### Slice 3 — service validation
-
-Add Linear/GitHub/Cursor checks behind setup API.
-
-### Slice 4 — apply automation
-
-Add confirmation-gated:
-
--  write `.env.local` 
--  write `.harness/config.local.json` 
--  set GitHub Actions secrets 
--  generate/install target repo workflow 
-
-### Slice 5 — first-run guided validation
-
-Guide safe cloud validation:
-
--  no-op harness repo sync 
--  target repo dry-run 
--  first issue path 
+M7 should focus on **reusable workspace components** for issue, run, PR, preview, and validation surfaces. It should not start generative UI infrastructure or provider marketplace work.
 
 ---
 
@@ -934,15 +871,36 @@ Forms for services, target repo config, env/config generation, doctor checklist 
 
 ### Milestone 5 — Permissioned automation
 
-Set GitHub Actions secrets and install target repo workflow after confirmation, with manual alternative.
+**Status:** **Implemented** — Set GitHub Actions secrets and install target repo workflow after confirmation, with manual alternative.
 
-### Milestone 6 — First-run success guide
+### Milestone 5.5 — Live sandbox smoke
 
-Walk user from configured harness to first safe issue run.
+**Status:** **Implemented** — Manual validation of local and remote setup against real GitHub sandbox resources.
 
-### Milestone 7 — Future workspace/generative UI
+### Milestone 6 — First-run readiness flow
 
-Begin pulling together issue, PR, run, preview, and validation state into task-specific generated views.
+**Status:** **Planned** — Redesign Settings / Configure into an in-product first-run readiness flow.
+
+Deliverables:
+
+- ordered guided stepper as the default first-run experience
+- shared readiness / blocker / next-action model over existing setup summaries
+- advanced checklist dashboard escape hatch with the same readiness model
+- final ready/blocked state without live harness run trigger
+
+Non-goals for M6:
+
+- text-only setup guide
+- live Linear writes
+- live harness phase execution
+- cloud workflow dispatch
+- Playwright/e2e automation
+
+### Milestone 7 — Workspace component foundation
+
+**Status:** **Planned** — Begin reusable workspace components for issue, PR, run, preview, and validation surfaces.
+
+This milestone should establish component boundaries and shared state patterns for a future Product Development Harness workspace. It should **not** start generative UI infrastructure, natural-language canvas work, or provider marketplace features.
 
 ---
 
@@ -1062,4 +1020,5 @@ The design is successful if it:
 -  Proposes an architecture that reuses setup logic across CLI and GUI. 
 -  Gives a small first implementation slice that does not prematurely build a brittle UI. 
 -  Gives a path toward a hosted/team product later.
+-  Distinguishes setup readiness (M6) from live harness execution (later milestones).
 

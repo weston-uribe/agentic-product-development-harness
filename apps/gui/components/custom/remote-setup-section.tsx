@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   RemoteHarnessSecretApplyResult,
   RemoteHarnessSecretPreview,
@@ -21,6 +21,8 @@ import { SetupApplyResult } from "@/components/custom/setup-apply-result";
 
 interface RemoteSetupSectionProps {
   initialSummary: RemoteSetupSummary;
+  onSummaryUpdated?: (summary: RemoteSetupSummary) => void;
+  onUiStateChange?: (state: { remoteSecretPreviewStale: boolean }) => void;
 }
 
 function accessVariant(
@@ -31,7 +33,11 @@ function accessVariant(
   return "secondary";
 }
 
-export function RemoteSetupSection({ initialSummary }: RemoteSetupSectionProps) {
+export function RemoteSetupSection({
+  initialSummary,
+  onSummaryUpdated,
+  onUiStateChange,
+}: RemoteSetupSectionProps) {
   const [summary, setSummary] = useState(initialSummary);
   const [secretValues, setSecretValues] = useState<RemoteSecretFormValues>({
     linearApiKey: "",
@@ -65,6 +71,12 @@ export function RemoteSetupSection({ initialSummary }: RemoteSetupSectionProps) 
     previewPayload !== null &&
     JSON.stringify(previewPayload) === JSON.stringify(secretValues);
 
+  useEffect(() => {
+    onUiStateChange?.({
+      remoteSecretPreviewStale: preview !== null && !previewIsCurrent,
+    });
+  }, [onUiStateChange, preview, previewIsCurrent]);
+
   const refreshSummary = useCallback(async () => {
     setLoading("refresh");
     try {
@@ -74,6 +86,7 @@ export function RemoteSetupSection({ initialSummary }: RemoteSetupSectionProps) 
         throw new Error(data.error ?? "Remote summary refresh failed");
       }
       setSummary(data as RemoteSetupSummary);
+      onSummaryUpdated?.(data as RemoteSetupSummary);
     } catch (refreshError) {
       setError(
         refreshError instanceof Error
@@ -83,7 +96,7 @@ export function RemoteSetupSection({ initialSummary }: RemoteSetupSectionProps) 
     } finally {
       setLoading(null);
     }
-  }, []);
+  }, [onSummaryUpdated]);
 
   const resetSecretApplyState = () => {
     setApplyResult(null);
@@ -142,6 +155,7 @@ export function RemoteSetupSection({ initialSummary }: RemoteSetupSectionProps) 
       }
       setApplyResult(data.apply as RemoteHarnessSecretApplyResult);
       setSummary(data.summary as RemoteSetupSummary);
+      onSummaryUpdated?.(data.summary as RemoteSetupSummary);
       setSecretValues({
         linearApiKey: "",
         cursorApiKey: "",

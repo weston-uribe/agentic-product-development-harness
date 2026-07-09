@@ -3,10 +3,13 @@ import { CheckCircle2, Circle, XCircle } from "lucide-react";
 import { SPACING } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 
+export type ChecklistItemStatus = "pending" | "complete" | "blocked";
+
 interface ChecklistItem {
   id: string;
   label: string;
   detail: string;
+  status?: ChecklistItemStatus;
 }
 
 interface SetupChecklistProps {
@@ -14,21 +17,51 @@ interface SetupChecklistProps {
   className?: string;
 }
 
+function checklistIcon(status: ChecklistItemStatus | undefined) {
+  switch (status) {
+    case "complete":
+      return CheckCircle2;
+    case "blocked":
+      return XCircle;
+    default:
+      return Circle;
+  }
+}
+
+function checklistIconClass(status: ChecklistItemStatus | undefined): string {
+  switch (status) {
+    case "complete":
+      return "text-emerald-600";
+    case "blocked":
+      return "text-destructive";
+    default:
+      return "text-muted-foreground";
+  }
+}
+
 export function SetupChecklist({ items, className }: SetupChecklistProps) {
   return (
     <ul className={cn(SPACING.list, className)}>
-      {items.map((item) => (
-        <li
-          key={item.id}
-          className="flex items-start gap-3 rounded-md border border-border bg-muted/30 p-3"
-        >
-          <Circle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-          <div className={SPACING.stackSm}>
-            <p className="text-sm font-medium">{item.label}</p>
-            <p className="text-sm text-muted-foreground">{item.detail}</p>
-          </div>
-        </li>
-      ))}
+      {items.map((item) => {
+        const Icon = checklistIcon(item.status);
+        return (
+          <li
+            key={item.id}
+            className="flex items-start gap-3 rounded-md border border-border bg-muted/30 p-3"
+          >
+            <Icon
+              className={cn(
+                "mt-0.5 size-4 shrink-0",
+                checklistIconClass(item.status),
+              )}
+            />
+            <div className={SPACING.stackSm}>
+              <p className="text-sm font-medium">{item.label}</p>
+              <p className="text-sm text-muted-foreground">{item.detail}</p>
+            </div>
+          </li>
+        );
+      })}
     </ul>
   );
 }

@@ -66,7 +66,7 @@ Dummy operator values were used for Linear/Cursor/harness GitHub secret fields d
 | `npm run build` | Pass |
 | `npm test` | Pass (537 tests) |
 | `npm run test:webhook` | Pass (89 tests) |
-| `git grep -ni portfolio` | Zero matches |
+| Disallowed project-reference grep | Zero matches |
 
 ## Cleanup
 

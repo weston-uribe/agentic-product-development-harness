@@ -14,6 +14,11 @@ const REMOTE_GUI_COMPONENTS = [
   "apps/gui/components/custom/remote-action-preview.tsx",
   "apps/gui/components/custom/remote-action-confirmation.tsx",
   "apps/gui/components/custom/target-workflow-pr-card.tsx",
+  "apps/gui/components/custom/configure-experience.tsx",
+  "apps/gui/components/custom/first-run-stepper.tsx",
+  "apps/gui/components/custom/readiness-banner.tsx",
+  "apps/gui/components/custom/setup-dashboard.tsx",
+  "apps/gui/components/custom/setup-readonly-sections.tsx",
 ];
 
 const FORBIDDEN_STORAGE_PATTERNS = [
