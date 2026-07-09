@@ -38,7 +38,9 @@ If the resolved source is missing, unreadable, or invalid, harness commands exit
 
 The starter config in `.harness/config.example.json` is for first-time users with **one** target repo. Add more entries to `repos[]` and `allowedTargetRepos[]` for every repo you want the harness to manage.
 
-Setup core services in [`src/setup/`](../src/setup/) power `harness:operator:init` today and will back future Settings / Configure GUI actions. They support dry-run previews, local file writes, permission classification, and manual instruction generation without changing runtime harness automation behavior.
+Setup core services in [`src/setup/`](../src/setup/) power `harness:operator:init` today and back the local Product Development Harness GUI Settings / Configure screen (`npm run harness:gui`). They support dry-run previews, local file writes, permission classification, and manual instruction generation without changing runtime harness automation behavior.
+
+Local GUI docs: [`docs/gui-local.md`](../gui-local.md)
 
 ---
 

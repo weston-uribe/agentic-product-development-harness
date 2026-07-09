@@ -856,7 +856,9 @@ Acceptance criteria:
 -  No GUI yet. 
 -  No runtime automation behavior changed. 
 
-### Slice 2 — local GUI shell
+### Milestone 3 — Local GUI shell
+
+**Status:** **Implemented** — `npm run harness:gui` launches a local Next.js Settings / Configure shell backed by setup core read-only summaries.
 
 Add:
 

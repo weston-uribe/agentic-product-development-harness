@@ -1,0 +1,554 @@
+import { access, readFile } from "node:fs/promises";
+import path from "node:path";
+import { loadHarnessConfig } from "../config/load-config.js";
+import { normalizeHarnessEnvPaths } from "../gui/repo-root.js";
+import type { ConfigSourceKind } from "../config/resolve-config.js";
+import type { HarnessConfig } from "../config/types.js";
+import { buildExampleTargetAppConfig } from "./config-builder.js";
+import {
+  doctorChecksFailed,
+  summarizeDoctorChecks,
+  type DoctorCheckGroupSummary,
+  type DoctorCheckResult,
+} from "./doctor-summary.js";
+import {
+  previewGitHubSecretInstructions,
+  previewHarnessConfigB64Instructions,
+  runOperatorScaffold,
+  type SetupActionResult,
+} from "./setup-actions.js";
+import {
+  redactKnownSecretValues,
+  redactSecretEnvContent,
+  sanitizeSetupActionResult,
+} from "./redact-secrets.js";
+import { writeEnvLocal } from "./env-writer.js";
+import { writeConfigLocal } from "./config-writer.js";
+import {
+  summarizeCursorModelSettings,
+  type CursorModelSettingsSummary,
+} from "./model-settings.js";
+import { resolveLocalFilePaths } from "./setup-state.js";
+import { SETUP_ACTIONS } from "./setup-actions.js";
+
+const SECRET_ENV_KEYS = [
+  "LINEAR_API_KEY",
+  "CURSOR_API_KEY",
+  "GITHUB_TOKEN",
+  "HARNESS_CONFIG_PATH",
+] as const;
+
+export interface LocalFileStatus {
+  label: string;
+  path: string;
+  exists: boolean;
+}
+
+export interface ConfigSourceSummary {
+  kind: ConfigSourceKind;
+  label: string;
+  resolved: boolean;
+  parseError?: string;
+}
+
+export interface RepoConfigSummary {
+  id: string;
+  targetRepo: string;
+  baseBranch: string;
+  productionBranch: string;
+  previewProvider?: string;
+  linearProjects?: string[];
+}
+
+export interface ConfigSummary {
+  repoCount: number;
+  repos: RepoConfigSummary[];
+  linearTeamKey?: string;
+  allowedTargetRepos: string[];
+  closureValid: boolean;
+  model: CursorModelSettingsSummary;
+}
+
+export interface MissingSetupStep {
+  id: string;
+  label: string;
+  detail: string;
+}
+
+export interface SetupGuiViewModel {
+  overview: {
+    readyForLocalDoctor: boolean;
+    configResolved: boolean;
+    localFilesPresent: boolean;
+  };
+  localFiles: LocalFileStatus[];
+  configSource: ConfigSourceSummary;
+  configSummary?: ConfigSummary;
+  envKeyPresence: Record<(typeof SECRET_ENV_KEYS)[number], boolean>;
+  scaffoldPreviews: SetupActionResult[];
+  instructionPreviews: SetupActionResult[];
+  generatedPreviews: {
+    envLocal?: string;
+    configLocal?: string;
+  };
+  missingSteps: MissingSetupStep[];
+  doctor: {
+    checks: DoctorCheckResult[];
+    groups: DoctorCheckGroupSummary[];
+    failed: boolean;
+    remoteChecksNote: string;
+  };
+  deferredActions: Array<{
+    actionId: string;
+    label: string;
+    description: string;
+    scope: string;
+    confirmation: string;
+    deferredReason: string;
+  }>;
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function summarizeEnvKeyPresence(
+  envLocalPath: string,
+): Promise<Record<(typeof SECRET_ENV_KEYS)[number], boolean>> {
+  const presence = {
+    LINEAR_API_KEY: false,
+    CURSOR_API_KEY: false,
+    GITHUB_TOKEN: false,
+    HARNESS_CONFIG_PATH: false,
+  };
+
+  try {
+    const content = await readFile(envLocalPath, "utf8");
+    for (const line of content.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) {
+        continue;
+      }
+      const separator = trimmed.indexOf("=");
+      if (separator === -1) {
+        continue;
+      }
+      const key = trimmed.slice(0, separator).trim();
+      const value = trimmed.slice(separator + 1).trim();
+      if (key in presence && value.length > 0) {
+        presence[key as keyof typeof presence] = true;
+      }
+    }
+  } catch {
+    // missing file is valid state
+  }
+
+  return presence;
+}
+
+function buildConfigSummary(config: HarnessConfig): ConfigSummary {
+  return {
+    repoCount: config.repos.length,
+    repos: config.repos.map((repo) => ({
+      id: repo.id,
+      targetRepo: repo.targetRepo,
+      baseBranch: repo.baseBranch,
+      productionBranch: repo.productionBranch,
+      previewProvider: repo.previewProvider,
+      linearProjects: repo.linearProjects,
+    })),
+    linearTeamKey: config.linear?.teamKey,
+    allowedTargetRepos: config.allowedTargetRepos,
+    closureValid: true,
+    model: summarizeCursorModelSettings(config),
+  };
+}
+
+export async function collectLocalDoctorChecks(options?: {
+  cwd?: string;
+  config?: HarnessConfig | null;
+  configParseError?: string;
+  envLocalExists?: boolean;
+  configLocalExists?: boolean;
+}): Promise<DoctorCheckResult[]> {
+  const paths = resolveLocalFilePaths(options?.cwd);
+  const envExists =
+    options?.envLocalExists ?? (await fileExists(paths.envLocal));
+  const configExists =
+    options?.configLocalExists ?? (await fileExists(paths.configLocal));
+  const checks: DoctorCheckResult[] = [];
+
+  if (options?.configParseError) {
+    checks.push({
+      label: "harness config valid",
+      ok: false,
+      detail: options.configParseError,
+    });
+  } else if (options?.config) {
+    checks.push({
+      label: "harness config valid",
+      ok: true,
+      detail: "resolved for local GUI summary",
+    });
+    checks.push({
+      label: "allowedTargetRepos covers all repo mappings",
+      ok: true,
+    });
+  } else {
+    checks.push({
+      label: "harness config valid",
+      ok: false,
+      detail: "config could not be resolved",
+    });
+  }
+
+  checks.push({
+    label: ".env.local present",
+    ok: envExists,
+    detail: envExists ? paths.envLocal : "run npm run harness:operator:init",
+  });
+
+  checks.push({
+    label: ".harness/config.local.json present",
+    ok: configExists,
+    detail: configExists ? paths.configLocal : "run npm run harness:operator:init",
+  });
+
+  if (options?.config) {
+    const model = summarizeCursorModelSettings(options.config);
+    checks.push({
+      label: "Cursor model policy resolved",
+      ok: true,
+      detail: `${model.resolvedModelId} (${model.source})`,
+    });
+  }
+
+  checks.push({
+    label: "LINEAR_API_KEY set",
+    ok: false,
+    skipped: true,
+    detail: "remote provider checks are CLI-only in Milestone 3",
+  });
+  checks.push({
+    label: "CURSOR_API_KEY set",
+    ok: false,
+    skipped: true,
+    detail: "remote provider checks are CLI-only in Milestone 3",
+  });
+  checks.push({
+    label: "GITHUB_TOKEN set",
+    ok: false,
+    skipped: true,
+    detail: "remote provider checks are CLI-only in Milestone 3",
+  });
+
+  return checks;
+}
+
+function deriveMissingSteps(input: {
+  envExists: boolean;
+  configExists: boolean;
+  configResolved: boolean;
+  configParseError?: string;
+  envKeyPresence: Record<(typeof SECRET_ENV_KEYS)[number], boolean>;
+}): MissingSetupStep[] {
+  const steps: MissingSetupStep[] = [];
+
+  if (!input.envExists) {
+    steps.push({
+      id: "missing-env-local",
+      label: "Create .env.local",
+      detail: "Run npm run harness:operator:init to scaffold local env files.",
+    });
+  }
+
+  if (!input.configExists) {
+    steps.push({
+      id: "missing-config-local",
+      label: "Create .harness/config.local.json",
+      detail: "Run npm run harness:operator:init, then edit your target repo mapping.",
+    });
+  }
+
+  if (input.configParseError) {
+    steps.push({
+      id: "config-parse-error",
+      label: "Fix harness config parse errors",
+      detail: input.configParseError,
+    });
+  } else if (!input.configResolved) {
+    steps.push({
+      id: "config-unresolved",
+      label: "Point harness config resolution at your private config",
+      detail: "Set HARNESS_CONFIG_PATH in .env.local to .harness/config.local.json.",
+    });
+  }
+
+  if (!input.envKeyPresence.HARNESS_CONFIG_PATH) {
+    steps.push({
+      id: "missing-harness-config-path",
+      label: "Set HARNESS_CONFIG_PATH",
+      detail: "Keep HARNESS_CONFIG_PATH=.harness/config.local.json in .env.local.",
+    });
+  }
+
+  if (!input.envKeyPresence.LINEAR_API_KEY) {
+    steps.push({
+      id: "missing-linear-key",
+      label: "Add LINEAR_API_KEY for live doctor and harness runs",
+      detail: "Fill LINEAR_API_KEY in .env.local when ready for live validation.",
+    });
+  }
+
+  if (!input.envKeyPresence.CURSOR_API_KEY) {
+    steps.push({
+      id: "missing-cursor-key",
+      label: "Add CURSOR_API_KEY for live cloud agent phases",
+      detail: "Fill CURSOR_API_KEY in .env.local when ready for live validation.",
+    });
+  }
+
+  if (!input.envKeyPresence.GITHUB_TOKEN) {
+    steps.push({
+      id: "missing-github-token",
+      label: "Add GITHUB_TOKEN for handoff and merge checks",
+      detail: "Fill GITHUB_TOKEN in .env.local for local doctor GitHub checks.",
+    });
+  }
+
+  steps.push({
+    id: "github-actions-secrets",
+    label: "Configure GitHub Actions secrets manually",
+    detail: "Set HARNESS_CONFIG_JSON_B64, LINEAR_API_KEY, CURSOR_API_KEY, and HARNESS_GITHUB_TOKEN in the harness repo.",
+  });
+
+  steps.push({
+    id: "target-workflow",
+    label: "Install target repo production sync workflow manually",
+    detail: "Add trigger-harness-production-sync.yml in each target repo via PR or copy-paste.",
+  });
+
+  return steps;
+}
+
+export function sanitizeSetupViewModel(
+  viewModel: SetupGuiViewModel,
+  knownSecrets: readonly string[] = [],
+): SetupGuiViewModel {
+  const redactText = (text: string): string =>
+    redactKnownSecretValues(redactSecretEnvContent(text), knownSecrets);
+
+  return {
+    ...viewModel,
+    scaffoldPreviews: viewModel.scaffoldPreviews.map((result) =>
+      sanitizeSetupActionResult(result, knownSecrets),
+    ),
+    instructionPreviews: viewModel.instructionPreviews.map((result) =>
+      sanitizeSetupActionResult(result, knownSecrets),
+    ),
+    generatedPreviews: {
+      envLocal: viewModel.generatedPreviews.envLocal
+        ? redactText(viewModel.generatedPreviews.envLocal)
+        : undefined,
+      configLocal: viewModel.generatedPreviews.configLocal,
+    },
+    missingSteps: viewModel.missingSteps.map((step) => ({
+      ...step,
+      detail: redactText(step.detail),
+    })),
+    doctor: {
+      ...viewModel.doctor,
+      checks: viewModel.doctor.checks.map((check) => ({
+        ...check,
+        detail: check.detail ? redactText(check.detail) : undefined,
+      })),
+      groups: viewModel.doctor.groups.map((group) => ({
+        ...group,
+        checks: group.checks.map((check) => ({
+          ...check,
+          detail: check.detail ? redactText(check.detail) : undefined,
+        })),
+      })),
+    },
+  };
+}
+
+export async function getSetupStateSummary(options?: {
+  cwd?: string;
+}): Promise<SetupGuiViewModel> {
+  const cwd = options?.cwd ?? process.cwd();
+  normalizeHarnessEnvPaths(cwd);
+  const paths = resolveLocalFilePaths(cwd);
+
+  const envExists = await fileExists(paths.envLocal);
+  const configExists = await fileExists(paths.configLocal);
+  const envKeyPresence = await summarizeEnvKeyPresence(paths.envLocal);
+
+  let config: HarnessConfig | null = null;
+  let configParseError: string | undefined;
+  let configSource: ConfigSourceSummary = {
+    kind: "default-file",
+    label: path.resolve(cwd, "harness.config.json"),
+    resolved: false,
+  };
+
+  try {
+    const loaded = await loadHarnessConfig({
+      configPath: path.join(cwd, "harness.config.json"),
+    });
+    config = loaded.config;
+    configSource = {
+      kind: loaded.source.kind,
+      label:
+        loaded.source.kind === "HARNESS_CONFIG_JSON_B64" ||
+        loaded.source.kind === "HARNESS_CONFIG_JSON"
+          ? loaded.source.kind
+          : loaded.source.label,
+      resolved: true,
+    };
+  } catch (error) {
+    configParseError =
+      error instanceof Error ? error.message : String(error);
+    try {
+      const loaded = await loadHarnessConfig({
+        configPath: path.join(cwd, "harness.config.json"),
+      });
+      config = loaded.config;
+      configSource = {
+        kind: loaded.source.kind,
+        label: loaded.source.label,
+        resolved: true,
+        parseError: configParseError,
+      };
+      configParseError = undefined;
+    } catch {
+      // keep original parse error
+    }
+  }
+
+  const scaffold = await runOperatorScaffold({ cwd, mode: "dry-run" });
+  const envPreview = await writeEnvLocal({
+    paths,
+    mode: "dry-run",
+    input: {},
+  });
+  const configPreview = await writeConfigLocal({
+    paths,
+    mode: "dry-run",
+    input: {
+      repos: [
+        {
+          id: "target-app",
+          linearProjects: ["Example Target App"],
+          targetRepo: "https://github.com/owner/example-target-app",
+        },
+      ],
+    },
+  });
+
+  const exampleConfig = buildExampleTargetAppConfig();
+  const doctorChecks = await collectLocalDoctorChecks({
+    cwd,
+    config,
+    configParseError,
+    envLocalExists: envExists,
+    configLocalExists: configExists,
+  });
+  const doctorGroups = summarizeDoctorChecks(doctorChecks);
+
+  const configResolved = Boolean(config) && !configParseError;
+  const localFilesPresent = envExists && configExists;
+
+  const viewModel: SetupGuiViewModel = {
+    overview: {
+      readyForLocalDoctor: configResolved && localFilesPresent,
+      configResolved,
+      localFilesPresent,
+    },
+    localFiles: [
+      { label: ".env.local", path: paths.envLocal, exists: envExists },
+      {
+        label: ".harness/config.local.json",
+        path: paths.configLocal,
+        exists: configExists,
+      },
+      {
+        label: ".env.example",
+        path: paths.envExample,
+        exists: await fileExists(paths.envExample),
+      },
+      {
+        label: ".harness/config.example.json",
+        path: paths.configExample,
+        exists: await fileExists(paths.configExample),
+      },
+    ],
+    configSource: {
+      ...configSource,
+      parseError: configParseError,
+      resolved: configResolved,
+    },
+    configSummary: config ? buildConfigSummary(config) : buildConfigSummary(exampleConfig),
+    envKeyPresence,
+    scaffoldPreviews: scaffold.results,
+    instructionPreviews: [
+      previewHarnessConfigB64Instructions({
+        configPath: ".harness/config.local.json",
+      }),
+      previewGitHubSecretInstructions({
+        harnessRepo: "owner/agentic-product-development-harness",
+      }),
+    ],
+    generatedPreviews: {
+      envLocal: envPreview.content,
+      configLocal: configPreview.content ?? JSON.stringify(exampleConfig, null, 2),
+    },
+    missingSteps: deriveMissingSteps({
+      envExists,
+      configExists,
+      configResolved,
+      configParseError,
+      envKeyPresence,
+    }),
+    doctor: {
+      checks: doctorChecks,
+      groups: doctorGroups,
+      failed: doctorChecksFailed(doctorChecks),
+      remoteChecksNote:
+        "Live Linear, GitHub, and Cursor doctor checks remain CLI-only in Milestone 3. Run npm run harness:doctor for full validation.",
+    },
+    deferredActions: [
+      {
+        actionId: SETUP_ACTIONS.scaffoldEnvLocal.id,
+        label: SETUP_ACTIONS.scaffoldEnvLocal.label,
+        description: SETUP_ACTIONS.scaffoldEnvLocal.description,
+        scope: SETUP_ACTIONS.scaffoldEnvLocal.permission.scope,
+        confirmation: SETUP_ACTIONS.scaffoldEnvLocal.permission.confirmation,
+        deferredReason: "Local file writes are deferred to Milestone 4.",
+      },
+      {
+        actionId: SETUP_ACTIONS.scaffoldConfigLocal.id,
+        label: SETUP_ACTIONS.scaffoldConfigLocal.label,
+        description: SETUP_ACTIONS.scaffoldConfigLocal.description,
+        scope: SETUP_ACTIONS.scaffoldConfigLocal.permission.scope,
+        confirmation: SETUP_ACTIONS.scaffoldConfigLocal.permission.confirmation,
+        deferredReason: "Local file writes are deferred to Milestone 4.",
+      },
+      {
+        actionId: SETUP_ACTIONS.futureSetGitHubSecrets.id,
+        label: SETUP_ACTIONS.futureSetGitHubSecrets.label,
+        description: SETUP_ACTIONS.futureSetGitHubSecrets.description,
+        scope: SETUP_ACTIONS.futureSetGitHubSecrets.permission.scope,
+        confirmation: SETUP_ACTIONS.futureSetGitHubSecrets.permission.confirmation,
+        deferredReason: "Remote secret writes are deferred to Milestone 5.",
+      },
+    ],
+  };
+
+  return sanitizeSetupViewModel(viewModel);
+}

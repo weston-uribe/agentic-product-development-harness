@@ -62,8 +62,9 @@ The committed [`harness.config.json`](../harness.config.json) is a generic examp
 2. `npm run harness:operator:init` — creates gitignored `.env.local` and `.harness/config.local.json` from committed examples
 3. Edit `.harness/config.local.json` with your target repo mapping, Linear team/project, and branch rules
 4. `npm run harness:doctor` — validates config (reads `HARNESS_CONFIG_PATH` from `.env.local` when present)
-5. Base64-encode `.harness/config.local.json` and set GitHub Actions secret **`HARNESS_CONFIG_JSON_B64`** on the harness repo for cloud runs
-6. Configure remaining GitHub Actions secrets (`LINEAR_API_KEY`, `CURSOR_API_KEY`, `HARNESS_GITHUB_TOKEN`)
+5. Optional: `npm run harness:gui` — open the local Settings / Configure GUI for read-only setup summary (see [`docs/gui-local.md`](gui-local.md))
+6. Base64-encode `.harness/config.local.json` and set GitHub Actions secret **`HARNESS_CONFIG_JSON_B64`** on the harness repo for cloud runs
+7. Configure remaining GitHub Actions secrets (`LINEAR_API_KEY`, `CURSOR_API_KEY`, `HARNESS_GITHUB_TOKEN`)
 
 Add more entries to `repos[]` and `allowedTargetRepos[]` for every repo you want the harness to manage. The starter example includes one target repo only.
 
