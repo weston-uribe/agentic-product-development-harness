@@ -136,6 +136,30 @@ describe("resolveRoute", () => {
     expect(result.shouldRun).toBe(true);
   });
 
+  it("routes Needs Revision issues to revision phase", async () => {
+    mocks.fetchLinearIssue.mockResolvedValue({
+      id: "issue-1",
+      identifier: "WES-24",
+      title: "Revision recovery",
+      description: `## Target repo\n\nowner/example-target-app\n\n## Task\n\nTest\n\n## Acceptance criteria\n\n- [ ] Done\n\n## Out of scope\n\n- [ ] N/A`,
+      status: "Needs Revision",
+      projectName: "Example Target App",
+      teamName: "WES",
+      teamId: "team-1",
+      url: "https://linear.app/example/issue/WES-24",
+    });
+
+    const result = await resolveRoute({
+      issueKey: "WES-24",
+      configPath,
+      linearApiKey: "test-key",
+    });
+
+    expect(result.phase).toBe("revision");
+    expect(result.linearStatus).toBe("Needs Revision");
+    expect(result.shouldRun).toBe(true);
+  });
+
   it("routes Building issues with an open PR to handoff recovery", async () => {
     mocks.fetchLinearIssue.mockResolvedValue({
       id: "issue-1",
