@@ -1,6 +1,7 @@
 import { loadHarnessConfig } from "../config/load-config.js";
 import {
   formatHarnessDispatchRepo,
+  readGitRemoteOrigin,
   resolveHarnessDispatchRepo,
 } from "./harness-dispatch-repo.js";
 import type { GitHubRemoteSetupProvider } from "./github-remote-provider.js";
@@ -12,6 +13,10 @@ import type {
 } from "./remote-actions.js";
 import { previewHarnessSecretSetup } from "./harness-secret-setup.js";
 import { loadGithubTokenFromEnvLocal } from "./setup-github-auth.js";
+import {
+  deriveStaleSmokeDiagnostics,
+  type StaleSmokeDiagnostics,
+} from "./stale-smoke-repo.js";
 
 export interface RemoteSetupRepoSummary {
   repoConfigId: string;
@@ -30,6 +35,7 @@ export interface RemoteSetupSummary {
   harnessRepoAccess: RemoteAccessStatus;
   harnessSecretStatuses: HarnessSecretStatusEntry[];
   targetRepos: RemoteSetupRepoSummary[];
+  staleSmokeDiagnostics: StaleSmokeDiagnostics;
 }
 
 export async function buildRemoteSetupSummary(options?: {
@@ -67,8 +73,15 @@ export async function buildRemoteSetupSummary(options?: {
   }
 
   const targetRepos: RemoteSetupRepoSummary[] = [];
+  let configRepos: Array<{ id: string; targetRepo: string }> | undefined;
+  let allowedTargetRepos: string[] | undefined;
   try {
     const loaded = await loadHarnessConfig({ baseDir: cwd });
+    configRepos = loaded.config.repos.map((repo) => ({
+      id: repo.id,
+      targetRepo: repo.targetRepo,
+    }));
+    allowedTargetRepos = loaded.config.allowedTargetRepos;
     for (const repo of loaded.config.repos) {
       const workflowPreview = previewTargetWorkflowSetup({
         repoConfigId: repo.id,
@@ -107,6 +120,14 @@ export async function buildRemoteSetupSummary(options?: {
     // unresolved config is valid summary state
   }
 
+  const gitRemoteOriginUrl = await readGitRemoteOrigin(cwd);
+  const staleSmokeDiagnostics = deriveStaleSmokeDiagnostics({
+    harnessDispatchRepo: harnessDispatchRepoSlug,
+    gitRemoteOriginUrl,
+    targetRepos: configRepos,
+    allowedTargetRepos,
+  });
+
   return {
     githubTokenConfigured: Boolean(githubToken),
     harnessDispatchRepo: harnessDispatchRepoSlug,
@@ -115,5 +136,6 @@ export async function buildRemoteSetupSummary(options?: {
     harnessRepoAccess,
     harnessSecretStatuses,
     targetRepos,
+    staleSmokeDiagnostics,
   };
 }

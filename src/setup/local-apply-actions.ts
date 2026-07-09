@@ -30,6 +30,7 @@ import {
 
 export interface LocalEnvFormInput {
   harnessConfigPath?: string;
+  githubDispatchRepository?: string;
   linearApiKey?: string;
   cursorApiKey?: string;
   githubToken?: string;
@@ -94,6 +95,7 @@ function secretChangeToken(value: string): string {
 function toSetupEnvInput(form: LocalEnvFormInput): SetupEnvInput {
   return {
     harnessConfigPath: form.harnessConfigPath,
+    githubDispatchRepository: form.githubDispatchRepository,
     linearApiKey: form.linearApiKey,
     cursorApiKey: form.cursorApiKey,
     githubToken: form.githubToken,
@@ -145,6 +147,8 @@ export function computeLocalSetupFingerprint(
     },
     env: {
       harnessConfigPath: payload.env.harnessConfigPath?.trim() ?? "",
+      githubDispatchRepository:
+        payload.env.githubDispatchRepository?.trim() ?? "",
       linearApiKeyToken: secretChangeToken(payload.env.linearApiKey?.trim() ?? ""),
       cursorApiKeyToken: secretChangeToken(payload.env.cursorApiKey?.trim() ?? ""),
       githubTokenToken: secretChangeToken(payload.env.githubToken?.trim() ?? ""),

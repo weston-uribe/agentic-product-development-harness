@@ -1,20 +1,19 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { SetupGuiViewModel } from "@/lib/setup-server";
 import type { RemoteSetupSummary } from "@/lib/setup-server";
 import type { LocalConfigFormInput } from "@harness/setup/config-local-editor";
 import {
   deriveFirstRunReadiness,
   type FirstRunReadinessUiState,
-  type FirstRunStepId,
 } from "@harness/setup/first-run-readiness";
 
 import { LAYOUT, RESPONSIVE, SPACING } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/custom/status-badge";
 import { ReadinessBanner } from "@/components/custom/readiness-banner";
-import { FirstRunStepper } from "@/components/custom/first-run-stepper";
+import { PrimarySetupTaskCard } from "@/components/custom/primary-setup-task-card";
 import { SetupDashboard } from "@/components/custom/setup-dashboard";
 import { ConfigureWorkflow } from "@/components/custom/configure-workflow";
 import { RemoteSetupSection } from "@/components/custom/remote-setup-section";
@@ -29,6 +28,8 @@ interface ConfigureExperienceProps {
   formDefaults: {
     env: {
       harnessConfigPath: string;
+      githubDispatchRepository: string;
+      suggestedHarnessDispatchRepo?: string;
       secretPresence: {
         LINEAR_API_KEY: boolean;
         CURSOR_API_KEY: boolean;
@@ -45,14 +46,41 @@ export function ConfigureExperience({
   formDefaults,
 }: ConfigureExperienceProps) {
   const [mode, setMode] = useState<ConfigureMode>("guided");
+  const [showGuidedDetails, setShowGuidedDetails] = useState(false);
   const [summary, setSummary] = useState(initialSummary);
   const [remoteSummary, setRemoteSummary] = useState(initialRemoteSummary);
   const [uiState, setUiState] = useState<FirstRunReadinessUiState>({});
 
   const readiness = useMemo(
-    () => deriveFirstRunReadiness({ summary, remoteSummary, uiState }),
+    () =>
+      deriveFirstRunReadiness({
+        summary,
+        remoteSummary,
+        uiState,
+        staleSmokeDiagnostics: remoteSummary.staleSmokeDiagnostics,
+      }),
     [summary, remoteSummary, uiState],
   );
+
+  const staleTargetRepoNeedsAttention =
+    readiness.staleSmokeDiagnostics.staleTargetRepos.length > 0;
+  const staleDispatchRepoNeedsAttention = Boolean(
+    readiness.staleSmokeDiagnostics.staleHarnessDispatchRepo,
+  );
+
+  const initialEnvForWorkflow = useMemo(() => {
+    const suggested = formDefaults.env.suggestedHarnessDispatchRepo;
+    const shouldResetDispatch =
+      readiness.staleSmokeDiagnostics.staleHarnessDispatchRepo && suggested;
+
+    return {
+      harnessConfigPath: formDefaults.env.harnessConfigPath,
+      githubDispatchRepository: shouldResetDispatch
+        ? suggested
+        : formDefaults.env.githubDispatchRepository,
+      secretPresence: formDefaults.env.secretPresence,
+    };
+  }, [formDefaults.env, readiness.staleSmokeDiagnostics.staleHarnessDispatchRepo]);
 
   const handleLocalUiStateChange = useCallback(
     (state: { localPreviewStale: boolean }) => {
@@ -84,13 +112,27 @@ export function ConfigureExperience({
     [],
   );
 
-  const renderGuidedStep = (stepId: FirstRunStepId) => {
+  const actionPanelRef = useRef<HTMLDivElement | null>(null);
+
+  const handlePrimaryTaskAction = useCallback(() => {
+    actionPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    const previewButton = actionPanelRef.current?.querySelector<HTMLButtonElement>(
+      "[data-primary-preview-button='true']",
+    );
+    previewButton?.focus();
+  }, []);
+
+  const renderGuidedActionPanel = () => {
+    const stepId = readiness.primaryTask?.stepId ?? readiness.currentStepId;
+
     switch (stepId) {
       case "local-setup":
         return (
           <ConfigureWorkflow
-            initialEnv={formDefaults.env}
+            initialEnv={initialEnvForWorkflow}
             initialConfig={formDefaults.config}
+            highlightStaleDispatch={staleDispatchRepoNeedsAttention}
+            highlightStaleTarget={staleTargetRepoNeedsAttention}
             onSummaryUpdated={setSummary}
             onUiStateChange={handleLocalUiStateChange}
           />
@@ -110,6 +152,7 @@ export function ConfigureExperience({
             initialSummary={remoteSummary}
             onSummaryUpdated={setRemoteSummary}
             onUiStateChange={handleRemoteUiStateChange}
+            blockedByUpstream={readiness.remoteSetupBlockedByUpstream}
           />
         );
       case "ready-for-first-run":
@@ -202,11 +245,26 @@ export function ConfigureExperience({
       <ReadinessBanner readiness={readiness} />
 
       {mode === "guided" ? (
-        <FirstRunStepper
-          readiness={readiness}
-          renderStepContent={renderGuidedStep}
-          onSwitchToAdvanced={() => setMode("advanced")}
-        />
+        <div className={SPACING.section}>
+          {readiness.primaryTask ? (
+            <PrimarySetupTaskCard
+              task={readiness.primaryTask}
+              onPrimaryAction={handlePrimaryTaskAction}
+              onShowDetails={() => {
+                setShowGuidedDetails(true);
+                setMode("advanced");
+              }}
+            />
+          ) : null}
+
+          <div ref={actionPanelRef}>{renderGuidedActionPanel()}</div>
+
+          {showGuidedDetails ? (
+            <p className="text-sm text-muted-foreground">
+              {readiness.prohibitedActionsNote}
+            </p>
+          ) : null}
+        </div>
       ) : (
         <SetupDashboard
           summary={summary}

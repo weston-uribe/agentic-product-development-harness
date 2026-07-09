@@ -1,6 +1,12 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import {
+  parseGitHubRepoSlug,
+  parseGitRemoteOriginUrl,
+} from "./github-repo-slug.js";
 import { resolveLocalFilePaths } from "./setup-state.js";
+
+export { parseGitHubRepoSlug, parseGitRemoteOriginUrl } from "./github-repo-slug.js";
 
 export const MANUAL_HARNESS_DISPATCH_REPO_PLACEHOLDER =
   "<harness-dispatch-repo>";
@@ -15,38 +21,6 @@ export interface HarnessDispatchRepoResolution {
   source: HarnessDispatchRepoSource;
   resolved: boolean;
   detail?: string;
-}
-
-export function parseGitHubRepoSlug(input: string): string | null {
-  const trimmed = input.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  const httpsMatch = trimmed.match(
-    /^https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/,
-  );
-  if (httpsMatch) {
-    return `${httpsMatch[1]}/${httpsMatch[2]}`;
-  }
-
-  const sshMatch = trimmed.match(
-    /^git@github\.com:([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?$/,
-  );
-  if (sshMatch) {
-    return `${sshMatch[1]}/${sshMatch[2]}`;
-  }
-
-  const slugMatch = trimmed.match(/^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)$/);
-  if (slugMatch) {
-    return `${slugMatch[1]}/${slugMatch[2]}`;
-  }
-
-  return null;
-}
-
-export function parseGitRemoteOriginUrl(remoteUrl: string): string | null {
-  return parseGitHubRepoSlug(remoteUrl);
 }
 
 export async function readGitRemoteOrigin(cwd?: string): Promise<string | null> {

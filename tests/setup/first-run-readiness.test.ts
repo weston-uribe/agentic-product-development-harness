@@ -137,6 +137,11 @@ function baseRemoteSummary(
       status: "unknown" as const,
     })),
     targetRepos: [],
+    staleSmokeDiagnostics: {
+      hasStaleConfig: false,
+      findings: [],
+      staleTargetRepos: [],
+    },
     ...overrides,
   };
 }
@@ -340,5 +345,65 @@ describe("first-run-readiness", () => {
         .find((step) => step.id === "local-setup")
         ?.blockers.some((blocker) => blocker.id === "local-preview-stale"),
     ).toBe(true);
+  });
+
+  it("prioritizes stale smoke repo over generic GitHub access denied", () => {
+    const summary = completeLocalSummary();
+    const staleSmokeDiagnostics = {
+      hasStaleConfig: true,
+      findings: [
+        {
+          kind: "harness-dispatch" as const,
+          value: "weston-uribe/pdh-smoke-harness-20260709-191523",
+          source: "GITHUB_DISPATCH_REPOSITORY",
+        },
+      ],
+      staleHarnessDispatchRepo: "weston-uribe/pdh-smoke-harness-20260709-191523",
+      staleTargetRepos: [],
+      suggestedHarnessDispatchRepo:
+        "weston-uribe/agentic-product-development-harness",
+    };
+    const remoteSummary = baseRemoteSummary({
+      githubTokenConfigured: true,
+      harnessDispatchRepo: "weston-uribe/pdh-smoke-harness-20260709-191523",
+      harnessRepoAccess: "denied",
+      staleSmokeDiagnostics,
+    });
+
+    const readiness = deriveFirstRunReadiness({
+      summary,
+      remoteSummary,
+      staleSmokeDiagnostics,
+    });
+
+    expect(readiness.highestPriorityBlocker?.id).toBe("stale-smoke-dispatch-repo");
+    expect(readiness.primaryTask?.primaryCtaLabel).toBe("Preview local setup fix");
+    expect(readiness.highestPriorityBlocker?.action).not.toContain(
+      "Grant repo and Actions secret permissions",
+    );
+    expect(readiness.remoteSetupBlockedByUpstream).toBe(true);
+    expect(
+      readiness.nonBlockingWarnings.some((warning) =>
+        warning.id.includes("harness-secret-unknown"),
+      ),
+    ).toBe(false);
+  });
+
+  it("uses actionable copy for non-stale GitHub access denied", () => {
+    const summary = completeLocalSummary();
+    const remoteSummary = baseRemoteSummary({
+      githubTokenConfigured: true,
+      harnessDispatchRepo: "owner/harness",
+      harnessRepoAccess: "denied",
+    });
+
+    const readiness = deriveFirstRunReadiness({ summary, remoteSummary });
+
+    expect(readiness.highestPriorityBlocker?.message).toContain(
+      "I tried to check owner/harness and GitHub denied access.",
+    );
+    expect(readiness.highestPriorityBlocker?.action).toContain(
+      "Confirm this is the repo you intend to use",
+    );
   });
 });

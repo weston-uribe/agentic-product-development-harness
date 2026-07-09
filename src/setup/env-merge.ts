@@ -16,12 +16,17 @@ const SECRET_KEYS = [
   "GITHUB_TOKEN",
 ] as const;
 
-const MANAGED_KEYS = ["HARNESS_CONFIG_PATH", ...SECRET_KEYS] as const;
+const MANAGED_KEYS = [
+  "HARNESS_CONFIG_PATH",
+  "GITHUB_DISPATCH_REPOSITORY",
+  ...SECRET_KEYS,
+] as const;
 
 type ManagedKey = (typeof MANAGED_KEYS)[number];
 
 export interface EnvKeyPresence {
   HARNESS_CONFIG_PATH: boolean;
+  GITHUB_DISPATCH_REPOSITORY: boolean;
   LINEAR_API_KEY: boolean;
   CURSOR_API_KEY: boolean;
   GITHUB_TOKEN: boolean;
@@ -49,6 +54,7 @@ export function parseEnvFileContent(content: string): ParsedEnvFile {
   const values: Record<string, string> = {};
   const presence: EnvKeyPresence = {
     HARNESS_CONFIG_PATH: false,
+    GITHUB_DISPATCH_REPOSITORY: false,
     LINEAR_API_KEY: false,
     CURSOR_API_KEY: false,
     GITHUB_TOKEN: false,
@@ -104,6 +110,10 @@ export function mergeEnvInput(
       input.harnessConfigPath?.trim() ||
       existing?.values.HARNESS_CONFIG_PATH ||
       DEFAULT_HARNESS_CONFIG_PATH,
+    githubDispatchRepository:
+      input.githubDispatchRepository?.trim() ||
+      existing?.values.GITHUB_DISPATCH_REPOSITORY ||
+      undefined,
   };
 
   const secretMap = {
@@ -128,6 +138,7 @@ function managedValuesFromMerged(merged: SetupEnvInput): Record<ManagedKey, stri
   return {
     HARNESS_CONFIG_PATH:
       merged.harnessConfigPath ?? DEFAULT_HARNESS_CONFIG_PATH,
+    GITHUB_DISPATCH_REPOSITORY: merged.githubDispatchRepository ?? "",
     LINEAR_API_KEY: merged.linearApiKey ?? "",
     CURSOR_API_KEY: merged.cursorApiKey ?? "",
     GITHUB_TOKEN: merged.githubToken ?? "",
@@ -141,6 +152,7 @@ function generateNewEnvFileContent(merged: SetupEnvInput): string {
 
 # --- Harness managed keys ---
 HARNESS_CONFIG_PATH=${values.HARNESS_CONFIG_PATH}
+GITHUB_DISPATCH_REPOSITORY=${values.GITHUB_DISPATCH_REPOSITORY}
 LINEAR_API_KEY=${values.LINEAR_API_KEY}
 CURSOR_API_KEY=${values.CURSOR_API_KEY}
 GITHUB_TOKEN=${values.GITHUB_TOKEN}
@@ -214,6 +226,7 @@ export function summarizeManagedKeyPresence(
 ): EnvKeyPresence {
   return {
     HARNESS_CONFIG_PATH: Boolean(merged.harnessConfigPath?.trim()),
+    GITHUB_DISPATCH_REPOSITORY: Boolean(merged.githubDispatchRepository?.trim()),
     LINEAR_API_KEY: Boolean(merged.linearApiKey?.trim()),
     CURSOR_API_KEY: Boolean(merged.cursorApiKey?.trim()),
     GITHUB_TOKEN: Boolean(merged.githubToken?.trim()),

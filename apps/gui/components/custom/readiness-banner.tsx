@@ -61,12 +61,17 @@ export function ReadinessBanner({ readiness }: ReadinessBannerProps) {
           </div>
         ) : null}
 
-        {readiness.nonBlockingWarnings.length > 0 ? (
+        {readiness.nonBlockingWarnings.length > 0 &&
+        !readiness.remoteSetupBlockedByUpstream ? (
           <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
             {readiness.nonBlockingWarnings.map((warning) => (
               <li key={warning.id}>{warning.message}</li>
             ))}
           </ul>
+        ) : readiness.remoteSetupBlockedByUpstream ? (
+          <p className="text-sm text-muted-foreground">
+            Remote setup details stay collapsed until harness repo access is fixed.
+          </p>
         ) : null}
       </div>
     </SectionCard>

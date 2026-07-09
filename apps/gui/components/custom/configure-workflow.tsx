@@ -23,9 +23,12 @@ import { SetupApplyResult } from "@/components/custom/setup-apply-result";
 interface ConfigureWorkflowProps {
   initialEnv: {
     harnessConfigPath: string;
+    githubDispatchRepository: string;
     secretPresence: EnvironmentFormPresence;
   };
   initialConfig: LocalConfigFormInput;
+  highlightStaleDispatch?: boolean;
+  highlightStaleTarget?: boolean;
   onSummaryUpdated?: (summary: SetupGuiViewModel) => void;
   onUiStateChange?: (state: { localPreviewStale: boolean }) => void;
 }
@@ -33,11 +36,14 @@ interface ConfigureWorkflowProps {
 export function ConfigureWorkflow({
   initialEnv,
   initialConfig,
+  highlightStaleDispatch = false,
+  highlightStaleTarget = false,
   onSummaryUpdated,
   onUiStateChange,
 }: ConfigureWorkflowProps) {
   const [envValues, setEnvValues] = useState<EnvironmentFormValues>({
     harnessConfigPath: initialEnv.harnessConfigPath,
+    githubDispatchRepository: initialEnv.githubDispatchRepository,
     linearApiKey: "",
     cursorApiKey: "",
     githubToken: "",
@@ -161,6 +167,16 @@ export function ConfigureWorkflow({
     }
   };
 
+  const previewDisabledReason = loading !== null ? "Wait for the current action to finish." : undefined;
+  const confirmDisabledReason = !previewIsCurrent
+    ? "Generate a preview before you can confirm this write."
+    : preview?.validationError
+      ? "Fix validation errors before confirming this write."
+      : undefined;
+  const applyDisabledReason =
+    confirmDisabledReason ??
+    (!confirmed ? "Confirm the preview before applying local setup files." : undefined);
+
   return (
     <div className={SPACING.section}>
       <SectionCard
@@ -170,6 +186,7 @@ export function ConfigureWorkflow({
         <EnvironmentConfigForm
           values={envValues}
           presence={presence}
+          highlightDispatchRepo={highlightStaleDispatch}
           onChange={(values) => {
             resetApplyState();
             setPreview(null);
@@ -186,6 +203,7 @@ export function ConfigureWorkflow({
       >
         <TargetRepoConfigForm
           values={configValues}
+          highlightStaleTarget={highlightStaleTarget}
           onChange={(values) => {
             resetApplyState();
             setPreview(null);
@@ -212,10 +230,14 @@ export function ConfigureWorkflow({
             type="button"
             onClick={handlePreview}
             disabled={loading !== null}
+            data-primary-preview-button="true"
           >
             {loading === "preview" ? "Generating preview…" : "Generate preview"}
           </Button>
         </div>
+        {previewDisabledReason ? (
+          <p className="text-sm text-muted-foreground">{previewDisabledReason}</p>
+        ) : null}
       </SectionCard>
 
       <SectionCard
@@ -226,6 +248,7 @@ export function ConfigureWorkflow({
           plan={previewIsCurrent ? preview?.plan : undefined}
           confirmed={confirmed}
           disabled={!previewIsCurrent || Boolean(preview?.validationError)}
+          disabledReason={confirmDisabledReason}
           onConfirmedChange={setConfirmed}
         />
         <div className={FORM.actions}>
@@ -242,6 +265,9 @@ export function ConfigureWorkflow({
             {loading === "apply" ? "Applying…" : "Apply local setup files"}
           </Button>
         </div>
+        {applyDisabledReason ? (
+          <p className="text-sm text-muted-foreground">{applyDisabledReason}</p>
+        ) : null}
       </SectionCard>
 
       {error ? (

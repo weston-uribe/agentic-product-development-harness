@@ -8,11 +8,13 @@ import { Textarea } from "@/components/ui/textarea";
 
 interface TargetRepoConfigFormProps {
   values: LocalConfigFormInput;
+  highlightStaleTarget?: boolean;
   onChange: (values: LocalConfigFormInput) => void;
 }
 
 export function TargetRepoConfigForm({
   values,
+  highlightStaleTarget = false,
   onChange,
 }: TargetRepoConfigFormProps) {
   const repo = values.repos[0] ?? {
@@ -70,7 +72,14 @@ export function TargetRepoConfigForm({
             id="target-repo"
             value={repo.targetRepo}
             onChange={(event) => updateRepo({ targetRepo: event.target.value })}
+            className={highlightStaleTarget ? "border-destructive/60" : undefined}
           />
+          {highlightStaleTarget ? (
+            <p className={FORM.secretHint}>
+              Enter the target repo you actually intend to use. The app will not
+              guess or invent a replacement repo for you.
+            </p>
+          ) : null}
         </div>
         <div className={FORM.fieldStack}>
           <Label htmlFor="linear-projects">Linear projects</Label>

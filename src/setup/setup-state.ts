@@ -47,6 +47,7 @@ export interface TargetRepoSetupInput {
 
 export interface SetupEnvInput {
   harnessConfigPath?: string;
+  githubDispatchRepository?: string;
   linearApiKey?: string;
   cursorApiKey?: string;
   githubToken?: string;

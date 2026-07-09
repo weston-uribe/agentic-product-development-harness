@@ -21,6 +21,8 @@ interface SetupDashboardProps {
   formDefaults: {
     env: {
       harnessConfigPath: string;
+      githubDispatchRepository: string;
+      suggestedHarnessDispatchRepo?: string;
       secretPresence: {
         LINEAR_API_KEY: boolean;
         CURSOR_API_KEY: boolean;
@@ -84,6 +86,7 @@ export function SetupDashboard({
           initialSummary={remoteSummary}
           onSummaryUpdated={onRemoteSummaryUpdated}
           onUiStateChange={onRemoteUiStateChange}
+          blockedByUpstream={readiness.remoteSetupBlockedByUpstream}
         />
       </SetupDashboardGroup>
 

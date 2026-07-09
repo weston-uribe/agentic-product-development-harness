@@ -7,6 +7,7 @@ import { StatusBadge } from "@/components/custom/status-badge";
 
 export interface EnvironmentFormValues {
   harnessConfigPath: string;
+  githubDispatchRepository: string;
   linearApiKey: string;
   cursorApiKey: string;
   githubToken: string;
@@ -21,12 +22,14 @@ export interface EnvironmentFormPresence {
 interface EnvironmentConfigFormProps {
   values: EnvironmentFormValues;
   presence: EnvironmentFormPresence;
+  highlightDispatchRepo?: boolean;
   onChange: (values: EnvironmentFormValues) => void;
 }
 
 export function EnvironmentConfigForm({
   values,
   presence,
+  highlightDispatchRepo = false,
   onChange,
 }: EnvironmentConfigFormProps) {
   const update = (patch: Partial<EnvironmentFormValues>) => {
@@ -47,6 +50,27 @@ export function EnvironmentConfigForm({
         />
         <p className={FORM.secretHint}>
           Recommended: .harness/config.local.json
+        </p>
+      </div>
+
+      <div className={FORM.fieldStack}>
+        <Label htmlFor="github-dispatch-repository">
+          GITHUB_DISPATCH_REPOSITORY
+        </Label>
+        <Input
+          id="github-dispatch-repository"
+          value={values.githubDispatchRepository}
+          onChange={(event) =>
+            update({ githubDispatchRepository: event.target.value })
+          }
+          autoComplete="off"
+          className={highlightDispatchRepo ? "border-destructive/60" : undefined}
+        />
+        <p className={FORM.secretHint}>
+          Harness repo used for remote setup checks and Actions secret writes.
+          {highlightDispatchRepo
+            ? " This value still points at an old disposable smoke-test repo."
+            : " Defaults to git remote origin when unset."}
         </p>
       </div>
 
