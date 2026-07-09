@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { SETUP_PERMISSIONS } from "./permission-model.js";
 import {
@@ -80,6 +80,16 @@ export interface LocalSetupApplyOptions {
 }
 
 const LOCAL_FILE_WRITE_SCOPE = SETUP_PERMISSIONS.localFileWrite.scope;
+const FINGERPRINT_PEPPER = "harness-local-setup-fingerprint-v1";
+
+function fingerprintToken(value: string): string {
+  if (!value) {
+    return "";
+  }
+  return createHmac("sha256", FINGERPRINT_PEPPER)
+    .update(value, "utf8")
+    .digest("hex");
+}
 
 function toSetupEnvInput(form: LocalEnvFormInput): SetupEnvInput {
   return {
@@ -135,9 +145,9 @@ export function computeLocalSetupFingerprint(
     },
     env: {
       harnessConfigPath: payload.env.harnessConfigPath?.trim() ?? "",
-      linearApiKey: payload.env.linearApiKey?.trim() ?? "",
-      cursorApiKey: payload.env.cursorApiKey?.trim() ?? "",
-      githubToken: payload.env.githubToken?.trim() ?? "",
+      linearApiKeyToken: fingerprintToken(payload.env.linearApiKey?.trim() ?? ""),
+      cursorApiKeyToken: fingerprintToken(payload.env.cursorApiKey?.trim() ?? ""),
+      githubTokenToken: fingerprintToken(payload.env.githubToken?.trim() ?? ""),
       preserveLinear: !payload.env.linearApiKey?.trim(),
       preserveCursor: !payload.env.cursorApiKey?.trim(),
       preserveGithub: !payload.env.githubToken?.trim(),
