@@ -41,6 +41,7 @@ function parseConfigRaw(raw: string, sourceLabel: string): HarnessConfig {
 }
 
 export async function loadHarnessConfig(options?: {
+  baseDir?: string;
   configPath?: string;
 }): Promise<LoadedHarnessConfig> {
   const source = resolveConfigSource(options);

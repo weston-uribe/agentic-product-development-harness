@@ -16,7 +16,7 @@ Details: [`docs/provider-portability.md`](docs/provider-portability.md) and [`do
 
 ### Setup core
 
-**Status:** **Implemented** — Shared local setup services in [`src/setup/`](src/setup/) power `harness:operator:init` and prepare future Product Development Harness GUI Settings / Configure screens.
+**Status:** **Implemented** — Shared local setup services in [`src/setup/`](src/setup/) power `harness:operator:init` and the local Product Development Harness GUI Settings / Configure screen (`npm run harness:gui`).
 
 **Purpose:** Generate and write local operator config (`.env.local`, `.harness/config.local.json`), classify setup actions by permission scope, produce manual GitHub Actions / target-repo instructions, and summarize doctor/model settings without changing runtime harness phase behavior.
 
