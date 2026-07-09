@@ -14,6 +14,16 @@ V0.2 is **Cursor-first**. Key assumptions:
 
 Details: [`docs/provider-portability.md`](docs/provider-portability.md) and [`docs/decisions/0004-agent-provider-boundary.md`](docs/decisions/0004-agent-provider-boundary.md).
 
+### Setup core
+
+**Status:** **Implemented** — Shared local setup services in [`src/setup/`](src/setup/) power `harness:operator:init` and prepare future Product Development Harness GUI Settings / Configure screens.
+
+**Purpose:** Generate and write local operator config (`.env.local`, `.harness/config.local.json`), classify setup actions by permission scope, produce manual GitHub Actions / target-repo instructions, and summarize doctor/model settings without changing runtime harness phase behavior.
+
+**Inputs:** Structured setup state, committed example templates, operator-provided target repo mapping.
+
+**Outputs:** Dry-run previews, local file writes after confirmation, copy-paste setup instructions. Remote secret writes, repo workflow writes, and Linear writes remain deferred.
+
 ## Pipeline overview
 
 ```mermaid

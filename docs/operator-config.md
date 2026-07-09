@@ -24,7 +24,7 @@ If the resolved source is missing, unreadable, or invalid, harness commands exit
 
 ## Recommended local setup
 
-1. `npm run harness:operator:init` — scaffolds `.env.local` and `.harness/config.local.json` from committed examples (does not overwrite unless `--force`)
+1. `npm run harness:operator:init` — scaffolds `.env.local` and `.harness/config.local.json` from committed examples via setup core services (does not overwrite unless `--force`)
 2. Edit `.harness/config.local.json` with your real target repo mapping
 3. Keep `HARNESS_CONFIG_PATH=.harness/config.local.json` in `.env.local`
 4. `npm run harness:doctor`
@@ -37,6 +37,8 @@ If the resolved source is missing, unreadable, or invalid, harness commands exit
 | [`harness.config.json`](../harness.config.json) | Committed public example/fallback when no private source is set |
 
 The starter config in `.harness/config.example.json` is for first-time users with **one** target repo. Add more entries to `repos[]` and `allowedTargetRepos[]` for every repo you want the harness to manage.
+
+Setup core services in [`src/setup/`](../src/setup/) power `harness:operator:init` today and will back future Settings / Configure GUI actions. They support dry-run previews, local file writes, permission classification, and manual instruction generation without changing runtime harness automation behavior.
 
 ---
 

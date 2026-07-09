@@ -1,44 +1,5 @@
-import { access, copyFile, mkdir } from "node:fs/promises";
-import path from "node:path";
 import { EXIT_CONFIG, EXIT_SUCCESS } from "../exit-codes.js";
-
-const ENV_EXAMPLE = ".env.example";
-const ENV_LOCAL = ".env.local";
-const HARNESS_DIR = ".harness";
-const CONFIG_EXAMPLE = path.join(HARNESS_DIR, "config.example.json");
-const CONFIG_LOCAL = path.join(HARNESS_DIR, "config.local.json");
-
-async function fileExists(filePath: string): Promise<boolean> {
-  try {
-    await access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function scaffoldFile(options: {
-  source: string;
-  destination: string;
-  force: boolean;
-  label: string;
-}): Promise<"created" | "skipped"> {
-  const { source, destination, force, label } = options;
-  const destExists = await fileExists(destination);
-
-  if (destExists && !force) {
-    console.log(`skipped ${label} (already exists)`);
-    return "skipped";
-  }
-
-  if (!(await fileExists(source))) {
-    throw new Error(`Missing source file: ${source}`);
-  }
-
-  await copyFile(source, destination);
-  console.log(`${destExists ? "overwrote" : "created"} ${label}`);
-  return "created";
-}
+import { runOperatorScaffold } from "../../setup/setup-actions.js";
 
 function printNextSteps(): void {
   console.log("");
@@ -57,25 +18,16 @@ export async function runOperatorInit(options?: {
   force?: boolean;
   cwd?: string;
 }): Promise<number> {
-  const cwd = options?.cwd ?? process.cwd();
-  const force = options?.force ?? false;
-
   try {
-    await mkdir(path.join(cwd, HARNESS_DIR), { recursive: true });
-
-    await scaffoldFile({
-      source: path.join(cwd, ENV_EXAMPLE),
-      destination: path.join(cwd, ENV_LOCAL),
-      force,
-      label: ENV_LOCAL,
+    const { logMessages } = await runOperatorScaffold({
+      cwd: options?.cwd,
+      force: options?.force,
+      mode: "apply",
     });
 
-    await scaffoldFile({
-      source: path.join(cwd, CONFIG_EXAMPLE),
-      destination: path.join(cwd, CONFIG_LOCAL),
-      force,
-      label: CONFIG_LOCAL,
-    });
+    for (const message of logMessages) {
+      console.log(message);
+    }
 
     printNextSteps();
     return EXIT_SUCCESS;
