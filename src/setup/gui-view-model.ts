@@ -542,22 +542,6 @@ export async function getSetupStateSummary(options?: {
     },
     deferredActions: [
       {
-        actionId: SETUP_ACTIONS.scaffoldEnvLocal.id,
-        label: SETUP_ACTIONS.scaffoldEnvLocal.label,
-        description: SETUP_ACTIONS.scaffoldEnvLocal.description,
-        scope: SETUP_ACTIONS.scaffoldEnvLocal.permission.scope,
-        confirmation: SETUP_ACTIONS.scaffoldEnvLocal.permission.confirmation,
-        deferredReason: "Local file writes are deferred to Milestone 4.",
-      },
-      {
-        actionId: SETUP_ACTIONS.scaffoldConfigLocal.id,
-        label: SETUP_ACTIONS.scaffoldConfigLocal.label,
-        description: SETUP_ACTIONS.scaffoldConfigLocal.description,
-        scope: SETUP_ACTIONS.scaffoldConfigLocal.permission.scope,
-        confirmation: SETUP_ACTIONS.scaffoldConfigLocal.permission.confirmation,
-        deferredReason: "Local file writes are deferred to Milestone 4.",
-      },
-      {
         actionId: SETUP_ACTIONS.futureSetGitHubSecrets.id,
         label: SETUP_ACTIONS.futureSetGitHubSecrets.label,
         description: SETUP_ACTIONS.futureSetGitHubSecrets.description,

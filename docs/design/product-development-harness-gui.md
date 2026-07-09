@@ -928,7 +928,9 @@ Local SaaS-style interface with Settings → Configure.
 
 ### Milestone 4 — Guided configuration
 
-Forms for services, target repo config, env/config generation, doctor checklist.
+**Status:** **Implemented** — Settings / Configure forms for `.env.local` and `.harness/config.local.json`, redacted preview, confirmation-gated local writes via setup core.
+
+Forms for services, target repo config, env/config generation, doctor checklist (local checks only; remote provider validation remains CLI-only).
 
 ### Milestone 5 — Permissioned automation
 

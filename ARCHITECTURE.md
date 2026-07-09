@@ -22,7 +22,7 @@ Details: [`docs/provider-portability.md`](docs/provider-portability.md) and [`do
 
 **Inputs:** Structured setup state, committed example templates, operator-provided target repo mapping.
 
-**Outputs:** Dry-run previews, local file writes after confirmation, copy-paste setup instructions. Remote secret writes, repo workflow writes, and Linear writes remain deferred.
+**Outputs:** Dry-run previews, confirmation-gated local file writes via GUI (`preview-local-files` / `apply-local-files` API routes), CLI scaffold apply, copy-paste setup instructions. Remote secret writes, repo workflow writes, and Linear writes remain deferred.
 
 ## Pipeline overview
 

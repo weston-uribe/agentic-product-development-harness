@@ -20,9 +20,26 @@ describe("gui design-system boundaries", () => {
       path.join(constantsDir, "breakpoints.ts"),
       "utf8",
     );
+    const form = await readFile(path.join(constantsDir, "form.ts"), "utf8");
 
     expect(layout).toContain('page: "mx-auto w-full max-w-5xl"');
     expect(spacing).toContain('section: "space-y-6"');
     expect(responsive).toContain("md:text-3xl");
+    expect(form).toContain("fieldGrid");
+  });
+
+  it("keeps harness form components under components/custom", async () => {
+    const customDir = path.join(process.cwd(), "apps/gui/components/custom");
+    const envForm = await readFile(
+      path.join(customDir, "environment-config-form.tsx"),
+      "utf8",
+    );
+    const confirmation = await readFile(
+      path.join(customDir, "local-write-confirmation.tsx"),
+      "utf8",
+    );
+
+    expect(envForm).toContain("EnvironmentConfigForm");
+    expect(confirmation).toContain("LocalWriteConfirmation");
   });
 });

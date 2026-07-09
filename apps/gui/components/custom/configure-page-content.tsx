@@ -1,24 +1,41 @@
 import type { SetupGuiViewModel } from "@/lib/setup-server";
+import type { LocalConfigFormInput } from "@harness/setup/config-local-editor";
 import { LAYOUT, RESPONSIVE, SPACING } from "@/lib/constants";
 import { SectionCard } from "@/components/custom/section-card";
 import { StatusBadge } from "@/components/custom/status-badge";
 import { SetupChecklist, DoctorChecklist } from "@/components/custom/setup-checklist";
 import { PreviewPanel } from "@/components/custom/preview-panel";
+import { ConfigureWorkflow } from "@/components/custom/configure-workflow";
 import { Separator } from "@/components/ui/separator";
 
 interface ConfigurePageContentProps {
   summary: SetupGuiViewModel;
+  formDefaults: {
+    env: {
+      harnessConfigPath: string;
+      secretPresence: {
+        LINEAR_API_KEY: boolean;
+        CURSOR_API_KEY: boolean;
+        GITHUB_TOKEN: boolean;
+      };
+    };
+    config: LocalConfigFormInput;
+  };
 }
 
-export function ConfigurePageContent({ summary }: ConfigurePageContentProps) {
+export function ConfigurePageContent({
+  summary,
+  formDefaults,
+}: ConfigurePageContentProps) {
   return (
     <div className={LAYOUT.sectionStack}>
       <section className={SPACING.section}>
         <div className={SPACING.stackSm}>
           <h2 className={RESPONSIVE.pageTitle}>Settings / Configure</h2>
           <p className={RESPONSIVE.pageDescription}>
-            Read-only local setup summary for the Product Development Harness.
-            Secret values are never shown in the browser.
+            Guided local setup for the Product Development Harness. Edit setup
+            files, preview redacted changes, and apply local writes after
+            confirmation.
           </p>
         </div>
         <div className={SPACING.inline}>
@@ -44,6 +61,11 @@ export function ConfigurePageContent({ summary }: ConfigurePageContentProps) {
           />
         </div>
       </section>
+
+      <ConfigureWorkflow
+        initialEnv={formDefaults.env}
+        initialConfig={formDefaults.config}
+      />
 
       <SectionCard
         title="Overview"
@@ -170,15 +192,15 @@ export function ConfigurePageContent({ summary }: ConfigurePageContentProps) {
       </SectionCard>
 
       <SectionCard
-        title="Generated previews"
-        description="Redacted setup previews from setup core dry-run helpers."
+        title="Reference previews"
+        description="Read-only dry-run previews from setup core."
       >
         <PreviewPanel
-          title=".env.local preview"
+          title=".env.local reference preview"
           content={summary.generatedPreviews.envLocal}
         />
         <PreviewPanel
-          title=".harness/config.local.json preview"
+          title=".harness/config.local.json reference preview"
           content={summary.generatedPreviews.configLocal}
         />
       </SectionCard>
@@ -198,8 +220,8 @@ export function ConfigurePageContent({ summary }: ConfigurePageContentProps) {
       </SectionCard>
 
       <SectionCard
-        title="Deferred actions"
-        description="Write actions remain disabled in Milestone 3."
+        title="Deferred remote actions"
+        description="Remote automation writes remain disabled in Milestone 4."
       >
         <ul className={SPACING.list}>
           {summary.deferredActions.map((action) => (
