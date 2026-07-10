@@ -146,9 +146,7 @@ export function ConfigureExperience({
       case "local-readiness":
         return (
           <GuidedLocalReadinessCard
-            summary={summary}
             readiness={readiness}
-            onSummaryUpdated={handleSummaryUpdated}
             onContinue={handleLocalReadinessReviewed}
           />
         );

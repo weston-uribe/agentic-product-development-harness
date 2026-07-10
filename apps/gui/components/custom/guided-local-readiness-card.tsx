@@ -1,119 +1,128 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { SetupGuiViewModel } from "@/lib/setup-server";
+import { useCallback, useEffect, useState } from "react";
 import type { FirstRunReadiness } from "@harness/setup/first-run-readiness";
+import type { LocalReadinessCheckResult } from "@harness/setup/local-readiness-checks";
 
 import { SPACING } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import { SectionCard } from "@/components/custom/section-card";
-import { DoctorChecklist } from "@/components/custom/setup-checklist";
+import {
+  LocalReadinessChecklist,
+  type LocalReadinessUiStatus,
+} from "@/components/custom/setup-checklist";
 
 const GUIDED_STEP_COUNT = 4;
 
 interface GuidedLocalReadinessCardProps {
-  summary: SetupGuiViewModel;
   readiness: FirstRunReadiness;
-  onSummaryUpdated?: (summary: SetupGuiViewModel) => void;
   onContinue: () => void;
 }
 
+interface UiCheckRow {
+  id: string;
+  label: string;
+  status: LocalReadinessUiStatus;
+  detail?: string;
+  action?: string;
+}
+
+function mapResultToUi(
+  results: LocalReadinessCheckResult[],
+): UiCheckRow[] {
+  return results.map((check) => ({
+    id: check.id,
+    label: check.label,
+    status: check.status === "passed" ? "passed" : "failed",
+    detail: check.detail,
+    action: check.action,
+  }));
+}
+
 export function GuidedLocalReadinessCard({
-  summary,
   readiness,
-  onSummaryUpdated,
   onContinue,
 }: GuidedLocalReadinessCardProps) {
-  const [refreshing, setRefreshing] = useState(false);
-  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [checks, setChecks] = useState<UiCheckRow[]>([]);
+  const [running, setRunning] = useState(true);
+  const [runError, setRunError] = useState<string | null>(null);
+  const [allPassed, setAllPassed] = useState(false);
+
+  const runChecks = useCallback(async () => {
+    setRunning(true);
+    setRunError(null);
+    setAllPassed(false);
+    setChecks([]);
+
+    try {
+      const response = await fetch("/api/setup/local-readiness");
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error ?? "Local readiness check failed");
+      }
+
+      const results = data.checks as LocalReadinessCheckResult[];
+      setChecks(
+        results.map((check) => ({
+          id: check.id,
+          label: check.label,
+          status: "checking" as const,
+        })),
+      );
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      setChecks(mapResultToUi(results));
+      setAllPassed(Boolean(data.allPassed));
+    } catch (error) {
+      setRunError(
+        error instanceof Error
+          ? error.message
+          : "Could not run local readiness checks",
+      );
+      setChecks([]);
+    } finally {
+      setRunning(false);
+    }
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
+    void runChecks();
+  }, [runChecks]);
 
-    async function refreshSummary() {
-      setRefreshing(true);
-      setRefreshError(null);
-      try {
-        const response = await fetch("/api/setup/summary");
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.error ?? "Summary refresh failed");
-        }
-        if (!cancelled) {
-          onSummaryUpdated?.(data as SetupGuiViewModel);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setRefreshError(
-            error instanceof Error
-              ? error.message
-              : "Could not refresh local readiness checks",
-          );
-        }
-      } finally {
-        if (!cancelled) {
-          setRefreshing(false);
-        }
-      }
-    }
-
-    void refreshSummary();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [onSummaryUpdated]);
-
-  const hasSkippedChecks = summary.doctor.checks.some((check) => check.skipped);
-  const localReadinessBlocker =
-    readiness.highestPriorityBlocker?.stepId === "local-readiness"
-      ? readiness.highestPriorityBlocker
-      : undefined;
+  const canContinue =
+    allPassed && !running && !readiness.localReadinessReviewed;
 
   return (
     <SectionCard
       title={`Step 3 of ${GUIDED_STEP_COUNT} · Check local readiness`}
-      description="Local setup files were created. Now we'll check whether this machine is ready to run the harness."
+      description="We're checking whether this machine is ready for remote setup."
     >
       <div className={SPACING.stackSm}>
-        <p className="text-sm text-muted-foreground">
-          This step runs automatic checks against your local files and harness
-          config. Review the results below before continuing to remote setup.
-        </p>
-
-        {refreshing ? (
-          <p className="text-sm text-muted-foreground">Running local checks…</p>
-        ) : null}
-
-        {refreshError ? (
-          <p className="text-sm text-destructive">{refreshError}</p>
-        ) : null}
-
-        <div>
-          <p className="mb-2 text-sm font-medium">Local readiness checks</p>
-          <DoctorChecklist checks={summary.doctor.checks} />
-        </div>
-
-        {hasSkippedChecks ? (
+        {running && checks.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            Some checks require running{" "}
-            <code className="text-xs">npm run harness:doctor</code> in your
-            terminal. The checks above cover local files and config; the CLI
-            doctor adds live provider validation when you are ready.
+            Running local readiness checks…
           </p>
         ) : null}
 
-        {localReadinessBlocker ? (
-          <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3">
-            <p className="text-sm font-medium">Fix before continuing</p>
-            <p className="text-sm text-muted-foreground">
-              {localReadinessBlocker.action.replace(/^Next:\s*/, "")}
-            </p>
+        {runError ? (
+          <div className={SPACING.stackSm}>
+            <p className="text-sm text-destructive">{runError}</p>
+            <Button type="button" variant="outline" onClick={() => void runChecks()}>
+              Retry checks
+            </Button>
           </div>
         ) : null}
 
-        {readiness.localReadinessBlockersCleared &&
-        !readiness.localReadinessReviewed ? (
+        {checks.length > 0 ? <LocalReadinessChecklist checks={checks} /> : null}
+
+        {allPassed && !running ? (
+          <p className="text-sm font-medium text-emerald-700">
+            Local readiness passed.
+          </p>
+        ) : null}
+
+        {canContinue ? (
           <Button type="button" onClick={onContinue}>
             Continue to remote setup
           </Button>

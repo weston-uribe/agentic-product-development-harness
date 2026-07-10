@@ -289,31 +289,6 @@ export function collectLocalReadinessBlockers(
     });
   }
 
-  for (const check of summary.doctor.checks) {
-    if (check.skipped) {
-      pushWarning(warnings, {
-        id: `doctor-skipped-${check.label}`,
-        stepId: "local-readiness",
-        message: `${check.label} was not checked in the GUI.`,
-        action: "Run npm run harness:doctor for full provider validation.",
-        priority: 590,
-      });
-      continue;
-    }
-
-    if (!check.ok) {
-      pushBlocker(blockers, {
-        id: `doctor-failed-${check.label}`,
-        stepId: "local-readiness",
-        message: `Blocked: ${check.label} failed.`,
-        action: check.detail
-          ? `Next: ${check.detail}`
-          : "Next: Resolve this local readiness check in Local setup.",
-        priority: 202,
-      });
-    }
-  }
-
   return {
     blockers: blockers.sort((left, right) => left.priority - right.priority),
     warnings: warnings.sort((left, right) => left.priority - right.priority),
