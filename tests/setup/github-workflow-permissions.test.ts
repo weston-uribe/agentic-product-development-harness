@@ -47,7 +47,8 @@ describe("github-workflow-permissions", () => {
     const result = assessClassicPatGuidedCapabilities(classicMetadata(["repo"]));
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.message).toContain("cannot update workflow files");
+      expect(result.message).toContain("missing workflow access");
+      expect(result.message).toContain("How do I get a GitHub token?");
     }
   });
 

@@ -3,7 +3,7 @@ import {
   FINE_GRAINED_WORKFLOW_WRITE_LIMITATION,
   GITHUB_CLASSIC_PAT_MISSING_WORKFLOW_MESSAGE,
   GITHUB_FINE_GRAINED_STEP1_LIMITATION,
-  GITHUB_TOKEN_GUIDED_HELPER_TEXT,
+  GITHUB_TOKEN_VERIFY_HELP_HINT,
   GITHUB_WORKFLOW_SCOPE_SETUP_ERROR,
   resolveGitHubTokenType,
   type GitHubTokenMetadata,
@@ -163,27 +163,27 @@ export async function verifyGitHubToken(
       return {
         status: "failed",
         message: capability.message,
-        limitation: GITHUB_TOKEN_GUIDED_HELPER_TEXT,
+        limitation: GITHUB_TOKEN_VERIFY_HELP_HINT,
       };
     }
 
     const limitation =
       capability.limitation ??
       (metadata.tokenType === "classic"
-        ? "Classic PAT scopes include repo and workflow for the guided setup flow."
+        ? undefined
         : GITHUB_FINE_GRAINED_STEP1_LIMITATION);
 
     return {
       status: "connected",
       label: metadata.login,
       message: `Connected as ${metadata.login}.`,
-      limitation: `${GITHUB_TOKEN_GUIDED_HELPER_TEXT} ${limitation}`,
+      limitation,
     };
   } catch (error) {
     return {
       status: "failed",
       message: formatGitHubTokenError(error, trimmed),
-      limitation: GITHUB_TOKEN_GUIDED_HELPER_TEXT,
+      limitation: GITHUB_TOKEN_VERIFY_HELP_HINT,
     };
   }
 }
@@ -270,7 +270,7 @@ export async function verifyGitHubRepoAccess(input: {
         normalizedUrl: parsed.normalizedUrl,
         workflowInstallReady: false,
         message: GITHUB_CLASSIC_PAT_MISSING_WORKFLOW_MESSAGE,
-        limitation: GITHUB_TOKEN_GUIDED_HELPER_TEXT,
+        limitation: GITHUB_TOKEN_VERIFY_HELP_HINT,
       };
     }
 

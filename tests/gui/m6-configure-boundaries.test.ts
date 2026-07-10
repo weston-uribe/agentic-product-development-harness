@@ -2,6 +2,15 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import {
+  GITHUB_CLASSIC_PAT_MISSING_WORKFLOW_MESSAGE,
+  GITHUB_CLASSIC_PAT_SCOPES,
+  GITHUB_PAT_SETTINGS_URL,
+  GITHUB_TOKEN_GUIDED_HELPER_TEXT,
+  GITHUB_TOKEN_HELP_DISCLOSURE_LABEL,
+  GITHUB_TOKEN_INPUT_LABEL,
+  GITHUB_TOKEN_VERIFY_HELP_HINT,
+} from "../../src/setup/github-workflow-permissions.js";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -16,6 +25,7 @@ const M6_GUI_COMPONENTS = [
   "apps/gui/components/custom/setup-readonly-sections.tsx",
   "apps/gui/components/custom/configure-workflow.tsx",
   "apps/gui/components/custom/environment-config-form.tsx",
+  "apps/gui/components/custom/github-token-help-disclosure.tsx",
   "apps/gui/components/custom/target-repo-config-form.tsx",
   "apps/gui/components/custom/remote-setup-section.tsx",
   "apps/gui/components/custom/primary-setup-task-card.tsx",
@@ -514,6 +524,10 @@ describe("M6 configure GUI boundaries", () => {
       path.join(repoRoot, "apps/gui/components/custom/environment-config-form.tsx"),
       "utf8",
     );
+    const helpSource = readFileSync(
+      path.join(repoRoot, "apps/gui/components/custom/github-token-help-disclosure.tsx"),
+      "utf8",
+    );
     const targetSource = readFileSync(
       path.join(repoRoot, "apps/gui/components/custom/target-repo-config-form.tsx"),
       "utf8",
@@ -524,6 +538,32 @@ describe("M6 configure GUI boundaries", () => {
     );
 
     expect(envSource).toContain("GITHUB_TOKEN_GUIDED_HELPER_TEXT");
+    expect(envSource).toContain("GITHUB_TOKEN_INPUT_LABEL");
+    expect(envSource).toContain("GitHubTokenHelpDisclosure");
+    expect(envSource).not.toContain("Step 4");
+    expect(envSource).not.toContain("Step 5");
+    expect(GITHUB_TOKEN_INPUT_LABEL).toBe("Paste your GitHub token");
+    expect(GITHUB_TOKEN_GUIDED_HELPER_TEXT).toContain("repo and workflow access");
+    expect(GITHUB_TOKEN_GUIDED_HELPER_TEXT).not.toContain("Step 4");
+    expect(GITHUB_TOKEN_GUIDED_HELPER_TEXT).not.toContain("Step 5");
+    expect(helpSource).toContain("GITHUB_TOKEN_HELP_DISCLOSURE_LABEL");
+    expect(helpSource).toContain("GITHUB_PAT_SETTINGS_URL");
+    expect(helpSource).toContain("GITHUB_CLASSIC_PAT_SCOPES");
+    expect(GITHUB_PAT_SETTINGS_URL).toBe("https://github.com/settings/tokens");
+    expect(GITHUB_TOKEN_HELP_DISCLOSURE_LABEL).toBe("How do I get a GitHub token?");
+    expect(helpSource).toContain("Generate new token (classic)");
+    expect(GITHUB_CLASSIC_PAT_SCOPES.map((scope) => scope.id)).toEqual([
+      "repo",
+      "workflow",
+    ]);
+    expect(helpSource).toContain("Advanced option");
+    expect(helpSource).toContain("Fine-grained tokens can also work");
+    expect(GITHUB_CLASSIC_PAT_MISSING_WORKFLOW_MESSAGE).toContain(
+      GITHUB_TOKEN_HELP_DISCLOSURE_LABEL,
+    );
+    expect(GITHUB_TOKEN_VERIFY_HELP_HINT).toContain(
+      GITHUB_TOKEN_HELP_DISCLOSURE_LABEL,
+    );
     expect(targetSource).toContain("Verify repo + workflow access");
     expect(targetSource).toContain("workflow install capability");
     expect(workflowSource).toContain("workflowInstallReady");

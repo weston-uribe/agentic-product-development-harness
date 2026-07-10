@@ -12,7 +12,11 @@ import {
   isServiceVerifiedForValue,
 } from "@/lib/verification-state";
 import { cn } from "@/lib/utils";
-import { GITHUB_TOKEN_GUIDED_HELPER_TEXT } from "@harness/setup/github-workflow-permissions";
+import {
+  GITHUB_TOKEN_GUIDED_HELPER_TEXT,
+  GITHUB_TOKEN_INPUT_LABEL,
+} from "@harness/setup/github-workflow-permissions";
+import { GitHubTokenHelpDisclosure } from "@/components/custom/github-token-help-disclosure";
 
 export interface EnvironmentFormValues {
   harnessConfigPath: string;
@@ -74,6 +78,7 @@ const SERVICE_DEFINITIONS: Array<{
     "linearApiKey" | "cursorApiKey" | "githubToken"
   >;
   helperText: string;
+  inputLabel?: string;
 }> = [
   {
     key: "LINEAR_API_KEY",
@@ -96,6 +101,7 @@ const SERVICE_DEFINITIONS: Array<{
     displayName: "GitHub",
     valueKey: "githubToken",
     helperText: GITHUB_TOKEN_GUIDED_HELPER_TEXT,
+    inputLabel: GITHUB_TOKEN_INPUT_LABEL,
   },
 ];
 
@@ -138,6 +144,7 @@ export function EnvironmentConfigForm({
             displayName={service.displayName}
             envKey={service.key}
             helperText={service.helperText}
+            inputLabel={service.inputLabel}
             present={presence[service.key]}
             value={values[service.valueKey]}
             verification={verification[service.key]}
@@ -213,6 +220,7 @@ function ServiceConnectionCard({
   displayName,
   envKey,
   helperText,
+  inputLabel,
   present,
   value,
   verification,
@@ -226,6 +234,7 @@ function ServiceConnectionCard({
   displayName: string;
   envKey: string;
   helperText: string;
+  inputLabel?: string;
   present: boolean;
   value: string;
   verification: ServiceVerificationUi;
@@ -282,9 +291,7 @@ function ServiceConnectionCard({
       <p className="text-sm text-muted-foreground">{helperText}</p>
 
       <div className={FORM.fieldStack}>
-        <Label htmlFor={id} className="sr-only">
-          {envKey}
-        </Label>
+        <Label htmlFor={id}>{inputLabel ?? envKey}</Label>
         <Input
           id={id}
           type="password"
@@ -297,6 +304,8 @@ function ServiceConnectionCard({
           autoComplete="off"
         />
       </div>
+
+      {serviceKey === "GITHUB_TOKEN" ? <GitHubTokenHelpDisclosure /> : null}
 
       {showConnectedMessage ? (
         <ConnectedStatusMessage message={verification.message!} />

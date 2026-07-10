@@ -1,11 +1,35 @@
+export const GITHUB_PAT_SETTINGS_URL = "https://github.com/settings/tokens";
+
+export const GITHUB_TOKEN_HELP_DISCLOSURE_LABEL = "How do I get a GitHub token?";
+
+export const GITHUB_TOKEN_GUIDED_HELPER_TEXT =
+  "Use a classic GitHub personal access token with repo and workflow access. This lets the harness check your repos, save encrypted setup secrets, and open workflow install PRs later.";
+
+export const GITHUB_TOKEN_INPUT_LABEL = "Paste your GitHub token";
+
+export const GITHUB_TOKEN_VERIFY_HELP_HINT = `Open "${GITHUB_TOKEN_HELP_DISCLOSURE_LABEL}" and create a classic token with repo and workflow selected.`;
+
+export const GITHUB_CLASSIC_PAT_SCOPES = [
+  {
+    id: "repo",
+    description:
+      "read and write repository contents, including private target repos and harness repo secrets",
+  },
+  {
+    id: "workflow",
+    description:
+      "update GitHub Actions workflow files when the harness opens workflow install PRs",
+  },
+] as const;
+
 export const GITHUB_WORKFLOW_SCOPE_SETUP_ERROR =
   "GitHub token lacks the workflow scope required to create or update Actions workflow files under .github/workflows/. Use a classic PAT with the workflow scope or a fine-grained PAT with Actions/workflows write permission on the target repo, then update GITHUB_TOKEN in .env.local.";
 
 export const GITHUB_CLASSIC_PAT_MISSING_WORKFLOW_MESSAGE =
-  "GitHub token is valid, but it cannot update workflow files. Create a classic PAT with repo + workflow, or a fine-grained PAT with Contents write + Workflows write for the target repo.";
+  'This token is valid, but it is missing workflow access. Open "How do I get a GitHub token?" and create a classic token with repo and workflow selected.';
 
-export const GITHUB_TOKEN_GUIDED_HELPER_TEXT =
-  "Must read target repos, write encrypted harness repo secrets later (Step 4), and create or update workflow install PRs in target repos (Step 5). Classic PAT: repo + workflow. Fine-grained PAT: Contents write + Workflows write on each target repo.";
+export const GITHUB_CLASSIC_PAT_MISSING_REPO_MESSAGE =
+  'This token is valid, but it is missing repo access. Open "How do I get a GitHub token?" and create a classic token with repo and workflow selected.';
 
 export const GITHUB_FINE_GRAINED_STEP1_LIMITATION =
   "Fine-grained PAT detected. Repo-specific workflow install permission will be checked in Step 2 for each target repo.";
@@ -66,8 +90,7 @@ export function assessClassicPatGuidedCapabilities(
   if (!classicPatHasRepoScope(metadata.oauthScopes)) {
     return {
       ok: false,
-      message:
-        "GitHub token is valid, but it lacks the repo scope needed to read private target repos and write harness repo secrets. Create a classic PAT with repo + workflow.",
+      message: GITHUB_CLASSIC_PAT_MISSING_REPO_MESSAGE,
     };
   }
 

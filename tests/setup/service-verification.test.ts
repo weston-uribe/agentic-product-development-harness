@@ -123,6 +123,7 @@ describe("service-verification", () => {
     const result = await verifyGitHubToken(SENTINEL_GITHUB);
     expect(result.status).toBe("failed");
     expect(result.message).toBe(GITHUB_CLASSIC_PAT_MISSING_WORKFLOW_MESSAGE);
+    expect(result.limitation).toContain("How do I get a GitHub token?");
     expect(result.message).not.toContain(SENTINEL_GITHUB);
   });
 
@@ -138,7 +139,7 @@ describe("service-verification", () => {
     const success = await verifyGitHubToken(SENTINEL_GITHUB);
     expect(success.status).toBe("connected");
     expect(success.label).toBe("weston-uribe");
-    expect(success.limitation).toContain("repo and workflow");
+    expect(success.limitation).toBeUndefined();
   });
 
   it("connects fine-grained PAT at Step 1 with Step 2 workflow caveat", async () => {
