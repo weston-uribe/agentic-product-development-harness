@@ -32,6 +32,7 @@ const M6_GUI_COMPONENTS = [
   "apps/gui/components/custom/guided-local-readiness-card.tsx",
   "apps/gui/components/custom/guided-cloud-secrets-card.tsx",
   "apps/gui/components/custom/guided-target-workflow-card.tsx",
+  "apps/gui/components/custom/workflow-install-pending-panel.tsx",
   "apps/gui/components/custom/setup-checklist.tsx",
 ];
 
@@ -637,6 +638,52 @@ describe("M6 configure GUI boundaries", () => {
 
     expect(confirmationSource).toContain('intent?: "create" | "update"');
     expect(confirmationSource).toContain("update local setup files");
+  });
+
+  it("guided Step 5 workflow apply shows next-action state instead of apply dead-end", () => {
+    const experienceSource = readFileSync(
+      path.join(repoRoot, "apps/gui/components/custom/configure-experience.tsx"),
+      "utf8",
+    );
+    const workflowCardSource = readFileSync(
+      path.join(
+        repoRoot,
+        "apps/gui/components/custom/guided-target-workflow-card.tsx",
+      ),
+      "utf8",
+    );
+    const prCardSource = readFileSync(
+      path.join(repoRoot, "apps/gui/components/custom/target-workflow-pr-card.tsx"),
+      "utf8",
+    );
+    const pendingPanelSource = readFileSync(
+      path.join(
+        repoRoot,
+        "apps/gui/components/custom/workflow-install-pending-panel.tsx",
+      ),
+      "utf8",
+    );
+
+    expect(experienceSource).toContain("handleGuidedWorkflowSetupComplete");
+    expect(experienceSource).toContain("GUIDED_DISPLAY_STEP_AFTER_WORKFLOW_READY");
+    expect(experienceSource).toContain("Waiting for workflow PR merge");
+    expect(experienceSource).toContain("workflowInstallPendingByRepo");
+
+    expect(workflowCardSource).toContain("onGuidedApplySuccess");
+    expect(workflowCardSource).toContain("WorkflowInstallPendingPanel");
+    expect(workflowCardSource).toContain("Refresh status");
+    expect(workflowCardSource).toContain("pending && isPendingInstallResult(pending)");
+
+    expect(prCardSource).toContain("onGuidedApplySuccess");
+    expect(prCardSource).toContain('variant === "guided"');
+    expect(prCardSource).not.toContain(
+      'variant === "guided" && successMessage',
+    );
+    expect(prCardSource).toContain('variant === "advanced" && successMessage');
+
+    expect(pendingPanelSource).toContain("Open workflow install PR");
+    expect(pendingPanelSource).toContain("Merge the PR in GitHub");
+    expect(pendingPanelSource).not.toMatch(/auto-merge|dispatch|harness phase/i);
   });
 
   it("guided header Back button navigates wizard steps without browser history", () => {

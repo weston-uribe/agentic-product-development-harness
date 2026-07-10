@@ -16,6 +16,7 @@ import { SetupApplyResult } from "@/components/custom/setup-apply-result";
 interface TargetWorkflowPrCardProps {
   repo: RemoteSetupRepoSummary;
   onApplied: () => void;
+  onGuidedApplySuccess?: (result: RemoteTargetWorkflowApplyResult) => void;
   blockedByUpstream?: boolean;
   variant?: "advanced" | "guided";
 }
@@ -58,6 +59,7 @@ function workflowStatusLabel(
 export function TargetWorkflowPrCard({
   repo,
   onApplied,
+  onGuidedApplySuccess,
   blockedByUpstream = false,
   variant = "advanced",
 }: TargetWorkflowPrCardProps) {
@@ -131,10 +133,15 @@ export function TargetWorkflowPrCard({
       if (!response.ok) {
         throw new Error(data.error ?? "Apply failed");
       }
-      setApplyResult(data.apply as RemoteTargetWorkflowApplyResult);
+      const apply = data.apply as RemoteTargetWorkflowApplyResult;
       setPreview(null);
       setPreviewKey(null);
       setConfirmed(false);
+      if (variant === "guided") {
+        onGuidedApplySuccess?.(apply);
+      } else {
+        setApplyResult(apply);
+      }
       onApplied();
     } catch (applyError) {
       setError(
@@ -261,7 +268,7 @@ export function TargetWorkflowPrCard({
       ) : null}
 
       {error ? <SetupApplyResult success={false} message={error} /> : null}
-      {successMessage ? (
+      {variant === "advanced" && successMessage ? (
         <SetupApplyResult success message={successMessage} />
       ) : null}
     </div>

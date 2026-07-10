@@ -5,6 +5,7 @@ import {
   defaultGuidedDisplayStep,
   getPreviousGuidedDisplayStep,
   GUIDED_DISPLAY_STEP_AFTER_LOCAL_APPLY,
+  GUIDED_DISPLAY_STEP_AFTER_WORKFLOW_READY,
   isGuidedDisplayStepAllowed,
   localSetupFilesExist,
   readinessStepAdvanced,
@@ -150,6 +151,10 @@ describe("guided-setup navigation", () => {
 
   it("advances guided display to local readiness after Step 2 apply", () => {
     expect(GUIDED_DISPLAY_STEP_AFTER_LOCAL_APPLY).toBe("local-readiness");
+  });
+
+  it("advances guided display to ready for first run when workflows are installed", () => {
+    expect(GUIDED_DISPLAY_STEP_AFTER_WORKFLOW_READY).toBe("ready-for-first-run");
   });
 
   it("allows navigating back to earlier local setup sub-steps", () => {

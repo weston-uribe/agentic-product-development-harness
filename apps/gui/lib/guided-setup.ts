@@ -83,6 +83,10 @@ export function localSetupFilesExist(summary: SetupGuiViewModel): boolean {
 export const GUIDED_DISPLAY_STEP_AFTER_LOCAL_APPLY: GuidedDisplayStepId =
   "local-readiness";
 
+/** Guided display step when all target workflows are installed on production. */
+export const GUIDED_DISPLAY_STEP_AFTER_WORKFLOW_READY: GuidedDisplayStepId =
+  "ready-for-first-run";
+
 /**
  * Default guided screen after mount or when readiness advances forward.
  * Does not resurrect a manually visited earlier sub-step from browser/session storage.

@@ -16,12 +16,14 @@ import {
   defaultGuidedDisplayStep,
   getPreviousGuidedDisplayStep,
   GUIDED_DISPLAY_STEP_AFTER_LOCAL_APPLY,
+  GUIDED_DISPLAY_STEP_AFTER_WORKFLOW_READY,
   localSetupFilesExist,
   readinessStepAdvanced,
   shouldShowGuidedBackButton,
   type GuidedDisplayStepId,
   type GuidedLocalSetupStep,
 } from "@/lib/guided-setup";
+import type { RemoteTargetWorkflowApplyResult } from "@harness/setup/remote-actions";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/custom/status-badge";
 import { ReadinessBanner } from "@/components/custom/readiness-banner";
@@ -73,6 +75,9 @@ export function ConfigureExperience({
         summary: initialSummary,
       }),
     );
+  const [workflowInstallPendingByRepo, setWorkflowInstallPendingByRepo] =
+    useState<Record<string, RemoteTargetWorkflowApplyResult>>({});
+  const [workflowAwaitingMerge, setWorkflowAwaitingMerge] = useState(false);
   const previousReadinessStepRef = useRef<FirstRunStepId | null>(null);
 
   const readiness = useMemo(
@@ -183,6 +188,12 @@ export function ConfigureExperience({
     setSummary(nextSummary);
   }, []);
 
+  const handleGuidedWorkflowSetupComplete = useCallback(() => {
+    setWorkflowAwaitingMerge(false);
+    setWorkflowInstallPendingByRepo({});
+    setDisplayedGuidedStep(GUIDED_DISPLAY_STEP_AFTER_WORKFLOW_READY);
+  }, []);
+
   const handleGuidedLocalApplySuccess = useCallback(() => {
     setUiState((current) => ({
       ...current,
@@ -286,6 +297,10 @@ export function ConfigureExperience({
           <GuidedTargetWorkflowCard
             initialSummary={remoteSummary}
             onSummaryUpdated={setRemoteSummary}
+            onWorkflowSetupComplete={handleGuidedWorkflowSetupComplete}
+            onWorkflowAwaitingMergeChange={setWorkflowAwaitingMerge}
+            pendingInstallByRepo={workflowInstallPendingByRepo}
+            onPendingInstallChange={setWorkflowInstallPendingByRepo}
             blockedByUpstream={readiness.remoteSetupBlockedByUpstream}
           />
         );
@@ -306,8 +321,10 @@ export function ConfigureExperience({
               />
               {readiness.readyForFirstRun ? (
                 <p className="text-sm text-muted-foreground">
-                  Your harness setup is ready. A later milestone can add a safe
-                  first-issue dry run or no-op harness validation.
+                  Your harness setup is ready. If you just merged a workflow
+                  install PR, that merge is what made the target workflow ready.
+                  A later milestone can add a safe first-issue dry run or no-op
+                  harness validation.
                 </p>
               ) : (
                 <p className="text-sm text-muted-foreground">
@@ -332,6 +349,12 @@ export function ConfigureExperience({
   const configBadgeVariant = summary.overview.operatorConfigResolved
     ? "success"
     : "secondary";
+
+  const guidedStatusBadgeLabel = readiness.readyForFirstRun
+    ? "Ready for first run"
+    : workflowAwaitingMerge
+      ? "Waiting for workflow PR merge"
+      : "Setup in progress";
 
   return (
     <div className={LAYOUT.sectionStack}>
@@ -359,11 +382,7 @@ export function ConfigureExperience({
             ) : null}
             <div className={SPACING.inline}>
               <StatusBadge
-                label={
-                  readiness.readyForFirstRun
-                    ? "Ready for first run"
-                    : "Setup in progress"
-                }
+                label={guidedStatusBadgeLabel}
                 variant={readiness.readyForFirstRun ? "success" : "warning"}
               />
               {mode === "advanced" ? (
