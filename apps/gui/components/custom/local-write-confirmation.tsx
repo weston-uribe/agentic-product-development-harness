@@ -11,6 +11,7 @@ interface LocalWriteConfirmationProps {
   onConfirmedChange: (confirmed: boolean) => void;
   disabled?: boolean;
   disabledReason?: string;
+  variant?: "guided" | "advanced";
 }
 
 export function LocalWriteConfirmation({
@@ -19,7 +20,32 @@ export function LocalWriteConfirmation({
   onConfirmedChange,
   disabled = false,
   disabledReason,
+  variant = "advanced",
 }: LocalWriteConfirmationProps) {
+  if (variant === "guided") {
+    return (
+      <div className="space-y-2">
+        <div className="flex items-start gap-3">
+          <Checkbox
+            id="confirm-local-write-guided"
+            checked={confirmed}
+            disabled={disabled}
+            onChange={(event) => onConfirmedChange(event.target.checked)}
+          />
+          <Label
+            htmlFor="confirm-local-write-guided"
+            className="cursor-pointer text-sm leading-snug"
+          >
+            I understand this will create local setup files on this machine.
+          </Label>
+        </div>
+        {disabled && disabledReason && disabledReason.includes("validation") ? (
+          <p className="text-sm text-muted-foreground">{disabledReason}</p>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
     <div className={FORM.confirmationBox}>
       <p className="text-sm font-medium">Confirm local file writes</p>
@@ -45,7 +71,10 @@ export function LocalWriteConfirmation({
           disabled={disabled}
           onChange={(event) => onConfirmedChange(event.target.checked)}
         />
-        <Label htmlFor="confirm-local-write" className="text-sm leading-snug">
+        <Label
+          htmlFor="confirm-local-write"
+          className="cursor-pointer text-sm leading-snug"
+        >
           I reviewed the redacted preview and want to write these local setup
           files.
         </Label>

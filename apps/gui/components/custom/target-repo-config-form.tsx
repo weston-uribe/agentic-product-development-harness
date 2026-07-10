@@ -1,32 +1,290 @@
 "use client";
 
+import { useState } from "react";
 import type { LocalConfigFormInput } from "@harness/setup/config-local-editor";
 import { FORM } from "@/lib/constants";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Button } from "@/components/ui/button";
+import { StatusBadge } from "@/components/custom/status-badge";
+import { RepoIcon } from "@/components/custom/service-icons";
+import { ConnectedStatusMessage } from "@/components/custom/connected-status";
+import type { GuidedRepoRow } from "@/lib/verification-state";
+import { isRepoVerifiedForUrl } from "@/lib/verification-state";
+import { cn } from "@/lib/utils";
+
+export type RepoVerificationUiState =
+  | "unchecked"
+  | "checking"
+  | "connected"
+  | "failed";
+
+export interface RepoVerificationUi {
+  state: RepoVerificationUiState;
+  verifiedTargetRepo?: string;
+  attemptedTargetRepo?: string;
+  message?: string;
+  repoSlug?: string;
+}
+
+const GITHUB_REPO_URL_PATTERN =
+  /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/?$/;
 
 interface TargetRepoConfigFormProps {
   values: LocalConfigFormInput;
   highlightStaleTarget?: boolean;
+  variant?: "guided-minimal" | "advanced";
+  suggestedHarnessDispatchRepo?: string;
+  guidedRepos?: GuidedRepoRow[];
+  repoVerification?: Record<string, RepoVerificationUi>;
+  verifyingRepoRowId?: string | null;
   onChange: (values: LocalConfigFormInput) => void;
+  onGuidedReposChange?: (repos: GuidedRepoRow[]) => void;
+  onVerifyRepo?: (rowId: string) => void;
+  onRepoBlur?: (rowId: string) => void;
+  onAddRepo?: () => void;
+  onRemoveRepo?: (rowId: string) => void;
 }
 
 export function TargetRepoConfigForm({
   values,
   highlightStaleTarget = false,
+  variant = "advanced",
+  suggestedHarnessDispatchRepo,
+  guidedRepos,
+  repoVerification = {},
+  verifyingRepoRowId = null,
   onChange,
+  onGuidedReposChange,
+  onVerifyRepo,
+  onRepoBlur,
+  onAddRepo,
+  onRemoveRepo,
 }: TargetRepoConfigFormProps) {
+  const [showBranchSettings, setShowBranchSettings] = useState<
+    Record<string, boolean>
+  >({});
+
+  const updateRepo = (index: number, patch: Partial<(typeof values.repos)[0]>) => {
+    const repos = [...values.repos];
+    repos[index] = { ...(repos[index] ?? { id: "", targetRepo: "" }), ...patch };
+    onChange({ ...values, repos });
+  };
+
+  const updateGuidedRepo = (
+    rowId: string,
+    patch: Partial<Omit<GuidedRepoRow, "rowId">>,
+  ) => {
+    if (!guidedRepos || !onGuidedReposChange) {
+      return;
+    }
+    onGuidedReposChange(
+      guidedRepos.map((row) =>
+        row.rowId === rowId ? { ...row, ...patch } : row,
+      ),
+    );
+  };
+
+  if (variant === "guided-minimal") {
+    const repos =
+      guidedRepos && guidedRepos.length > 0
+        ? guidedRepos
+        : [{ rowId: "fallback-repo", id: "", targetRepo: "" }];
+
+    return (
+      <div className="space-y-6">
+        {suggestedHarnessDispatchRepo ? (
+          <div className={FORM.fieldStack}>
+            <Label>Harness repo</Label>
+            <p className="text-sm font-medium">{suggestedHarnessDispatchRepo}</p>
+            <p className={FORM.secretHint}>
+              Inferred from git remote origin. Used for remote setup checks
+              later.
+            </p>
+          </div>
+        ) : null}
+
+        <div className="space-y-4">
+          {repos.map((repo, index) => {
+            const verification = repoVerification[repo.rowId] ?? {
+              state: "unchecked" as const,
+            };
+            const badge = repoVerificationBadge(verification.state);
+            const trimmedUrl = repo.targetRepo.trim();
+            const verifiedForCurrentUrl = isRepoVerifiedForUrl(
+              verification,
+              trimmedUrl,
+            );
+            const failedForCurrentUrl =
+              verification.state === "failed" &&
+              Boolean(trimmedUrl) &&
+              verification.attemptedTargetRepo === trimmedUrl;
+
+            const verifyButtonLabel =
+              verifyingRepoRowId === repo.rowId
+                ? "Checking access…"
+                : verifiedForCurrentUrl
+                  ? "Verified"
+                  : "Verify repo access";
+
+            const verifyButtonDisabled =
+              verifyingRepoRowId === repo.rowId ||
+              verifiedForCurrentUrl ||
+              !GITHUB_REPO_URL_PATTERN.test(trimmedUrl);
+
+            return (
+              <div
+                key={repo.rowId}
+                className="rounded-lg border border-border bg-card p-4 space-y-3"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <p className="inline-flex items-center gap-2 text-sm font-medium">
+                    <RepoIcon />
+                    <span>Target repo {index + 1}</span>
+                  </p>
+                  <StatusBadge label={badge.label} variant={badge.variant} />
+                </div>
+
+                <div className={FORM.fieldStack}>
+                  <Label htmlFor={`target-repo-${repo.rowId}`}>
+                    Target repo URL
+                  </Label>
+                  <Input
+                    id={`target-repo-${repo.rowId}`}
+                    value={repo.targetRepo}
+                    onChange={(event) =>
+                      updateGuidedRepo(repo.rowId, {
+                        targetRepo: event.target.value,
+                      })
+                    }
+                    onBlur={() => onRepoBlur?.(repo.rowId)}
+                    placeholder="https://github.com/acme/my-product"
+                    className={
+                      highlightStaleTarget && index === 0
+                        ? "border-destructive/60"
+                        : undefined
+                    }
+                    autoComplete="off"
+                  />
+                  <p className={FORM.secretHint}>
+                    The GitHub repo where harness work should land.
+                  </p>
+                  {highlightStaleTarget && index === 0 ? (
+                    <p className={FORM.secretHint}>
+                      Enter the target repo you actually intend to use. The app
+                      will not guess or invent a replacement repo for you.
+                    </p>
+                  ) : null}
+                </div>
+
+                {verifiedForCurrentUrl && verification.message ? (
+                  <ConnectedStatusMessage message={verification.message} />
+                ) : failedForCurrentUrl && verification.message ? (
+                  <ConnectedStatusMessage
+                    message={verification.message}
+                    failed
+                  />
+                ) : null}
+
+                <div className="flex flex-wrap items-center gap-2">
+                  {onVerifyRepo ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onVerifyRepo(repo.rowId)}
+                      disabled={verifyButtonDisabled}
+                    >
+                      {verifyButtonLabel}
+                    </Button>
+                  ) : null}
+                  {index > 0 && onRemoveRepo ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => onRemoveRepo(repo.rowId)}
+                    >
+                      Remove repo
+                    </Button>
+                  ) : null}
+                </div>
+
+                <div className={FORM.fieldStack}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      setShowBranchSettings((current) => ({
+                        ...current,
+                        [repo.rowId]: !current[repo.rowId],
+                      }))
+                    }
+                  >
+                    {showBranchSettings[repo.rowId]
+                      ? "Hide advanced branch settings"
+                      : "Advanced branch settings"}
+                  </Button>
+                  {showBranchSettings[repo.rowId] ? (
+                    <div className={FORM.fieldGrid}>
+                      <div className={FORM.fieldStack}>
+                        <Label htmlFor={`guided-base-branch-${repo.rowId}`}>
+                          Base branch
+                        </Label>
+                        <Input
+                          id={`guided-base-branch-${repo.rowId}`}
+                          value={repo.baseBranch ?? ""}
+                          onChange={(event) =>
+                            updateGuidedRepo(repo.rowId, {
+                              baseBranch: event.target.value,
+                            })
+                          }
+                          placeholder="dev"
+                          autoComplete="off"
+                        />
+                      </div>
+                      <div className={FORM.fieldStack}>
+                        <Label htmlFor={`guided-production-branch-${repo.rowId}`}>
+                          Production branch
+                        </Label>
+                        <Input
+                          id={`guided-production-branch-${repo.rowId}`}
+                          value={repo.productionBranch ?? ""}
+                          onChange={(event) =>
+                            updateGuidedRepo(repo.rowId, {
+                              productionBranch: event.target.value,
+                            })
+                          }
+                          placeholder="main"
+                          autoComplete="off"
+                        />
+                      </div>
+                      <p className={FORM.secretHint}>
+                        Leave blank to use defaults: dev for base branch and
+                        main for production branch.
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {onAddRepo ? (
+          <Button type="button" variant="outline" onClick={onAddRepo}>
+            Add additional repo
+          </Button>
+        ) : null}
+      </div>
+    );
+  }
+
   const repo = values.repos[0] ?? {
     id: "",
     targetRepo: "",
-  };
-
-  const updateRepo = (patch: Partial<typeof repo>) => {
-    onChange({
-      ...values,
-      repos: [{ ...repo, ...patch }],
-    });
   };
 
   return (
@@ -63,7 +321,7 @@ export function TargetRepoConfigForm({
           <Input
             id="repo-id"
             value={repo.id}
-            onChange={(event) => updateRepo({ id: event.target.value })}
+            onChange={(event) => updateRepo(0, { id: event.target.value })}
           />
         </div>
         <div className={FORM.fieldStack}>
@@ -71,7 +329,9 @@ export function TargetRepoConfigForm({
           <Input
             id="target-repo"
             value={repo.targetRepo}
-            onChange={(event) => updateRepo({ targetRepo: event.target.value })}
+            onChange={(event) =>
+              updateRepo(0, { targetRepo: event.target.value })
+            }
             className={highlightStaleTarget ? "border-destructive/60" : undefined}
           />
           {highlightStaleTarget ? (
@@ -87,7 +347,7 @@ export function TargetRepoConfigForm({
             id="linear-projects"
             value={repo.linearProjects ?? ""}
             onChange={(event) =>
-              updateRepo({ linearProjects: event.target.value })
+              updateRepo(0, { linearProjects: event.target.value })
             }
             placeholder="Comma-separated"
           />
@@ -97,7 +357,9 @@ export function TargetRepoConfigForm({
           <Input
             id="linear-teams"
             value={repo.linearTeams ?? ""}
-            onChange={(event) => updateRepo({ linearTeams: event.target.value })}
+            onChange={(event) =>
+              updateRepo(0, { linearTeams: event.target.value })
+            }
             placeholder="Comma-separated"
           />
         </div>
@@ -105,28 +367,33 @@ export function TargetRepoConfigForm({
           <Label htmlFor="base-branch">Base branch</Label>
           <Input
             id="base-branch"
-            value={repo.baseBranch ?? "dev"}
-            onChange={(event) => updateRepo({ baseBranch: event.target.value })}
+            value={repo.baseBranch ?? ""}
+            onChange={(event) =>
+              updateRepo(0, { baseBranch: event.target.value })
+            }
+            placeholder="dev"
           />
         </div>
         <div className={FORM.fieldStack}>
           <Label htmlFor="production-branch">Production branch</Label>
           <Input
             id="production-branch"
-            value={repo.productionBranch ?? "main"}
+            value={repo.productionBranch ?? ""}
             onChange={(event) =>
-              updateRepo({ productionBranch: event.target.value })
+              updateRepo(0, { productionBranch: event.target.value })
             }
+            placeholder="main"
           />
         </div>
         <div className={FORM.fieldStack}>
           <Label htmlFor="preview-provider">Preview provider</Label>
           <Input
             id="preview-provider"
-            value={repo.previewProvider ?? "vercel"}
+            value={repo.previewProvider ?? ""}
             onChange={(event) =>
-              updateRepo({ previewProvider: event.target.value })
+              updateRepo(0, { previewProvider: event.target.value })
             }
+            placeholder="vercel"
           />
         </div>
         <div className={FORM.fieldStack}>
@@ -135,7 +402,9 @@ export function TargetRepoConfigForm({
             id="integration-preview-url"
             value={repo.integrationPreviewUrl ?? ""}
             onChange={(event) =>
-              updateRepo({ integrationPreviewUrl: event.target.value })
+              updateRepo(0, {
+                integrationPreviewUrl: event.target.value,
+              })
             }
           />
         </div>
@@ -144,7 +413,9 @@ export function TargetRepoConfigForm({
           <Input
             id="production-url"
             value={repo.productionUrl ?? ""}
-            onChange={(event) => updateRepo({ productionUrl: event.target.value })}
+            onChange={(event) =>
+              updateRepo(0, { productionUrl: event.target.value })
+            }
           />
         </div>
         <div className={FORM.fieldStack}>
@@ -153,10 +424,13 @@ export function TargetRepoConfigForm({
           </Label>
           <Input
             id="integration-success-status"
-            value={repo.integrationSuccessStatus ?? "Merged to Dev"}
+            value={repo.integrationSuccessStatus ?? ""}
             onChange={(event) =>
-              updateRepo({ integrationSuccessStatus: event.target.value })
+              updateRepo(0, {
+                integrationSuccessStatus: event.target.value,
+              })
             }
+            placeholder="Merged to Dev"
           />
         </div>
         <div className={FORM.fieldStack}>
@@ -165,10 +439,13 @@ export function TargetRepoConfigForm({
           </Label>
           <Input
             id="production-success-status"
-            value={repo.productionSuccessStatus ?? "Merged / Deployed"}
+            value={repo.productionSuccessStatus ?? ""}
             onChange={(event) =>
-              updateRepo({ productionSuccessStatus: event.target.value })
+              updateRepo(0, {
+                productionSuccessStatus: event.target.value,
+              })
             }
+            placeholder="Merged / Deployed"
           />
         </div>
       </div>
@@ -179,7 +456,7 @@ export function TargetRepoConfigForm({
           id="validation-commands"
           value={repo.validationCommands ?? ""}
           onChange={(event) =>
-            updateRepo({ validationCommands: event.target.value })
+            updateRepo(0, { validationCommands: event.target.value })
           }
           placeholder="One command per line"
           rows={4}
@@ -188,3 +465,18 @@ export function TargetRepoConfigForm({
     </div>
   );
 }
+
+function repoVerificationBadge(state: RepoVerificationUiState) {
+  switch (state) {
+    case "checking":
+      return { label: "Checking", variant: "secondary" as const };
+    case "connected":
+      return { label: "Connected", variant: "success" as const };
+    case "failed":
+      return { label: "Failed", variant: "destructive" as const };
+    default:
+      return { label: "Not connected yet", variant: "secondary" as const };
+  }
+}
+
+export { GITHUB_REPO_URL_PATTERN };

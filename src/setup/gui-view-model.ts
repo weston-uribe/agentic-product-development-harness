@@ -85,6 +85,7 @@ export interface SetupGuiViewModel {
   overview: {
     readyForLocalDoctor: boolean;
     configResolved: boolean;
+    operatorConfigResolved: boolean;
     localFilesPresent: boolean;
   };
   localFiles: LocalFileStatus[];
@@ -482,12 +483,18 @@ export async function getSetupStateSummary(options?: {
   const doctorGroups = summarizeDoctorChecks(doctorChecks);
 
   const configResolved = Boolean(config) && !configParseError;
+  const operatorConfigResolved =
+    configResolved &&
+    configExists &&
+    (configSource.kind === "HARNESS_CONFIG_PATH" ||
+      configSource.kind === "cli-config");
   const localFilesPresent = envExists && configExists;
 
   const viewModel: SetupGuiViewModel = {
     overview: {
       readyForLocalDoctor: configResolved && localFilesPresent,
       configResolved,
+      operatorConfigResolved,
       localFilesPresent,
     },
     localFiles: [

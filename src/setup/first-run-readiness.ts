@@ -30,6 +30,7 @@ export interface ReadinessBlocker {
   action: string;
   priority: number;
   blocking: boolean;
+  tone?: "setup_needed" | "error";
 }
 
 export interface ReadinessAction {
@@ -64,6 +65,7 @@ export interface PrimarySetupTask {
   neededFromYou: string;
   primaryCtaLabel: string;
   secondaryCtaLabel: string;
+  tone?: "setup_needed" | "error";
 }
 
 export interface FirstRunReadiness {
@@ -103,11 +105,30 @@ function localFileExists(
   return summary.localFiles.find((file) => file.label === label)?.exists ?? false;
 }
 
+const SETUP_NEEDED_BLOCKER_IDS = new Set([
+  "missing-env-local",
+  "missing-config-local",
+  "missing-harness-config-path",
+  "missing-linear-key",
+  "missing-cursor-key",
+  "missing-github-token",
+  "config-unresolved",
+]);
+
 function pushBlocker(
   blockers: ReadinessBlocker[],
-  blocker: Omit<ReadinessBlocker, "blocking"> & { blocking?: boolean },
+  blocker: Omit<ReadinessBlocker, "blocking" | "tone"> & {
+    blocking?: boolean;
+    tone?: "setup_needed" | "error";
+  },
 ): void {
-  blockers.push({ blocking: true, ...blocker });
+  blockers.push({
+    blocking: true,
+    tone: blocker.tone ?? (SETUP_NEEDED_BLOCKER_IDS.has(blocker.id)
+      ? "setup_needed"
+      : "error"),
+    ...blocker,
+  });
 }
 
 function pushWarning(
@@ -128,8 +149,8 @@ export function collectLocalSetupBlockers(
     pushBlocker(blockers, {
       id: "missing-env-local",
       stepId: "local-setup",
-      message: "Blocked: .env.local is missing.",
-      action: "Next: Fill environment fields, preview local files, then apply.",
+      message: "Setup needed: create .env.local on this machine.",
+      action: "Add your service keys in Step 1, then preview setup files.",
       priority: 100,
     });
   }
@@ -138,9 +159,8 @@ export function collectLocalSetupBlockers(
     pushBlocker(blockers, {
       id: "missing-config-local",
       stepId: "local-setup",
-      message: "Blocked: .harness/config.local.json is missing.",
-      action:
-        "Next: Complete target repo config fields, preview local files, then apply.",
+      message: "Setup needed: create .harness/config.local.json.",
+      action: "Choose your target repo in Step 2, then preview setup files.",
       priority: 101,
     });
   }
@@ -149,9 +169,9 @@ export function collectLocalSetupBlockers(
     pushBlocker(blockers, {
       id: "missing-harness-config-path",
       stepId: "local-setup",
-      message: "Blocked: HARNESS_CONFIG_PATH is not set in .env.local.",
+      message: "Setup needed: HARNESS_CONFIG_PATH is not configured yet.",
       action:
-        "Next: Set HARNESS_CONFIG_PATH to .harness/config.local.json, then preview and apply.",
+        "This is set automatically when you create local setup files.",
       priority: 102,
     });
   }
@@ -160,8 +180,8 @@ export function collectLocalSetupBlockers(
     pushBlocker(blockers, {
       id: "missing-linear-key",
       stepId: "local-setup",
-      message: "Blocked: LINEAR_API_KEY is missing.",
-      action: "Next: Add it in Local setup, then preview local files.",
+      message: "Setup needed: LINEAR_API_KEY is not configured yet.",
+      action: "Add it in Step 1 · Connect services.",
       priority: 103,
     });
   }
@@ -170,8 +190,8 @@ export function collectLocalSetupBlockers(
     pushBlocker(blockers, {
       id: "missing-cursor-key",
       stepId: "local-setup",
-      message: "Blocked: CURSOR_API_KEY is missing.",
-      action: "Next: Add it in Local setup, then preview local files.",
+      message: "Setup needed: CURSOR_API_KEY is not configured yet.",
+      action: "Add it in Step 1 · Connect services.",
       priority: 104,
     });
   }
@@ -180,8 +200,8 @@ export function collectLocalSetupBlockers(
     pushBlocker(blockers, {
       id: "missing-github-token",
       stepId: "local-setup",
-      message: "Blocked: GITHUB_TOKEN is missing.",
-      action: "Next: Add it in Local setup, then preview local files.",
+      message: "Setup needed: GITHUB_TOKEN is not configured yet.",
+      action: "Add it in Step 1 · Connect services.",
       priority: 105,
     });
   }
@@ -190,9 +210,8 @@ export function collectLocalSetupBlockers(
     pushBlocker(blockers, {
       id: "config-unresolved",
       stepId: "local-setup",
-      message: "Blocked: Harness config is not resolving from your local files.",
-      action:
-        "Next: Point HARNESS_CONFIG_PATH at .harness/config.local.json and apply local setup.",
+      message: "Setup needed: harness config is not configured locally yet.",
+      action: "Complete the guided steps to create local setup files.",
       priority: 106,
     });
   }
@@ -490,7 +509,7 @@ function primaryActionForStep(
     case "local-setup":
       return {
         id: "preview-local-files",
-        label: "Preview and apply local setup files",
+        label: "Preview setup files",
         stepId,
       };
     case "local-readiness":
@@ -502,7 +521,7 @@ function primaryActionForStep(
     case "remote-setup":
       return {
         id: "complete-remote-setup",
-        label: "Complete harness secrets and target workflow PRs",
+        label: "Connect remote setup",
         stepId,
       };
     case "ready-for-first-run":
@@ -512,6 +531,13 @@ function primaryActionForStep(
         stepId,
       };
   }
+}
+
+function blockersAreSetupNeeded(blockers: ReadinessBlocker[]): boolean {
+  return (
+    blockers.length > 0 &&
+    blockers.every((blocker) => blocker.tone === "setup_needed")
+  );
 }
 
 function deriveStepStatus(input: {
@@ -528,12 +554,21 @@ function deriveStepStatus(input: {
     return "complete";
   }
   if (input.blockers.length > 0) {
-    return input.isCurrent ? "blocked" : "blocked";
+    if (input.isCurrent && blockersAreSetupNeeded(input.blockers)) {
+      return "in_progress";
+    }
+    return "blocked";
   }
   if (input.isCurrent) {
     return "in_progress";
   }
   return "ready";
+}
+
+function formatBlockerProblem(message: string): string {
+  return message
+    .replace(/^Blocked:\s*/, "")
+    .replace(/^Setup needed:\s*/, "");
 }
 
 function derivePrimarySetupTask(input: {
@@ -560,8 +595,9 @@ function derivePrimarySetupTask(input: {
         : suggestedRepo
           ? `Reset GITHUB_DISPATCH_REPOSITORY to ${suggestedRepo}.`
           : "Reset the stale harness dispatch repo to your current harness repo.",
-      primaryCtaLabel: "Preview local setup fix",
-      secondaryCtaLabel: "Show details",
+      primaryCtaLabel: "Preview setup files",
+      secondaryCtaLabel: "Show technical details",
+      tone: "error",
     };
   }
 
@@ -570,29 +606,44 @@ function derivePrimarySetupTask(input: {
       id: "confirm-harness-repo-access",
       stepId: "remote-setup",
       title: "I need this from you now",
-      problem: input.highestPriorityBlocker.message.replace(/^Blocked:\s*/, ""),
+      problem: formatBlockerProblem(input.highestPriorityBlocker.message),
       whyItMatters:
         "Remote setup cannot continue until the harness dispatch repo is reachable with your GitHub token.",
       neededFromYou:
         "Confirm the harness dispatch repo is the one you intend to use, or fix local setup if it is wrong.",
-      primaryCtaLabel: "Review remote setup details",
-      secondaryCtaLabel: "Show details",
+      primaryCtaLabel: "Connect remote setup",
+      secondaryCtaLabel: "Show technical details",
+      tone: "error",
     };
   }
 
   if (input.highestPriorityBlocker) {
+    const isSetupNeeded = input.highestPriorityBlocker.tone === "setup_needed";
+    const localSetupTitle =
+      input.highestPriorityBlocker.id === "missing-config-local" ||
+      input.highestPriorityBlocker.id === "config-unresolved"
+        ? "Step 2 of 3 · Choose target repo"
+        : "Step 1 of 3 · Connect services";
+
     return {
       id: input.highestPriorityBlocker.id,
       stepId: input.highestPriorityBlocker.stepId,
-      title: "I need this from you now",
-      problem: input.highestPriorityBlocker.message.replace(/^Blocked:\s*/, ""),
-      whyItMatters: "Setup cannot continue until this blocker is resolved.",
+      title: isSetupNeeded ? localSetupTitle : "I need this from you now",
+      problem: formatBlockerProblem(input.highestPriorityBlocker.message),
+      whyItMatters: isSetupNeeded
+        ? "This is normal for a first-time setup. Nothing is broken yet."
+        : "Setup cannot continue until this blocker is resolved.",
       neededFromYou: input.highestPriorityBlocker.action.replace(/^Next:\s*/, ""),
-      primaryCtaLabel: input.highestPriorityBlocker.action.replace(
-        /^Next:\s*/,
-        "",
-      ),
-      secondaryCtaLabel: "Show details",
+      primaryCtaLabel: isSetupNeeded
+        ? input.highestPriorityBlocker.stepId === "remote-setup"
+          ? "Connect remote setup"
+          : input.highestPriorityBlocker.id === "missing-config-local" ||
+              input.highestPriorityBlocker.id === "config-unresolved"
+            ? "Continue"
+            : "Continue"
+        : input.highestPriorityBlocker.action.replace(/^Next:\s*/, ""),
+      secondaryCtaLabel: "Show technical details",
+      tone: isSetupNeeded ? "setup_needed" : "error",
     };
   }
 
@@ -755,7 +806,9 @@ export function projectMissingStepsFromReadiness(
     .filter((entry) => entry.blocking)
     .map((entry) => ({
       id: entry.id,
-      label: entry.message.replace(/^Blocked:\s*/, ""),
+      label: entry.message
+        .replace(/^Blocked:\s*/, "")
+        .replace(/^Setup needed:\s*/, ""),
       detail: entry.action.replace(/^Next:\s*/, ""),
     }));
 }

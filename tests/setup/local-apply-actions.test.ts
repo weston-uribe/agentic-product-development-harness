@@ -304,4 +304,49 @@ describe("local-apply-actions", () => {
     const b = computeLocalSetupFingerprint(payload, baselines, tempRoot);
     expect(a).toBe(b);
   });
+
+  it("preview and apply support multiple guided target repos", async () => {
+    const payload = {
+      ...buildPayload(),
+      config: {
+        repos: [
+          {
+            id: "target-app",
+            targetRepo: "https://github.com/owner/example-target-app",
+            baseBranch: "dev",
+            productionBranch: "main",
+          },
+          {
+            id: "second-app",
+            targetRepo: "https://github.com/owner/second-target-app",
+            baseBranch: "dev",
+            productionBranch: "main",
+          },
+        ],
+      },
+    };
+
+    const preview = await previewLocalSetupFiles({
+      cwd: tempRoot,
+      payload,
+    });
+
+    expect(preview.validationError).toBeUndefined();
+    expect(preview.configPreview).toContain('"id": "target-app"');
+    expect(preview.configPreview).toContain('"id": "second-app"');
+    expect(collectText(preview)).not.toContain(FAKE_SECRETS.linearApiKey);
+
+    const apply = await applyLocalSetupFiles({
+      cwd: tempRoot,
+      payload,
+      confirmed: true,
+      fingerprint: preview.fingerprint,
+    });
+
+    const paths = resolveLocalFilePaths(tempRoot);
+    const configLocal = await readFile(paths.configLocal, "utf8");
+    expect(apply.configResult.outcome).toBe("changed");
+    expect(configLocal).toContain('"id": "target-app"');
+    expect(configLocal).toContain('"id": "second-app"');
+  });
 });

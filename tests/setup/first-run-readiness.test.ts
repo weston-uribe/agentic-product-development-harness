@@ -17,6 +17,7 @@ function baseSummary(
     overview: {
       readyForLocalDoctor: false,
       configResolved: false,
+      operatorConfigResolved: false,
       localFilesPresent: false,
     },
     localFiles: [
@@ -64,6 +65,7 @@ function completeLocalSummary(): SetupGuiViewModel {
     overview: {
       readyForLocalDoctor: true,
       configResolved: true,
+      operatorConfigResolved: true,
       localFilesPresent: true,
     },
     localFiles: [
@@ -150,7 +152,8 @@ describe("first-run-readiness", () => {
   it("blocks step 1 when .env.local is missing", () => {
     const blockers = collectLocalSetupBlockers(baseSummary());
     expect(blockers[0]?.id).toBe("missing-env-local");
-    expect(blockers[0]?.message).toContain(".env.local");
+    expect(blockers[0]?.message).toContain("Setup needed");
+    expect(blockers[0]?.tone).toBe("setup_needed");
   });
 
   it("blocks step 1 when CURSOR_API_KEY is missing before remote warnings", () => {
@@ -377,7 +380,7 @@ describe("first-run-readiness", () => {
     });
 
     expect(readiness.highestPriorityBlocker?.id).toBe("stale-smoke-dispatch-repo");
-    expect(readiness.primaryTask?.primaryCtaLabel).toBe("Preview local setup fix");
+    expect(readiness.primaryTask?.primaryCtaLabel).toBe("Preview setup files");
     expect(readiness.highestPriorityBlocker?.action).not.toContain(
       "Grant repo and Actions secret permissions",
     );

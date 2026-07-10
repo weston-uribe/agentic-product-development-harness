@@ -3,7 +3,15 @@
 import { FORM } from "@/lib/constants";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/custom/status-badge";
+import { ServiceIcon } from "@/components/custom/service-icons";
+import { ConnectedStatusMessage } from "@/components/custom/connected-status";
+import {
+  isServiceFailedForValue,
+  isServiceVerifiedForValue,
+} from "@/lib/verification-state";
+import { cn } from "@/lib/utils";
 
 export interface EnvironmentFormValues {
   harnessConfigPath: string;
@@ -19,22 +27,133 @@ export interface EnvironmentFormPresence {
   GITHUB_TOKEN: boolean;
 }
 
+export type ServiceKey = keyof EnvironmentFormPresence;
+
+export type VerificationUiState =
+  | "unchecked"
+  | "checking"
+  | "connected"
+  | "failed";
+
+export interface ServiceVerificationUi {
+  state: VerificationUiState;
+  verifiedValueFingerprint?: string;
+  attemptedValueFingerprint?: string;
+  message?: string;
+  limitation?: string;
+  label?: string;
+}
+
+export type ServiceVerificationMap = Record<ServiceKey, ServiceVerificationUi>;
+
+export const INITIAL_SERVICE_VERIFICATION: ServiceVerificationMap = {
+  LINEAR_API_KEY: { state: "unchecked" },
+  CURSOR_API_KEY: { state: "unchecked" },
+  GITHUB_TOKEN: { state: "unchecked" },
+};
+
 interface EnvironmentConfigFormProps {
   values: EnvironmentFormValues;
   presence: EnvironmentFormPresence;
   highlightDispatchRepo?: boolean;
+  variant?: "guided-services" | "advanced";
+  verification?: ServiceVerificationMap;
+  verifyingKey?: ServiceKey | null;
   onChange: (values: EnvironmentFormValues) => void;
+  onVerifyService?: (key: ServiceKey) => void;
+  onServiceBlur?: (key: ServiceKey) => void;
+}
+
+const SERVICE_DEFINITIONS: Array<{
+  key: ServiceKey;
+  id: string;
+  displayName: string;
+  valueKey: keyof Pick<
+    EnvironmentFormValues,
+    "linearApiKey" | "cursorApiKey" | "githubToken"
+  >;
+  helperText: string;
+}> = [
+  {
+    key: "LINEAR_API_KEY",
+    id: "linear-api-key",
+    displayName: "Linear",
+    valueKey: "linearApiKey",
+    helperText:
+      "Lets the harness read and update Linear issues during later automation phases.",
+  },
+  {
+    key: "CURSOR_API_KEY",
+    id: "cursor-api-key",
+    displayName: "Cursor",
+    valueKey: "cursorApiKey",
+    helperText: "Lets later Cursor SDK runs authenticate.",
+  },
+  {
+    key: "GITHUB_TOKEN",
+    id: "github-token",
+    displayName: "GitHub",
+    valueKey: "githubToken",
+    helperText:
+      "Lets setup check GitHub repo access and later prepare remote setup.",
+  },
+];
+
+function verificationBadge(state: VerificationUiState) {
+  switch (state) {
+    case "checking":
+      return { label: "Checking", variant: "secondary" as const };
+    case "connected":
+      return { label: "Connected", variant: "success" as const };
+    case "failed":
+      return { label: "Failed", variant: "destructive" as const };
+    default:
+      return { label: "Not connected yet", variant: "secondary" as const };
+  }
 }
 
 export function EnvironmentConfigForm({
   values,
   presence,
   highlightDispatchRepo = false,
+  variant = "advanced",
+  verification = INITIAL_SERVICE_VERIFICATION,
+  verifyingKey = null,
   onChange,
+  onVerifyService,
+  onServiceBlur,
 }: EnvironmentConfigFormProps) {
   const update = (patch: Partial<EnvironmentFormValues>) => {
     onChange({ ...values, ...patch });
   };
+
+  if (variant === "guided-services") {
+    return (
+      <div className="space-y-4">
+        {SERVICE_DEFINITIONS.map((service) => (
+          <ServiceConnectionCard
+            key={service.key}
+            id={service.id}
+            serviceKey={service.key}
+            displayName={service.displayName}
+            envKey={service.key}
+            helperText={service.helperText}
+            present={presence[service.key]}
+            value={values[service.valueKey]}
+            verification={verification[service.key]}
+            verifying={verifyingKey === service.key}
+            onChange={(value) => update({ [service.valueKey]: value })}
+            onVerify={
+              onVerifyService ? () => onVerifyService(service.key) : undefined
+            }
+            onBlur={
+              onServiceBlur ? () => onServiceBlur(service.key) : undefined
+            }
+          />
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div className={FORM.fieldGrid}>
@@ -74,27 +193,140 @@ export function EnvironmentConfigForm({
         </p>
       </div>
 
-      <SecretField
-        id="linear-api-key"
-        label="LINEAR_API_KEY"
-        present={presence.LINEAR_API_KEY}
-        value={values.linearApiKey}
-        onChange={(linearApiKey) => update({ linearApiKey })}
-      />
-      <SecretField
-        id="cursor-api-key"
-        label="CURSOR_API_KEY"
-        present={presence.CURSOR_API_KEY}
-        value={values.cursorApiKey}
-        onChange={(cursorApiKey) => update({ cursorApiKey })}
-      />
-      <SecretField
-        id="github-token"
-        label="GITHUB_TOKEN"
-        present={presence.GITHUB_TOKEN}
-        value={values.githubToken}
-        onChange={(githubToken) => update({ githubToken })}
-      />
+      {SERVICE_DEFINITIONS.map((service) => (
+        <SecretField
+          key={service.key}
+          id={service.id}
+          label={service.key}
+          present={presence[service.key]}
+          value={values[service.valueKey]}
+          onChange={(value) => update({ [service.valueKey]: value })}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ServiceConnectionCard({
+  id,
+  serviceKey,
+  displayName,
+  envKey,
+  helperText,
+  present,
+  value,
+  verification,
+  verifying,
+  onChange,
+  onVerify,
+  onBlur,
+}: {
+  id: string;
+  serviceKey: ServiceKey;
+  displayName: string;
+  envKey: string;
+  helperText: string;
+  present: boolean;
+  value: string;
+  verification: ServiceVerificationUi;
+  verifying: boolean;
+  onChange: (value: string) => void;
+  onVerify?: () => void;
+  onBlur?: () => void;
+}) {
+  const badge = verificationBadge(verification.state);
+  const trimmedValue = value.trim();
+  const verifiedForCurrentValue = isServiceVerifiedForValue(
+    verification,
+    trimmedValue,
+  );
+  const failedForCurrentValue = isServiceFailedForValue(
+    verification,
+    trimmedValue,
+  );
+  const showConnectedMessage =
+    verifiedForCurrentValue && Boolean(verification.message);
+  const showFailedMessage = failedForCurrentValue && Boolean(verification.message);
+
+  const verifyButtonLabel = verifying
+    ? "Verifying…"
+    : verifiedForCurrentValue
+      ? "Verified"
+      : present && !trimmedValue
+        ? "Verify saved key"
+        : "Verify";
+
+  const verifyButtonDisabled =
+    verifying ||
+    verifiedForCurrentValue ||
+    (!trimmedValue && !present);
+
+  return (
+    <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="space-y-1">
+          <p className="inline-flex items-center gap-2 text-sm font-medium">
+            <ServiceIcon serviceKey={serviceKey} />
+            <span>{displayName}</span>
+          </p>
+          <p className="text-xs text-muted-foreground">{envKey}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {present ? (
+            <StatusBadge label="Saved locally" variant="secondary" />
+          ) : null}
+          <StatusBadge label={badge.label} variant={badge.variant} />
+        </div>
+      </div>
+
+      <p className="text-sm text-muted-foreground">{helperText}</p>
+
+      <div className={FORM.fieldStack}>
+        <Label htmlFor={id} className="sr-only">
+          {envKey}
+        </Label>
+        <Input
+          id={id}
+          type="password"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          onBlur={onBlur}
+          placeholder={
+            present ? "Leave blank to keep existing value" : "Enter value"
+          }
+          autoComplete="off"
+        />
+      </div>
+
+      {showConnectedMessage ? (
+        <ConnectedStatusMessage message={verification.message!} />
+      ) : showFailedMessage ? (
+        <ConnectedStatusMessage
+          message={verification.message!}
+          failed
+        />
+      ) : present && verification.state === "unchecked" && !trimmedValue ? (
+        <p className="text-sm text-muted-foreground">
+          A key is already saved in `.env.local`. Verify it if you want to
+          confirm it still works.
+        </p>
+      ) : null}
+
+      {verification.limitation && verifiedForCurrentValue ? (
+        <p className="text-xs text-muted-foreground">{verification.limitation}</p>
+      ) : null}
+
+      {onVerify ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={onVerify}
+          disabled={verifyButtonDisabled}
+        >
+          {verifyButtonLabel}
+        </Button>
+      ) : null}
     </div>
   );
 }
@@ -104,12 +336,14 @@ function SecretField({
   label,
   present,
   value,
+  helperText,
   onChange,
 }: {
   id: string;
   label: string;
   present: boolean;
   value: string;
+  helperText?: string;
   onChange: (value: string) => void;
 }) {
   return (
@@ -117,8 +351,8 @@ function SecretField({
       <div className="flex items-center gap-2">
         <Label htmlFor={id}>{label}</Label>
         <StatusBadge
-          label={present ? "Set" : "Missing"}
-          variant={present ? "success" : "warning"}
+          label={present ? "Set" : "Not configured yet"}
+          variant={present ? "success" : "secondary"}
         />
       </div>
       <Input
@@ -129,9 +363,13 @@ function SecretField({
         placeholder={present ? "Leave blank to keep existing value" : "Enter value"}
         autoComplete="off"
       />
-      <p className={FORM.secretHint}>
-        Existing values are never shown. Leave blank to preserve a set key.
-      </p>
+      {helperText ? (
+        <p className={FORM.secretHint}>{helperText}</p>
+      ) : present ? (
+        <p className={FORM.secretHint}>
+          Existing values are never shown. Leave blank to preserve a set key.
+        </p>
+      ) : null}
     </div>
   );
 }

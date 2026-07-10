@@ -22,28 +22,32 @@ import { Button } from "@/components/ui/button";
 
 function statusVariant(
   status: FirstRunStepStatus,
+  setupNeeded = false,
 ): "success" | "warning" | "destructive" | "secondary" {
   switch (status) {
     case "complete":
       return "success";
     case "blocked":
-      return "destructive";
+      return setupNeeded ? "secondary" : "destructive";
     case "ready":
     case "in_progress":
-      return "warning";
+      return setupNeeded ? "secondary" : "warning";
     default:
       return "secondary";
   }
 }
 
-function statusLabel(status: FirstRunStepStatus): string {
+function statusLabel(
+  status: FirstRunStepStatus,
+  setupNeeded = false,
+): string {
   switch (status) {
     case "not_started":
       return "Not started";
     case "in_progress":
-      return "In progress";
+      return setupNeeded ? "Setup needed" : "In progress";
     case "blocked":
-      return "Blocked";
+      return setupNeeded ? "Setup needed" : "Blocked";
     case "ready":
       return "Ready";
     case "complete":
@@ -51,11 +55,17 @@ function statusLabel(status: FirstRunStepStatus): string {
   }
 }
 
-function StepIcon({ step }: { step: FirstRunStep }) {
+function StepIcon({
+  step,
+  setupNeeded,
+}: {
+  step: FirstRunStep;
+  setupNeeded: boolean;
+}) {
   if (step.status === "complete") {
     return <CheckCircle2 className="size-4 shrink-0 text-emerald-600" />;
   }
-  if (step.status === "blocked") {
+  if (step.status === "blocked" && !setupNeeded) {
     return <XCircle className="size-4 shrink-0 text-destructive" />;
   }
   if (step.status === "not_started") {
@@ -105,6 +115,9 @@ export function FirstRunStepper({
           const isCurrent = step.id === readiness.currentStepId;
           const expanded = expandedStepId === step.id;
           const canExpand = step.inspectable;
+          const setupNeeded =
+            step.blockers.length > 0 &&
+            step.blockers.every((blocker) => blocker.tone === "setup_needed");
 
           return (
             <li
@@ -116,7 +129,7 @@ export function FirstRunStepper({
             >
               <button
                 type="button"
-                className="flex w-full items-start gap-3 p-4 text-left"
+                className="flex w-full cursor-pointer items-start gap-3 p-4 text-left disabled:cursor-not-allowed"
                 onClick={() => {
                   if (canExpand) {
                     setExpandedStepId(expanded ? readiness.currentStepId : step.id);
@@ -124,13 +137,13 @@ export function FirstRunStepper({
                 }}
                 disabled={!canExpand}
               >
-                <StepIcon step={step} />
+                <StepIcon step={step} setupNeeded={setupNeeded} />
                 <div className="min-w-0 flex-1 space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="text-sm font-medium">{step.label}</p>
                     <StatusBadge
-                      label={statusLabel(step.status)}
-                      variant={statusVariant(step.status)}
+                      label={statusLabel(step.status, setupNeeded)}
+                      variant={statusVariant(step.status, setupNeeded)}
                     />
                     {isCurrent ? (
                       <StatusBadge label="Current" variant="secondary" />
@@ -142,8 +155,12 @@ export function FirstRunStepper({
                       Primary action: {step.primaryAction.label}
                     </p>
                   ) : null}
-                  {step.blockers[0] && isCurrent ? (
+                  {step.blockers[0] && isCurrent && !setupNeeded ? (
                     <p className="text-sm text-destructive">
+                      {step.blockers[0].action}
+                    </p>
+                  ) : step.blockers[0] && isCurrent ? (
+                    <p className="text-sm text-muted-foreground">
                       {step.blockers[0].action}
                     </p>
                   ) : null}

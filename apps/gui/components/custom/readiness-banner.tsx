@@ -38,11 +38,23 @@ export function ReadinessBanner({ readiness }: ReadinessBannerProps) {
         </div>
 
         {readiness.highestPriorityBlocker ? (
-          <div className="flex items-start gap-3 rounded-md border border-destructive/30 bg-destructive/5 p-3">
-            <AlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" />
+          <div
+            className={
+              readiness.highestPriorityBlocker.tone === "setup_needed"
+                ? "flex items-start gap-3 rounded-md border border-border bg-muted/30 p-3"
+                : "flex items-start gap-3 rounded-md border border-destructive/30 bg-destructive/5 p-3"
+            }
+          >
+            {readiness.highestPriorityBlocker.tone === "setup_needed" ? (
+              <ArrowRight className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+            ) : (
+              <AlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" />
+            )}
             <div className={SPACING.stackSm}>
               <p className="text-sm font-medium">
-                {readiness.highestPriorityBlocker.message}
+                {readiness.highestPriorityBlocker.message
+                  .replace(/^Blocked:\s*/, "")
+                  .replace(/^Setup needed:\s*/, "")}
               </p>
               <p className="text-sm text-muted-foreground">
                 {readiness.highestPriorityBlocker.action}

@@ -15,7 +15,7 @@ import { StatusBadge } from "@/components/custom/status-badge";
 import { ReadinessBanner } from "@/components/custom/readiness-banner";
 import { PrimarySetupTaskCard } from "@/components/custom/primary-setup-task-card";
 import { SetupDashboard } from "@/components/custom/setup-dashboard";
-import { ConfigureWorkflow } from "@/components/custom/configure-workflow";
+import { ConfigureWorkflow, type GuidedLocalStep } from "@/components/custom/configure-workflow";
 import { RemoteSetupSection } from "@/components/custom/remote-setup-section";
 import { SectionCard } from "@/components/custom/section-card";
 import { DoctorChecklist } from "@/components/custom/setup-checklist";
@@ -50,6 +50,9 @@ export function ConfigureExperience({
   const [summary, setSummary] = useState(initialSummary);
   const [remoteSummary, setRemoteSummary] = useState(initialRemoteSummary);
   const [uiState, setUiState] = useState<FirstRunReadinessUiState>({});
+  const [guidedLocalSetupActive, setGuidedLocalSetupActive] = useState(true);
+  const [guidedWorkflowStep, setGuidedWorkflowStep] =
+    useState<GuidedLocalStep>("connect-services");
 
   const readiness = useMemo(
     () =>
@@ -78,6 +81,7 @@ export function ConfigureExperience({
       githubDispatchRepository: shouldResetDispatch
         ? suggested
         : formDefaults.env.githubDispatchRepository,
+      suggestedHarnessDispatchRepo: suggested,
       secretPresence: formDefaults.env.secretPresence,
     };
   }, [formDefaults.env, readiness.staleSmokeDiagnostics.staleHarnessDispatchRepo]);
@@ -123,20 +127,27 @@ export function ConfigureExperience({
   }, []);
 
   const renderGuidedActionPanel = () => {
+    if (guidedLocalSetupActive || readiness.currentStepId === "local-setup") {
+      return (
+        <ConfigureWorkflow
+          key="guided-local-setup-workflow"
+          mode="guided"
+          guidedStep={guidedWorkflowStep}
+          onGuidedStepChange={setGuidedWorkflowStep}
+          onGuidedLocalSetupComplete={() => setGuidedLocalSetupActive(false)}
+          initialEnv={initialEnvForWorkflow}
+          initialConfig={formDefaults.config}
+          highlightStaleDispatch={staleDispatchRepoNeedsAttention}
+          highlightStaleTarget={staleTargetRepoNeedsAttention}
+          onSummaryUpdated={setSummary}
+          onUiStateChange={handleLocalUiStateChange}
+        />
+      );
+    }
+
     const stepId = readiness.primaryTask?.stepId ?? readiness.currentStepId;
 
     switch (stepId) {
-      case "local-setup":
-        return (
-          <ConfigureWorkflow
-            initialEnv={initialEnvForWorkflow}
-            initialConfig={formDefaults.config}
-            highlightStaleDispatch={staleDispatchRepoNeedsAttention}
-            highlightStaleTarget={staleTargetRepoNeedsAttention}
-            onSummaryUpdated={setSummary}
-            onUiStateChange={handleLocalUiStateChange}
-          />
-        );
       case "local-readiness":
         return (
           <SectionCard
@@ -190,6 +201,19 @@ export function ConfigureExperience({
     }
   };
 
+  const showGuidedPrimaryTaskCard =
+    readiness.primaryTask !== undefined &&
+    readiness.currentStepId !== "local-setup";
+
+  const configBadgeLabel = summary.overview.operatorConfigResolved
+    ? "Config resolved"
+    : summary.overview.configResolved
+      ? "Template config loaded"
+      : "Not configured yet";
+  const configBadgeVariant = summary.overview.operatorConfigResolved
+    ? "success"
+    : "secondary";
+
   return (
     <div className={LAYOUT.sectionStack}>
       <section className={SPACING.section}>
@@ -201,31 +225,32 @@ export function ConfigureExperience({
             your first future harness run.
           </p>
         </div>
-        <div className={SPACING.inline}>
-          <StatusBadge
-            label={
-              readiness.readyForFirstRun
-                ? "Ready for first run"
-                : "Setup in progress"
-            }
-            variant={readiness.readyForFirstRun ? "success" : "warning"}
-          />
-          <StatusBadge
-            label={
-              summary.overview.configResolved
-                ? "Config resolved"
-                : "Config unresolved"
-            }
-            variant={
-              summary.overview.configResolved ? "success" : "destructive"
-            }
-          />
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className={SPACING.inline}>
+            <StatusBadge
+              label={
+                readiness.readyForFirstRun
+                  ? "Ready for first run"
+                  : "Setup in progress"
+              }
+              variant={readiness.readyForFirstRun ? "success" : "warning"}
+            />
+            {mode === "advanced" ? (
+              <StatusBadge
+                label={configBadgeLabel}
+                variant={configBadgeVariant}
+              />
+            ) : null}
+          </div>
           {mode === "guided" ? (
             <Button
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => setMode("advanced")}
+              onClick={() => {
+                setGuidedLocalSetupActive(true);
+                setMode("advanced");
+              }}
             >
               Advanced checklist view
             </Button>
@@ -234,7 +259,10 @@ export function ConfigureExperience({
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => setMode("guided")}
+              onClick={() => {
+                setGuidedLocalSetupActive(true);
+                setMode("guided");
+              }}
             >
               Back to guided flow
             </Button>
@@ -242,13 +270,13 @@ export function ConfigureExperience({
         </div>
       </section>
 
-      <ReadinessBanner readiness={readiness} />
+      {mode === "advanced" ? <ReadinessBanner readiness={readiness} /> : null}
 
       {mode === "guided" ? (
         <div className={SPACING.section}>
-          {readiness.primaryTask ? (
+          {showGuidedPrimaryTaskCard ? (
             <PrimarySetupTaskCard
-              task={readiness.primaryTask}
+              task={readiness.primaryTask!}
               onPrimaryAction={handlePrimaryTaskAction}
               onShowDetails={() => {
                 setShowGuidedDetails(true);
@@ -260,10 +288,12 @@ export function ConfigureExperience({
           <div ref={actionPanelRef}>{renderGuidedActionPanel()}</div>
 
           {showGuidedDetails ? (
+            <ReadinessBanner readiness={readiness} />
+          ) : (
             <p className="text-sm text-muted-foreground">
               {readiness.prohibitedActionsNote}
             </p>
-          ) : null}
+          )}
         </div>
       ) : (
         <SetupDashboard

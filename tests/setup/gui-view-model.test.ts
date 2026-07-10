@@ -87,6 +87,8 @@ describe("gui-view-model", () => {
     expect(summary.localFiles.some((file) => file.label === ".env.local")).toBe(
       true,
     );
+    expect(summary.overview.configResolved).toBe(true);
+    expect(summary.overview.operatorConfigResolved).toBe(false);
     expect(summary.missingSteps.length).toBeGreaterThan(0);
     expect(summary.generatedPreviews.envLocal).toContain("HARNESS_CONFIG_PATH=");
     expect(serialized).not.toContain("super-secret");
@@ -139,6 +141,7 @@ describe("gui-view-model", () => {
 
     expect(summary.configSource.kind).toBe("HARNESS_CONFIG_PATH");
     expect(summary.configSource.label).toContain("config.local.json");
+    expect(summary.overview.operatorConfigResolved).toBe(true);
     expect(summary.configSummary?.repos[0]?.id).toBe("private-target");
     expect(summary.configSummary?.repos[0]?.id).not.toBe("committed-target");
   });

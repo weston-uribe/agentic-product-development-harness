@@ -65,6 +65,7 @@ export function SetupDashboard({
     <div className={LAYOUT.sectionStack}>
       <SetupDashboardGroup title="Phase 1 · Local setup">
         <ConfigureWorkflow
+          mode="advanced"
           initialEnv={formDefaults.env}
           initialConfig={formDefaults.config}
           onSummaryUpdated={onSummaryUpdated}
