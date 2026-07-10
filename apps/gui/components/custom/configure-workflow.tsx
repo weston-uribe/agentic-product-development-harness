@@ -40,8 +40,9 @@ import {
   valueFingerprint,
   type GuidedRepoRow,
 } from "@/lib/verification-state";
+import type { GuidedLocalSetupStep } from "@/lib/guided-setup";
 
-export type GuidedLocalStep = "connect-services" | "choose-target-repos";
+export type GuidedLocalStep = GuidedLocalSetupStep;
 
 interface ConfigureWorkflowProps {
   mode?: "guided" | "advanced";
@@ -690,13 +691,6 @@ export function ConfigureWorkflow({
               </div>
 
               <div className={FORM.actions}>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => goToGuidedStep("connect-services")}
-                >
-                  Back to service keys
-                </Button>
                 <Button
                   type="button"
                   onClick={handleCreateSetupFiles}

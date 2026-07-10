@@ -115,14 +115,12 @@ describe("M6 configure GUI boundaries", () => {
 
     expect(source).toContain('mode === "advanced" ? <ReadinessBanner');
     expect(source).toContain('mode="guided"');
-    expect(source).toContain("switch (readiness.currentStepId)");
+    expect(source).toContain("switch (displayedGuidedStep)");
     expect(source).toContain('case "local-readiness":');
     expect(source).toContain('mode === "advanced" ? (');
     expect(source).toContain("justify-between");
     expect(source).not.toContain("PrimarySetupTaskCard");
-    expect(source).not.toMatch(
-      /mode === "guided"[\s\S]*?Not configured yet/,
-    );
+    expect(source).toMatch(/mode === "advanced" \? \([\s\S]*configBadgeLabel/);
   });
 
   it("guided workflow renders one active step with animated transitions", () => {
@@ -140,7 +138,7 @@ describe("M6 configure GUI boundaries", () => {
 
     expect(workflowSource).toContain("GuidedStepTransition");
     expect(workflowSource).toContain("stepKey={guidedStep}");
-    expect(workflowSource).toContain("Back to service keys");
+    expect(workflowSource).not.toContain("Back to service keys");
     expect(workflowSource).not.toContain("Back to target repo");
     expect(workflowSource).not.toContain(
       "Service keys are ready. You can go back to edit them.",
@@ -326,11 +324,12 @@ describe("M6 configure GUI boundaries", () => {
       "utf8",
     );
 
-    expect(experienceSource).toContain("guidedWorkflowStep");
+    expect(experienceSource).toContain("displayedGuidedStep");
     expect(experienceSource).toContain('key="guided-local-setup-workflow"');
-    expect(experienceSource).toContain("onGuidedStepChange={setGuidedWorkflowStep}");
-    expect(experienceSource).toContain("guidedStep={guidedWorkflowStep}");
-    expect(experienceSource).toContain('case "local-setup":');
+    expect(experienceSource).toContain("guidedStep={displayedGuidedStep}");
+    expect(experienceSource).toContain("onGuidedStepChange={handleGuidedLocalStepChange}");
+    expect(experienceSource).toContain('case "connect-services":');
+    expect(experienceSource).toContain('case "choose-target-repos":');
     expect(experienceSource).not.toContain("guidedLocalSetupActive");
     expect(experienceSource).toContain("GuidedLocalReadinessCard");
     expect(experienceSource).toContain("localReadinessReviewed");
@@ -462,13 +461,14 @@ describe("M6 configure GUI boundaries", () => {
     expect(checklistSource).toContain('"failed"');
   });
 
-  it("guided local setup renders only for local-setup readiness step", () => {
+  it("guided local setup renders for connect-services and choose-target-repos display steps", () => {
     const experienceSource = readFileSync(
       path.join(repoRoot, "apps/gui/components/custom/configure-experience.tsx"),
       "utf8",
     );
 
-    expect(experienceSource).toContain('case "local-setup":');
+    expect(experienceSource).toContain('case "connect-services":');
+    expect(experienceSource).toContain('case "choose-target-repos":');
     expect(experienceSource).toContain('case "local-readiness":');
     expect(experienceSource).not.toMatch(
       /guidedLocalSetupActive[\s\S]*readiness\.currentStepId === "local-setup"/,
@@ -504,7 +504,7 @@ describe("M6 configure GUI boundaries", () => {
     );
     expect(readinessCardSource).toContain("Local readiness passed.");
     expect(readinessCardSource).toContain("<LocalReadinessChecklist checks={checks} />");
-    expect(experienceSource).toContain("switch (readiness.currentStepId)");
+    expect(experienceSource).toContain("switch (displayedGuidedStep)");
     expect(experienceSource).not.toContain("readiness.primaryTask?.stepId");
     expect(experienceSource).not.toContain("PrimarySetupTaskCard");
   });
@@ -528,5 +528,31 @@ describe("M6 configure GUI boundaries", () => {
     expect(targetSource).toContain("workflow install capability");
     expect(workflowSource).toContain("workflowInstallReady");
     expect(workflowSource).toContain("limitation: data.limitation");
+  });
+
+  it("guided header Back button navigates wizard steps without browser history", () => {
+    const experienceSource = readFileSync(
+      path.join(repoRoot, "apps/gui/components/custom/configure-experience.tsx"),
+      "utf8",
+    );
+    const guidedSetupSource = readFileSync(
+      path.join(repoRoot, "apps/gui/lib/guided-setup.ts"),
+      "utf8",
+    );
+
+    expect(guidedSetupSource).toContain("getPreviousGuidedDisplayStep");
+    expect(guidedSetupSource).toContain("defaultGuidedDisplayStep");
+    expect(guidedSetupSource).toContain("shouldShowGuidedBackButton");
+    expect(experienceSource).toContain("handleGuidedBack");
+    expect(experienceSource).toContain("showGuidedBackButton");
+    expect(experienceSource).toContain("shouldShowGuidedBackButton(displayedGuidedStep)");
+    expect(experienceSource).toContain('variant="ghost"');
+    expect(experienceSource).toContain("Advanced checklist view");
+    expect(experienceSource).toContain("defaultGuidedDisplayStep");
+    expect(experienceSource).toContain("previousReadinessStepRef");
+    expect(experienceSource).toContain("invalidateDownstreamFromGuidedStep");
+    expect(experienceSource).not.toMatch(/history\.back|router\.back/);
+    expect(experienceSource).not.toMatch(/localStorage|sessionStorage/);
+    expect(experienceSource).toContain('onClick={() => setMode("guided")}');
   });
 });

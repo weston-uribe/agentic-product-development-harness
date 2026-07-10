@@ -1,20 +1,28 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SetupGuiViewModel } from "@/lib/setup-server";
 import type { RemoteSetupSummary } from "@/lib/setup-server";
 import type { LocalConfigFormInput } from "@harness/setup/config-local-editor";
 import {
   deriveFirstRunReadiness,
   type FirstRunReadinessUiState,
+  type FirstRunStepId,
 } from "@harness/setup/first-run-readiness";
 
 import { LAYOUT, RESPONSIVE, SPACING } from "@/lib/constants";
+import {
+  defaultGuidedDisplayStep,
+  getPreviousGuidedDisplayStep,
+  shouldShowGuidedBackButton,
+  type GuidedDisplayStepId,
+  type GuidedLocalSetupStep,
+} from "@/lib/guided-setup";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/custom/status-badge";
 import { ReadinessBanner } from "@/components/custom/readiness-banner";
 import { SetupDashboard } from "@/components/custom/setup-dashboard";
-import { ConfigureWorkflow, type GuidedLocalStep } from "@/components/custom/configure-workflow";
+import { ConfigureWorkflow } from "@/components/custom/configure-workflow";
 import { GuidedLocalReadinessCard } from "@/components/custom/guided-local-readiness-card";
 import { GuidedCloudSecretsCard } from "@/components/custom/guided-cloud-secrets-card";
 import { GuidedTargetWorkflowCard } from "@/components/custom/guided-target-workflow-card";
@@ -49,8 +57,19 @@ export function ConfigureExperience({
   const [summary, setSummary] = useState(initialSummary);
   const [remoteSummary, setRemoteSummary] = useState(initialRemoteSummary);
   const [uiState, setUiState] = useState<FirstRunReadinessUiState>({});
-  const [guidedWorkflowStep, setGuidedWorkflowStep] =
-    useState<GuidedLocalStep>("connect-services");
+  const [displayedGuidedStep, setDisplayedGuidedStep] =
+    useState<GuidedDisplayStepId>(() =>
+      defaultGuidedDisplayStep({
+        currentStepId: deriveFirstRunReadiness({
+          summary: initialSummary,
+          remoteSummary: initialRemoteSummary,
+          uiState: {},
+          staleSmokeDiagnostics: initialRemoteSummary.staleSmokeDiagnostics,
+        }).currentStepId,
+        summary: initialSummary,
+      }),
+    );
+  const previousReadinessStepRef = useRef<FirstRunStepId | null>(null);
 
   const readiness = useMemo(
     () =>
@@ -62,6 +81,24 @@ export function ConfigureExperience({
       }),
     [summary, remoteSummary, uiState],
   );
+
+  useEffect(() => {
+    const nextStepId = readiness.currentStepId;
+    const previousStepId = previousReadinessStepRef.current;
+    if (previousStepId === null) {
+      previousReadinessStepRef.current = nextStepId;
+      return;
+    }
+    if (previousStepId !== nextStepId) {
+      setDisplayedGuidedStep(
+        defaultGuidedDisplayStep({
+          currentStepId: nextStepId,
+          summary,
+        }),
+      );
+      previousReadinessStepRef.current = nextStepId;
+    }
+  }, [readiness.currentStepId, summary]);
 
   const staleTargetRepoNeedsAttention =
     readiness.staleSmokeDiagnostics.staleTargetRepos.length > 0;
@@ -80,9 +117,19 @@ export function ConfigureExperience({
         ? suggested
         : formDefaults.env.githubDispatchRepository,
       suggestedHarnessDispatchRepo: suggested,
-      secretPresence: formDefaults.env.secretPresence,
+      secretPresence: {
+        LINEAR_API_KEY: summary.envKeyPresence.LINEAR_API_KEY,
+        CURSOR_API_KEY: summary.envKeyPresence.CURSOR_API_KEY,
+        GITHUB_TOKEN: summary.envKeyPresence.GITHUB_TOKEN,
+      },
     };
-  }, [formDefaults.env, readiness.staleSmokeDiagnostics.staleHarnessDispatchRepo]);
+  }, [
+    formDefaults.env,
+    readiness.staleSmokeDiagnostics.staleHarnessDispatchRepo,
+    summary.envKeyPresence.CURSOR_API_KEY,
+    summary.envKeyPresence.GITHUB_TOKEN,
+    summary.envKeyPresence.LINEAR_API_KEY,
+  ]);
 
   const handleLocalUiStateChange = useCallback(
     (state: { localPreviewStale: boolean }) => {
@@ -132,17 +179,58 @@ export function ConfigureExperience({
     setSummary(nextSummary);
   }, []);
 
+  const handleGuidedLocalStepChange = useCallback((step: GuidedLocalSetupStep) => {
+    setDisplayedGuidedStep(step);
+  }, []);
+
+  const invalidateDownstreamFromGuidedStep = useCallback(
+    (step: GuidedDisplayStepId) => {
+      if (step === "connect-services" || step === "choose-target-repos") {
+        setUiState((current) => ({
+          ...current,
+          localReadinessReviewed: false,
+          cloudSecretsReviewed: false,
+          remoteSecretPreviewStale: true,
+          localPreviewStale: true,
+        }));
+        return;
+      }
+
+      if (step === "local-readiness") {
+        setUiState((current) => ({
+          ...current,
+          cloudSecretsReviewed: false,
+          remoteSecretPreviewStale: true,
+        }));
+      }
+    },
+    [],
+  );
+
+  const handleGuidedBack = useCallback(() => {
+    const previous = getPreviousGuidedDisplayStep(displayedGuidedStep);
+    if (!previous) {
+      return;
+    }
+    setDisplayedGuidedStep(previous);
+    invalidateDownstreamFromGuidedStep(previous);
+  }, [displayedGuidedStep, invalidateDownstreamFromGuidedStep]);
+
+  const showGuidedBackButton =
+    mode === "guided" && shouldShowGuidedBackButton(displayedGuidedStep);
+
   const actionPanelRef = useRef<HTMLDivElement | null>(null);
 
   const renderGuidedActionPanel = () => {
-    switch (readiness.currentStepId) {
-      case "local-setup":
+    switch (displayedGuidedStep) {
+      case "connect-services":
+      case "choose-target-repos":
         return (
           <ConfigureWorkflow
             key="guided-local-setup-workflow"
             mode="guided"
-            guidedStep={guidedWorkflowStep}
-            onGuidedStepChange={setGuidedWorkflowStep}
+            guidedStep={displayedGuidedStep}
+            onGuidedStepChange={handleGuidedLocalStepChange}
             initialEnv={initialEnvForWorkflow}
             initialConfig={formDefaults.config}
             highlightStaleDispatch={staleDispatchRepoNeedsAttention}
@@ -233,21 +321,34 @@ export function ConfigureExperience({
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className={SPACING.inline}>
-            <StatusBadge
-              label={
-                readiness.readyForFirstRun
-                  ? "Ready for first run"
-                  : "Setup in progress"
-              }
-              variant={readiness.readyForFirstRun ? "success" : "warning"}
-            />
-            {mode === "advanced" ? (
-              <StatusBadge
-                label={configBadgeLabel}
-                variant={configBadgeVariant}
-              />
+          <div className="flex flex-wrap items-center gap-2">
+            {showGuidedBackButton ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground"
+                onClick={handleGuidedBack}
+              >
+                Back
+              </Button>
             ) : null}
+            <div className={SPACING.inline}>
+              <StatusBadge
+                label={
+                  readiness.readyForFirstRun
+                    ? "Ready for first run"
+                    : "Setup in progress"
+                }
+                variant={readiness.readyForFirstRun ? "success" : "warning"}
+              />
+              {mode === "advanced" ? (
+                <StatusBadge
+                  label={configBadgeLabel}
+                  variant={configBadgeVariant}
+                />
+              ) : null}
+            </div>
           </div>
           {mode === "guided" ? (
             <Button
