@@ -13,12 +13,11 @@ import { LAYOUT, RESPONSIVE, SPACING } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/custom/status-badge";
 import { ReadinessBanner } from "@/components/custom/readiness-banner";
-import { PrimarySetupTaskCard } from "@/components/custom/primary-setup-task-card";
 import { SetupDashboard } from "@/components/custom/setup-dashboard";
 import { ConfigureWorkflow, type GuidedLocalStep } from "@/components/custom/configure-workflow";
-import { RemoteSetupSection } from "@/components/custom/remote-setup-section";
+import { GuidedLocalReadinessCard } from "@/components/custom/guided-local-readiness-card";
+import { GuidedRemoteSetupPanel } from "@/components/custom/guided-remote-setup-panel";
 import { SectionCard } from "@/components/custom/section-card";
-import { DoctorChecklist } from "@/components/custom/setup-checklist";
 
 type ConfigureMode = "guided" | "advanced";
 
@@ -46,7 +45,6 @@ export function ConfigureExperience({
   formDefaults,
 }: ConfigureExperienceProps) {
   const [mode, setMode] = useState<ConfigureMode>("guided");
-  const [showGuidedDetails, setShowGuidedDetails] = useState(false);
   const [summary, setSummary] = useState(initialSummary);
   const [remoteSummary, setRemoteSummary] = useState(initialRemoteSummary);
   const [uiState, setUiState] = useState<FirstRunReadinessUiState>({});
@@ -122,99 +120,41 @@ export function ConfigureExperience({
     }));
   }, []);
 
+  const handleSummaryUpdated = useCallback((nextSummary: SetupGuiViewModel) => {
+    setSummary(nextSummary);
+  }, []);
+
   const actionPanelRef = useRef<HTMLDivElement | null>(null);
 
-  const handlePrimaryTaskAction = useCallback(() => {
-    if (
-      readiness.currentStepId === "local-readiness" &&
-      readiness.localReadinessBlockersCleared &&
-      !readiness.localReadinessReviewed
-    ) {
-      handleLocalReadinessReviewed();
-      return;
-    }
-
-    actionPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    const previewButton = actionPanelRef.current?.querySelector<HTMLButtonElement>(
-      "[data-primary-preview-button='true']",
-    );
-    previewButton?.focus();
-  }, [
-    handleLocalReadinessReviewed,
-    readiness.currentStepId,
-    readiness.localReadinessBlockersCleared,
-    readiness.localReadinessReviewed,
-  ]);
-
   const renderGuidedActionPanel = () => {
-    if (readiness.currentStepId === "local-setup") {
-      return (
-        <ConfigureWorkflow
-          key="guided-local-setup-workflow"
-          mode="guided"
-          guidedStep={guidedWorkflowStep}
-          onGuidedStepChange={setGuidedWorkflowStep}
-          initialEnv={initialEnvForWorkflow}
-          initialConfig={formDefaults.config}
-          highlightStaleDispatch={staleDispatchRepoNeedsAttention}
-          highlightStaleTarget={staleTargetRepoNeedsAttention}
-          onSummaryUpdated={setSummary}
-          onUiStateChange={handleLocalUiStateChange}
-        />
-      );
-    }
-
     switch (readiness.currentStepId) {
+      case "local-setup":
+        return (
+          <ConfigureWorkflow
+            key="guided-local-setup-workflow"
+            mode="guided"
+            guidedStep={guidedWorkflowStep}
+            onGuidedStepChange={setGuidedWorkflowStep}
+            initialEnv={initialEnvForWorkflow}
+            initialConfig={formDefaults.config}
+            highlightStaleDispatch={staleDispatchRepoNeedsAttention}
+            highlightStaleTarget={staleTargetRepoNeedsAttention}
+            onSummaryUpdated={handleSummaryUpdated}
+            onUiStateChange={handleLocalUiStateChange}
+          />
+        );
       case "local-readiness":
         return (
-          <SectionCard
-            title="Local readiness checks"
-            description="Local setup files were created. Next, check whether this machine is ready to run the harness."
-          >
-            <div className={SPACING.stackSm}>
-              <p className="text-sm text-muted-foreground">
-                Your <code className="text-xs">.env.local</code> and{" "}
-                <code className="text-xs">.harness/config.local.json</code> files
-                are in place. Review the checks below, then continue when you are
-                ready.
-              </p>
-
-              <DoctorChecklist checks={summary.doctor.checks} />
-
-              {summary.doctor.remoteChecksNote ? (
-                <p className="text-sm text-muted-foreground">
-                  {summary.doctor.remoteChecksNote}
-                </p>
-              ) : null}
-
-              {readiness.highestPriorityBlocker?.stepId === "local-readiness" ? (
-                <div className="rounded-md border border-border bg-muted/20 p-3">
-                  <p className="text-sm font-medium">Next action</p>
-                  <p className="text-sm text-muted-foreground">
-                    {readiness.highestPriorityBlocker.action.replace(/^Next:\s*/, "")}
-                  </p>
-                </div>
-              ) : readiness.nextRecommendedAction?.stepId === "local-readiness" ? (
-                <div className="rounded-md border border-border bg-muted/20 p-3">
-                  <p className="text-sm font-medium">Next action</p>
-                  <p className="text-sm text-muted-foreground">
-                    {readiness.nextRecommendedAction.label}
-                  </p>
-                </div>
-              ) : null}
-
-              {readiness.localReadinessBlockersCleared &&
-              !readiness.localReadinessReviewed ? (
-                <Button type="button" onClick={handleLocalReadinessReviewed}>
-                  Continue to remote setup
-                </Button>
-              ) : null}
-            </div>
-          </SectionCard>
+          <GuidedLocalReadinessCard
+            summary={summary}
+            readiness={readiness}
+            onSummaryUpdated={handleSummaryUpdated}
+            onContinue={handleLocalReadinessReviewed}
+          />
         );
       case "remote-setup":
         return (
-          <RemoteSetupSection
+          <GuidedRemoteSetupPanel
             initialSummary={remoteSummary}
             onSummaryUpdated={setRemoteSummary}
             onUiStateChange={handleRemoteUiStateChange}
@@ -255,10 +195,6 @@ export function ConfigureExperience({
         );
     }
   };
-
-  const showGuidedPrimaryTaskCard =
-    readiness.primaryTask !== undefined &&
-    readiness.currentStepId !== "local-setup";
 
   const configBadgeLabel = summary.overview.operatorConfigResolved
     ? "Config resolved"
@@ -323,26 +259,10 @@ export function ConfigureExperience({
 
       {mode === "guided" ? (
         <div className={SPACING.section}>
-          {showGuidedPrimaryTaskCard ? (
-            <PrimarySetupTaskCard
-              task={readiness.primaryTask!}
-              onPrimaryAction={handlePrimaryTaskAction}
-              onShowDetails={() => {
-                setShowGuidedDetails(true);
-                setMode("advanced");
-              }}
-            />
-          ) : null}
-
           <div ref={actionPanelRef}>{renderGuidedActionPanel()}</div>
-
-          {showGuidedDetails ? (
-            <ReadinessBanner readiness={readiness} />
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              {readiness.prohibitedActionsNote}
-            </p>
-          )}
+          <p className="text-sm text-muted-foreground">
+            {readiness.prohibitedActionsNote}
+          </p>
         </div>
       ) : (
         <SetupDashboard

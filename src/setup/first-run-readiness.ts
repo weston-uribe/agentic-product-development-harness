@@ -626,8 +626,8 @@ function derivePrimarySetupTask(input: {
     const localSetupTitle =
       input.highestPriorityBlocker.id === "missing-config-local" ||
       input.highestPriorityBlocker.id === "config-unresolved"
-        ? "Step 2 of 3 · Choose target repo"
-        : "Step 1 of 3 · Connect services";
+        ? "Step 2 of 4 · Choose target repo"
+        : "Step 1 of 4 · Connect services";
 
     return {
       id: input.highestPriorityBlocker.id,

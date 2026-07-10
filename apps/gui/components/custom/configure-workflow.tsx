@@ -555,7 +555,7 @@ export function ConfigureWorkflow({
         case "connect-services":
           return (
             <SectionCard
-              title="Step 1 of 2 · Connect services"
+              title="Step 1 of 4 · Connect services"
               description="Add the API keys the harness needs on this machine."
             >
               <EnvironmentConfigForm
@@ -600,7 +600,7 @@ export function ConfigureWorkflow({
         case "choose-target-repos":
           return (
             <SectionCard
-              title="Step 2 of 2 · Choose target repo(s) and create setup files"
+              title="Step 2 of 4 · Choose target repo(s) and create setup files"
               description="Tell the harness which GitHub repo(s) it should work against, then create local setup files on this machine."
             >
               <TargetRepoConfigForm
