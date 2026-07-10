@@ -246,8 +246,17 @@ export function ConfigureExperience({
     [],
   );
 
-  const handleConnectServicesComplete = useCallback(() => {
+  const handleConnectServicesComplete = useCallback(async () => {
     setDisplayedGuidedStep(GUIDED_DISPLAY_STEP_AFTER_CONNECT_SERVICES);
+    try {
+      const response = await fetch("/api/setup/linear-summary");
+      const data = await response.json();
+      if (response.ok) {
+        setLinearSummary(data as LinearSetupSummary);
+      }
+    } catch {
+      // Fall back to env presence synced via handleSummaryUpdated after Step 1 save.
+    }
   }, []);
 
   const handleLinearWorkspaceContinue = useCallback(() => {
@@ -274,6 +283,14 @@ export function ConfigureExperience({
 
   const handleSummaryUpdated = useCallback((nextSummary: SetupGuiViewModel) => {
     setSummary(nextSummary);
+    setLinearSummary((current) => ({
+      ...current,
+      linearApiKeyConfigured: nextSummary.envKeyPresence.LINEAR_API_KEY,
+    }));
+    setVercelSummary((current) => ({
+      ...current,
+      linearApiKeyConfigured: nextSummary.envKeyPresence.LINEAR_API_KEY,
+    }));
   }, []);
 
   const handleGuidedWorkflowSetupComplete = useCallback(() => {
@@ -374,6 +391,7 @@ export function ConfigureExperience({
           <GuidedLinearWorkspaceCard
             readiness={readiness}
             initialSummary={linearSummary}
+            linearApiKeyConfigured={summary.envKeyPresence.LINEAR_API_KEY}
             onSummaryUpdated={setLinearSummary}
             onUiStateChange={handleLinearUiStateChange}
             onContinue={handleLinearWorkspaceContinue}
@@ -551,9 +569,6 @@ export function ConfigureExperience({
       {mode === "guided" ? (
         <div className={SPACING.section}>
           <div ref={actionPanelRef}>{renderGuidedActionPanel()}</div>
-          <p className="text-sm text-muted-foreground">
-            {readiness.prohibitedActionsNote}
-          </p>
         </div>
       ) : (
         <SetupDashboard

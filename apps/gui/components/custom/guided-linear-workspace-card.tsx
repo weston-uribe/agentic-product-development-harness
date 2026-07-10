@@ -19,6 +19,7 @@ import { SetupApplyResult } from "@/components/custom/setup-apply-result";
 interface GuidedLinearWorkspaceCardProps {
   readiness: FirstRunReadiness;
   initialSummary: LinearSetupSummary;
+  linearApiKeyConfigured?: boolean;
   onSummaryUpdated?: (summary: LinearSetupSummary) => void;
   onUiStateChange?: (state: { linearPreviewStale: boolean }) => void;
   onContinue: () => void;
@@ -27,6 +28,7 @@ interface GuidedLinearWorkspaceCardProps {
 export function GuidedLinearWorkspaceCard({
   readiness,
   initialSummary,
+  linearApiKeyConfigured,
   onSummaryUpdated,
   onUiStateChange,
   onContinue,
@@ -174,15 +176,18 @@ export function GuidedLinearWorkspaceCard({
     readiness.steps.find((step) => step.id === "linear-workspace")?.status ===
       "complete" || summary.workspace.configured;
 
+  const apiKeyConfigured =
+    linearApiKeyConfigured ?? summary.linearApiKeyConfigured;
+
   return (
     <SectionCard
       title={`Step 2 of ${GUIDED_SETUP_STEP_COUNT} · Set up Linear workspace`}
       description="Choose or create the Linear team, project, and workflow statuses the harness automation expects."
     >
       <div className={SPACING.stackSm}>
-        {!summary.linearApiKeyConfigured ? (
+        {!apiKeyConfigured ? (
           <p className="text-sm text-muted-foreground">
-            Add LINEAR_API_KEY in Step 1 before configuring the Linear workspace.
+            Add your Linear API key in Step 1 before configuring the Linear workspace.
           </p>
         ) : (
           <>

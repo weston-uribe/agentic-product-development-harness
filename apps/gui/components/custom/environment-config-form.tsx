@@ -88,15 +88,17 @@ const SERVICE_DEFINITIONS: Array<{
     id: "linear-api-key",
     displayName: "Linear",
     valueKey: "linearApiKey",
-    helperText:
-      "Lets the harness read and update Linear issues during later automation phases.",
+    helperText: "Lets the harness read and update Linear issues.",
+    inputLabel: "Go to Linear, create or copy your API key, then paste it here.",
   },
   {
     key: "CURSOR_API_KEY",
     id: "cursor-api-key",
     displayName: "Cursor",
     valueKey: "cursorApiKey",
-    helperText: "Lets later Cursor SDK runs authenticate.",
+    helperText:
+      "Used to spin up Cursor agents that do the planning and development work.",
+    inputLabel: "Go to Cursor, create or copy your API key, then paste it here.",
   },
   {
     key: "GITHUB_TOKEN",
@@ -112,8 +114,8 @@ const SERVICE_DEFINITIONS: Array<{
     displayName: "Vercel",
     valueKey: "vercelToken",
     helperText:
-      "Used to verify the webhook bridge project and configure required production environment variables for the Linear webhook bridge.",
-    inputLabel: "Paste your Vercel token",
+      "Used to create or access Vercel previews so implementation work can be verified before code is merged.",
+    inputLabel: "Go to Vercel, create or copy your token, then paste it here.",
   },
 ];
 
@@ -319,36 +321,37 @@ function ServiceConnectionCard({
 
       {serviceKey === "GITHUB_TOKEN" ? <GitHubTokenHelpDisclosure /> : null}
 
-      {showConnectedMessage ? (
-        <ConnectedStatusMessage message={verification.message!} />
-      ) : showFailedMessage ? (
-        <ConnectedStatusMessage
-          message={verification.message!}
-          failed
-        />
-      ) : present && verification.state === "unchecked" && !trimmedValue ? (
-        <p className="text-sm text-muted-foreground">
-          A key is already saved in `.env.local`. Verify it if you want to
-          confirm it still works.
-        </p>
-      ) : null}
+      <div className="flex flex-col items-start gap-2">
+        {showConnectedMessage ? (
+          <ConnectedStatusMessage message={verification.message!} />
+        ) : showFailedMessage ? (
+          <ConnectedStatusMessage message={verification.message!} failed />
+        ) : present && verification.state === "unchecked" && !trimmedValue ? (
+          <p className="text-sm text-muted-foreground">
+            A key is already saved in `.env.local`. Verify it if you want to
+            confirm it still works.
+          </p>
+        ) : null}
 
-      {verification.limitation &&
-      (verifiedForCurrentValue || failedForCurrentValue) ? (
-        <p className="text-xs text-muted-foreground">{verification.limitation}</p>
-      ) : null}
+        {verification.limitation &&
+        (verifiedForCurrentValue || failedForCurrentValue) ? (
+          <p className="text-xs text-muted-foreground">
+            {verification.limitation}
+          </p>
+        ) : null}
 
-      {onVerify ? (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={onVerify}
-          disabled={verifyButtonDisabled}
-        >
-          {verifyButtonLabel}
-        </Button>
-      ) : null}
+        {onVerify ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={onVerify}
+            disabled={verifyButtonDisabled}
+          >
+            {verifyButtonLabel}
+          </Button>
+        ) : null}
+      </div>
     </div>
   );
 }

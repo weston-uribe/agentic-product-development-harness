@@ -325,6 +325,69 @@ describe("M6 configure GUI boundaries", () => {
     );
   });
 
+  it("guided connect-services copy is action-oriented and hides milestone footer", () => {
+    const envSource = readFileSync(
+      path.join(repoRoot, "apps/gui/components/custom/environment-config-form.tsx"),
+      "utf8",
+    );
+    const experienceSource = readFileSync(
+      path.join(repoRoot, "apps/gui/components/custom/configure-experience.tsx"),
+      "utf8",
+    );
+    const linearCardSource = readFileSync(
+      path.join(
+        repoRoot,
+        "apps/gui/components/custom/guided-linear-workspace-card.tsx",
+      ),
+      "utf8",
+    );
+
+    expect(envSource).toContain(
+      "Go to Linear, create or copy your API key, then paste it here.",
+    );
+    expect(envSource).toContain(
+      "Go to Cursor, create or copy your API key, then paste it here.",
+    );
+    expect(envSource).toContain(
+      "Go to Vercel, create or copy your token, then paste it here.",
+    );
+    expect(envSource).toContain(
+      "Lets the harness read and update Linear issues.",
+    );
+    expect(envSource).toContain(
+      "Used to spin up Cursor agents that do the planning and development work.",
+    );
+    expect(envSource).toContain(
+      "Used to create or access Vercel previews so implementation work can be verified before code is merged.",
+    );
+    expect(envSource).not.toContain("during later automation phases");
+    expect(envSource).not.toContain("Lets later Cursor SDK runs authenticate.");
+    expect(envSource).not.toContain('inputLabel: "Paste your Vercel token"');
+    expect(envSource).toContain("flex flex-col items-start gap-2");
+
+    const guidedPanelBlock = experienceSource.match(
+      /mode === "guided" \? \([\s\S]*?\) : \(/,
+    )?.[0];
+    expect(guidedPanelBlock).toBeDefined();
+    expect(guidedPanelBlock).not.toContain("prohibitedActionsNote");
+
+    expect(linearCardSource).toContain("linearApiKeyConfigured?: boolean");
+    expect(linearCardSource).toContain(
+      "linearApiKeyConfigured ?? summary.linearApiKeyConfigured",
+    );
+    expect(linearCardSource).toContain(
+      "Add your Linear API key in Step 1 before configuring the Linear workspace.",
+    );
+    expect(linearCardSource).not.toContain("Add LINEAR_API_KEY in Step 1");
+    expect(experienceSource).toContain(
+      "linearApiKeyConfigured={summary.envKeyPresence.LINEAR_API_KEY}",
+    );
+    expect(experienceSource).toContain("/api/setup/linear-summary");
+    expect(experienceSource).toContain(
+      "linearApiKeyConfigured: nextSummary.envKeyPresence.LINEAR_API_KEY",
+    );
+  });
+
   it("guided preview flow keeps local setup workflow mounted and step state in parent", () => {
     const experienceSource = readFileSync(
       path.join(repoRoot, "apps/gui/components/custom/configure-experience.tsx"),

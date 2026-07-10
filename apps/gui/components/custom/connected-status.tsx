@@ -13,7 +13,7 @@ export function ConnectedStatusMessage({
   return (
     <p
       className={cn(
-        "inline-flex items-center gap-2 text-sm",
+        "flex items-center gap-2 text-sm",
         failed ? "text-destructive" : "text-muted-foreground",
         className,
       )}
