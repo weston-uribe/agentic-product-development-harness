@@ -145,6 +145,48 @@ describe("vercel-setup-plan", () => {
 
     expect(preview.validationError).toBeUndefined();
     expect(preview.selectedProject).toBeUndefined();
+    expect(preview.deploymentStatus).toBe("project-will-be-created");
     expect(preview.manualSteps.join(" ")).toMatch(/will be created during apply/i);
+  });
+
+  it("reports missing deployment for existing projects without production URL", async () => {
+    vi.mocked(listVercelProductionDeployments).mockResolvedValue([]);
+
+    const preview = await previewVercelBridgeSetup({
+      vercelToken: "vercel-token",
+      projectId: "proj-1",
+      derivedHarnessTeamKey: "WES",
+      derivedGithubDispatchToken: "ghp_saved",
+    });
+
+    expect(preview.deploymentStatus).toBe("missing");
+    expect(preview.deploymentRequired?.message).toMatch(/no production deployment/i);
+    expect(preview.webhookUrl).toBeUndefined();
+  });
+
+  it("does not treat existing-unverified webhook mode as verified", async () => {
+    vi.mocked(summarizeLinearWebhookReadiness).mockResolvedValue({
+      matchingWebhook: {
+        id: "wh-1",
+        url: "https://harness-gui.vercel.app/api/linear-webhook",
+        enabled: true,
+        resourceTypes: ["Issue"],
+      },
+      manualSteps: [],
+    });
+    vi.mocked(planLinearWebhookSecret).mockResolvedValue({
+      mode: "existing-unverified",
+      manualSteps: ["Signing secret cannot be recovered."],
+    });
+
+    const preview = await previewVercelBridgeSetup({
+      vercelToken: "vercel-token",
+      projectId: "proj-1",
+      linearApiKey: "lin_api_test",
+      derivedHarnessTeamKey: "WES",
+    });
+
+    expect(preview.linearWebhookSecretMode).toBe("existing-unverified");
+    expect(preview.linearWebhookVerified).toBe(false);
   });
 });

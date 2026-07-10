@@ -93,6 +93,11 @@ export interface VercelBridgePreview {
   selectedProject?: Awaited<ReturnType<typeof listVercelProjects>>[number];
   productionUrl?: string;
   webhookUrl?: string;
+  deploymentStatus: "ready" | "missing" | "project-will-be-created";
+  deploymentRequired?: {
+    message: string;
+    nextSteps: string[];
+  };
   endpointReachable: boolean;
   endpointStatusCode?: number;
   envWritePlan: VercelEnvWritePlanEntry[];
@@ -112,6 +117,29 @@ function hashPreview(input: unknown): string {
     .update(JSON.stringify(input))
     .digest("hex")
     .slice(0, 16);
+}
+
+export function buildDeploymentRequiredDetail(input: {
+  projectName: string;
+  projectJustCreated: boolean;
+}): { message: string; nextSteps: string[] } {
+  if (input.projectJustCreated) {
+    return {
+      message: `Project "${input.projectName}" was created in Vercel, but it has no production deployment yet.`,
+      nextSteps: [
+        "Deploy or connect the project in Vercel so it has a production URL.",
+        "Return here, select the project under Use existing project, and apply again.",
+      ],
+    };
+  }
+
+  return {
+    message: `Project "${input.projectName}" exists in Vercel but has no production deployment yet.`,
+    nextSteps: [
+      "Deploy the project in Vercel before applying settings.",
+      "After deployment completes, preview and apply again.",
+    ],
+  };
 }
 
 export function normalizeVercelBridgePlanInput(
@@ -315,6 +343,7 @@ export async function previewVercelBridgeSetup(
       actionId: VERCEL_SETUP_ACTIONS.preview.id,
       teams: [],
       projects: [],
+      deploymentStatus: "missing",
       endpointReachable: false,
       envWritePlan: [],
       requiredEnvPresence: {
@@ -337,6 +366,7 @@ export async function previewVercelBridgeSetup(
       actionId: VERCEL_SETUP_ACTIONS.preview.id,
       teams: [],
       projects: [],
+      deploymentStatus: "missing",
       endpointReachable: false,
       envWritePlan: [],
       requiredEnvPresence: {
@@ -387,6 +417,10 @@ export async function previewVercelBridgeSetup(
       actionId: VERCEL_SETUP_ACTIONS.preview.id,
       teams,
       projects,
+      deploymentStatus:
+        normalized.project?.mode === "create"
+          ? "project-will-be-created"
+          : "missing",
       endpointReachable: false,
       envWritePlan: [],
       requiredEnvPresence: {
@@ -425,6 +459,13 @@ export async function previewVercelBridgeSetup(
     ? `https://${productionDeployment.url}`
     : undefined;
   const webhookUrl = productionUrl ? buildWebhookUrl(productionDeployment!.url) : undefined;
+  const deploymentStatus = webhookUrl ? "ready" : "missing";
+  const deploymentRequired = webhookUrl
+    ? undefined
+    : buildDeploymentRequiredDetail({
+        projectName: selectedProject.name,
+        projectJustCreated: normalized.project?.mode === "create",
+      });
   const endpoint = webhookUrl
     ? await checkWebhookEndpointReachable(webhookUrl)
     : { reachable: false };
@@ -465,17 +506,23 @@ export async function previewVercelBridgeSetup(
       webhookUrl,
       teamId: normalized.linearTeamId,
     });
-    linearWebhookVerified = Boolean(webhookSummary.matchingWebhook);
     const secretPlan = await planLinearWebhookSecret({
       linearApiKey: normalized.linearApiKey,
       webhookUrl,
       linearTeamId: normalized.linearTeamId,
     });
     linearWebhookSecretMode = secretPlan.mode;
+    linearWebhookVerified =
+      secretPlan.mode === "automated" && Boolean(webhookSummary.matchingWebhook);
+    if (secretPlan.mode === "existing-unverified") {
+      linearWebhookVerified = false;
+    }
     manualSteps.push(...webhookSummary.manualSteps, ...secretPlan.manualSteps);
   } else if (!webhookUrl) {
     manualSteps.push(
-      "No production deployment was found for the selected Vercel project yet. Deploy the project before automation checks can pass.",
+      deploymentRequired?.message ??
+        "No production deployment was found for the selected Vercel project yet. Deploy the project before automation checks can pass.",
+      ...(deploymentRequired?.nextSteps ?? []),
     );
     linearWebhookSecretMode = "manual-copy";
   } else {
@@ -536,6 +583,8 @@ export async function previewVercelBridgeSetup(
     selectedProject,
     productionUrl,
     webhookUrl,
+    deploymentStatus,
+    deploymentRequired,
     endpointReachable: endpoint.reachable,
     endpointStatusCode: endpoint.statusCode,
     envWritePlan,

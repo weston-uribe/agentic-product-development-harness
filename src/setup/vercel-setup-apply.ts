@@ -33,6 +33,7 @@ import {
 } from "./vercel-bridge-readiness.js";
 import {
   VERCEL_SETUP_ACTIONS,
+  buildDeploymentRequiredDetail,
   normalizeVercelBridgePlanInput,
   previewVercelBridgeSetup,
   resolveVercelBridgeEnvValue,
@@ -52,8 +53,15 @@ export interface VercelBridgeResourceResult {
   outcome: "created" | "reused";
 }
 
+export interface VercelBridgeDeploymentRequired {
+  message: string;
+  nextSteps: string[];
+  projectJustCreated: boolean;
+}
+
 export interface VercelBridgeApplyResult {
   actionId: string;
+  status: "applied" | "deployment-required";
   projectId: string;
   projectName: string;
   team?: VercelBridgeResourceResult;
@@ -61,6 +69,7 @@ export interface VercelBridgeApplyResult {
   writtenEnvKeys: string[];
   skippedEnvKeys: string[];
   linearWebhookSetup: VercelBridgeLinearWebhookSetupResult;
+  deploymentRequired?: VercelBridgeDeploymentRequired;
   verified: boolean;
   fingerprint: string;
   permission: typeof SETUP_PERMISSIONS.remoteSecretWrite;
@@ -257,9 +266,33 @@ export async function applyVercelBridgeSetup(input: {
     throw new Error("Vercel project must be selected before apply.");
   }
   if (!preview.webhookUrl) {
-    throw new Error(
-      "Vercel production URL could not be resolved for the selected project. Deploy the project before applying settings.",
-    );
+    const projectJustCreated = resolvedProject.projectResult.outcome === "created";
+    const deploymentRequired = buildDeploymentRequiredDetail({
+      projectName: preview.selectedProject.name,
+      projectJustCreated,
+    });
+
+    return {
+      actionId: VERCEL_SETUP_ACTIONS.apply.id,
+      status: "deployment-required",
+      projectId: preview.selectedProject.id,
+      projectName: preview.selectedProject.name,
+      team: resolvedTeam.team,
+      project: resolvedProject.projectResult,
+      writtenEnvKeys: [],
+      skippedEnvKeys: [],
+      linearWebhookSetup: {
+        mode: "manual-copy",
+        manualSteps: deploymentRequired.nextSteps,
+      },
+      deploymentRequired: {
+        ...deploymentRequired,
+        projectJustCreated,
+      },
+      verified: false,
+      fingerprint: preview.fingerprint,
+      permission: VERCEL_SETUP_ACTIONS.apply.permission,
+    };
   }
 
   const generatedLinearWebhookSecret =
@@ -371,16 +404,20 @@ export async function applyVercelBridgeSetup(input: {
       webhookUrl: preview.webhookUrl,
       teamId: normalized.linearTeamId,
     });
-    linearWebhookVerified = Boolean(webhookSummary.matchingWebhook);
+    linearWebhookVerified =
+      linearWebhookSetup.mode === "automated" &&
+      Boolean(webhookSummary.matchingWebhook);
+    if (linearWebhookSetup.mode === "existing-unverified") {
+      linearWebhookVerified = false;
+    }
   }
 
   const verified =
     REQUIRED_VERCEL_BRIDGE_ENV_VARS.every(
       (key) => requiredEnvPresence[key] === "present",
     ) &&
-    (linearWebhookVerified ||
-      input.manualComplete === true ||
-      linearWebhookSetup.mode === "automated");
+    (input.manualComplete === true ||
+      (linearWebhookSetup.mode === "automated" && linearWebhookVerified));
 
   const selection: VercelBridgeSelection = {
     teamId: resolvedTeam.teamId,
@@ -418,6 +455,7 @@ export async function applyVercelBridgeSetup(input: {
 
   return {
     actionId: VERCEL_SETUP_ACTIONS.apply.id,
+    status: "applied",
     projectId: preview.selectedProject.id,
     projectName: preview.selectedProject.name,
     team: resolvedTeam.team,

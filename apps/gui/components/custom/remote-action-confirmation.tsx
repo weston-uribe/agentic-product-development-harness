@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 
 type RemoteConfirmationScope =
   | "remote-secret-write"
+  | "vercel-bridge-write"
   | "remote-repo-write"
   | "linear-write";
 type RemoteConfirmationVariant = "advanced" | "guided";
@@ -47,6 +48,29 @@ const COPY: Record<
       ],
       label:
         "I understand this will create or update encrypted GitHub Actions secrets in the harness repo.",
+    },
+  },
+  "vercel-bridge-write": {
+    advanced: {
+      title: "Confirm Vercel bridge setup writes",
+      bullets: [
+        "May create or reuse Vercel team and project resources when selected.",
+        "Writes required Vercel production environment variables for the bridge.",
+        "May create or verify the Linear Issue webhook for automation.",
+        "Secret values are never returned in previews, results, or errors.",
+      ],
+      label:
+        "I reviewed the Vercel settings preview and want to apply these changes.",
+    },
+    guided: {
+      title: "Confirm Vercel settings write",
+      bullets: [
+        "This may create or update Vercel production environment variables and configure the Linear webhook bridge.",
+        "It does not run the harness, create branches, open PRs, or change your target app.",
+        "Secret values are never shown in previews, results, or errors.",
+      ],
+      label:
+        "I understand this will write Vercel environment variables and configure the Linear webhook bridge.",
     },
   },
   "remote-repo-write": {
