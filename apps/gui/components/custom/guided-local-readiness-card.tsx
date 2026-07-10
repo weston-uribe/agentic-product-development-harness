@@ -5,14 +5,13 @@ import type { FirstRunReadiness } from "@harness/setup/first-run-readiness";
 import type { LocalReadinessCheckResult } from "@harness/setup/local-readiness-checks";
 
 import { SPACING } from "@/lib/constants";
+import { GUIDED_SETUP_STEP_COUNT } from "@/lib/guided-setup";
 import { Button } from "@/components/ui/button";
 import { SectionCard } from "@/components/custom/section-card";
 import {
   LocalReadinessChecklist,
   type LocalReadinessUiStatus,
 } from "@/components/custom/setup-checklist";
-
-const GUIDED_STEP_COUNT = 4;
 
 interface GuidedLocalReadinessCardProps {
   readiness: FirstRunReadiness;
@@ -95,7 +94,7 @@ export function GuidedLocalReadinessCard({
 
   return (
     <SectionCard
-      title={`Step 3 of ${GUIDED_STEP_COUNT} · Check local readiness`}
+      title={`Step 3 of ${GUIDED_SETUP_STEP_COUNT} · Check local readiness`}
       description="We're checking whether this machine is ready for remote setup."
     >
       <div className={SPACING.stackSm}>
@@ -124,7 +123,7 @@ export function GuidedLocalReadinessCard({
 
         {canContinue ? (
           <Button type="button" onClick={onContinue}>
-            Continue to remote setup
+            Continue to cloud secrets
           </Button>
         ) : null}
       </div>

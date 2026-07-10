@@ -16,7 +16,8 @@ import { ReadinessBanner } from "@/components/custom/readiness-banner";
 import { SetupDashboard } from "@/components/custom/setup-dashboard";
 import { ConfigureWorkflow, type GuidedLocalStep } from "@/components/custom/configure-workflow";
 import { GuidedLocalReadinessCard } from "@/components/custom/guided-local-readiness-card";
-import { GuidedRemoteSetupPanel } from "@/components/custom/guided-remote-setup-panel";
+import { GuidedCloudSecretsCard } from "@/components/custom/guided-cloud-secrets-card";
+import { GuidedTargetWorkflowCard } from "@/components/custom/guided-target-workflow-card";
 import { SectionCard } from "@/components/custom/section-card";
 
 type ConfigureMode = "guided" | "advanced";
@@ -120,6 +121,13 @@ export function ConfigureExperience({
     }));
   }, []);
 
+  const handleCloudSecretsReviewed = useCallback(() => {
+    setUiState((current) => ({
+      ...current,
+      cloudSecretsReviewed: true,
+    }));
+  }, []);
+
   const handleSummaryUpdated = useCallback((nextSummary: SetupGuiViewModel) => {
     setSummary(nextSummary);
   }, []);
@@ -150,12 +158,22 @@ export function ConfigureExperience({
             onContinue={handleLocalReadinessReviewed}
           />
         );
-      case "remote-setup":
+      case "cloud-secrets":
         return (
-          <GuidedRemoteSetupPanel
+          <GuidedCloudSecretsCard
+            readiness={readiness}
             initialSummary={remoteSummary}
             onSummaryUpdated={setRemoteSummary}
             onUiStateChange={handleRemoteUiStateChange}
+            onContinue={handleCloudSecretsReviewed}
+            blockedByUpstream={readiness.remoteSetupBlockedByUpstream}
+          />
+        );
+      case "target-workflow":
+        return (
+          <GuidedTargetWorkflowCard
+            initialSummary={remoteSummary}
+            onSummaryUpdated={setRemoteSummary}
             blockedByUpstream={readiness.remoteSetupBlockedByUpstream}
           />
         );
@@ -210,8 +228,8 @@ export function ConfigureExperience({
           <h2 className={RESPONSIVE.pageTitle}>Settings / Configure</h2>
           <p className={RESPONSIVE.pageDescription}>
             Guided first-run readiness for the Product Development Harness.
-            Complete local setup, local readiness checks, and remote setup before
-            your first future harness run.
+            Complete local setup, local readiness checks, cloud secrets, and
+            target workflow install before your first future harness run.
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-between gap-3">

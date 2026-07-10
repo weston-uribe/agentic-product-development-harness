@@ -13,7 +13,8 @@ import {
 export type FirstRunStepId =
   | "local-setup"
   | "local-readiness"
-  | "remote-setup"
+  | "cloud-secrets"
+  | "target-workflow"
   | "ready-for-first-run";
 
 export type FirstRunStepStatus =
@@ -56,6 +57,8 @@ export interface FirstRunReadinessUiState {
   remoteSecretPreviewStale?: boolean;
   /** Set when the operator finishes reviewing local readiness and continues. */
   localReadinessReviewed?: boolean;
+  /** Set when the operator finishes cloud secrets setup and continues. */
+  cloudSecretsReviewed?: boolean;
 }
 
 export interface PrimarySetupTask {
@@ -81,6 +84,8 @@ export interface FirstRunReadiness {
   readyForFirstRun: boolean;
   localReadinessBlockersCleared: boolean;
   localReadinessReviewed: boolean;
+  cloudSecretsBlockersCleared: boolean;
+  cloudSecretsReviewed: boolean;
   nonBlockingWarnings: ReadinessBlocker[];
   prohibitedActionsNote: string;
 }
@@ -88,14 +93,16 @@ export interface FirstRunReadiness {
 const STEP_ORDER: FirstRunStepId[] = [
   "local-setup",
   "local-readiness",
-  "remote-setup",
+  "cloud-secrets",
+  "target-workflow",
   "ready-for-first-run",
 ];
 
 const STEP_LABELS: Record<FirstRunStepId, string> = {
   "local-setup": "Local setup",
   "local-readiness": "Local readiness",
-  "remote-setup": "Remote setup",
+  "cloud-secrets": "Connect cloud secrets",
+  "target-workflow": "Install target repo workflow",
   "ready-for-first-run": "Ready for first run",
 };
 
@@ -307,8 +314,8 @@ function missingHarnessSecrets(
   );
 }
 
-export function collectRemoteSetupBlockers(
-  summary: SetupGuiViewModel,
+export function collectCloudSecretsBlockers(
+  _summary: SetupGuiViewModel,
   remoteSummary: RemoteSetupSummary,
   uiState?: FirstRunReadinessUiState,
   staleSmokeDiagnostics?: StaleSmokeDiagnostics,
@@ -329,9 +336,10 @@ export function collectRemoteSetupBlockers(
   if (!remoteSummary.githubTokenConfigured) {
     pushBlocker(blockers, {
       id: "missing-github-token-remote",
-      stepId: "remote-setup",
-      message: "Blocked: GITHUB_TOKEN is required for remote setup.",
-      action: "Next: Add GITHUB_TOKEN in Local setup, then return to Remote setup.",
+      stepId: "cloud-secrets",
+      message: "Blocked: GITHUB_TOKEN is required for cloud secrets setup.",
+      action:
+        "Next: Add GITHUB_TOKEN in local setup, then return to Connect cloud secrets.",
       priority: 300,
     });
   }
@@ -339,10 +347,10 @@ export function collectRemoteSetupBlockers(
   if (!remoteSummary.harnessDispatchRepoResolved) {
     pushBlocker(blockers, {
       id: "harness-dispatch-repo-unresolved",
-      stepId: "remote-setup",
+      stepId: "cloud-secrets",
       message: "Blocked: Harness dispatch repo could not be resolved.",
       action:
-        "Next: Confirm your harness repo remote and target repo config, then refresh remote setup.",
+        "Next: Confirm your harness repo remote and target repo config, then refresh.",
       priority: 301,
     });
   }
@@ -350,7 +358,7 @@ export function collectRemoteSetupBlockers(
   if (remoteSummary.harnessRepoAccess === "denied") {
     pushBlocker(blockers, {
       id: "harness-repo-access-denied",
-      stepId: "remote-setup",
+      stepId: "cloud-secrets",
       message: `Blocked: I tried to check ${remoteSummary.harnessDispatchRepo} and GitHub denied access.`,
       action:
         "Next: Confirm this is the repo you intend to use. If it is wrong, fix local setup first. If it is correct, update your GitHub token permissions and refresh.",
@@ -362,9 +370,9 @@ export function collectRemoteSetupBlockers(
   ) {
     pushWarning(warnings, {
       id: "harness-repo-access-unknown",
-      stepId: "remote-setup",
+      stepId: "cloud-secrets",
       message: "Harness repo access could not be verified yet.",
-      action: "Refresh remote setup after GITHUB_TOKEN is saved locally.",
+      action: "Refresh cloud secrets setup after GITHUB_TOKEN is saved locally.",
       priority: 590,
     });
   }
@@ -372,10 +380,10 @@ export function collectRemoteSetupBlockers(
   for (const secretName of missingHarnessSecrets(remoteSummary)) {
     pushBlocker(blockers, {
       id: `missing-harness-secret-${secretName}`,
-      stepId: "remote-setup",
-      message: `Blocked: Harness Actions secret ${secretName} is missing.`,
+      stepId: "cloud-secrets",
+      message: `Blocked: Required cloud secret ${secretName} is missing.`,
       action:
-        "Next: Preview harness secrets, confirm the write scope, then apply harness secrets.",
+        "Next: Review generated secrets, confirm, then create or update encrypted GitHub Actions secrets.",
       priority: 303,
     });
   }
@@ -384,54 +392,10 @@ export function collectRemoteSetupBlockers(
     if (secret.status === "unknown" && remoteSummary.githubTokenConfigured) {
       pushWarning(warnings, {
         id: `harness-secret-unknown-${secret.name}`,
-        stepId: "remote-setup",
-        message: `Harness Actions secret ${secret.name} status is unknown.`,
-        action: "Refresh remote setup to re-check secret presence.",
+        stepId: "cloud-secrets",
+        message: `Cloud secret ${secret.name} status is unknown.`,
+        action: "Refresh cloud secrets setup to re-check secret presence.",
         priority: 591,
-      });
-    }
-  }
-
-  if (remoteSummary.targetRepos.length === 0 && summary.overview.configResolved) {
-    pushBlocker(blockers, {
-      id: "missing-target-repos",
-      stepId: "remote-setup",
-      message: "Blocked: No target repos are configured for workflow install.",
-      action: "Next: Add at least one target repo mapping in Local setup.",
-      priority: 304,
-    });
-  }
-
-  for (const repo of remoteSummary.targetRepos) {
-    if (repo.repoAccess === "denied") {
-      pushBlocker(blockers, {
-        id: `target-repo-access-denied-${repo.repoConfigId}`,
-        stepId: "remote-setup",
-        message: `Blocked: GitHub access to ${repo.targetRepo} was denied.`,
-        action:
-          "Next: Grant workflow and PR permissions for this target repo, then refresh.",
-        priority: 305,
-      });
-    }
-
-    if (repo.workflowStatus === "missing" || repo.workflowStatus === "differs") {
-      pushBlocker(blockers, {
-        id: `target-workflow-${repo.workflowStatus}-${repo.repoConfigId}`,
-        stepId: "remote-setup",
-        message: `Blocked: Target workflow is ${repo.workflowStatus} for ${repo.repoConfigId}.`,
-        action:
-          "Next: Preview the target workflow install PR, confirm, then apply the PR card.",
-        priority: 306,
-      });
-    }
-
-    if (repo.workflowStatus === "unknown" && remoteSummary.githubTokenConfigured) {
-      pushWarning(warnings, {
-        id: `target-workflow-unknown-${repo.repoConfigId}`,
-        stepId: "remote-setup",
-        message: `Target workflow status is unknown for ${repo.repoConfigId}.`,
-        action: "Refresh remote setup to re-check workflow presence.",
-        priority: 592,
       });
     }
   }
@@ -439,10 +403,10 @@ export function collectRemoteSetupBlockers(
   if (uiState?.remoteSecretPreviewStale) {
     pushBlocker(blockers, {
       id: "remote-secret-preview-stale",
-      stepId: "remote-setup",
-      message: "Blocked: Harness secret preview is out of date.",
+      stepId: "cloud-secrets",
+      message: "Blocked: Cloud secrets preview is out of date.",
       action:
-        "Next: Regenerate the harness secret preview, then confirm and apply.",
+        "Next: Regenerate the secrets preview, then confirm and create or update secrets.",
       priority: 307,
     });
   }
@@ -453,21 +417,132 @@ export function collectRemoteSetupBlockers(
   };
 }
 
+export function collectTargetWorkflowBlockers(
+  summary: SetupGuiViewModel,
+  remoteSummary: RemoteSetupSummary,
+  staleSmokeDiagnostics?: StaleSmokeDiagnostics,
+): { blockers: ReadinessBlocker[]; warnings: ReadinessBlocker[] } {
+  const blockers: ReadinessBlocker[] = [];
+  const warnings: ReadinessBlocker[] = [];
+  const suppressDownstream = staleSmokeDiagnostics
+    ? shouldSuppressRemoteDownstreamStatus(
+        staleSmokeDiagnostics,
+        remoteSummary.harnessRepoAccess,
+      )
+    : false;
+
+  if (suppressDownstream) {
+    return { blockers, warnings };
+  }
+
+  if (!remoteSummary.githubTokenConfigured) {
+    pushBlocker(blockers, {
+      id: "missing-github-token-remote-workflow",
+      stepId: "target-workflow",
+      message: "Blocked: GITHUB_TOKEN is required for workflow install.",
+      action: "Next: Add GITHUB_TOKEN in local setup, then return to workflow install.",
+      priority: 310,
+    });
+  }
+
+  if (remoteSummary.targetRepos.length === 0 && summary.overview.configResolved) {
+    pushBlocker(blockers, {
+      id: "missing-target-repos",
+      stepId: "target-workflow",
+      message: "Blocked: No target repos are configured for workflow install.",
+      action: "Next: Add at least one target repo mapping in local setup.",
+      priority: 304,
+    });
+  }
+
+  for (const repo of remoteSummary.targetRepos) {
+    if (repo.repoAccess === "denied") {
+      pushBlocker(blockers, {
+        id: `target-repo-access-denied-${repo.repoConfigId}`,
+        stepId: "target-workflow",
+        message: `Blocked: GitHub access to ${repo.targetRepo} was denied.`,
+        action:
+          "Next: Grant workflow and PR permissions for this target repo, then refresh.",
+        priority: 305,
+      });
+    }
+
+    if (repo.workflowStatus === "missing" || repo.workflowStatus === "differs") {
+      const workflowLabel =
+        repo.workflowStatus === "missing" ? "missing" : "outdated";
+      pushBlocker(blockers, {
+        id: `target-workflow-${repo.workflowStatus}-${repo.repoConfigId}`,
+        stepId: "target-workflow",
+        message: `Blocked: Target workflow is ${workflowLabel} for ${repo.repoConfigId}.`,
+        action:
+          "Next: Preview the workflow install PR, confirm, then create or update the install PR.",
+        priority: 306,
+      });
+    }
+
+    if (repo.workflowStatus === "unknown" && remoteSummary.githubTokenConfigured) {
+      pushWarning(warnings, {
+        id: `target-workflow-unknown-${repo.repoConfigId}`,
+        stepId: "target-workflow",
+        message: `Target workflow status is unknown for ${repo.repoConfigId}.`,
+        action: "Refresh workflow install setup to re-check workflow presence.",
+        priority: 592,
+      });
+    }
+  }
+
+  return {
+    blockers: blockers.sort((left, right) => left.priority - right.priority),
+    warnings: warnings.sort((left, right) => left.priority - right.priority),
+  };
+}
+
+export function collectRemoteSetupBlockers(
+  summary: SetupGuiViewModel,
+  remoteSummary: RemoteSetupSummary,
+  uiState?: FirstRunReadinessUiState,
+  staleSmokeDiagnostics?: StaleSmokeDiagnostics,
+): { blockers: ReadinessBlocker[]; warnings: ReadinessBlocker[] } {
+  const cloudSecrets = collectCloudSecretsBlockers(
+    summary,
+    remoteSummary,
+    uiState,
+    staleSmokeDiagnostics,
+  );
+  const targetWorkflow = collectTargetWorkflowBlockers(
+    summary,
+    remoteSummary,
+    staleSmokeDiagnostics,
+  );
+
+  return {
+    blockers: [...cloudSecrets.blockers, ...targetWorkflow.blockers].sort(
+      (left, right) => left.priority - right.priority,
+    ),
+    warnings: [...cloudSecrets.warnings, ...targetWorkflow.warnings].sort(
+      (left, right) => left.priority - right.priority,
+    ),
+  };
+}
+
 function stepPrerequisitesMet(
   stepId: FirstRunStepId,
   localSetupComplete: boolean,
   localReadinessComplete: boolean,
-  remoteSetupComplete: boolean,
+  cloudSecretsComplete: boolean,
+  targetWorkflowComplete: boolean,
 ): boolean {
   switch (stepId) {
     case "local-setup":
       return true;
     case "local-readiness":
       return localSetupComplete;
-    case "remote-setup":
+    case "cloud-secrets":
       return localReadinessComplete;
+    case "target-workflow":
+      return cloudSecretsComplete;
     case "ready-for-first-run":
-      return remoteSetupComplete;
+      return targetWorkflowComplete;
   }
 }
 
@@ -497,10 +572,16 @@ function primaryActionForStep(
         label: "Review local readiness checks",
         stepId,
       };
-    case "remote-setup":
+    case "cloud-secrets":
       return {
-        id: "complete-remote-setup",
-        label: "Connect remote setup",
+        id: "complete-cloud-secrets",
+        label: "Connect cloud secrets",
+        stepId,
+      };
+    case "target-workflow":
+      return {
+        id: "complete-target-workflow",
+        label: "Install target repo workflow",
         stepId,
       };
     case "ready-for-first-run":
@@ -583,14 +664,14 @@ function derivePrimarySetupTask(input: {
   if (input.highestPriorityBlocker?.id === "harness-repo-access-denied") {
     return {
       id: "confirm-harness-repo-access",
-      stepId: "remote-setup",
+      stepId: "cloud-secrets",
       title: "I need this from you now",
       problem: formatBlockerProblem(input.highestPriorityBlocker.message),
       whyItMatters:
-        "Remote setup cannot continue until the harness dispatch repo is reachable with your GitHub token.",
+        "Cloud secrets setup cannot continue until the harness dispatch repo is reachable with your GitHub token.",
       neededFromYou:
         "Confirm the harness dispatch repo is the one you intend to use, or fix local setup if it is wrong.",
-      primaryCtaLabel: "Connect remote setup",
+      primaryCtaLabel: "Connect cloud secrets",
       secondaryCtaLabel: "Show technical details",
       tone: "error",
     };
@@ -601,8 +682,8 @@ function derivePrimarySetupTask(input: {
     const localSetupTitle =
       input.highestPriorityBlocker.id === "missing-config-local" ||
       input.highestPriorityBlocker.id === "config-unresolved"
-        ? "Step 2 of 4 · Choose target repo"
-        : "Step 1 of 4 · Connect services";
+        ? "Step 2 of 5 · Choose target repo"
+        : "Step 1 of 5 · Connect services";
 
     return {
       id: input.highestPriorityBlocker.id,
@@ -614,8 +695,11 @@ function derivePrimarySetupTask(input: {
         : "Setup cannot continue until this blocker is resolved.",
       neededFromYou: input.highestPriorityBlocker.action.replace(/^Next:\s*/, ""),
       primaryCtaLabel: isSetupNeeded
-        ? input.highestPriorityBlocker.stepId === "remote-setup"
-          ? "Connect remote setup"
+        ? input.highestPriorityBlocker.stepId === "cloud-secrets" ||
+            input.highestPriorityBlocker.stepId === "target-workflow"
+          ? input.highestPriorityBlocker.stepId === "cloud-secrets"
+            ? "Connect cloud secrets"
+            : "Install target repo workflow"
           : input.highestPriorityBlocker.id === "missing-config-local" ||
               input.highestPriorityBlocker.id === "config-unresolved"
             ? "Continue"
@@ -647,10 +731,15 @@ export function deriveFirstRunReadiness(input: {
     staleSmokeDiagnostics,
   );
   const localReadiness = collectLocalReadinessBlockers(input.summary);
-  const remoteSetup = collectRemoteSetupBlockers(
+  const cloudSecrets = collectCloudSecretsBlockers(
     input.summary,
     input.remoteSummary,
     input.uiState,
+    staleSmokeDiagnostics,
+  );
+  const targetWorkflow = collectTargetWorkflowBlockers(
+    input.summary,
+    input.remoteSummary,
     staleSmokeDiagnostics,
   );
 
@@ -662,19 +751,26 @@ export function deriveFirstRunReadiness(input: {
   const localReadinessReviewed = input.uiState?.localReadinessReviewed ?? false;
   const localReadinessComplete =
     localReadinessBlockersCleared && localReadinessReviewed;
-  const remoteSetupComplete =
-    localReadinessComplete && remoteSetup.blockers.length === 0;
-  const readyForFirstRun = remoteSetupComplete;
+  const cloudSecretsBlockersCleared =
+    localReadinessComplete && cloudSecrets.blockers.length === 0;
+  const cloudSecretsReviewed = input.uiState?.cloudSecretsReviewed ?? false;
+  const cloudSecretsComplete =
+    cloudSecretsBlockersCleared && cloudSecretsReviewed;
+  const targetWorkflowComplete =
+    cloudSecretsComplete && targetWorkflow.blockers.length === 0;
+  const readyForFirstRun = targetWorkflowComplete;
 
   const allBlockers = [
     ...localSetupBlockers,
     ...localReadiness.blockers,
-    ...remoteSetup.blockers,
+    ...cloudSecrets.blockers,
+    ...targetWorkflow.blockers,
   ].sort((left, right) => left.priority - right.priority);
 
   const nonBlockingWarnings = [
     ...localReadiness.warnings,
-    ...remoteSetup.warnings,
+    ...cloudSecrets.warnings,
+    ...targetWorkflow.warnings,
   ].sort((left, right) => left.priority - right.priority);
 
   const currentStepId =
@@ -682,14 +778,17 @@ export function deriveFirstRunReadiness(input: {
       ? "local-setup"
       : !localReadinessComplete
         ? "local-readiness"
-        : !remoteSetupComplete
-          ? "remote-setup"
-          : "ready-for-first-run";
+        : !cloudSecretsComplete
+          ? "cloud-secrets"
+          : !targetWorkflowComplete
+            ? "target-workflow"
+            : "ready-for-first-run";
 
   const stepBlockers: Record<FirstRunStepId, ReadinessBlocker[]> = {
     "local-setup": localSetupBlockers,
     "local-readiness": localReadiness.blockers,
-    "remote-setup": remoteSetup.blockers,
+    "cloud-secrets": cloudSecrets.blockers,
+    "target-workflow": targetWorkflow.blockers,
     "ready-for-first-run": readyForFirstRun
       ? []
       : [
@@ -709,23 +808,28 @@ export function deriveFirstRunReadiness(input: {
       stepId,
       localSetupComplete,
       localReadinessComplete,
-      remoteSetupComplete,
+      cloudSecretsComplete,
+      targetWorkflowComplete,
     );
     const blockers = stepBlockers[stepId];
     const warnings =
       stepId === "local-readiness"
         ? localReadiness.warnings
-        : stepId === "remote-setup"
-          ? remoteSetup.warnings
-          : [];
+        : stepId === "cloud-secrets"
+          ? cloudSecrets.warnings
+          : stepId === "target-workflow"
+            ? targetWorkflow.warnings
+            : [];
     const complete =
       stepId === "local-setup"
         ? localSetupComplete
         : stepId === "local-readiness"
           ? localReadinessComplete
-          : stepId === "remote-setup"
-            ? remoteSetupComplete
-            : readyForFirstRun;
+          : stepId === "cloud-secrets"
+            ? cloudSecretsComplete
+            : stepId === "target-workflow"
+              ? targetWorkflowComplete
+              : readyForFirstRun;
     const isCurrent = stepId === currentStepId;
 
     return {
@@ -777,6 +881,8 @@ export function deriveFirstRunReadiness(input: {
     readyForFirstRun,
     localReadinessBlockersCleared,
     localReadinessReviewed,
+    cloudSecretsBlockersCleared,
+    cloudSecretsReviewed,
     nonBlockingWarnings,
     prohibitedActionsNote: PROHIBITED_ACTIONS_NOTE,
   };

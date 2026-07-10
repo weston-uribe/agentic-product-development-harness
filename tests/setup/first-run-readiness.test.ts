@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   collectLocalReadinessBlockers,
   collectLocalSetupBlockers,
+  collectCloudSecretsBlockers,
+  collectTargetWorkflowBlockers,
   collectRemoteSetupBlockers,
   deriveFirstRunReadiness,
   projectMissingStepsFromReadiness,
@@ -237,7 +239,7 @@ describe("first-run-readiness", () => {
     );
   });
 
-  it("advances to remote setup after local readiness is reviewed", () => {
+  it("advances to cloud secrets after local readiness is reviewed", () => {
     const summary = completeLocalSummary();
     const remoteSummary = baseRemoteSummary({
       githubTokenConfigured: false,
@@ -250,7 +252,40 @@ describe("first-run-readiness", () => {
       uiState: { localReadinessReviewed: true },
     });
 
-    expect(readiness.currentStepId).toBe("remote-setup");
+    expect(readiness.currentStepId).toBe("cloud-secrets");
+  });
+
+  it("advances to target workflow after cloud secrets are reviewed", () => {
+    const summary = completeLocalSummary();
+    const remoteSummary = baseRemoteSummary({
+      githubTokenConfigured: true,
+      harnessRepoAccess: "available",
+      harnessSecretStatuses: HARNESS_ACTIONS_SECRET_NAMES.map((name) => ({
+        name,
+        status: "present" as const,
+      })),
+      targetRepos: [
+        {
+          repoConfigId: "target-app",
+          targetRepo: "https://github.com/owner/example-target-app",
+          productionBranch: "main",
+          repoAccess: "available",
+          workflowStatus: "missing",
+          harnessDispatchRepo: "owner/harness",
+        },
+      ],
+    });
+
+    const readiness = deriveFirstRunReadiness({
+      summary,
+      remoteSummary,
+      uiState: {
+        localReadinessReviewed: true,
+        cloudSecretsReviewed: true,
+      },
+    });
+
+    expect(readiness.currentStepId).toBe("target-workflow");
   });
 
   it("keeps local readiness as the current step after local setup files exist", () => {
@@ -265,7 +300,42 @@ describe("first-run-readiness", () => {
     expect(readiness.localReadinessReviewed).toBe(false);
   });
 
-  it("blocks step 3 when harness secrets or target workflows are incomplete", () => {
+  it("routes secret blockers to cloud-secrets and workflow blockers to target-workflow", () => {
+    const summary = completeLocalSummary();
+    const remoteSummary = baseRemoteSummary({
+      githubTokenConfigured: true,
+      harnessRepoAccess: "available",
+      harnessSecretStatuses: HARNESS_ACTIONS_SECRET_NAMES.map((name) => ({
+        name,
+        status: name === "CURSOR_API_KEY" ? "missing" : "present",
+      })),
+      targetRepos: [
+        {
+          repoConfigId: "target-app",
+          targetRepo: "https://github.com/owner/example-target-app",
+          productionBranch: "main",
+          repoAccess: "available",
+          workflowStatus: "missing",
+          harnessDispatchRepo: "owner/harness",
+        },
+      ],
+    });
+
+    const secretBlockers = collectCloudSecretsBlockers(summary, remoteSummary).blockers;
+    const workflowBlockers = collectTargetWorkflowBlockers(
+      summary,
+      remoteSummary,
+    ).blockers;
+
+    expect(secretBlockers.every((blocker) => blocker.stepId === "cloud-secrets")).toBe(
+      true,
+    );
+    expect(
+      workflowBlockers.every((blocker) => blocker.stepId === "target-workflow"),
+    ).toBe(true);
+  });
+
+  it("blocks cloud secrets and target workflow when incomplete", () => {
     const summary = completeLocalSummary();
     const remoteSummary = baseRemoteSummary({
       githubTokenConfigured: true,
@@ -348,7 +418,10 @@ describe("first-run-readiness", () => {
     const readiness = deriveFirstRunReadiness({
       summary,
       remoteSummary,
-      uiState: { localReadinessReviewed: true },
+      uiState: {
+        localReadinessReviewed: true,
+        cloudSecretsReviewed: true,
+      },
     });
 
     expect(readiness.readyForFirstRun).toBe(true);

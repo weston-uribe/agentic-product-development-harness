@@ -20,7 +20,8 @@ const M6_GUI_COMPONENTS = [
   "apps/gui/components/custom/remote-setup-section.tsx",
   "apps/gui/components/custom/primary-setup-task-card.tsx",
   "apps/gui/components/custom/guided-local-readiness-card.tsx",
-  "apps/gui/components/custom/guided-remote-setup-panel.tsx",
+  "apps/gui/components/custom/guided-cloud-secrets-card.tsx",
+  "apps/gui/components/custom/guided-target-workflow-card.tsx",
   "apps/gui/components/custom/setup-checklist.tsx",
 ];
 
@@ -61,7 +62,8 @@ describe("M6 configure GUI boundaries", () => {
     expect(source).toContain("No live harness phase is available in M6");
     expect(source).toContain('useState<ConfigureMode>("guided")');
     expect(source).toContain("GuidedLocalReadinessCard");
-    expect(source).toContain("GuidedRemoteSetupPanel");
+    expect(source).toContain("GuidedCloudSecretsCard");
+    expect(source).toContain("GuidedTargetWorkflowCard");
     expect(source).toContain("remoteSetupBlockedByUpstream");
     expect(source).not.toContain("PrimarySetupTaskCard");
   });
@@ -166,8 +168,8 @@ describe("M6 configure GUI boundaries", () => {
 
     expect(workflowSource).toContain('variant="guided-services"');
     expect(workflowSource).toContain('variant="guided-minimal"');
-    expect(workflowSource).toContain("Step 1 of 4");
-    expect(workflowSource).toContain("Step 2 of 4");
+    expect(workflowSource).toContain("Step 1 of 5");
+    expect(workflowSource).toContain("Step 2 of 5");
     expect(workflowSource).toContain("Create local setup files");
     expect(workflowSource).toContain("Review generated files");
     expect(workflowSource).toContain("/api/setup/verify-service");
@@ -358,20 +360,29 @@ describe("M6 configure GUI boundaries", () => {
     expect(experienceSource).not.toContain("PrimarySetupTaskCard");
     expect(experienceSource).toContain('case "local-readiness":');
     expect(experienceSource).toContain("<GuidedLocalReadinessCard");
-    expect(readinessCardSource).toContain("Step 3 of ${GUIDED_STEP_COUNT} · Check local readiness");
+    expect(readinessCardSource).toContain(
+      "Step 3 of ${GUIDED_SETUP_STEP_COUNT} · Check local readiness",
+    );
     expect(readinessCardSource).not.toContain("Target workflow differs");
     expect(readinessCardSource).not.toContain("I need this from you now");
   });
 
-  it("remote setup blockers stay on Step 4 guided panel only", () => {
+  it("guided cloud secrets and target workflow stay on separate steps", () => {
     const experienceSource = readFileSync(
       path.join(repoRoot, "apps/gui/components/custom/configure-experience.tsx"),
       "utf8",
     );
-    const remotePanelSource = readFileSync(
+    const cloudSecretsSource = readFileSync(
       path.join(
         repoRoot,
-        "apps/gui/components/custom/guided-remote-setup-panel.tsx",
+        "apps/gui/components/custom/guided-cloud-secrets-card.tsx",
+      ),
+      "utf8",
+    );
+    const targetWorkflowSource = readFileSync(
+      path.join(
+        repoRoot,
+        "apps/gui/components/custom/guided-target-workflow-card.tsx",
       ),
       "utf8",
     );
@@ -383,15 +394,26 @@ describe("M6 configure GUI boundaries", () => {
       "utf8",
     );
 
-    expect(experienceSource).toContain('case "remote-setup":');
-    expect(experienceSource).toContain("<GuidedRemoteSetupPanel");
-    expect(remotePanelSource).toContain("Step 4 of ${GUIDED_STEP_COUNT} · Connect remote setup");
-    expect(remotePanelSource).toContain("RemoteSetupSection");
+    expect(experienceSource).toContain('case "cloud-secrets":');
+    expect(experienceSource).toContain('case "target-workflow":');
+    expect(experienceSource).toContain("<GuidedCloudSecretsCard");
+    expect(experienceSource).toContain("<GuidedTargetWorkflowCard");
+    expect(cloudSecretsSource).toContain(
+      "Step 4 of ${GUIDED_SETUP_STEP_COUNT} · Connect cloud secrets",
+    );
+    expect(targetWorkflowSource).toContain(
+      "Step 5 of ${GUIDED_SETUP_STEP_COUNT} · Install target repo workflow",
+    );
+    expect(cloudSecretsSource).not.toContain("TargetWorkflowPrCard");
+    expect(targetWorkflowSource).not.toContain("RemoteSecretForm");
+    expect(cloudSecretsSource).not.toContain("HARNESS_CONFIG_JSON_B64");
+    expect(cloudSecretsSource).not.toContain("apply harness secrets");
+    expect(targetWorkflowSource).not.toContain("workflow differs");
     expect(readinessCardSource).not.toContain("RemoteSetupSection");
     expect(readinessCardSource).not.toContain("TargetWorkflowPrCard");
   });
 
-  it("Continue to remote setup appears only when local readiness passes", () => {
+  it("Continue to cloud secrets appears only when local readiness passes", () => {
     const readinessCardSource = readFileSync(
       path.join(
         repoRoot,
@@ -409,7 +431,7 @@ describe("M6 configure GUI boundaries", () => {
 
     expect(readinessCardSource).toContain("allPassed");
     expect(readinessCardSource).toContain("localReadinessReviewed");
-    expect(readinessCardSource).toContain("Continue to remote setup");
+    expect(readinessCardSource).toContain("Continue to cloud secrets");
     expect(readinessCardSource).toContain("/api/setup/local-readiness");
     expect(readinessCardSource).toContain("LocalReadinessChecklist");
     expect(routeSource).toContain("runLocalReadinessChecks");
