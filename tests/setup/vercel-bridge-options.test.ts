@@ -55,7 +55,7 @@ describe("vercel-bridge-options", () => {
     expect(result.projects).toEqual([]);
   });
 
-  it("includes personal scope and team scopes from Vercel teams API", async () => {
+  it("includes personal scope, team scopes, and capabilities from Vercel teams API", async () => {
     const result = await loadVercelBridgeOptions({
       vercelToken: "vercel-token",
       cwd: tempRoot,
@@ -65,6 +65,11 @@ describe("vercel-bridge-options", () => {
       { id: "", label: "Personal account (no team)", kind: "personal" },
       { id: "team-1", label: "Acme (acme)", kind: "team" },
     ]);
+    expect(result.capabilities).toEqual({
+      teamCreate: true,
+      projectCreate: true,
+    });
+    expect(result.githubDispatch.eligible).toBe(true);
     expect(listVercelProjects).toHaveBeenCalledWith("vercel-token", undefined);
   });
 

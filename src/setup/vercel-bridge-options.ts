@@ -26,6 +26,10 @@ export interface VercelBridgeOptionsResult {
   selectedProjectId?: string;
   harnessTeamKey?: string;
   githubDispatch: Awaited<ReturnType<typeof assessGitHubDispatchTokenEligibility>>;
+  capabilities: {
+    teamCreate: boolean;
+    projectCreate: boolean;
+  };
   loadError?: string;
 }
 
@@ -82,12 +86,18 @@ export async function loadVercelBridgeOptions(input: {
     cwd: input.cwd,
   });
 
+  const capabilities = {
+    teamCreate: true,
+    projectCreate: true,
+  };
+
   if (!input.vercelToken.trim()) {
     return {
       scopes: [],
       projects: [],
       harnessTeamKey,
       githubDispatch,
+      capabilities,
       loadError: "VERCEL_TOKEN is required to load Vercel bridge options.",
     };
   }
@@ -121,6 +131,7 @@ export async function loadVercelBridgeOptions(input: {
       selectedProjectId,
       harnessTeamKey,
       githubDispatch,
+      capabilities,
     };
   } catch (error) {
     return {
@@ -128,6 +139,7 @@ export async function loadVercelBridgeOptions(input: {
       projects: [],
       harnessTeamKey,
       githubDispatch,
+      capabilities,
       loadError:
         error instanceof Error
           ? error.message

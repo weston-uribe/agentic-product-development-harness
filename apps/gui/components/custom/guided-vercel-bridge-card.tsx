@@ -17,7 +17,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SectionCard } from "@/components/custom/section-card";
-import { StatusBadge } from "@/components/custom/status-badge";
 import { RemoteActionConfirmation } from "@/components/custom/remote-action-confirmation";
 import { SetupApplyResult } from "@/components/custom/setup-apply-result";
 
@@ -42,28 +41,35 @@ export function GuidedVercelBridgeCard({
   const [summary, setSummary] = useState(initialSummary);
   const [scopes, setScopes] = useState<VercelBridgeScopeOption[]>([]);
   const [projects, setProjects] = useState<VercelBridgeProjectOption[]>([]);
+  const [capabilities, setCapabilities] = useState({
+    teamCreate: true,
+    projectCreate: true,
+  });
+  const [teamMode, setTeamMode] = useState<"existing" | "create">("existing");
   const [teamId, setTeamId] = useState(summary.controlPlane?.vercel?.teamId ?? "");
+  const [teamName, setTeamName] = useState("");
+  const [teamSlug, setTeamSlug] = useState("");
+  const [projectMode, setProjectMode] = useState<"existing" | "create">("existing");
   const [projectId, setProjectId] = useState(
     summary.controlPlane?.vercel?.projectId ?? "",
   );
+  const [projectName, setProjectName] = useState("");
   const [harnessTeamKey, setHarnessTeamKey] = useState(
     summary.linearTeamKey ?? "",
   );
-  const [githubDispatchEligible, setGithubDispatchEligible] = useState(false);
-  const [githubDispatchMessage, setGithubDispatchMessage] = useState("");
-  const [githubDispatchToken, setGithubDispatchToken] = useState("");
   const [showGithubDispatchOverride, setShowGithubDispatchOverride] =
     useState(false);
+  const [githubDispatchToken, setGithubDispatchToken] = useState("");
   const [optionsError, setOptionsError] = useState<string | null>(null);
   const [optionsLoading, setOptionsLoading] = useState(false);
   const [preview, setPreview] = useState<VercelBridgePreview | null>(null);
   const [previewGenerated, setPreviewGenerated] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
-  const [manualComplete, setManualComplete] = useState(false);
   const [loading, setLoading] = useState<"preview" | "apply" | "refresh" | null>(
     null,
   );
   const [error, setError] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
   const [applyResult, setApplyResult] = useState<VercelBridgeApplyResult | null>(
     null,
   );
@@ -101,11 +107,10 @@ export function GuidedVercelBridgeCard({
       }
       setScopes(data.scopes ?? []);
       setProjects(data.projects ?? []);
+      setCapabilities(data.capabilities ?? { teamCreate: true, projectCreate: true });
       if (data.harnessTeamKey) {
         setHarnessTeamKey(data.harnessTeamKey);
       }
-      setGithubDispatchEligible(data.githubDispatch.eligible);
-      setGithubDispatchMessage(data.githubDispatch.message);
       setShowGithubDispatchOverride(!data.githubDispatch.eligible);
       if (scopeId === undefined && data.selectedScopeId !== undefined) {
         setTeamId(data.selectedScopeId);
@@ -122,7 +127,7 @@ export function GuidedVercelBridgeCard({
       setOptionsError(
         loadError instanceof Error
           ? loadError.message
-          : "Failed to load Vercel bridge options",
+          : "Failed to load Vercel settings options",
       );
     } finally {
       setOptionsLoading(false);
@@ -167,8 +172,20 @@ export function GuidedVercelBridgeCard({
 
   const buildPlanPayload = useCallback(
     () => ({
-      teamId: teamId || undefined,
-      projectId: projectId || undefined,
+      team: {
+        mode: teamMode,
+        teamId: teamMode === "existing" ? teamId : undefined,
+        teamName: teamMode === "create" ? teamName || undefined : undefined,
+        teamSlug: teamMode === "create" ? teamSlug || undefined : undefined,
+      },
+      project: {
+        mode: projectMode,
+        projectId: projectMode === "existing" ? projectId || undefined : undefined,
+        projectName: projectMode === "create" ? projectName || undefined : undefined,
+      },
+      teamId: teamMode === "existing" ? teamId || undefined : undefined,
+      projectId: projectMode === "existing" ? projectId || undefined : undefined,
+      projectName: projectMode === "create" ? projectName || undefined : undefined,
       linearTeamId: summary.controlPlane?.linear?.teamId,
       envInput: {
         GITHUB_DISPATCH_TOKEN: showGithubDispatchOverride
@@ -181,57 +198,76 @@ export function GuidedVercelBridgeCard({
       githubDispatchToken,
       harnessTeamKey,
       projectId,
+      projectMode,
+      projectName,
       showGithubDispatchOverride,
       summary.controlPlane?.linear?.teamId,
       teamId,
+      teamMode,
+      teamName,
+      teamSlug,
     ],
   );
+
+  const runPreview = useCallback(async () => {
+    const response = await fetch("/api/setup/preview-vercel-bridge", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildPlanPayload()),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error ?? "Preview failed");
+    }
+    const nextPreview = data as VercelBridgePreview;
+    setPreview(nextPreview);
+    setPreviewGenerated(true);
+    return nextPreview;
+  }, [buildPlanPayload]);
 
   const handlePreview = useCallback(async () => {
     setLoading("preview");
     setError(null);
-    setApplyResult(null);
-    setConfirmed(false);
+    setPreviewError(null);
     invalidatePreview();
+    setConfirmed(false);
     try {
-      const response = await fetch("/api/setup/preview-vercel-bridge", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildPlanPayload()),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error ?? "Preview failed");
-      }
-      setPreview(data as VercelBridgePreview);
-      setPreviewGenerated(true);
-    } catch (previewError) {
+      await runPreview();
+    } catch (nextPreviewError) {
       setPreview(null);
       setPreviewGenerated(false);
-      setError(
-        previewError instanceof Error ? previewError.message : "Preview failed",
+      setPreviewError(
+        nextPreviewError instanceof Error
+          ? nextPreviewError.message
+          : "Preview failed",
       );
     } finally {
       setLoading(null);
     }
-  }, [buildPlanPayload, invalidatePreview]);
+  }, [invalidatePreview, runPreview]);
 
   const handleApply = async () => {
-    if (!preview || !previewIsCurrent || !confirmed) {
+    if (!confirmed) {
       return;
     }
 
     setLoading("apply");
     setError(null);
+    invalidatePreview();
     try {
+      const currentPreview =
+        previewIsCurrent && preview ? preview : await runPreview();
+      if (currentPreview.validationError) {
+        throw new Error(currentPreview.validationError);
+      }
+
       const response = await fetch("/api/setup/apply-vercel-bridge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           plan: buildPlanPayload(),
           confirmed: true,
-          fingerprint: preview.fingerprint,
-          manualComplete,
+          fingerprint: currentPreview.fingerprint,
         }),
       });
       const data = await response.json();
@@ -253,6 +289,7 @@ export function GuidedVercelBridgeCard({
       setPreview(null);
       setPreviewGenerated(false);
       setConfirmed(false);
+      void loadOptions(teamMode === "existing" ? teamId : undefined);
     } catch (applyError) {
       setError(applyError instanceof Error ? applyError.message : "Apply failed");
     } finally {
@@ -260,95 +297,149 @@ export function GuidedVercelBridgeCard({
     }
   };
 
-  const bridgeReady = summary.readiness.ready;
-  const formComplete = Boolean(projectId && harnessTeamKey);
+  const formComplete =
+    teamMode === "existing"
+      ? Boolean(harnessTeamKey) &&
+        (projectMode === "existing" ? Boolean(projectId) : Boolean(projectName))
+      : Boolean(teamSlug && harnessTeamKey) &&
+        (projectMode === "existing" ? Boolean(projectId) : Boolean(projectName));
+
+  const canContinue =
+    verifiedSuccess ||
+    readiness.steps.find((step) => step.id === "vercel-bridge")?.status ===
+      "complete" ||
+    summary.readiness.ready;
 
   return (
     <SectionCard
-      title={`Step 3 of ${GUIDED_SETUP_STEP_COUNT} · Set up Vercel webhook bridge`}
-      description="Select the harness control-plane Vercel project that hosts /api/linear-webhook, then apply bridge env vars and webhook readiness."
+      title={`Step 3 of ${GUIDED_SETUP_STEP_COUNT} · Configure Vercel settings`}
+      description="Choose the Vercel team and project this setup should use for automation and preview checks."
     >
       <div className={SPACING.stackSm}>
         {!summary.vercelTokenConfigured ? (
           <p className="text-sm text-muted-foreground">
-            Add VERCEL_TOKEN in Step 1 before configuring the Vercel bridge.
+            Add VERCEL_TOKEN in Step 1 before configuring Vercel settings.
           </p>
         ) : (
           <>
             <p className="text-sm text-muted-foreground">
-              Choose the Vercel project for this harness repo&apos;s webhook bridge,
-              not a target application repo.
+              Choose the Vercel project this setup should use for automation and
+              preview checks.
             </p>
 
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="vercel-scope">Vercel scope</Label>
-                <select
-                  id="vercel-scope"
-                  className={selectClassName}
-                  value={teamId}
-                  onChange={(event) => {
-                    setTeamId(event.target.value);
-                    setProjectId("");
-                    invalidatePreview();
-                    void loadOptions(event.target.value);
-                  }}
-                  disabled={optionsLoading}
-                >
-                  {scopes.map((scope) => (
-                    <option key={scope.id || "personal"} value={scope.id}>
-                      {scope.label}
-                    </option>
-                  ))}
-                </select>
+                <Label htmlFor="vercel-team-mode">Vercel team name</Label>
+                {capabilities.teamCreate ? (
+                  <select
+                    id="vercel-team-mode"
+                    className={selectClassName}
+                    value={teamMode}
+                    onChange={(event) => {
+                      setTeamMode(event.target.value as "existing" | "create");
+                      invalidatePreview();
+                    }}
+                  >
+                    <option value="existing">Use existing team</option>
+                    <option value="create">Create new team</option>
+                  </select>
+                ) : null}
+                {teamMode === "existing" ? (
+                  <select
+                    id="vercel-team-name"
+                    className={selectClassName}
+                    value={teamId}
+                    onChange={(event) => {
+                      setTeamId(event.target.value);
+                      setProjectId("");
+                      invalidatePreview();
+                      void loadOptions(event.target.value);
+                    }}
+                    disabled={optionsLoading}
+                  >
+                    {scopes.map((scope) => (
+                      <option key={scope.id || "personal"} value={scope.id}>
+                        {scope.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="space-y-2">
+                    <Input
+                      placeholder="Team name"
+                      value={teamName}
+                      onChange={(event) => {
+                        setTeamName(event.target.value);
+                        invalidatePreview();
+                      }}
+                    />
+                    <Input
+                      placeholder="Team slug"
+                      value={teamSlug}
+                      onChange={(event) => {
+                        setTeamSlug(event.target.value);
+                        invalidatePreview();
+                      }}
+                    />
+                  </div>
+                )}
               </div>
+
               <div className="space-y-2">
-                <Label htmlFor="vercel-project-id">Vercel project</Label>
-                <select
-                  id="vercel-project-id"
-                  className={selectClassName}
-                  value={projectId}
-                  onChange={(event) => {
-                    setProjectId(event.target.value);
-                    invalidatePreview();
-                  }}
-                  disabled={optionsLoading || projects.length === 0}
-                >
-                  <option value="">Select a project…</option>
-                  {projects.map((project) => (
-                    <option key={project.id} value={project.id}>
-                      {project.name}
-                    </option>
-                  ))}
-                </select>
+                <Label htmlFor="vercel-project-mode">Vercel project</Label>
+                {capabilities.projectCreate ? (
+                  <select
+                    id="vercel-project-mode"
+                    className={selectClassName}
+                    value={projectMode}
+                    onChange={(event) => {
+                      setProjectMode(event.target.value as "existing" | "create");
+                      invalidatePreview();
+                    }}
+                  >
+                    <option value="existing">Use existing project</option>
+                    <option value="create">Create new project</option>
+                  </select>
+                ) : null}
+                {projectMode === "existing" ? (
+                  <select
+                    id="vercel-project-id"
+                    className={selectClassName}
+                    value={projectId}
+                    onChange={(event) => {
+                      setProjectId(event.target.value);
+                      invalidatePreview();
+                    }}
+                    disabled={optionsLoading || projects.length === 0}
+                  >
+                    <option value="">Select a project…</option>
+                    {projects.map((project) => (
+                      <option key={project.id} value={project.id}>
+                        {project.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <Input
+                    placeholder="Project name"
+                    value={projectName}
+                    onChange={(event) => {
+                      setProjectName(event.target.value);
+                      invalidatePreview();
+                    }}
+                  />
+                )}
               </div>
             </div>
 
             {optionsLoading ? (
               <p className="text-sm text-muted-foreground">
-                Loading Vercel scopes and projects…
+                Loading Vercel teams and projects…
               </p>
             ) : null}
             {optionsError ? (
               <p className="text-sm text-destructive">{optionsError}</p>
             ) : null}
-
-            <div className="rounded-md border border-border bg-muted/10 p-3 text-sm space-y-2">
-              <p>
-                <span className="font-medium">HARNESS_TEAM_KEY:</span>{" "}
-                {harnessTeamKey || "Complete Step 2 to derive the Linear team key."}
-              </p>
-              <p>
-                <span className="font-medium">GitHub dispatch token:</span>{" "}
-                {githubDispatchEligible
-                  ? "Will reuse saved Step 1 GITHUB_TOKEN."
-                  : githubDispatchMessage}
-              </p>
-              <p>
-                <span className="font-medium">LINEAR_WEBHOOK_SECRET:</span>{" "}
-                Will be generated during apply and never shown in preview.
-              </p>
-            </div>
 
             {showGithubDispatchOverride ? (
               <div className="space-y-2">
@@ -367,11 +458,6 @@ export function GuidedVercelBridgeCard({
               </div>
             ) : null}
 
-            <StatusBadge
-              label={bridgeReady ? "Bridge ready" : "Bridge not ready"}
-              variant={bridgeReady ? "success" : "warning"}
-            />
-
             <div className={FORM.actions}>
               <Button
                 type="button"
@@ -379,7 +465,7 @@ export function GuidedVercelBridgeCard({
                 onClick={() => void handlePreview()}
                 disabled={loading !== null || !formComplete}
               >
-                {loading === "preview" ? "Previewing…" : "Preview Vercel bridge"}
+                {loading === "preview" ? "Previewing…" : "Preview Vercel settings"}
               </Button>
               <Button
                 type="button"
@@ -412,31 +498,23 @@ export function GuidedVercelBridgeCard({
                     ))}
                   </ul>
                 ) : null}
+                {previewError ? (
+                  <p className="text-destructive">{previewError}</p>
+                ) : null}
               </div>
             ) : null}
-
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={manualComplete}
-                onChange={(event) => setManualComplete(event.target.checked)}
-              />
-              I completed any manual webhook steps and accept bridge readiness.
-            </label>
 
             <RemoteActionConfirmation
               scope="remote-secret-write"
               variant="guided"
               confirmed={confirmed}
-              disabled={
-                !previewIsCurrent ||
-                Boolean(preview?.validationError) ||
-                loading !== null
-              }
+              disabled={loading !== null || !formComplete}
               disabledReason={
-                !previewIsCurrent
-                  ? "Generate a current preview before confirming."
-                  : preview?.validationError
+                !formComplete
+                  ? "Select or enter the Vercel team and project before confirming."
+                  : teamMode === "create"
+                    ? "This will create provider resources in Vercel when you apply."
+                    : undefined
               }
               onConfirmedChange={setConfirmed}
             />
@@ -448,12 +526,12 @@ export function GuidedVercelBridgeCard({
                   onClick={() => void handleApply()}
                   disabled={
                     loading !== null ||
-                    !previewIsCurrent ||
                     !confirmed ||
+                    !formComplete ||
                     Boolean(preview?.validationError)
                   }
                 >
-                  {loading === "apply" ? "Applying…" : "Apply Vercel bridge setup"}
+                  {loading === "apply" ? "Applying…" : "Apply Vercel Settings"}
                 </Button>
               </div>
             ) : null}
@@ -462,7 +540,7 @@ export function GuidedVercelBridgeCard({
             {applyResult ? (
               <SetupApplyResult
                 success={applyResult.verified}
-                message={`Vercel env vars written: ${applyResult.writtenEnvKeys.join(", ") || "none"}. Linear webhook setup: ${applyResult.linearWebhookSetup.mode}.`}
+                message={`Vercel team: ${applyResult.team?.outcome ?? "unchanged"} ${applyResult.team?.name ?? ""}. Vercel project: ${applyResult.project?.outcome ?? "unchanged"} ${applyResult.project?.name ?? applyResult.projectName}. Env vars written: ${applyResult.writtenEnvKeys.join(", ") || "none"}. Linear webhook setup: ${applyResult.linearWebhookSetup.mode}.`}
               />
             ) : null}
 
@@ -494,7 +572,7 @@ export function GuidedVercelBridgeCard({
               </div>
             ) : null}
 
-            {bridgeReady || verifiedSuccess ? (
+            {canContinue ? (
               <Button type="button" onClick={onContinue}>
                 Continue to target repo setup
               </Button>

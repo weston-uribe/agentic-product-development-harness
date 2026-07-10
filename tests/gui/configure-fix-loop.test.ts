@@ -31,7 +31,7 @@ describe("configure GUI fix loop", () => {
     expect(source).toMatch(/invalidatePreview\(\)/);
   });
 
-  it("Step 3 loads Vercel bridge options and derived bridge metadata", () => {
+  it("Step 3 uses accurate Vercel settings copy and optional direct apply", () => {
     const source = readFileSync(
       path.join(
         repoRoot,
@@ -40,13 +40,39 @@ describe("configure GUI fix loop", () => {
       "utf8",
     );
 
-    expect(source).toContain("/api/setup/vercel-bridge-options");
-    expect(source).toContain("data.scopes");
-    expect(source).toContain("Complete Step 2 to derive the Linear team key");
-    expect(source).toContain("manualCopySecret");
-    expect(source).toContain("showGithubDispatchOverride");
-    expect(source).toMatch(/\{!verifiedSuccess \?/);
-    expect(source).toMatch(/\{bridgeReady \|\| verifiedSuccess \?/);
+    expect(source).toContain("Configure Vercel settings");
+    expect(source).not.toContain("Set up Vercel webhook bridge");
+    expect(source).not.toContain("Select the harness control-plane");
+    expect(source).not.toContain("Vercel scope");
+    expect(source).toContain("Vercel team name");
+    expect(source).toContain(
+      "Choose the Vercel project this setup should use for automation and",
+    );
+    expect(source).not.toMatch(/control plane/i);
+    expect(source).not.toMatch(/webhook bridge/i);
+    expect(source).not.toContain("/api/linear-webhook");
+    expect(source).not.toMatch(/target application repo/i);
+    expect(source).not.toMatch(/<p>HARNESS_TEAM_KEY:/);
+    expect(source).not.toContain("GitHub dispatch token:");
+    expect(source).not.toContain("LINEAR_WEBHOOK_SECRET:");
+    expect(source).not.toContain("Bridge not ready");
+    expect(source).toContain("Preview Vercel settings");
+    expect(source).not.toMatch(
+      /RemoteActionConfirmation[\s\S]*disabled=\{!previewIsCurrent/,
+    );
+    expect(source).not.toMatch(
+      /onClick=\{\(\) => void handleApply\(\)\}[\s\S]*!previewIsCurrent/,
+    );
+    expect(source).not.toContain(
+      "I completed any manual webhook steps and accept bridge readiness.",
+    );
+    expect(source).toContain("Apply Vercel Settings");
+    expect(source).not.toContain("Apply Vercel bridge setup");
+    expect(source).toMatch(
+      /previewIsCurrent && preview \? preview : await runPreview\(\)/,
+    );
+    expect(source).toContain("Use existing team");
+    expect(source).toContain("Create new project");
   });
 
   it("Step 3 options route exposes scope/project loading without secret values", () => {
