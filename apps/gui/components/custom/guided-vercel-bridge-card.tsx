@@ -277,6 +277,15 @@ export function GuidedVercelBridgeCard({
 
       const apply = data.apply as VercelBridgeApplyResult;
       setApplyResult(apply);
+      if (apply.status === "deployment-required") {
+        setError(apply.deploymentRequired?.message ?? "Deployment required before applying settings.");
+        setVerifiedSuccess(false);
+        void loadOptions(teamMode === "existing" ? teamId : undefined);
+        setPreview(null);
+        setPreviewGenerated(false);
+        setConfirmed(false);
+        return;
+      }
       setSummary(data.summary as VercelSetupSummary);
       onSummaryUpdated?.(data.summary as VercelSetupSummary);
       setVerifiedSuccess(apply.verified);
@@ -322,11 +331,6 @@ export function GuidedVercelBridgeCard({
           </p>
         ) : (
           <>
-            <p className="text-sm text-muted-foreground">
-              Choose the Vercel project this setup should use for automation and
-              preview checks.
-            </p>
-
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="vercel-team-mode">Vercel team name</Label>
@@ -491,6 +495,11 @@ export function GuidedVercelBridgeCard({
                   Linear webhook secret mode:{" "}
                   {preview.linearWebhookSecretMode ?? "unknown"}
                 </p>
+                {preview.deploymentStatus !== "ready" ? (
+                  <p className="text-amber-700 dark:text-amber-400">
+                    Deployment status: {preview.deploymentStatus}
+                  </p>
+                ) : null}
                 {preview.manualSteps.length > 0 ? (
                   <ul className="list-disc pl-5 text-muted-foreground">
                     {preview.manualSteps.map((step) => (
@@ -505,7 +514,7 @@ export function GuidedVercelBridgeCard({
             ) : null}
 
             <RemoteActionConfirmation
-              scope="remote-secret-write"
+              scope="vercel-bridge-write"
               variant="guided"
               confirmed={confirmed}
               disabled={loading !== null || !formComplete}
@@ -540,7 +549,11 @@ export function GuidedVercelBridgeCard({
             {applyResult ? (
               <SetupApplyResult
                 success={applyResult.verified}
-                message={`Vercel team: ${applyResult.team?.outcome ?? "unchanged"} ${applyResult.team?.name ?? ""}. Vercel project: ${applyResult.project?.outcome ?? "unchanged"} ${applyResult.project?.name ?? applyResult.projectName}. Env vars written: ${applyResult.writtenEnvKeys.join(", ") || "none"}. Linear webhook setup: ${applyResult.linearWebhookSetup.mode}.`}
+                message={
+                  applyResult.status === "deployment-required"
+                    ? `${applyResult.deploymentRequired?.message ?? "Deployment required."} ${applyResult.deploymentRequired?.nextSteps.join(" ") ?? ""}`
+                    : `Vercel team: ${applyResult.team?.outcome ?? "unchanged"} ${applyResult.team?.name ?? ""}. Vercel project: ${applyResult.project?.outcome ?? "unchanged"} ${applyResult.project?.name ?? applyResult.projectName}. Env vars written: ${applyResult.writtenEnvKeys.join(", ") || "none"}. Linear webhook setup: ${applyResult.linearWebhookSetup.mode}.`
+                }
               />
             ) : null}
 

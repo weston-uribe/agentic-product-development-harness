@@ -45,9 +45,12 @@ describe("configure GUI fix loop", () => {
     expect(source).not.toContain("Select the harness control-plane");
     expect(source).not.toContain("Vercel scope");
     expect(source).toContain("Vercel team name");
-    expect(source).toContain(
+    expect(source).not.toContain(
       "Choose the Vercel project this setup should use for automation and",
     );
+    expect(source).toContain("scope=\"vercel-bridge-write\"");
+    expect(source).not.toContain("scope=\"remote-secret-write\"");
+    expect(source).not.toContain("encrypted GitHub Actions secrets");
     expect(source).not.toMatch(/control plane/i);
     expect(source).not.toMatch(/webhook bridge/i);
     expect(source).not.toContain("/api/linear-webhook");
@@ -73,6 +76,27 @@ describe("configure GUI fix loop", () => {
     );
     expect(source).toContain("Use existing team");
     expect(source).toContain("Create new project");
+    expect(source).toContain("deployment-required");
+    expect(source).toContain("Deployment status:");
+  });
+
+  it("Step 3 confirmation uses Vercel bridge copy", () => {
+    const source = readFileSync(
+      path.join(
+        repoRoot,
+        "apps/gui/components/custom/remote-action-confirmation.tsx",
+      ),
+      "utf8",
+    );
+
+    expect(source).toContain('"vercel-bridge-write"');
+    expect(source).toContain("Confirm Vercel settings write");
+    const vercelBridgeBlock = source.slice(
+      source.indexOf('"vercel-bridge-write":'),
+      source.indexOf('"remote-repo-write":'),
+    );
+    expect(vercelBridgeBlock).not.toContain("encrypted GitHub Actions secrets");
+    expect(vercelBridgeBlock).not.toContain("GitHub dispatch");
   });
 
   it("Step 3 options route exposes scope/project loading without secret values", () => {

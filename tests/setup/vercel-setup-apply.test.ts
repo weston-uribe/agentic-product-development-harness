@@ -66,6 +66,7 @@ const previewResult = {
   selectedProject: { id: "proj-1", name: "harness-gui", accountId: "acct-1" },
   productionUrl: "https://harness-gui.vercel.app",
   webhookUrl: "https://harness-gui.vercel.app/api/linear-webhook",
+  deploymentStatus: "ready" as const,
   endpointReachable: true,
   envWritePlan: [
     {
@@ -219,6 +220,7 @@ describe("vercel-setup-apply", () => {
       tempRoot,
     );
     expect(result.verified).toBe(true);
+    expect(result.status).toBe("applied");
     expect(result.project?.outcome).toBe("reused");
     expect(result.writtenEnvKeys).toEqual([
       "LINEAR_WEBHOOK_SECRET",
@@ -255,6 +257,81 @@ describe("vercel-setup-apply", () => {
 
     expect(result.linearWebhookSetup.mode).toBe("manual-copy");
     expect(result.linearWebhookSetup.manualCopySecret).toBe("manual-copy-secret");
+    expect(result.verified).toBe(false);
+    expect(result.status).toBe("applied");
+  });
+
+  it("returns deployment-required without env or Linear writes when no production URL exists", async () => {
+    vi.mocked(previewVercelBridgeSetup)
+      .mockResolvedValueOnce(previewResult)
+      .mockResolvedValueOnce({
+        ...previewResult,
+        webhookUrl: undefined,
+        productionUrl: undefined,
+        deploymentStatus: "missing",
+        deploymentRequired: {
+          message:
+            'Project "harness-gui" exists in Vercel but has no production deployment yet.',
+          nextSteps: ["Deploy the project in Vercel before applying settings."],
+        },
+      });
+
+    const result = await applyVercelBridgeSetup({
+      plan: {
+        vercelToken: "vercel-token",
+        projectId: "proj-1",
+        derivedHarnessTeamKey: "WES",
+        derivedGithubDispatchToken: "ghp_saved",
+      },
+      confirmed: true,
+      fingerprint: "preview-fingerprint",
+      cwd: tempRoot,
+    });
+
+    expect(result.status).toBe("deployment-required");
+    expect(result.deploymentRequired?.projectJustCreated).toBe(false);
+    expect(ensureLinearIssueWebhook).not.toHaveBeenCalled();
+    expect(upsertVercelProjectEnvVar).not.toHaveBeenCalled();
+    expect(updateControlPlaneSetupState).not.toHaveBeenCalled();
+    expect(result.verified).toBe(false);
+  });
+
+  it("does not mark existing-unverified webhook setup as verified", async () => {
+    vi.mocked(ensureLinearIssueWebhook).mockResolvedValue({
+      mode: "existing-unverified",
+      secret: "generated-webhook-secret",
+      manualSteps: ["Rotate the Linear webhook signing secret."],
+      webhook: {
+        id: "wh-1",
+        url: "https://harness-gui.vercel.app/api/linear-webhook",
+        enabled: true,
+        resourceTypes: ["Issue"],
+      },
+    });
+    vi.mocked(summarizeLinearWebhookReadiness).mockResolvedValue({
+      matchingWebhook: {
+        id: "wh-1",
+        url: "https://harness-gui.vercel.app/api/linear-webhook",
+        enabled: true,
+        resourceTypes: ["Issue"],
+      },
+      manualSteps: [],
+    });
+
+    const result = await applyVercelBridgeSetup({
+      plan: {
+        vercelToken: "vercel-token",
+        projectId: "proj-1",
+        linearApiKey: "lin_api_test",
+        derivedHarnessTeamKey: "WES",
+        derivedGithubDispatchToken: "ghp_saved",
+      },
+      confirmed: true,
+      fingerprint: "preview-fingerprint",
+      cwd: tempRoot,
+    });
+
+    expect(result.linearWebhookSetup.mode).toBe("existing-unverified");
     expect(result.verified).toBe(false);
   });
 });

@@ -64,6 +64,22 @@ export class VercelEnvVarTypeError extends Error {
   }
 }
 
+export class VercelTeamBillingError extends Error {
+  readonly status: number;
+  readonly providerCode?: string;
+
+  constructor(input: {
+    status: number;
+    providerCode?: string;
+    message: string;
+  }) {
+    super(input.message);
+    this.name = "VercelTeamBillingError";
+    this.status = input.status;
+    this.providerCode = input.providerCode;
+  }
+}
+
 const SECRET_ENV_VAR_KEYS = new Set<VercelBridgeEnvVarName | OptionalVercelBridgeEnvVarName>([
   "LINEAR_WEBHOOK_SECRET",
   "GITHUB_DISPATCH_TOKEN",
@@ -78,27 +94,75 @@ export function getDefaultEnvVarType(
   return "plain";
 }
 
-function parseVercelEnvVarTypeError(input: {
+export function buildExistingEnvVarPatchBody(input: {
+  value: string;
+  existingEnv?: VercelEnvVarSummary;
+}): { value: string; target: string[] } {
+  return {
+    value: input.value,
+    target: input.existingEnv?.target?.length
+      ? input.existingEnv.target
+      : ["production"],
+  };
+}
+
+function parseVercelEnvVarUpdateError(input: {
   key: string;
   existingType?: string;
   status: number;
   body: string;
 }): VercelEnvVarTypeError | null {
   if (
-    !/cannot change the type of a sensitive environment variable/i.test(
-      input.body,
-    )
+    /cannot change the key of a sensitive environment variable/i.test(input.body)
   ) {
+    return new VercelEnvVarTypeError({
+      key: input.key,
+      existingType: input.existingType,
+      status: input.status,
+      message:
+        `Vercel rejected updating ${input.key} because sensitive environment variables cannot have their key changed via API. ` +
+        "The app did not delete or recreate it. Update the value manually in Vercel or approve a separate delete/recreate repair.",
+    });
+  }
+
+  if (
+    /cannot change the type of a sensitive environment variable/i.test(input.body)
+  ) {
+    return new VercelEnvVarTypeError({
+      key: input.key,
+      existingType: input.existingType,
+      status: input.status,
+      message:
+        `Vercel rejected updating ${input.key} because it is a sensitive environment variable whose type cannot be changed. ` +
+        "The app did not delete or recreate it. Update the value manually in Vercel or approve a separate delete/recreate repair.",
+    });
+  }
+
+  return null;
+}
+
+function parseVercelTeamBillingError(input: {
+  status: number;
+  body: string;
+}): VercelTeamBillingError | null {
+  const providerCodeMatch = input.body.match(
+    /"code"\s*:\s*"(payment_method_required|billing|payment[^"]*)"/i,
+  );
+  const providerCode = providerCodeMatch?.[1];
+  const billingRequired =
+    providerCode === "payment_method_required" ||
+    /payment method is required/i.test(input.body) ||
+    /credit card/i.test(input.body);
+
+  if (!billingRequired) {
     return null;
   }
 
-  return new VercelEnvVarTypeError({
-    key: input.key,
-    existingType: input.existingType,
+  return new VercelTeamBillingError({
     status: input.status,
+    providerCode: providerCode ?? "payment_method_required",
     message:
-      `Vercel rejected updating ${input.key} because it is a sensitive environment variable whose type cannot be changed. ` +
-      "The app did not delete or recreate it. Update the value manually in Vercel or approve a separate delete/recreate repair.",
+      "Vercel requires a payment method before creating another team. No harness setup was applied. Add or update billing in Vercel, or choose an existing team.",
   });
 }
 
@@ -157,17 +221,39 @@ export async function createVercelTeam(
   token: string,
   input: { slug: string; name?: string },
 ): Promise<VercelTeamSummary> {
-  const data = await vercelFetch<{
-    id: string;
-    slug: string;
-    name?: string;
-  }>(token, "/v1/teams", {
+  const path = "/v1/teams";
+  const url = new URL(`${VERCEL_API_BASE}${path}`);
+  const response = await fetch(url, {
     method: "POST",
+    headers: {
+      Authorization: `Bearer ${token.trim()}`,
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify({
       slug: input.slug.trim(),
       ...(input.name?.trim() ? { name: input.name.trim() } : {}),
     }),
   });
+
+  if (!response.ok) {
+    const body = await response.text();
+    const billingError = parseVercelTeamBillingError({
+      status: response.status,
+      body,
+    });
+    if (billingError) {
+      throw billingError;
+    }
+    throw new Error(
+      `Vercel API ${response.status} on ${path}: ${body.slice(0, 200)}`,
+    );
+  }
+
+  const data = (await response.json()) as {
+    id: string;
+    slug: string;
+    name?: string;
+  };
 
   return {
     id: data.id,
@@ -281,19 +367,17 @@ export async function upsertVercelProjectEnvVar(
         Authorization: `Bearer ${token.trim()}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        key: input.key,
-        value: input.value,
-        type: updateType,
-        target: input.existingEnv?.target?.length
-          ? input.existingEnv.target
-          : ["production"],
-      }),
+      body: JSON.stringify(
+        buildExistingEnvVarPatchBody({
+          value: input.value,
+          existingEnv: input.existingEnv,
+        }),
+      ),
     });
 
     if (!response.ok) {
       const body = await response.text();
-      const typedError = parseVercelEnvVarTypeError({
+      const typedError = parseVercelEnvVarUpdateError({
         key: input.key,
         existingType: updateType,
         status: response.status,
@@ -331,7 +415,7 @@ export async function upsertVercelProjectEnvVar(
 
   if (!response.ok) {
     const body = await response.text();
-    const typedError = parseVercelEnvVarTypeError({
+    const typedError = parseVercelEnvVarUpdateError({
       key: input.key,
       existingType: createType,
       status: response.status,
