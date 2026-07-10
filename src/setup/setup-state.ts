@@ -51,6 +51,7 @@ export interface SetupEnvInput {
   linearApiKey?: string;
   cursorApiKey?: string;
   githubToken?: string;
+  vercelToken?: string;
 }
 
 export interface SetupConfigBuildInput {

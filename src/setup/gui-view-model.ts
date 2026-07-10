@@ -41,6 +41,7 @@ const SECRET_ENV_KEYS = [
   "LINEAR_API_KEY",
   "CURSOR_API_KEY",
   "GITHUB_TOKEN",
+  "VERCEL_TOKEN",
   "HARNESS_CONFIG_PATH",
 ] as const;
 
@@ -85,6 +86,7 @@ export interface SetupGuiViewModel {
   overview: {
     readyForLocalDoctor: boolean;
     configResolved: boolean;
+    operatorConfigResolved: boolean;
     localFilesPresent: boolean;
   };
   localFiles: LocalFileStatus[];
@@ -130,6 +132,7 @@ export async function summarizeEnvKeyPresence(
     LINEAR_API_KEY: false,
     CURSOR_API_KEY: false,
     GITHUB_TOKEN: false,
+    VERCEL_TOKEN: false,
     HARNESS_CONFIG_PATH: false,
   };
 
@@ -332,7 +335,15 @@ function deriveMissingSteps(input: {
     steps.push({
       id: "missing-github-token",
       label: "Add GITHUB_TOKEN for handoff and merge checks",
-      detail: "Fill GITHUB_TOKEN in .env.local for local doctor GitHub checks.",
+      detail: "Fill GITHUB_TOKEN in .env.local when ready for live validation.",
+    });
+  }
+
+  if (!input.envKeyPresence.VERCEL_TOKEN) {
+    steps.push({
+      id: "missing-vercel-token",
+      label: "Add VERCEL_TOKEN for Vercel bridge setup",
+      detail: "Fill VERCEL_TOKEN in .env.local for Configure-time Vercel inspection.",
     });
   }
 
@@ -482,12 +493,18 @@ export async function getSetupStateSummary(options?: {
   const doctorGroups = summarizeDoctorChecks(doctorChecks);
 
   const configResolved = Boolean(config) && !configParseError;
+  const operatorConfigResolved =
+    configResolved &&
+    configExists &&
+    (configSource.kind === "HARNESS_CONFIG_PATH" ||
+      configSource.kind === "cli-config");
   const localFilesPresent = envExists && configExists;
 
   const viewModel: SetupGuiViewModel = {
     overview: {
       readyForLocalDoctor: configResolved && localFilesPresent,
       configResolved,
+      operatorConfigResolved,
       localFilesPresent,
     },
     localFiles: [

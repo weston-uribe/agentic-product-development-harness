@@ -13,7 +13,7 @@ export interface GuiPortResolution {
   requestedPort: number;
 }
 
-export const DEFAULT_GUI_HOST = "127.0.0.1";
+export const DEFAULT_GUI_HOST = "localhost";
 export const DEFAULT_GUI_PORT = 3000;
 
 export function resolveRequestedGuiPort(options?: GuiPortOptions): number {

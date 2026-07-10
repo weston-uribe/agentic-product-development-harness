@@ -27,6 +27,7 @@ interface SetupDashboardProps {
         LINEAR_API_KEY: boolean;
         CURSOR_API_KEY: boolean;
         GITHUB_TOKEN: boolean;
+        VERCEL_TOKEN: boolean;
       };
     };
     config: LocalConfigFormInput;
@@ -65,6 +66,7 @@ export function SetupDashboard({
     <div className={LAYOUT.sectionStack}>
       <SetupDashboardGroup title="Phase 1 · Local setup">
         <ConfigureWorkflow
+          mode="advanced"
           initialEnv={formDefaults.env}
           initialConfig={formDefaults.config}
           onSummaryUpdated={onSummaryUpdated}

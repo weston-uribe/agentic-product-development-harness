@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { GitHubApiError } from "../../src/github/client.js";
+import { GITHUB_STEP5_WORKFLOW_PERMISSION_FALLBACK_PREFIX } from "../../src/setup/github-workflow-permissions.js";
 import {
   formatGitHubApiErrorMessage,
   sanitizeGitHubSetupError,
@@ -38,6 +39,7 @@ describe("github-remote-setup-live", () => {
 
     expect(message).toContain("workflow scope");
     expect(message).toContain("GITHUB_TOKEN");
+    expect(message).toContain(GITHUB_STEP5_WORKFLOW_PERMISSION_FALLBACK_PREFIX);
     expect(message).not.toContain("OAuth App");
   });
 
@@ -51,6 +53,7 @@ describe("github-remote-setup-live", () => {
 
     expect(message).toContain("workflow scope");
     expect(message).toContain("HTTP 404");
+    expect(message).toContain(GITHUB_STEP5_WORKFLOW_PERMISSION_FALLBACK_PREFIX);
     expect(message).not.toContain('{"message"');
   });
 });

@@ -38,8 +38,10 @@ interface GitHubApiErrorBody {
   documentation_url?: string;
 }
 
-const WORKFLOW_SCOPE_SETUP_ERROR =
-  "GitHub token lacks the workflow scope required to create or update Actions workflow files under .github/workflows/. Use a classic PAT with the workflow scope or a fine-grained PAT with Actions/workflows write permission on the target repo, then update GITHUB_TOKEN in .env.local.";
+import {
+  GITHUB_STEP5_WORKFLOW_PERMISSION_FALLBACK_PREFIX,
+  GITHUB_WORKFLOW_SCOPE_SETUP_ERROR,
+} from "./github-workflow-permissions.js";
 
 function tryParseGitHubApiErrorBody(raw: string): GitHubApiErrorBody | null {
   const trimmed = raw.trim();
@@ -85,14 +87,14 @@ export function formatGitHubApiErrorMessage(
   const apiMessage = parsed?.message ?? redacted;
 
   if (isWorkflowScopeError(status, apiMessage)) {
-    return WORKFLOW_SCOPE_SETUP_ERROR;
+    return GITHUB_WORKFLOW_SCOPE_SETUP_ERROR;
   }
 
   if (
     options?.workflowFileOperation &&
     isLikelyWorkflowScopeNotFound(status, apiMessage, parsed)
   ) {
-    return `${WORKFLOW_SCOPE_SETUP_ERROR} (GitHub returned HTTP ${status}: Not Found.)`;
+    return `${GITHUB_WORKFLOW_SCOPE_SETUP_ERROR} (GitHub returned HTTP ${status}: Not Found.)`;
   }
 
   if (parsed?.message) {
@@ -118,9 +120,16 @@ export function sanitizeGitHubSetupError(error: unknown): string {
 
 export function sanitizeGitHubWorkflowSetupError(error: unknown): string {
   if (error instanceof GitHubApiError) {
-    return formatGitHubApiErrorMessage(error.status, error.message, {
+    const message = formatGitHubApiErrorMessage(error.status, error.message, {
       workflowFileOperation: true,
     });
+    if (
+      message === GITHUB_WORKFLOW_SCOPE_SETUP_ERROR ||
+      message.startsWith(`${GITHUB_WORKFLOW_SCOPE_SETUP_ERROR} `)
+    ) {
+      return `${GITHUB_STEP5_WORKFLOW_PERMISSION_FALLBACK_PREFIX}${message}`;
+    }
+    return message;
   }
   return sanitizeGitHubSetupError(error);
 }

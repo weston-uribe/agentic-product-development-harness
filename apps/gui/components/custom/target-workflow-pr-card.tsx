@@ -16,7 +16,9 @@ import { SetupApplyResult } from "@/components/custom/setup-apply-result";
 interface TargetWorkflowPrCardProps {
   repo: RemoteSetupRepoSummary;
   onApplied: () => void;
+  onGuidedApplySuccess?: (result: RemoteTargetWorkflowApplyResult) => void;
   blockedByUpstream?: boolean;
+  variant?: "advanced" | "guided";
 }
 
 function accessVariant(
@@ -35,10 +37,31 @@ function workflowVariant(
   return "secondary";
 }
 
+function workflowStatusLabel(
+  status: RemoteSetupRepoSummary["workflowStatus"],
+  variant: "advanced" | "guided",
+): string {
+  if (variant === "guided") {
+    switch (status) {
+      case "present":
+        return "workflow ready";
+      case "missing":
+        return "workflow missing";
+      case "differs":
+        return "workflow outdated";
+      default:
+        return "workflow status unknown";
+    }
+  }
+  return status;
+}
+
 export function TargetWorkflowPrCard({
   repo,
   onApplied,
+  onGuidedApplySuccess,
   blockedByUpstream = false,
+  variant = "advanced",
 }: TargetWorkflowPrCardProps) {
   const [preview, setPreview] = useState<RemoteTargetWorkflowPreview | null>(
     null,
@@ -110,10 +133,15 @@ export function TargetWorkflowPrCard({
       if (!response.ok) {
         throw new Error(data.error ?? "Apply failed");
       }
-      setApplyResult(data.apply as RemoteTargetWorkflowApplyResult);
+      const apply = data.apply as RemoteTargetWorkflowApplyResult;
       setPreview(null);
       setPreviewKey(null);
       setConfirmed(false);
+      if (variant === "guided") {
+        onGuidedApplySuccess?.(apply);
+      } else {
+        setApplyResult(apply);
+      }
       onApplied();
     } catch (applyError) {
       setError(
@@ -148,32 +176,53 @@ export function TargetWorkflowPrCard({
   const applyDisabledReason =
     confirmDisabledReason ??
     (!confirmed
-      ? "Confirm the preview before applying the workflow install PR."
+      ? variant === "guided"
+        ? "Confirm the preview before creating the workflow install PR."
+        : "Confirm the preview before applying the workflow install PR."
       : undefined);
 
+  const previewButtonLabel =
+    variant === "guided" ? "Preview workflow install PR" : "Preview workflow PR";
+  const applyButtonLabel =
+    loading === "apply"
+      ? "Creating PR…"
+      : variant === "guided"
+        ? repo.workflowStatus === "present"
+          ? "Update workflow install PR"
+          : "Create workflow install PR"
+        : "Apply workflow PR";
+
   return (
-    <div className="rounded-md border border-border bg-muted/10 p-4 space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-medium">{repo.repoConfigId}</p>
-          <p className="text-sm text-muted-foreground break-all">
-            {repo.targetRepo}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Production branch: {repo.productionBranch}
-          </p>
+    <div
+      className={
+        variant === "guided"
+          ? "space-y-4"
+          : "rounded-md border border-border bg-muted/10 p-4 space-y-4"
+      }
+    >
+      {variant === "advanced" ? (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium">{repo.repoConfigId}</p>
+            <p className="text-sm text-muted-foreground break-all">
+              {repo.targetRepo}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Production branch: {repo.productionBranch}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <StatusBadge
+              label={`Access: ${repo.repoAccess}`}
+              variant={accessVariant(repo.repoAccess)}
+            />
+            <StatusBadge
+              label={`Workflow: ${repo.workflowStatus}`}
+              variant={workflowVariant(repo.workflowStatus)}
+            />
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <StatusBadge
-            label={`Access: ${repo.repoAccess}`}
-            variant={accessVariant(repo.repoAccess)}
-          />
-          <StatusBadge
-            label={`Workflow: ${repo.workflowStatus}`}
-            variant={workflowVariant(repo.workflowStatus)}
-          />
-        </div>
-      </div>
+      ) : null}
 
       <RemoteActionPreview
         targetWorkflowPreview={previewIsCurrent ? preview ?? undefined : undefined}
@@ -181,6 +230,7 @@ export function TargetWorkflowPrCard({
 
       <RemoteActionConfirmation
         scope="remote-repo-write"
+        variant={variant}
         confirmed={confirmed}
         disabled={!previewIsCurrent || Boolean(preview?.validationError) || blockedByUpstream}
         disabledReason={confirmDisabledReason}
@@ -193,7 +243,7 @@ export function TargetWorkflowPrCard({
           onClick={handlePreview}
           disabled={loading !== null || blockedByUpstream}
         >
-          {loading === "preview" ? "Generating preview…" : "Preview workflow PR"}
+          {loading === "preview" ? "Generating preview…" : previewButtonLabel}
         </Button>
         <Button
           type="button"
@@ -206,7 +256,7 @@ export function TargetWorkflowPrCard({
             blockedByUpstream
           }
         >
-          {loading === "apply" ? "Applying…" : "Apply workflow PR"}
+          {applyButtonLabel}
         </Button>
       </div>
 
@@ -218,7 +268,7 @@ export function TargetWorkflowPrCard({
       ) : null}
 
       {error ? <SetupApplyResult success={false} message={error} /> : null}
-      {successMessage ? (
+      {variant === "advanced" && successMessage ? (
         <SetupApplyResult success message={successMessage} />
       ) : null}
     </div>

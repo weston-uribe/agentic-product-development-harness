@@ -4,40 +4,92 @@ import { FORM } from "@/lib/constants";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 
-type RemoteConfirmationScope = "remote-secret-write" | "remote-repo-write";
+type RemoteConfirmationScope =
+  | "remote-secret-write"
+  | "remote-repo-write"
+  | "linear-write";
+type RemoteConfirmationVariant = "advanced" | "guided";
 
 interface RemoteActionConfirmationProps {
   scope: RemoteConfirmationScope;
   confirmed: boolean;
   disabled?: boolean;
   disabledReason?: string;
+  variant?: RemoteConfirmationVariant;
   onConfirmedChange: (confirmed: boolean) => void;
 }
 
 const COPY: Record<
   RemoteConfirmationScope,
-  { title: string; bullets: string[]; label: string }
+  {
+    advanced: { title: string; bullets: string[]; label: string };
+    guided: { title: string; bullets: string[]; label: string };
+  }
 > = {
   "remote-secret-write": {
-    title: "Confirm harness repo Actions secret writes",
-    bullets: [
-      "Writes encrypted GitHub Actions secrets to the harness dispatch repo only.",
-      "HARNESS_CONFIG_JSON_B64 is generated server-side from local config.",
-      "Secret values are never returned in previews, results, or errors.",
-      "No target repo branches, PRs, Linear writes, or harness phases will run.",
-    ],
-    label:
-      "I reviewed the harness secret preview and want to write these Actions secrets.",
+    advanced: {
+      title: "Confirm harness repo Actions secret writes",
+      bullets: [
+        "Writes encrypted GitHub Actions secrets to the harness dispatch repo only.",
+        "HARNESS_CONFIG_JSON_B64 is generated server-side from local config.",
+        "Secret values are never returned in previews, results, or errors.",
+        "No target repo branches, PRs, Linear writes, or harness phases will run.",
+      ],
+      label:
+        "I reviewed the harness secret preview and want to write these Actions secrets.",
+    },
+    guided: {
+      title: "Confirm cloud secrets write",
+      bullets: [
+        "This writes encrypted GitHub Actions secrets to the harness repo.",
+        "It does not run the harness, create branches, open PRs, or change your target app.",
+        "Secret values are never shown in previews, results, or errors.",
+      ],
+      label:
+        "I understand this will create or update encrypted GitHub Actions secrets in the harness repo.",
+    },
   },
   "remote-repo-write": {
-    title: "Confirm target workflow branch and PR install",
-    bullets: [
-      "Creates or updates an install branch and opens or reuses a PR.",
-      "Never writes directly to the target repo production or main branch.",
-      "No harness repo secret writes, Linear writes, or harness phases will run.",
-    ],
-    label:
-      "I reviewed the workflow preview and want to create or update the install PR.",
+    advanced: {
+      title: "Confirm target workflow branch and PR install",
+      bullets: [
+        "Creates or updates an install branch and opens or reuses a PR.",
+        "Never writes directly to the target repo production or main branch.",
+        "No harness repo secret writes, Linear writes, or harness phases will run.",
+      ],
+      label:
+        "I reviewed the workflow preview and want to create or update the install PR.",
+    },
+    guided: {
+      title: "Confirm workflow install PR",
+      bullets: [
+        "This may create or update an install branch and open or reuse a PR.",
+        "It does not merge the PR, write directly to main/production, run the harness, or write Linear.",
+      ],
+      label:
+        "I reviewed the workflow preview and want to create or update the workflow install PR.",
+    },
+  },
+  "linear-write": {
+    advanced: {
+      title: "Confirm Linear workspace writes",
+      bullets: [
+        "May create or update Linear teams, projects, and workflow statuses.",
+        "Preview is read-only until you confirm this write.",
+        "No harness phases, GitHub dispatch, or target repo changes run from this step.",
+      ],
+      label:
+        "I reviewed the Linear setup preview and want to apply workspace changes.",
+    },
+    guided: {
+      title: "Confirm Linear workspace setup",
+      bullets: [
+        "This may create missing Linear workflow statuses or workspace resources.",
+        "It does not run harness automation or modify your target app repo.",
+      ],
+      label:
+        "I understand this will apply Linear workspace setup changes.",
+    },
   },
 };
 
@@ -46,9 +98,10 @@ export function RemoteActionConfirmation({
   confirmed,
   disabled = false,
   disabledReason,
+  variant = "advanced",
   onConfirmedChange,
 }: RemoteActionConfirmationProps) {
-  const copy = COPY[scope];
+  const copy = COPY[scope][variant];
 
   return (
     <div className={FORM.confirmationBox}>

@@ -3,10 +3,13 @@ import "server-only";
 import { resolveHarnessRepoRoot } from "@harness/gui/repo-root";
 import {
   applyLocalSetupFiles,
+  applyConnectServicesEnv,
+  previewConnectServicesEnv,
   previewLocalSetupFiles,
   type LocalSetupApplyResult,
   type LocalSetupFormPayload,
   type LocalSetupPreviewResult,
+  type LocalEnvFormInput,
 } from "@harness/setup/local-apply-actions";
 import { loadConfigFormDefaults } from "@harness/setup/config-local-editor";
 import { readExistingEnvFile } from "@harness/setup/env-merge";
@@ -42,6 +45,26 @@ import {
   loadGithubTokenFromEnvLocal,
   hasGithubTokenConfigured,
 } from "@harness/setup/setup-github-auth";
+import {
+  loadControlPlaneReadinessContext,
+} from "@harness/setup/control-plane-readiness-server";
+import {
+  applyLinearSetup,
+  type LinearSetupApplyResult,
+  type LinearSetupPlanInput,
+  type LinearSetupPreview,
+} from "@harness/setup/linear-setup-apply";
+import { buildLinearSetupSummary } from "@harness/setup/linear-setup-summary";
+import { previewLinearSetup } from "@harness/setup/linear-setup-plan";
+import {
+  applyVercelBridgeSetup,
+  type VercelBridgeApplyResult,
+  type VercelBridgePlanInput,
+  type VercelBridgePreview,
+} from "@harness/setup/vercel-setup-apply";
+import { buildVercelSetupSummary } from "@harness/setup/vercel-setup-summary";
+import { previewVercelBridgeSetup } from "@harness/setup/vercel-setup-plan";
+import { loadSecretFromEnvLocal } from "@harness/setup/service-verification";
 import type {
   RemoteHarnessSecretApplyResult,
   RemoteHarnessSecretPreview,
@@ -102,10 +125,15 @@ export async function loadFirstRunReadiness(): Promise<FirstRunReadiness> {
     loadSetupSummary(),
     loadRemoteSetupSummary(),
   ]);
+  const controlPlaneContext = await loadControlPlaneReadinessContext(
+    resolveCwd(),
+    summary,
+  );
   return deriveFirstRunReadiness({
     summary,
     remoteSummary,
     staleSmokeDiagnostics: remoteSummary.staleSmokeDiagnostics,
+    controlPlaneContext,
   });
 }
 
@@ -118,6 +146,7 @@ export async function loadSetupFormDefaults(): Promise<{
       LINEAR_API_KEY: boolean;
       CURSOR_API_KEY: boolean;
       GITHUB_TOKEN: boolean;
+      VERCEL_TOKEN: boolean;
     };
   };
   config: Awaited<ReturnType<typeof loadConfigFormDefaults>>;
@@ -142,6 +171,7 @@ export async function loadSetupFormDefaults(): Promise<{
         LINEAR_API_KEY: existingEnv?.presence.LINEAR_API_KEY ?? false,
         CURSOR_API_KEY: existingEnv?.presence.CURSOR_API_KEY ?? false,
         GITHUB_TOKEN: existingEnv?.presence.GITHUB_TOKEN ?? false,
+        VERCEL_TOKEN: existingEnv?.presence.VERCEL_TOKEN ?? false,
       },
     },
     config,
@@ -246,6 +276,123 @@ export async function applyTargetWorkflowRemote(options: {
   return { apply, summary };
 }
 
+async function loadLinearApiKey(cwd: string): Promise<string | undefined> {
+  return loadSecretFromEnvLocal({ cwd, key: "LINEAR_API_KEY" });
+}
+
+async function loadVercelToken(cwd: string): Promise<string | undefined> {
+  return loadSecretFromEnvLocal({ cwd, key: "VERCEL_TOKEN" });
+}
+
+export async function loadLinearSetupSummary() {
+  return buildLinearSetupSummary(resolveCwd());
+}
+
+export async function loadVercelSetupSummary() {
+  return buildVercelSetupSummary(resolveCwd());
+}
+
+export async function previewLinearSetupRemote(
+  payload: Omit<LinearSetupPlanInput, "linearApiKey"> & {
+    linearApiKey?: string;
+  },
+): Promise<LinearSetupPreview> {
+  const cwd = resolveCwd();
+  const linearApiKey =
+    payload.linearApiKey ?? (await loadLinearApiKey(cwd)) ?? "";
+  return previewLinearSetup({
+    ...payload,
+    linearApiKey,
+  });
+}
+
+export async function applyLinearSetupRemote(options: {
+  plan: Omit<LinearSetupPlanInput, "linearApiKey"> & { linearApiKey?: string };
+  confirmed: boolean;
+  fingerprint: string;
+}): Promise<{
+  apply: LinearSetupApplyResult;
+  summary: Awaited<ReturnType<typeof buildLinearSetupSummary>>;
+}> {
+  const cwd = resolveCwd();
+  const linearApiKey =
+    options.plan.linearApiKey ?? (await loadLinearApiKey(cwd)) ?? "";
+  const apply = await applyLinearSetup({
+    plan: { ...options.plan, linearApiKey },
+    confirmed: options.confirmed,
+    fingerprint: options.fingerprint,
+    cwd,
+  });
+  const summary = await buildLinearSetupSummary(cwd);
+  return { apply, summary };
+}
+
+export async function previewVercelBridgeRemote(
+  payload: Omit<VercelBridgePlanInput, "vercelToken" | "linearApiKey"> & {
+    vercelToken?: string;
+    linearApiKey?: string;
+  },
+): Promise<VercelBridgePreview> {
+  const cwd = resolveCwd();
+  const vercelToken = payload.vercelToken ?? (await loadVercelToken(cwd)) ?? "";
+  const linearApiKey = payload.linearApiKey ?? (await loadLinearApiKey(cwd));
+  return previewVercelBridgeSetup({
+    ...payload,
+    vercelToken,
+    linearApiKey,
+  });
+}
+
+export async function applyVercelBridgeRemote(options: {
+  plan: Omit<VercelBridgePlanInput, "vercelToken" | "linearApiKey"> & {
+    vercelToken?: string;
+    linearApiKey?: string;
+  };
+  confirmed: boolean;
+  fingerprint: string;
+  manualComplete?: boolean;
+}): Promise<{
+  apply: VercelBridgeApplyResult;
+  summary: Awaited<ReturnType<typeof buildVercelSetupSummary>>;
+}> {
+  const cwd = resolveCwd();
+  const vercelToken =
+    options.plan.vercelToken ?? (await loadVercelToken(cwd)) ?? "";
+  const linearApiKey =
+    options.plan.linearApiKey ?? (await loadLinearApiKey(cwd));
+  const apply = await applyVercelBridgeSetup({
+    plan: { ...options.plan, vercelToken, linearApiKey },
+    confirmed: options.confirmed,
+    fingerprint: options.fingerprint,
+    manualComplete: options.manualComplete,
+    cwd,
+  });
+  const summary = await buildVercelSetupSummary(cwd);
+  return { apply, summary };
+}
+
+export async function previewConnectServicesRemote(
+  env: LocalEnvFormInput,
+): Promise<Awaited<ReturnType<typeof previewConnectServicesEnv>>> {
+  return previewConnectServicesEnv({ cwd: resolveCwd(), env });
+}
+
+export async function applyConnectServicesRemote(options: {
+  env: LocalEnvFormInput;
+  confirmed: boolean;
+  fingerprint: string;
+}): Promise<{ summary: SetupGuiViewModel }> {
+  const cwd = resolveCwd();
+  await applyConnectServicesEnv({
+    cwd,
+    env: options.env,
+    confirmed: options.confirmed,
+    fingerprint: options.fingerprint,
+  });
+  const summary = await getSetupStateSummary({ cwd });
+  return { summary };
+}
+
 export type {
   SetupGuiViewModel,
   LocalSetupFormPayload,
@@ -256,5 +403,9 @@ export type {
   RemoteTargetWorkflowPreview,
   RemoteTargetWorkflowApplyResult,
   FirstRunReadiness,
+  LinearSetupPreview,
+  LinearSetupApplyResult,
+  VercelBridgePreview,
+  VercelBridgeApplyResult,
 };
 

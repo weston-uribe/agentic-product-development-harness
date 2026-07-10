@@ -4,8 +4,11 @@ const SECRET_ENV_KEYS = [
   "LINEAR_API_KEY",
   "CURSOR_API_KEY",
   "GITHUB_TOKEN",
+  "VERCEL_TOKEN",
   "HARNESS_GITHUB_TOKEN",
   "HARNESS_CONFIG_JSON_B64",
+  "LINEAR_WEBHOOK_SECRET",
+  "GITHUB_DISPATCH_TOKEN",
 ] as const;
 
 const SECRET_ASSIGNMENT_PATTERN = new RegExp(
@@ -39,11 +42,13 @@ export function collectEnvInputSecrets(input?: {
   linearApiKey?: string;
   cursorApiKey?: string;
   githubToken?: string;
+  vercelToken?: string;
 }): string[] {
   return [
     input?.linearApiKey,
     input?.cursorApiKey,
     input?.githubToken,
+    input?.vercelToken,
   ].filter((value): value is string => Boolean(value));
 }
 

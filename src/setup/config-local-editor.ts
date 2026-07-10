@@ -1,11 +1,25 @@
+import { access } from "node:fs/promises";
 import { loadHarnessConfig } from "../config/load-config.js";
 import type { HarnessConfig } from "../config/types.js";
 import { DEFAULT_MODEL_ID } from "../config/defaults.js";
+import { loadHarnessDotenv } from "../config/load-dotenv.js";
+import { resolveConfigSource } from "../config/resolve-config.js";
 import { buildHarnessConfig, buildHarnessConfigJson } from "./config-builder.js";
-import type {
-  SetupConfigBuildInput,
-  TargetRepoSetupInput,
+import {
+  resolveLocalFilePaths,
+  type SetupConfigBuildInput,
+  type TargetRepoSetupInput,
 } from "./setup-state.js";
+
+const EXAMPLE_TARGET_REPO = "https://github.com/owner/example-target-app";
+const EXAMPLE_REPO_ID = "target-app";
+const EXAMPLE_LINEAR_PROJECT = "Example Target App";
+const EXAMPLE_LINEAR_TEAM_KEYS = new Set(["TEAM", "WES"]);
+const EXAMPLE_URL_FRAGMENTS = [
+  "staging.example.com",
+  "www.example.com",
+  "example.com",
+];
 
 export interface TargetRepoFormInput {
   id: string;
@@ -95,6 +109,98 @@ export function validateConfigFormInput(input: LocalConfigFormInput): {
   return { config, json };
 }
 
+export function createEmptyConfigFormInput(): LocalConfigFormInput {
+  return {
+    repos: [{ id: "", targetRepo: "" }],
+  };
+}
+
+export function isExampleHarnessConfig(config: HarnessConfig): boolean {
+  if (config.repos.length === 0) {
+    return false;
+  }
+
+  return config.repos.every((repo) => {
+    const isExampleTarget =
+      repo.targetRepo === EXAMPLE_TARGET_REPO ||
+      repo.targetRepo.includes("owner/example-target-app");
+    const isExampleId = repo.id === EXAMPLE_REPO_ID;
+    const hasExampleProject = repo.linearProjects?.some(
+      (project) => project === EXAMPLE_LINEAR_PROJECT,
+    );
+    const hasExampleUrl = [repo.integrationPreviewUrl, repo.productionUrl].some(
+      (url) =>
+        url &&
+        EXAMPLE_URL_FRAGMENTS.some((fragment) => url.includes(fragment)),
+    );
+
+    return isExampleTarget || isExampleId || hasExampleProject || hasExampleUrl;
+  });
+}
+
+export function sanitizeConfigFormInputForFirstRun(
+  input: LocalConfigFormInput,
+): LocalConfigFormInput {
+  const repo = input.repos[0];
+  if (!repo) {
+    return createEmptyConfigFormInput();
+  }
+
+  const sanitizedRepo = {
+    ...repo,
+    id: isExampleTemplateValue(repo.id) ? "" : repo.id,
+    targetRepo: isExampleTemplateValue(repo.targetRepo) ? "" : repo.targetRepo,
+    linearProjects: isExampleTemplateValue(repo.linearProjects)
+      ? undefined
+      : repo.linearProjects,
+    linearTeams: isExampleTemplateValue(repo.linearTeams)
+      ? undefined
+      : repo.linearTeams,
+    integrationPreviewUrl: isExampleTemplateValue(repo.integrationPreviewUrl)
+      ? undefined
+      : repo.integrationPreviewUrl,
+    productionUrl: isExampleTemplateValue(repo.productionUrl)
+      ? undefined
+      : repo.productionUrl,
+  };
+
+  return {
+    linearTeamKey:
+      input.linearTeamKey && !EXAMPLE_LINEAR_TEAM_KEYS.has(input.linearTeamKey)
+        ? input.linearTeamKey
+        : undefined,
+    modelId: input.modelId,
+    repos: [sanitizedRepo],
+  };
+}
+
+export function isExampleTemplateValue(value?: string): boolean {
+  if (!value?.trim()) {
+    return false;
+  }
+
+  const trimmed = value.trim();
+  return (
+    trimmed === EXAMPLE_TARGET_REPO ||
+    trimmed === EXAMPLE_REPO_ID ||
+    trimmed === EXAMPLE_LINEAR_PROJECT ||
+    trimmed === "TEAM" ||
+    trimmed === "WES" ||
+    EXAMPLE_URL_FRAGMENTS.some((fragment) => trimmed.includes(fragment)) ||
+    trimmed.includes("owner/example-target-app")
+  );
+}
+
+async function operatorConfigLocalExists(cwd?: string): Promise<boolean> {
+  const paths = resolveLocalFilePaths(cwd);
+  try {
+    await access(paths.configLocal);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function configToFormInput(config: HarnessConfig): LocalConfigFormInput {
   return {
     linearTeamKey: config.linear?.teamKey,
@@ -122,26 +228,33 @@ export function configToFormInput(config: HarnessConfig): LocalConfigFormInput {
 export async function loadConfigFormDefaults(options?: {
   cwd?: string;
 }): Promise<LocalConfigFormInput> {
+  const cwd = options?.cwd;
+  const paths = resolveLocalFilePaths(cwd);
+  const hasOperatorConfigLocal = await operatorConfigLocalExists(cwd);
+
+  if (cwd) {
+    loadHarnessDotenv(cwd);
+    if (hasOperatorConfigLocal && !process.env.HARNESS_CONFIG_PATH?.trim()) {
+      process.env.HARNESS_CONFIG_PATH = paths.configLocal;
+    }
+  }
+
   try {
-    const loaded = await loadHarnessConfig({ baseDir: options?.cwd });
-    return configToFormInput(loaded.config);
+    const source = resolveConfigSource({ baseDir: cwd });
+    const loaded = await loadHarnessConfig({ baseDir: cwd });
+
+    if (
+      source.kind === "default-file" ||
+      isExampleHarnessConfig(loaded.config) ||
+      (source.kind === "HARNESS_CONFIG_PATH" && !hasOperatorConfigLocal)
+    ) {
+      return createEmptyConfigFormInput();
+    }
+
+    return sanitizeConfigFormInputForFirstRun(
+      configToFormInput(loaded.config),
+    );
   } catch {
-    return {
-      linearTeamKey: "TEAM",
-      modelId: DEFAULT_MODEL_ID,
-      repos: [
-        {
-          id: "target-app",
-          targetRepo: "https://github.com/owner/example-target-app",
-          linearProjects: "Example Target App",
-          baseBranch: "dev",
-          productionBranch: "main",
-          previewProvider: "vercel",
-          integrationSuccessStatus: "Merged to Dev",
-          productionSuccessStatus: "Merged / Deployed",
-          validationCommands: "npm run lint\nnpm run build",
-        },
-      ],
-    };
+    return createEmptyConfigFormInput();
   }
 }

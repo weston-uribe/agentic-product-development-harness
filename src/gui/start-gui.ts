@@ -68,7 +68,7 @@ function parseCliOptions(argv: string[]): CliOptions {
 
 async function main(): Promise<void> {
   const cli = parseCliOptions(process.argv.slice(2));
-  const { host, port } = await resolveAvailableGuiPort({
+  const { host, port, requestedPort } = await resolveAvailableGuiPort({
     host: cli.host,
     port: cli.port,
   });
@@ -79,6 +79,12 @@ async function main(): Promise<void> {
   const guiDir = path.join(repoRoot, "apps", "gui");
   const route = cli.route ?? "/settings/configure";
   const url = `http://${host}:${port}${route}`;
+
+  if (port !== requestedPort) {
+    console.warn(
+      `Port ${requestedPort} was busy. Using ${port} instead. For a fixed localhost:3000 server, run npm run harness:configure:stable.`,
+    );
+  }
 
   console.log(`Starting Product Development Harness GUI at ${url}`);
 

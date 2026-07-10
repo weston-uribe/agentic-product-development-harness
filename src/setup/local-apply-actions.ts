@@ -34,6 +34,7 @@ export interface LocalEnvFormInput {
   linearApiKey?: string;
   cursorApiKey?: string;
   githubToken?: string;
+  vercelToken?: string;
 }
 
 export interface LocalSetupFormPayload {
@@ -99,6 +100,7 @@ function toSetupEnvInput(form: LocalEnvFormInput): SetupEnvInput {
     linearApiKey: form.linearApiKey,
     cursorApiKey: form.cursorApiKey,
     githubToken: form.githubToken,
+    vercelToken: form.vercelToken,
   };
 }
 
@@ -207,6 +209,98 @@ async function buildMergedEnvContent(
   ];
 
   return { mergedEnv, envContent, knownSecrets };
+}
+
+export interface ConnectServicesEnvPreviewResult {
+  fingerprint: string;
+  envPreview: string;
+  envKeyPresence: ReturnType<typeof summarizeManagedKeyPresence>;
+  envResult: SetupActionResult;
+}
+
+export async function previewConnectServicesEnv(options: {
+  cwd?: string;
+  env: LocalEnvFormInput;
+}): Promise<ConnectServicesEnvPreviewResult> {
+  const paths = resolveLocalFilePaths(options.cwd);
+  const envInput = toSetupEnvInput(options.env);
+  const { mergedEnv, envContent, knownSecrets } = await buildMergedEnvContent(
+    paths,
+    envInput,
+  );
+
+  const envResult = sanitizeSetupActionResult(
+    {
+      actionId: "write-env-local",
+      outcome: "preview",
+      targetPath: paths.envLocal,
+      content: envContent,
+      permission: SETUP_PERMISSIONS.localFileWrite,
+      reason: envContent ? "would update merged env" : "would create env",
+    },
+    knownSecrets,
+  );
+
+  const baselines = await getLocalFileBaselines(paths);
+  const fingerprint = computeLocalSetupFingerprint(
+    { env: options.env, config: { repos: [] } },
+    baselines,
+    options.cwd,
+  );
+
+  return {
+    fingerprint,
+    envPreview: redactEnvContent(envContent),
+    envKeyPresence: summarizeManagedKeyPresence(mergedEnv),
+    envResult,
+  };
+}
+
+export async function applyConnectServicesEnv(options: {
+  cwd?: string;
+  env: LocalEnvFormInput;
+  confirmed: boolean;
+  fingerprint: string;
+}): Promise<{ envResult: SetupActionResult }> {
+  if (!options.confirmed) {
+    throw new Error("Local file writes require explicit confirmation");
+  }
+
+  const preview = await previewConnectServicesEnv({
+    cwd: options.cwd,
+    env: options.env,
+  });
+
+  if (options.fingerprint !== preview.fingerprint) {
+    throw new Error(
+      "Preview fingerprint is stale. Regenerate preview before applying.",
+    );
+  }
+
+  const paths = resolveLocalFilePaths(options.cwd);
+  const envInput = toSetupEnvInput(options.env);
+  const { envContent, knownSecrets } = await buildMergedEnvContent(
+    paths,
+    envInput,
+  );
+
+  if (redactEnvContent(envContent) !== preview.envPreview) {
+    throw new Error(
+      "Preview fingerprint is stale. Regenerate preview before applying.",
+    );
+  }
+
+  const envResult = sanitizeSetupActionResult(
+    await writeEnvLocal({
+      paths,
+      mode: "apply",
+      content: envContent,
+      force: true,
+    }),
+    knownSecrets,
+  );
+
+  return { envResult };
 }
 
 export async function previewLocalSetupFiles(options: {

@@ -53,6 +53,15 @@ describe("env-merge", () => {
     expect(merged.cursorApiKey).toBe(NEW_CURSOR);
   });
 
+  it("merges VERCEL_TOKEN into managed env output", () => {
+    const merged = mergeEnvInput(undefined, {
+      vercelToken: "vercel-token-abc",
+    });
+    const output = mergeEnvFileContent("", merged);
+
+    expect(output).toContain("VERCEL_TOKEN=vercel-token-abc");
+  });
+
   it("preserves unrelated env keys after merge", () => {
     const existingContent = [
       "# local notes",

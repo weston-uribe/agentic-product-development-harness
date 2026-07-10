@@ -1,0 +1,189 @@
+import { LinearClient } from "@linear/sdk";
+import type { RequiredWorkflowStatus } from "./linear-status-contract.js";
+
+export interface LinearTeamSummary {
+  id: string;
+  key: string;
+  name: string;
+}
+
+export interface LinearProjectSummary {
+  id: string;
+  name: string;
+  teamIds: string[];
+}
+
+export interface LinearWorkflowStateSummary {
+  id: string;
+  name: string;
+  type: string;
+}
+
+export interface LinearWebhookSummary {
+  id: string;
+  url: string;
+  enabled: boolean;
+  resourceTypes: string[];
+  teamId?: string;
+}
+
+export interface LinearSetupCapabilities {
+  teamCreate: boolean;
+  projectCreate: boolean;
+  workflowStateCreate: boolean;
+  webhookCreate: boolean;
+  webhookList: boolean;
+}
+
+export function createLinearSetupClient(apiKey: string): LinearClient {
+  return new LinearClient({ apiKey: apiKey.trim() });
+}
+
+export async function listLinearTeams(
+  client: LinearClient,
+): Promise<LinearTeamSummary[]> {
+  const connection = await client.teams();
+  return (connection.nodes ?? []).map((team) => ({
+    id: team.id,
+    key: team.key ?? "",
+    name: team.name ?? "",
+  }));
+}
+
+export async function listLinearProjects(
+  client: LinearClient,
+): Promise<LinearProjectSummary[]> {
+  const connection = await client.projects();
+  return (connection.nodes ?? []).map((project) => ({
+    id: project.id,
+    name: project.name ?? "",
+    teamIds: [],
+  }));
+}
+
+export async function listTeamWorkflowStates(
+  client: LinearClient,
+  teamId: string,
+): Promise<LinearWorkflowStateSummary[]> {
+  const connection = await client.workflowStates({
+    filter: { team: { id: { eq: teamId } } },
+  });
+  return (connection.nodes ?? []).map((state) => ({
+    id: state.id,
+    name: state.name ?? "",
+    type: state.type ?? "",
+  }));
+}
+
+export async function listLinearWebhooks(
+  client: LinearClient,
+): Promise<LinearWebhookSummary[]> {
+  const connection = await client.webhooks();
+  return (connection.nodes ?? []).map((webhook) => ({
+    id: webhook.id,
+    url: webhook.url ?? "",
+    enabled: webhook.enabled ?? false,
+    resourceTypes: webhook.resourceTypes ?? [],
+    teamId: webhook.teamId ?? undefined,
+  }));
+}
+
+export async function createLinearTeam(
+  client: LinearClient,
+  input: { name: string; key: string; description?: string },
+): Promise<LinearTeamSummary> {
+  const payload = await client.createTeam({
+    name: input.name,
+    key: input.key,
+    description: input.description,
+  });
+  const team = await payload.team;
+  if (!team) {
+    throw new Error("Linear team creation did not return a team");
+  }
+  return {
+    id: team.id,
+    key: team.key ?? input.key,
+    name: team.name ?? input.name,
+  };
+}
+
+export async function createLinearProject(
+  client: LinearClient,
+  input: { name: string; teamIds: string[]; description?: string },
+): Promise<LinearProjectSummary> {
+  const payload = await client.createProject({
+    name: input.name,
+    teamIds: input.teamIds,
+    description: input.description,
+  });
+  const project = await payload.project;
+  if (!project) {
+    throw new Error("Linear project creation did not return a project");
+  }
+  return {
+    id: project.id,
+    name: project.name ?? input.name,
+    teamIds: input.teamIds,
+  };
+}
+
+export async function createLinearWorkflowState(
+  client: LinearClient,
+  input: {
+    teamId: string;
+    name: string;
+    type: RequiredWorkflowStatus["category"];
+    color?: string;
+  },
+): Promise<LinearWorkflowStateSummary> {
+  const payload = await client.createWorkflowState({
+    teamId: input.teamId,
+    name: input.name,
+    type: input.type,
+    color: input.color ?? "#9CA3AF",
+  });
+  const state = await payload.workflowState;
+  if (!state) {
+    throw new Error("Linear workflow state creation did not return a state");
+  }
+  return {
+    id: state.id,
+    name: state.name ?? input.name,
+    type: state.type ?? input.type,
+  };
+}
+
+export async function createLinearIssueWebhook(
+  client: LinearClient,
+  input: { url: string; teamId?: string; label?: string },
+): Promise<LinearWebhookSummary> {
+  const payload = await client.createWebhook({
+    url: input.url,
+    label: input.label ?? "Harness webhook bridge",
+    resourceTypes: ["Issue"],
+    teamId: input.teamId,
+    allPublicTeams: input.teamId ? undefined : true,
+  });
+  const webhook = await payload.webhook;
+  if (!webhook) {
+    throw new Error("Linear webhook creation did not return a webhook");
+  }
+  return {
+    id: webhook.id,
+    url: webhook.url ?? input.url,
+    enabled: webhook.enabled ?? true,
+    resourceTypes: webhook.resourceTypes ?? ["Issue"],
+    teamId: webhook.teamId ?? input.teamId,
+  };
+}
+
+export function getLinearSetupCapabilities(): LinearSetupCapabilities {
+  return {
+    teamCreate: true,
+    projectCreate: true,
+    workflowStateCreate: true,
+    webhookCreate: true,
+    webhookList: true,
+  };
+}

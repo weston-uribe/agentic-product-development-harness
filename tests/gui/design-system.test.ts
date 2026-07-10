@@ -9,6 +9,7 @@ describe("gui design-system boundaries", () => {
     const card = await readFile(path.join(uiDir, "card.tsx"), "utf8");
 
     expect(button).toContain("buttonVariants");
+    expect(button).toContain("cursor-pointer");
     expect(card).toContain("CardHeader");
   });
 
@@ -42,9 +43,17 @@ describe("gui design-system boundaries", () => {
       path.join(customDir, "first-run-stepper.tsx"),
       "utf8",
     );
+    const serviceIcons = await readFile(
+      path.join(customDir, "service-icons.tsx"),
+      "utf8",
+    );
 
     expect(envForm).toContain("EnvironmentConfigForm");
     expect(confirmation).toContain("LocalWriteConfirmation");
     expect(stepper).toContain("FirstRunStepper");
+    expect(stepper).toContain("cursor-pointer");
+    expect(serviceIcons).toContain("SiLinear");
+    expect(serviceIcons).toContain("SiGithub");
+    expect(serviceIcons).toContain("SiCursor");
   });
 });

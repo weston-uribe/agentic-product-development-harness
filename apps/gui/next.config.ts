@@ -9,6 +9,7 @@ const repoRoot = path.resolve(
 
 const nextConfig: NextConfig = {
   transpilePackages: [],
+  serverExternalPackages: ["@cursor/sdk", "@linear/sdk"],
   experimental: {
     externalDir: true,
   },
