@@ -259,25 +259,25 @@ function ServiceConnectionCard({
 }) {
   const badge = verificationBadge(verification.state);
   const trimmedValue = value.trim();
-  const verifiedForCurrentValue = isServiceVerifiedForValue(
-    verification,
-    trimmedValue,
-  );
-  const failedForCurrentValue = isServiceFailedForValue(
-    verification,
-    trimmedValue,
-  );
+  const verifiedForCurrentValue =
+    verification.state === "connected" &&
+    (trimmedValue
+      ? isServiceVerifiedForValue(verification, trimmedValue)
+      : present);
+  const failedForCurrentValue =
+    verification.state === "failed" &&
+    (trimmedValue
+      ? isServiceFailedForValue(verification, trimmedValue)
+      : present);
   const showConnectedMessage =
     verifiedForCurrentValue && Boolean(verification.message);
   const showFailedMessage = failedForCurrentValue && Boolean(verification.message);
 
   const verifyButtonLabel = verifying
-    ? "Verifying…"
+    ? "Verifying and saving…"
     : verifiedForCurrentValue
       ? "Verified"
-      : present && !trimmedValue
-        ? "Verify saved key"
-        : "Verify";
+      : "Verify and save";
 
   const verifyButtonDisabled =
     verifying ||

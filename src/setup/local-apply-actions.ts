@@ -132,6 +132,41 @@ export async function getLocalFileBaselines(
   };
 }
 
+function connectServicesEnvFingerprintPayload(env: LocalEnvFormInput) {
+  return {
+    harnessConfigPath: env.harnessConfigPath?.trim() ?? "",
+    githubDispatchRepository: env.githubDispatchRepository?.trim() ?? "",
+    linearApiKeyToken: secretChangeToken(env.linearApiKey?.trim() ?? ""),
+    cursorApiKeyToken: secretChangeToken(env.cursorApiKey?.trim() ?? ""),
+    githubTokenToken: secretChangeToken(env.githubToken?.trim() ?? ""),
+    vercelTokenToken: secretChangeToken(env.vercelToken?.trim() ?? ""),
+    preserveLinear: !env.linearApiKey?.trim(),
+    preserveCursor: !env.cursorApiKey?.trim(),
+    preserveGithub: !env.githubToken?.trim(),
+    preserveVercel: !env.vercelToken?.trim(),
+  };
+}
+
+export function computeConnectServicesFingerprint(
+  env: LocalEnvFormInput,
+  baselines: LocalFileBaselines,
+  cwd?: string,
+): string {
+  const normalized = {
+    cwd: cwd ?? process.cwd(),
+    paths: {
+      envLocal: baselines.envLocalPath,
+      configLocal: baselines.configLocalPath,
+    },
+    baselines: {
+      envLocalHash: baselines.envLocalHash,
+      configLocalHash: baselines.configLocalHash,
+    },
+    env: connectServicesEnvFingerprintPayload(env),
+  };
+  return JSON.stringify(normalized);
+}
+
 export function computeLocalSetupFingerprint(
   payload: LocalSetupFormPayload,
   baselines: LocalFileBaselines,
@@ -147,17 +182,7 @@ export function computeLocalSetupFingerprint(
       envLocalHash: baselines.envLocalHash,
       configLocalHash: baselines.configLocalHash,
     },
-    env: {
-      harnessConfigPath: payload.env.harnessConfigPath?.trim() ?? "",
-      githubDispatchRepository:
-        payload.env.githubDispatchRepository?.trim() ?? "",
-      linearApiKeyToken: secretChangeToken(payload.env.linearApiKey?.trim() ?? ""),
-      cursorApiKeyToken: secretChangeToken(payload.env.cursorApiKey?.trim() ?? ""),
-      githubTokenToken: secretChangeToken(payload.env.githubToken?.trim() ?? ""),
-      preserveLinear: !payload.env.linearApiKey?.trim(),
-      preserveCursor: !payload.env.cursorApiKey?.trim(),
-      preserveGithub: !payload.env.githubToken?.trim(),
-    },
+    env: connectServicesEnvFingerprintPayload(payload.env),
     config: normalizeConfigFormInput(payload.config),
   };
   return JSON.stringify(normalized);
@@ -242,8 +267,8 @@ export async function previewConnectServicesEnv(options: {
   );
 
   const baselines = await getLocalFileBaselines(paths);
-  const fingerprint = computeLocalSetupFingerprint(
-    { env: options.env, config: { repos: [] } },
+  const fingerprint = computeConnectServicesFingerprint(
+    options.env,
     baselines,
     options.cwd,
   );

@@ -287,6 +287,7 @@ describe("M6 configure GUI boundaries", () => {
 
     expect(envSource).toContain("verifiedValueFingerprint");
     expect(envSource).toContain('"Verified"');
+    expect(envSource).toContain("Verify and save");
     expect(envSource).toContain("ServiceIcon");
     expect(envSource).toContain("ConnectedStatusMessage");
 
@@ -364,6 +365,17 @@ describe("M6 configure GUI boundaries", () => {
     expect(envSource).not.toContain("Lets later Cursor SDK runs authenticate.");
     expect(envSource).not.toContain('inputLabel: "Paste your Vercel token"');
     expect(envSource).toContain("flex flex-col items-start gap-2");
+    expect(envSource).toContain("Verify and save");
+    expect(envSource).toContain("Verifying and saving…");
+
+    const workflowSource = readFileSync(
+      path.join(repoRoot, "apps/gui/components/custom/configure-workflow.tsx"),
+      "utf8",
+    );
+    expect(workflowSource).toContain("verifyAndSaveService");
+    expect(workflowSource).toContain("saveConnectServiceKey");
+    expect(workflowSource).not.toContain("Save service keys");
+    expect(workflowSource).not.toContain("handleSaveConnectServices");
 
     const guidedPanelBlock = experienceSource.match(
       /mode === "guided" \? \([\s\S]*?\) : \(/,

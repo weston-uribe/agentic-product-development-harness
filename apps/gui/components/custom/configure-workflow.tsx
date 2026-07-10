@@ -213,25 +213,18 @@ export function ConfigureWorkflow({
     [prefersReducedMotion, setGuidedStep],
   );
 
-  const serviceKeyReady = (key: ServiceKey) => {
-    if (presence[key]) {
-      return true;
-    }
-    return Boolean(envValues[SERVICE_VALUE_KEY[key]].trim());
-  };
-
   const serviceConnectionReady = (key: ServiceKey) => {
-    if (!serviceKeyReady(key)) {
+    if (!presence[key]) {
+      return false;
+    }
+    if (serviceVerification[key].state !== "connected") {
       return false;
     }
     const typedValue = envValues[SERVICE_VALUE_KEY[key]].trim();
     if (typedValue) {
       return isServiceVerifiedForValue(serviceVerification[key], typedValue);
     }
-    if (presence[key]) {
-      return true;
-    }
-    return false;
+    return true;
   };
 
   const connectServicesReady =
@@ -323,7 +316,48 @@ export function ConfigureWorkflow({
     [],
   );
 
-  const verifyService = useCallback(
+  const saveConnectServiceKey = useCallback(
+    async (key: ServiceKey) => {
+      const previewResponse = await fetch("/api/setup/preview-connect-services", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(envValues),
+      });
+      const previewData = await previewResponse.json();
+      if (!previewResponse.ok) {
+        throw new Error(previewData.error ?? "Preview failed");
+      }
+
+      const response = await fetch("/api/setup/apply-connect-services", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          env: envValues,
+          confirmed: true,
+          fingerprint: previewData.fingerprint,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error ?? "Save failed");
+      }
+
+      onSummaryUpdated?.(data.summary as SetupGuiViewModel);
+      setPresence({
+        LINEAR_API_KEY: data.summary.envKeyPresence.LINEAR_API_KEY,
+        CURSOR_API_KEY: data.summary.envKeyPresence.CURSOR_API_KEY,
+        GITHUB_TOKEN: data.summary.envKeyPresence.GITHUB_TOKEN,
+        VERCEL_TOKEN: data.summary.envKeyPresence.VERCEL_TOKEN,
+      });
+      setEnvValues((current) => ({
+        ...current,
+        [SERVICE_VALUE_KEY[key]]: "",
+      }));
+    },
+    [envValues, onSummaryUpdated],
+  );
+
+  const verifyAndSaveService = useCallback(
     async (key: ServiceKey) => {
       const token = envValues[SERVICE_VALUE_KEY[key]].trim();
       const fingerprint = token ? valueFingerprint(token) : undefined;
@@ -348,24 +382,33 @@ export function ConfigureWorkflow({
           throw new Error(data.error ?? "Verification failed");
         }
 
+        if (data.status !== "connected") {
+          setServiceVerification((current) => ({
+            ...current,
+            [key]: {
+              state: "failed",
+              attemptedValueFingerprint: fingerprint,
+              message: data.message,
+              limitation: data.limitation,
+              label: data.label,
+            },
+          }));
+          return;
+        }
+
+        if (token) {
+          await saveConnectServiceKey(key);
+        }
+
         setServiceVerification((current) => ({
           ...current,
-          [key]:
-            data.status === "connected"
-              ? {
-                  state: "connected",
-                  verifiedValueFingerprint: fingerprint,
-                  message: data.message,
-                  limitation: data.limitation,
-                  label: data.label,
-                }
-              : {
-                  state: "failed",
-                  attemptedValueFingerprint: fingerprint,
-                  message: data.message,
-                  limitation: data.limitation,
-                  label: data.label,
-                },
+          [key]: {
+            state: "connected",
+            verifiedValueFingerprint: fingerprint,
+            message: data.message,
+            limitation: data.limitation,
+            label: data.label,
+          },
         }));
       } catch (verifyError) {
         setServiceVerification((current) => ({
@@ -383,7 +426,7 @@ export function ConfigureWorkflow({
         setVerifyingServiceKey(null);
       }
     },
-    [envValues],
+    [envValues, saveConnectServiceKey],
   );
 
   const verifyRepo = useCallback(
@@ -474,9 +517,9 @@ export function ConfigureWorkflow({
       if (isServiceVerifiedForValue(serviceVerification[key], value)) {
         return;
       }
-      void verifyService(key);
+      void verifyAndSaveService(key);
     },
-    [envValues, serviceVerification, verifyService],
+    [envValues, serviceVerification, verifyAndSaveService],
   );
 
   const handleRepoBlur = useCallback(
@@ -539,59 +582,6 @@ export function ConfigureWorkflow({
     },
     [handlePreview, loading, previewIsCurrent],
   );
-
-  const handleSaveConnectServices = async () => {
-    setLoading("apply");
-    resetApplyState();
-    try {
-      const previewResponse = await fetch("/api/setup/preview-connect-services", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(envValues),
-      });
-      const previewData = await previewResponse.json();
-      if (!previewResponse.ok) {
-        throw new Error(previewData.error ?? "Preview failed");
-      }
-
-      const response = await fetch("/api/setup/apply-connect-services", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          env: envValues,
-          confirmed: true,
-          fingerprint: previewData.fingerprint,
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error ?? "Apply failed");
-      }
-
-      onSummaryUpdated?.(data.summary as SetupGuiViewModel);
-      setPresence({
-        LINEAR_API_KEY: data.summary.envKeyPresence.LINEAR_API_KEY,
-        CURSOR_API_KEY: data.summary.envKeyPresence.CURSOR_API_KEY,
-        GITHUB_TOKEN: data.summary.envKeyPresence.GITHUB_TOKEN,
-        VERCEL_TOKEN: data.summary.envKeyPresence.VERCEL_TOKEN,
-      });
-      setEnvValues((current) => ({
-        ...current,
-        linearApiKey: "",
-        cursorApiKey: "",
-        githubToken: "",
-        vercelToken: "",
-      }));
-      setApplySuccess(true);
-    } catch (applyFailure) {
-      setError(
-        applyFailure instanceof Error ? applyFailure.message : "Apply failed",
-      );
-      setApplySuccess(false);
-    } finally {
-      setLoading(null);
-    }
-  };
 
   const handleApply = async () => {
     if (!preview || !previewIsCurrent || !confirmed) {
@@ -718,17 +708,10 @@ export function ConfigureWorkflow({
                     markServiceUnchecked("VERCEL_TOKEN");
                   }
                 }}
-                onVerifyService={verifyService}
+                onVerifyService={verifyAndSaveService}
                 onServiceBlur={handleServiceBlur}
               />
               <div className={FORM.actions}>
-                <Button
-                  type="button"
-                  onClick={() => void handleSaveConnectServices()}
-                  disabled={loading !== null || !connectServicesReady}
-                >
-                  {loading === "apply" ? "Saving…" : "Save service keys"}
-                </Button>
                 <Button
                   type="button"
                   onClick={() => onConnectServicesComplete?.()}
@@ -739,8 +722,8 @@ export function ConfigureWorkflow({
               </div>
               {!connectServicesReady ? (
                 <p className="text-sm text-muted-foreground">
-                  Enter each key above, verify new values when possible, or use
-                  keys already saved in `.env.local`.
+                  Verify and save each service key above. Continue unlocks after
+                  all four services are verified and saved locally.
                 </p>
               ) : null}
             </SectionCard>
