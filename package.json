@@ -11,6 +11,7 @@
     "test:webhook": "vitest run tests/webhook",
     "harness:gui": "tsx src/gui/start-gui.ts",
     "harness:configure": "tsx src/gui/start-gui.ts --route /settings/configure",
+    "harness:configure:stable": "tsx src/gui/start-configure-stable.ts",
     "harness:doctor": "tsx src/index.ts doctor",
     "harness:run": "tsx src/index.ts run",
     "harness:inspect": "tsx src/index.ts inspect",
