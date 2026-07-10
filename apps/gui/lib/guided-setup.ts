@@ -75,6 +75,14 @@ function localEnvFileExists(summary: SetupGuiViewModel): boolean {
   return summary.localFiles.find((file) => file.label === ".env.local")?.exists ?? false;
 }
 
+export function localSetupFilesExist(summary: SetupGuiViewModel): boolean {
+  return summary.overview.localFilesPresent;
+}
+
+/** Guided display step after Step 2 local file apply succeeds (first apply or update). */
+export const GUIDED_DISPLAY_STEP_AFTER_LOCAL_APPLY: GuidedDisplayStepId =
+  "local-readiness";
+
 /**
  * Default guided screen after mount or when readiness advances forward.
  * Does not resurrect a manually visited earlier sub-step from browser/session storage.

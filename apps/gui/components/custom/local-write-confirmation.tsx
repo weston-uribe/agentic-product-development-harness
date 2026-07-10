@@ -12,6 +12,7 @@ interface LocalWriteConfirmationProps {
   disabled?: boolean;
   disabledReason?: string;
   variant?: "guided" | "advanced";
+  intent?: "create" | "update";
 }
 
 export function LocalWriteConfirmation({
@@ -21,6 +22,7 @@ export function LocalWriteConfirmation({
   disabled = false,
   disabledReason,
   variant = "advanced",
+  intent = "create",
 }: LocalWriteConfirmationProps) {
   if (variant === "guided") {
     return (
@@ -36,7 +38,9 @@ export function LocalWriteConfirmation({
             htmlFor="confirm-local-write-guided"
             className="cursor-pointer text-sm leading-snug"
           >
-            I understand this will create local setup files on this machine.
+            {intent === "update"
+              ? "I understand this will update local setup files on this machine."
+              : "I understand this will create local setup files on this machine."}
           </Label>
         </div>
         {disabled && disabledReason && disabledReason.includes("validation") ? (

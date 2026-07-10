@@ -4,7 +4,9 @@ import {
   clampGuidedDisplayStep,
   defaultGuidedDisplayStep,
   getPreviousGuidedDisplayStep,
+  GUIDED_DISPLAY_STEP_AFTER_LOCAL_APPLY,
   isGuidedDisplayStepAllowed,
+  localSetupFilesExist,
   readinessStepAdvanced,
   shouldShowGuidedBackButton,
 } from "../../apps/gui/lib/guided-setup";
@@ -126,6 +128,28 @@ describe("guided-setup navigation", () => {
     expect(
       readinessStepAdvanced("local-setup", "local-readiness"),
     ).toBe(false);
+  });
+
+  it("detects when local setup files already exist", () => {
+    expect(
+      localSetupFilesExist(
+        summary({
+          overview: {
+            configResolved: true,
+            operatorConfigResolved: true,
+            readyForLocalDoctor: true,
+            localFilesPresent: true,
+          },
+        }),
+      ),
+    ).toBe(true);
+    expect(localSetupFilesExist(summary({ overview: { localFilesPresent: false } }))).toBe(
+      false,
+    );
+  });
+
+  it("advances guided display to local readiness after Step 2 apply", () => {
+    expect(GUIDED_DISPLAY_STEP_AFTER_LOCAL_APPLY).toBe("local-readiness");
   });
 
   it("allows navigating back to earlier local setup sub-steps", () => {

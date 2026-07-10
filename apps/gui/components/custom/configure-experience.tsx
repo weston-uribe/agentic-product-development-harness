@@ -15,6 +15,8 @@ import {
   clampGuidedDisplayStep,
   defaultGuidedDisplayStep,
   getPreviousGuidedDisplayStep,
+  GUIDED_DISPLAY_STEP_AFTER_LOCAL_APPLY,
+  localSetupFilesExist,
   readinessStepAdvanced,
   shouldShowGuidedBackButton,
   type GuidedDisplayStepId,
@@ -181,6 +183,17 @@ export function ConfigureExperience({
     setSummary(nextSummary);
   }, []);
 
+  const handleGuidedLocalApplySuccess = useCallback(() => {
+    setUiState((current) => ({
+      ...current,
+      localReadinessReviewed: false,
+      cloudSecretsReviewed: false,
+      remoteSecretPreviewStale: true,
+      localPreviewStale: false,
+    }));
+    setDisplayedGuidedStep(GUIDED_DISPLAY_STEP_AFTER_LOCAL_APPLY);
+  }, []);
+
   const handleGuidedLocalStepChange = useCallback((step: GuidedLocalSetupStep) => {
     setDisplayedGuidedStep(step);
   }, []);
@@ -246,6 +259,8 @@ export function ConfigureExperience({
             highlightStaleTarget={staleTargetRepoNeedsAttention}
             onSummaryUpdated={handleSummaryUpdated}
             onUiStateChange={handleLocalUiStateChange}
+            onGuidedLocalApplySuccess={handleGuidedLocalApplySuccess}
+            localSetupFilesExist={localSetupFilesExist(summary)}
           />
         );
       case "local-readiness":

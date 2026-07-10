@@ -600,6 +600,45 @@ describe("M6 configure GUI boundaries", () => {
     expect(verificationSource).toContain("SAVED_GITHUB_TOKEN_FINGERPRINT");
   });
 
+  it("guided local apply advances to Step 3 without a dead-end summary", () => {
+    const experienceSource = readFileSync(
+      path.join(repoRoot, "apps/gui/components/custom/configure-experience.tsx"),
+      "utf8",
+    );
+    const workflowSource = readFileSync(
+      path.join(repoRoot, "apps/gui/components/custom/configure-workflow.tsx"),
+      "utf8",
+    );
+    const confirmationSource = readFileSync(
+      path.join(repoRoot, "apps/gui/components/custom/local-write-confirmation.tsx"),
+      "utf8",
+    );
+
+    expect(experienceSource).toContain("handleGuidedLocalApplySuccess");
+    expect(experienceSource).toContain("onGuidedLocalApplySuccess={handleGuidedLocalApplySuccess}");
+    expect(experienceSource).toContain("GUIDED_DISPLAY_STEP_AFTER_LOCAL_APPLY");
+    expect(experienceSource).toContain("localReadinessReviewed: false");
+    expect(experienceSource).toContain("cloudSecretsReviewed: false");
+    expect(experienceSource).toContain("remoteSecretPreviewStale: true");
+    expect(experienceSource).toContain("localSetupFilesExist={localSetupFilesExist(summary)}");
+
+    const guidedSectionEnd = workflowSource.indexOf(
+      'title="Environment (.env.local)"',
+    );
+    const guidedSection = workflowSource.slice(0, guidedSectionEnd);
+    expect(guidedSection).toContain("onGuidedLocalApplySuccess?.()");
+    expect(guidedSection).not.toContain("applySuccess !== null");
+    expect(guidedSection).not.toContain(
+      "Local setup files were written successfully.",
+    );
+    expect(workflowSource).toContain("Update local setup files");
+    expect(workflowSource).toContain("Create local setup files");
+    expect(workflowSource).toContain("confirmed: true");
+
+    expect(confirmationSource).toContain('intent?: "create" | "update"');
+    expect(confirmationSource).toContain("update local setup files");
+  });
+
   it("guided header Back button navigates wizard steps without browser history", () => {
     const experienceSource = readFileSync(
       path.join(repoRoot, "apps/gui/components/custom/configure-experience.tsx"),

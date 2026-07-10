@@ -61,6 +61,8 @@ interface ConfigureWorkflowProps {
   highlightStaleTarget?: boolean;
   onSummaryUpdated?: (summary: SetupGuiViewModel) => void;
   onUiStateChange?: (state: { localPreviewStale: boolean }) => void;
+  onGuidedLocalApplySuccess?: () => void;
+  localSetupFilesExist?: boolean;
 }
 
 const SERVICE_API_MAP: Record<ServiceKey, "linear" | "cursor" | "github"> = {
@@ -88,6 +90,8 @@ export function ConfigureWorkflow({
   highlightStaleTarget = false,
   onSummaryUpdated,
   onUiStateChange,
+  onGuidedLocalApplySuccess,
+  localSetupFilesExist = false,
 }: ConfigureWorkflowProps) {
   const prefersReducedMotion = useReducedMotion();
   const guidedTopRef = useRef<HTMLDivElement | null>(null);
@@ -548,8 +552,6 @@ export function ConfigureWorkflow({
         throw new Error(data.error ?? "Apply failed");
       }
 
-      setApplySuccess(true);
-      setApplySummary(data.summary as SetupGuiViewModel);
       onSummaryUpdated?.(data.summary as SetupGuiViewModel);
       setPresence({
         LINEAR_API_KEY: data.summary.envKeyPresence.LINEAR_API_KEY,
@@ -566,6 +568,13 @@ export function ConfigureWorkflow({
       setPreviewPayload(null);
       setConfirmed(false);
       setShowPreviewDisclosure(false);
+
+      if (mode === "guided") {
+        onGuidedLocalApplySuccess?.();
+      } else {
+        setApplySuccess(true);
+        setApplySummary(data.summary as SetupGuiViewModel);
+      }
     } catch (applyError) {
       setApplySuccess(false);
       setError(
@@ -604,6 +613,13 @@ export function ConfigureWorkflow({
     previewIsCurrent &&
     !preview?.validationError &&
     confirmed;
+
+  const guidedLocalSetupActionLabel = localSetupFilesExist
+    ? "Update local setup files"
+    : "Create local setup files";
+  const guidedLocalSetupActionLoadingLabel = localSetupFilesExist
+    ? "Updating…"
+    : "Creating…";
 
   if (mode === "guided") {
     const renderGuidedStep = () => {
@@ -710,11 +726,11 @@ export function ConfigureWorkflow({
               <Separator className="my-6" />
 
               <div className="rounded-md border border-border bg-muted/20 p-4 space-y-3">
-                <p className="text-sm font-medium">Create local setup files</p>
+                <p className="text-sm font-medium">{guidedLocalSetupActionLabel}</p>
                 <p className="text-sm text-muted-foreground">
-                  This is the point where the app writes local gitignored setup
-                  files to this machine: `.env.local` and
-                  `.harness/config.local.json`.
+                  {localSetupFilesExist
+                    ? "Local gitignored setup files already exist on this machine. Preview the changes, confirm, and update `.env.local` and `.harness/config.local.json`."
+                    : "This is the point where the app writes local gitignored setup files to this machine: `.env.local` and `.harness/config.local.json`."}
                 </p>
 
                 <ReviewGeneratedFilesDisclosure
@@ -734,6 +750,7 @@ export function ConfigureWorkflow({
 
                 <LocalWriteConfirmation
                   variant="guided"
+                  intent={localSetupFilesExist ? "update" : "create"}
                   plan={previewIsCurrent ? preview?.plan : undefined}
                   confirmed={confirmed}
                   disabled={
@@ -752,8 +769,8 @@ export function ConfigureWorkflow({
                   data-primary-preview-button="true"
                 >
                   {loading === "apply"
-                    ? "Creating…"
-                    : "Create local setup files"}
+                    ? guidedLocalSetupActionLoadingLabel
+                    : guidedLocalSetupActionLabel}
                 </Button>
               </div>
               {!targetReposReady ? (
@@ -763,8 +780,8 @@ export function ConfigureWorkflow({
                 </p>
               ) : !allReposVerified ? (
                 <p className="text-sm text-muted-foreground">
-                  Verify access for each target repo before creating setup
-                  files.
+                  Verify access for each target repo before{" "}
+                  {localSetupFilesExist ? "updating" : "creating"} setup files.
                 </p>
               ) : !previewIsCurrent ? (
                 <p className="text-sm text-muted-foreground">
@@ -773,8 +790,8 @@ export function ConfigureWorkflow({
                 </p>
               ) : !confirmed ? (
                 <p className="text-sm text-muted-foreground">
-                  Confirm that you understand local setup files will be created
-                  on this machine.
+                  Confirm that you understand local setup files will be{" "}
+                  {localSetupFilesExist ? "updated" : "created"} on this machine.
                 </p>
               ) : null}
             </SectionCard>
@@ -791,17 +808,6 @@ export function ConfigureWorkflow({
 
         {error ? (
           <SetupApplyResult success={false} message={error} />
-        ) : null}
-        {applySuccess !== null && !error ? (
-          <SetupApplyResult
-            success={applySuccess}
-            message={
-              applySuccess
-                ? "Local setup files were written successfully."
-                : "Apply failed."
-            }
-            summary={applySummary ?? undefined}
-          />
         ) : null}
       </div>
     );
