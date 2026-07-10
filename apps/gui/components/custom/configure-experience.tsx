@@ -22,7 +22,7 @@ import {
   GUIDED_DISPLAY_STEP_AFTER_WORKFLOW_READY,
   GUIDED_DISPLAY_STEP_AFTER_CONNECT_SERVICES,
   localSetupFilesExist,
-  readinessStepAdvanced,
+  shouldReadinessAdvanceGuidedDisplay,
   shouldShowGuidedBackButton,
   type GuidedDisplayStepId,
   type GuidedLocalSetupStep,
@@ -142,7 +142,7 @@ export function ConfigureExperience({
       previousReadinessStepRef.current = nextStepId;
       return;
     }
-    if (readinessStepAdvanced(nextStepId, previousStepId)) {
+    if (shouldReadinessAdvanceGuidedDisplay(previousStepId, nextStepId)) {
       setDisplayedGuidedStep(
         defaultGuidedDisplayStep({
           currentStepId: nextStepId,

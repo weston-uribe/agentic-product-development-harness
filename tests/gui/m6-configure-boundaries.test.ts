@@ -784,11 +784,69 @@ describe("M6 configure GUI boundaries", () => {
     expect(experienceSource).toContain("Advanced checklist view");
     expect(experienceSource).toContain("defaultGuidedDisplayStep");
     expect(experienceSource).toContain("previousReadinessStepRef");
-    expect(experienceSource).toContain("readinessStepAdvanced");
+    expect(experienceSource).toContain("shouldReadinessAdvanceGuidedDisplay");
     expect(experienceSource).toContain("invalidateDownstreamFromGuidedStep");
     expect(experienceSource).not.toContain("localPreviewStale: true");
     expect(experienceSource).not.toMatch(/history\.back|router\.back/);
     expect(experienceSource).not.toMatch(/localStorage|sessionStorage/);
     expect(experienceSource).toContain('onClick={() => setMode("guided")}');
+  });
+
+  it("Step 1 verify-and-save does not call onConnectServicesComplete", () => {
+    const workflowSource = readFileSync(
+      path.join(repoRoot, "apps/gui/components/custom/configure-workflow.tsx"),
+      "utf8",
+    );
+
+    const verifyBlock = workflowSource.match(
+      /const verifyAndSaveService = useCallback\([\s\S]*?\n  \);/,
+    )?.[0];
+
+    expect(workflowSource).toContain("verifyAndSaveService");
+    expect(verifyBlock).toBeDefined();
+    expect(verifyBlock).not.toContain("onConnectServicesComplete");
+    expect(workflowSource).toContain("onConnectServicesComplete?.()");
+  });
+
+  it("explicit Continue handler remains the Step 1 to Step 2 transition", () => {
+    const experienceSource = readFileSync(
+      path.join(repoRoot, "apps/gui/components/custom/configure-experience.tsx"),
+      "utf8",
+    );
+
+    expect(experienceSource).toContain("handleConnectServicesComplete");
+    expect(experienceSource).toContain(
+      "setDisplayedGuidedStep(GUIDED_DISPLAY_STEP_AFTER_CONNECT_SERVICES)",
+    );
+    expect(experienceSource).toContain(
+      "onConnectServicesComplete={handleConnectServicesComplete}",
+    );
+  });
+
+  it("top nav renders the theme toggle", () => {
+    const appShellSource = readFileSync(
+      path.join(repoRoot, "apps/gui/components/custom/app-shell.tsx"),
+      "utf8",
+    );
+
+    expect(appShellSource).toContain("ThemeToggle");
+  });
+
+  it("guided linear workspace card loads teams and projects from linear-options", () => {
+    const linearCardSource = readFileSync(
+      path.join(
+        repoRoot,
+        "apps/gui/components/custom/guided-linear-workspace-card.tsx",
+      ),
+      "utf8",
+    );
+
+    expect(linearCardSource).toContain("/api/setup/linear-options");
+    expect(linearCardSource).toContain('value={team.id}');
+    expect(linearCardSource).toContain('value={project.id}');
+    expect(linearCardSource).toContain("{team.name} ({team.key})");
+    expect(linearCardSource).toContain("{project.name}");
+    expect(linearCardSource).not.toContain('placeholder="Project ID"');
+    expect(linearCardSource).toContain("Select a project…");
   });
 });

@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { ThemeToggle } from "@/components/custom/theme-toggle";
 import { LAYOUT } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 
@@ -22,6 +23,7 @@ export function AppShell({ children, className }: AppShellProps) {
             </h1>
           </div>
           <nav className="flex items-center gap-4 text-sm">
+            <ThemeToggle />
             <Link
               href="/settings/configure"
               className="font-medium text-foreground hover:text-primary"

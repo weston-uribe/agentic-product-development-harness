@@ -1,4 +1,5 @@
 import { LinearClient } from "@linear/sdk";
+import type { Connection } from "@linear/sdk";
 import type { RequiredWorkflowStatus } from "./linear-status-contract.js";
 
 export interface LinearTeamSummary {
@@ -10,6 +11,7 @@ export interface LinearTeamSummary {
 export interface LinearProjectSummary {
   id: string;
   name: string;
+  /** Team IDs from `project.teams()` — not on the default Project list fragment. */
   teamIds: string[];
 }
 
@@ -39,11 +41,36 @@ export function createLinearSetupClient(apiKey: string): LinearClient {
   return new LinearClient({ apiKey: apiKey.trim() });
 }
 
+async function paginateConnection<T>(
+  connection: Connection<T>,
+): Promise<T[]> {
+  while (connection.pageInfo?.hasNextPage) {
+    await connection.fetchNext();
+  }
+  return connection.nodes ?? [];
+}
+
+/**
+ * Linear's default `projects()` list fragment does not include team IDs.
+ * Team association is loaded per project via `project.teams()`.
+ */
+async function resolveProjectTeamIds(
+  project: { id: string; teams: () => Promise<Connection<{ id: string }>> },
+): Promise<string[]> {
+  try {
+    const teamsConnection = await project.teams();
+    return (teamsConnection.nodes ?? []).map((team) => team.id);
+  } catch {
+    return [];
+  }
+}
+
 export async function listLinearTeams(
   client: LinearClient,
 ): Promise<LinearTeamSummary[]> {
   const connection = await client.teams();
-  return (connection.nodes ?? []).map((team) => ({
+  const teams = await paginateConnection(connection);
+  return teams.map((team) => ({
     id: team.id,
     key: team.key ?? "",
     name: team.name ?? "",
@@ -54,11 +81,14 @@ export async function listLinearProjects(
   client: LinearClient,
 ): Promise<LinearProjectSummary[]> {
   const connection = await client.projects();
-  return (connection.nodes ?? []).map((project) => ({
-    id: project.id,
-    name: project.name ?? "",
-    teamIds: [],
-  }));
+  const projects = await paginateConnection(connection);
+  return Promise.all(
+    projects.map(async (project) => ({
+      id: project.id,
+      name: project.name ?? "",
+      teamIds: await resolveProjectTeamIds(project),
+    })),
+  );
 }
 
 export async function listTeamWorkflowStates(
@@ -68,7 +98,8 @@ export async function listTeamWorkflowStates(
   const connection = await client.workflowStates({
     filter: { team: { id: { eq: teamId } } },
   });
-  return (connection.nodes ?? []).map((state) => ({
+  const states = await paginateConnection(connection);
+  return states.map((state) => ({
     id: state.id,
     name: state.name ?? "",
     type: state.type ?? "",
@@ -79,7 +110,8 @@ export async function listLinearWebhooks(
   client: LinearClient,
 ): Promise<LinearWebhookSummary[]> {
   const connection = await client.webhooks();
-  return (connection.nodes ?? []).map((webhook) => ({
+  const webhooks = await paginateConnection(connection);
+  return webhooks.map((webhook) => ({
     id: webhook.id,
     url: webhook.url ?? "",
     enabled: webhook.enabled ?? false,
@@ -152,6 +184,16 @@ export async function createLinearWorkflowState(
     name: state.name ?? input.name,
     type: state.type ?? input.type,
   };
+}
+
+export function isDuplicateWorkflowStateError(error: unknown): boolean {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : "";
+  return /duplicate workflow state/i.test(message);
 }
 
 export async function createLinearIssueWebhook(

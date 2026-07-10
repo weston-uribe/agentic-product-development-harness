@@ -167,6 +167,24 @@ export function readinessStepAdvanced(
   return compareFirstRunStepIds(next, previous) > 0;
 }
 
+/**
+ * Whether readiness moving forward should update the guided display step.
+ * Step 1 must not auto-advance to Linear workspace when keys become complete;
+ * the user clicks Continue instead.
+ */
+export function shouldReadinessAdvanceGuidedDisplay(
+  previous: FirstRunStepId,
+  next: FirstRunStepId,
+): boolean {
+  if (
+    previous === "connect-services" &&
+    next === "linear-workspace"
+  ) {
+    return false;
+  }
+  return readinessStepAdvanced(next, previous);
+}
+
 export function isGuidedDisplayStepAllowed(
   target: GuidedDisplayStepId,
   currentStepId: FirstRunStepId,

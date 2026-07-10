@@ -1,9 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { LinearSetupPreview } from "@harness/setup/linear-setup-apply";
 import type { LinearSetupApplyResult } from "@harness/setup/linear-setup-apply";
 import type { LinearSetupSummary } from "@harness/setup/linear-setup-summary";
+import type {
+  LinearProjectSummary,
+  LinearTeamSummary,
+} from "@harness/setup/linear-setup-client";
 import type { FirstRunReadiness } from "@harness/setup/first-run-readiness";
 
 import { FORM, SPACING } from "@/lib/constants";
@@ -25,6 +29,9 @@ interface GuidedLinearWorkspaceCardProps {
   onContinue: () => void;
 }
 
+const selectClassName =
+  "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
+
 export function GuidedLinearWorkspaceCard({
   readiness,
   initialSummary,
@@ -45,6 +52,10 @@ export function GuidedLinearWorkspaceCard({
   const [projectName, setProjectName] = useState(
     summary.controlPlane?.linear?.projectName ?? "",
   );
+  const [teams, setTeams] = useState<LinearTeamSummary[]>([]);
+  const [projects, setProjects] = useState<LinearProjectSummary[]>([]);
+  const [optionsLoading, setOptionsLoading] = useState(false);
+  const [optionsError, setOptionsError] = useState<string | null>(null);
   const [preview, setPreview] = useState<LinearSetupPreview | null>(null);
   const [previewGenerated, setPreviewGenerated] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
@@ -68,6 +79,51 @@ export function GuidedLinearWorkspaceCard({
       linearPreviewStale: preview !== null && !previewIsCurrent,
     });
   }, [onUiStateChange, preview, previewIsCurrent]);
+
+  const apiKeyConfigured =
+    linearApiKeyConfigured ?? summary.linearApiKeyConfigured;
+
+  const loadWorkspaceOptions = useCallback(async () => {
+    if (!apiKeyConfigured) {
+      return;
+    }
+    setOptionsLoading(true);
+    setOptionsError(null);
+    try {
+      const response = await fetch("/api/setup/linear-options");
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error ?? "Failed to load Linear teams and projects");
+      }
+      setTeams((data.teams ?? []) as LinearTeamSummary[]);
+      setProjects((data.projects ?? []) as LinearProjectSummary[]);
+    } catch (loadError) {
+      setTeams([]);
+      setProjects([]);
+      setOptionsError(
+        loadError instanceof Error
+          ? loadError.message
+          : "Failed to load Linear teams and projects",
+      );
+    } finally {
+      setOptionsLoading(false);
+    }
+  }, [apiKeyConfigured]);
+
+  useEffect(() => {
+    void loadWorkspaceOptions();
+  }, [loadWorkspaceOptions]);
+
+  const projectOptions = useMemo(() => {
+    if (!teamId) {
+      return projects;
+    }
+    const scoped = projects.filter(
+      (project) =>
+        project.teamIds.length === 0 || project.teamIds.includes(teamId),
+    );
+    return scoped.length > 0 ? scoped : projects;
+  }, [projects, teamId]);
 
   const refreshSummary = useCallback(async () => {
     setLoading("refresh");
@@ -165,6 +221,7 @@ export function GuidedLinearWorkspaceCard({
       setPreview(null);
       setPreviewGenerated(false);
       setConfirmed(false);
+      void loadWorkspaceOptions();
     } catch (applyError) {
       setError(applyError instanceof Error ? applyError.message : "Apply failed");
     } finally {
@@ -176,13 +233,10 @@ export function GuidedLinearWorkspaceCard({
     readiness.steps.find((step) => step.id === "linear-workspace")?.status ===
       "complete" || summary.workspace.configured;
 
-  const apiKeyConfigured =
-    linearApiKeyConfigured ?? summary.linearApiKeyConfigured;
-
   return (
     <SectionCard
       title={`Step 2 of ${GUIDED_SETUP_STEP_COUNT} · Set up Linear workspace`}
-      description="Choose or create the Linear team, project, and workflow statuses the harness automation expects."
+      description="Choose or create the Linear team and project, then ensure issue workflow statuses exist for the team."
     >
       <div className={SPACING.stackSm}>
         {!apiKeyConfigured ? (
@@ -196,7 +250,7 @@ export function GuidedLinearWorkspaceCard({
                 <Label htmlFor="linear-team-mode">Team</Label>
                 <select
                   id="linear-team-mode"
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  className={selectClassName}
                   value={teamMode}
                   onChange={(event) => {
                     setTeamMode(event.target.value as "existing" | "create");
@@ -208,23 +262,36 @@ export function GuidedLinearWorkspaceCard({
                   <option value="create">Create new team</option>
                 </select>
                 {teamMode === "existing" ? (
-                  <select
-                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    value={teamId}
-                    onChange={(event) => {
-                      setTeamId(event.target.value);
-                      setPreview(null);
-                      setPreviewGenerated(false);
-                    }}
-                  >
-                    <option value="">Select a team…</option>
-                    {summary.controlPlane?.linear?.teamId ? (
-                      <option value={summary.controlPlane.linear.teamId}>
-                        {summary.controlPlane.linear.teamName} (
-                        {summary.controlPlane.linear.teamKey})
-                      </option>
+                  <>
+                    <select
+                      className={selectClassName}
+                      value={teamId}
+                      onChange={(event) => {
+                        setTeamId(event.target.value);
+                        setProjectId("");
+                        setPreview(null);
+                        setPreviewGenerated(false);
+                      }}
+                      disabled={optionsLoading}
+                    >
+                      <option value="">Select a team…</option>
+                      {teams.map((team) => (
+                        <option key={team.id} value={team.id}>
+                          {team.name} ({team.key})
+                        </option>
+                      ))}
+                    </select>
+                    {optionsLoading ? (
+                      <p className="text-sm text-muted-foreground">
+                        Loading Linear teams…
+                      </p>
                     ) : null}
-                  </select>
+                    {!optionsLoading && teams.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        No Linear teams found for this API key.
+                      </p>
+                    ) : null}
+                  </>
                 ) : (
                   <div className="space-y-2">
                     <Input
@@ -245,7 +312,7 @@ export function GuidedLinearWorkspaceCard({
                 <Label htmlFor="linear-project-mode">Project</Label>
                 <select
                   id="linear-project-mode"
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  className={selectClassName}
                   value={projectMode}
                   onChange={(event) => {
                     setProjectMode(event.target.value as "existing" | "create");
@@ -257,11 +324,45 @@ export function GuidedLinearWorkspaceCard({
                   <option value="create">Create new project</option>
                 </select>
                 {projectMode === "existing" ? (
-                  <Input
-                    placeholder="Project ID"
-                    value={projectId}
-                    onChange={(event) => setProjectId(event.target.value)}
-                  />
+                  <>
+                    <select
+                      className={selectClassName}
+                      value={projectId}
+                      onChange={(event) => {
+                        setProjectId(event.target.value);
+                        setPreview(null);
+                        setPreviewGenerated(false);
+                      }}
+                      disabled={optionsLoading}
+                    >
+                      <option value="">Select a project…</option>
+                      {projectOptions.map((project) => (
+                        <option key={project.id} value={project.id}>
+                          {project.name}
+                        </option>
+                      ))}
+                    </select>
+                    {optionsLoading ? (
+                      <p className="text-sm text-muted-foreground">
+                        Loading Linear projects…
+                      </p>
+                    ) : null}
+                    {!optionsLoading && projectOptions.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        No Linear projects found for this API key.
+                      </p>
+                    ) : null}
+                    {!optionsLoading &&
+                    projectOptions.length > 0 &&
+                    teamId &&
+                    projects.some((project) => project.teamIds.length > 0) &&
+                    projectOptions.length === projects.length ? (
+                      <p className="text-sm text-muted-foreground">
+                        Showing all workspace projects because team association
+                        could not be narrowed further.
+                      </p>
+                    ) : null}
+                  </>
                 ) : (
                   <Input
                     placeholder="Project name"
@@ -271,6 +372,10 @@ export function GuidedLinearWorkspaceCard({
                 )}
               </div>
             </div>
+
+            {optionsError ? (
+              <p className="text-sm text-destructive">{optionsError}</p>
+            ) : null}
 
             <div className="flex flex-wrap items-center gap-2">
               <StatusBadge
@@ -357,7 +462,7 @@ export function GuidedLinearWorkspaceCard({
             {applyResult ? (
               <SetupApplyResult
                 success
-                message={`Linear workspace updated. Created: ${applyResult.created.join(", ") || "none"}.`}
+                message={`Linear workspace updated. Created: ${applyResult.created.join(", ") || "none"}. Reused: ${applyResult.skipped.join(", ") || "none"}.`}
               />
             ) : null}
 

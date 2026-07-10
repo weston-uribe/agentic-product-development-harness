@@ -56,4 +56,31 @@ describe("gui design-system boundaries", () => {
     expect(serviceIcons).toContain("SiGithub");
     expect(serviceIcons).toContain("SiCursor");
   });
+
+  it("uses minimal next-themes provider and top-nav theme toggle", async () => {
+    const layout = await readFile(
+      path.join(process.cwd(), "apps/gui/app/layout.tsx"),
+      "utf8",
+    );
+    const themeProvider = await readFile(
+      path.join(process.cwd(), "apps/gui/components/custom/theme-provider.tsx"),
+      "utf8",
+    );
+    const themeToggle = await readFile(
+      path.join(process.cwd(), "apps/gui/components/custom/theme-toggle.tsx"),
+      "utf8",
+    );
+    const globals = await readFile(
+      path.join(process.cwd(), "apps/gui/styles/globals.css"),
+      "utf8",
+    );
+
+    expect(layout).toContain("ThemeProvider");
+    expect(layout).toContain("suppressHydrationWarning");
+    expect(themeProvider).toContain('from "next-themes"');
+    expect(themeProvider).toContain('attribute="class"');
+    expect(themeToggle).toContain('from "next-themes"');
+    expect(themeToggle).toContain("Button");
+    expect(globals).toContain(".dark");
+  });
 });

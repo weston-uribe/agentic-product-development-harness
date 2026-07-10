@@ -1,4 +1,5 @@
 import { access, readFile } from "node:fs/promises";
+import type { LinearClient } from "@linear/sdk";
 import { harnessConfigSchema } from "../config/schema.js";
 import {
   updateControlPlaneSetupState,
@@ -9,12 +10,21 @@ import {
   createLinearSetupClient,
   createLinearTeam,
   createLinearWorkflowState,
+  isDuplicateWorkflowStateError,
+  listLinearProjects,
+  listLinearTeams,
+  listTeamWorkflowStates,
   type LinearProjectSummary,
   type LinearTeamSummary,
 } from "./linear-setup-client.js";
 import { lookupRequiredStatus } from "./linear-status-contract.js";
 import {
   LINEAR_SETUP_ACTIONS,
+  findExistingProjectForCreateInput,
+  findExistingTeamForCreateInput,
+  isWorkflowStatusCoverageComplete,
+  matchWorkflowStates,
+  normalizeLinearName,
   previewLinearSetup,
   type LinearSetupPlanInput,
   type LinearSetupPreview,
@@ -78,6 +88,61 @@ async function updateHarnessConfigLinearMapping(input: {
   return true;
 }
 
+export async function ensureWorkflowStatesForTeam(input: {
+  client: LinearClient;
+  teamId: string;
+  created: string[];
+  skipped: string[];
+}): Promise<boolean> {
+  const { client, teamId, created, skipped } = input;
+
+  const runEnsurePass = async () => {
+    const existingStates = await listTeamWorkflowStates(client, teamId);
+    const plan = matchWorkflowStates(existingStates);
+
+    for (const entry of plan) {
+      if (entry.action !== "create") {
+        if (entry.present) {
+          skipped.push(`status:${entry.name}`);
+        }
+        continue;
+      }
+
+      const required = lookupRequiredStatus(entry.name);
+      if (!required) {
+        continue;
+      }
+
+      try {
+        await createLinearWorkflowState(client, {
+          teamId,
+          name: entry.name,
+          type: required.category,
+        });
+        created.push(`status:${entry.name}`);
+      } catch (error) {
+        if (!isDuplicateWorkflowStateError(error)) {
+          throw error;
+        }
+        const refreshed = await listTeamWorkflowStates(client, teamId);
+        const reused = refreshed.find(
+          (state) =>
+            normalizeLinearName(state.name) === normalizeLinearName(entry.name),
+        );
+        if (!reused) {
+          throw error;
+        }
+        skipped.push(`status:${entry.name}`);
+      }
+    }
+  };
+
+  await runEnsurePass();
+
+  const finalStates = await listTeamWorkflowStates(client, teamId);
+  return isWorkflowStatusCoverageComplete(matchWorkflowStates(finalStates));
+}
+
 export async function applyLinearSetup(input: {
   plan: LinearSetupPlanInput;
   confirmed: boolean;
@@ -105,11 +170,21 @@ export async function applyLinearSetup(input: {
     if (!input.plan.team.teamName || !input.plan.team.teamKey) {
       throw new Error("New Linear team requires name and key.");
     }
-    team = await createLinearTeam(client, {
-      name: input.plan.team.teamName,
-      key: input.plan.team.teamKey,
+    const teams = await listLinearTeams(client);
+    const existingTeam = findExistingTeamForCreateInput(teams, {
+      teamKey: input.plan.team.teamKey,
+      teamName: input.plan.team.teamName,
     });
-    created.push(`team:${team.key}`);
+    if (existingTeam) {
+      team = existingTeam;
+      skipped.push(`team:${team.key}`);
+    } else {
+      team = await createLinearTeam(client, {
+        name: input.plan.team.teamName,
+        key: input.plan.team.teamKey,
+      });
+      created.push(`team:${team.key}`);
+    }
   } else {
     const existing = preview.selectedTeam;
     if (!existing) {
@@ -124,12 +199,22 @@ export async function applyLinearSetup(input: {
     if (!input.plan.project.projectName) {
       throw new Error("New Linear project requires a name.");
     }
-    project = await createLinearProject(client, {
-      name: input.plan.project.projectName,
-      teamIds: [team.id],
-      description: input.plan.project.description,
+    const projects = await listLinearProjects(client);
+    const existingProject = findExistingProjectForCreateInput(projects, {
+      projectName: input.plan.project.projectName,
+      teamId: team.id,
     });
-    created.push(`project:${project.name}`);
+    if (existingProject) {
+      project = existingProject;
+      skipped.push(`project:${project.name}`);
+    } else {
+      project = await createLinearProject(client, {
+        name: input.plan.project.projectName,
+        teamIds: [team.id],
+        description: input.plan.project.description,
+      });
+      created.push(`project:${project.name}`);
+    }
   } else {
     const existing = preview.selectedProject;
     if (!existing) {
@@ -139,24 +224,12 @@ export async function applyLinearSetup(input: {
     skipped.push(`project:${project.name}`);
   }
 
-  for (const entry of preview.workflowStates) {
-    if (entry.action !== "create") {
-      if (entry.present) {
-        skipped.push(`status:${entry.name}`);
-      }
-      continue;
-    }
-    const required = lookupRequiredStatus(entry.name);
-    if (!required) {
-      continue;
-    }
-    await createLinearWorkflowState(client, {
-      teamId: team.id,
-      name: entry.name,
-      type: required.category,
-    });
-    created.push(`status:${entry.name}`);
-  }
+  const statusCoverageComplete = await ensureWorkflowStatesForTeam({
+    client,
+    teamId: team.id,
+    created,
+    skipped,
+  });
 
   const selection: LinearWorkspaceSelection = {
     teamMode: input.plan.team.mode,
@@ -166,7 +239,7 @@ export async function applyLinearSetup(input: {
     projectMode: input.plan.project.mode,
     projectId: project.id,
     projectName: project.name,
-    statusCoverageComplete: preview.missingStatuses.length === 0,
+    statusCoverageComplete,
     appliedFingerprint: preview.fingerprint,
     appliedAt: new Date().toISOString(),
   };

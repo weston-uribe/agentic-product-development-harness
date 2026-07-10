@@ -55,6 +55,11 @@ import {
   type LinearSetupPreview,
 } from "@harness/setup/linear-setup-apply";
 import { buildLinearSetupSummary } from "@harness/setup/linear-setup-summary";
+import {
+  createLinearSetupClient,
+  listLinearProjects,
+  listLinearTeams,
+} from "@harness/setup/linear-setup-client";
 import { previewLinearSetup } from "@harness/setup/linear-setup-plan";
 import {
   applyVercelBridgeSetup,
@@ -286,6 +291,23 @@ async function loadVercelToken(cwd: string): Promise<string | undefined> {
 
 export async function loadLinearSetupSummary() {
   return buildLinearSetupSummary(resolveCwd());
+}
+
+export async function loadLinearWorkspaceOptions(): Promise<{
+  teams: Awaited<ReturnType<typeof listLinearTeams>>;
+  projects: Awaited<ReturnType<typeof listLinearProjects>>;
+}> {
+  const cwd = resolveCwd();
+  const linearApiKey = await loadLinearApiKey(cwd);
+  if (!linearApiKey?.trim()) {
+    throw new Error("LINEAR_API_KEY is required to load Linear workspace options.");
+  }
+  const client = createLinearSetupClient(linearApiKey);
+  const [teams, projects] = await Promise.all([
+    listLinearTeams(client),
+    listLinearProjects(client),
+  ]);
+  return { teams, projects };
 }
 
 export async function loadVercelSetupSummary() {

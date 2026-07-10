@@ -84,16 +84,20 @@ function hashPreview(input: unknown): string {
     .slice(0, 16);
 }
 
-function matchWorkflowStates(
+export function normalizeLinearName(name: string): string {
+  return name.trim().toLowerCase();
+}
+
+export function matchWorkflowStates(
   existing: LinearWorkflowStateSummary[],
 ): WorkflowStatusPlanEntry[] {
   const byName = new Map(
-    existing.map((state) => [state.name.trim().toLowerCase(), state]),
+    existing.map((state) => [normalizeLinearName(state.name), state]),
   );
 
   return requiredCreatableStatuses().map((required) => {
-    const match = byName.get(required.name.toLowerCase());
-  const present = Boolean(match);
+    const match = byName.get(normalizeLinearName(required.name));
+    const present = Boolean(match);
     let action: WorkflowStatusPlanEntry["action"] = "skip";
     if (!present) {
       action = required.creatable ? "create" : "manual";
@@ -108,6 +112,43 @@ function matchWorkflowStates(
       creatable: required.creatable,
     };
   });
+}
+
+export function findExistingTeamForCreateInput(
+  teams: LinearTeamSummary[],
+  input: { teamKey: string; teamName: string },
+): LinearTeamSummary | undefined {
+  const key = input.teamKey.trim().toLowerCase();
+  const name = normalizeLinearName(input.teamName);
+  return (
+    teams.find((team) => team.key.trim().toLowerCase() === key) ??
+    teams.find((team) => normalizeLinearName(team.name) === name)
+  );
+}
+
+export function findExistingProjectForCreateInput(
+  projects: LinearProjectSummary[],
+  input: { projectName: string; teamId?: string },
+): LinearProjectSummary | undefined {
+  const name = normalizeLinearName(input.projectName);
+  return projects.find((project) => {
+    if (normalizeLinearName(project.name) !== name) {
+      return false;
+    }
+    if (!input.teamId) {
+      return true;
+    }
+    if (project.teamIds.length === 0) {
+      return true;
+    }
+    return project.teamIds.includes(input.teamId);
+  });
+}
+
+export function isWorkflowStatusCoverageComplete(
+  workflowStates: WorkflowStatusPlanEntry[],
+): boolean {
+  return workflowStates.every((entry) => entry.present || !entry.creatable);
 }
 
 export async function previewLinearSetup(
@@ -160,15 +201,23 @@ export async function previewLinearSetup(
       };
     }
   } else if (input.team.teamName && input.team.teamKey) {
-    createActions.push({
-      kind: "team",
-      name: `${input.team.teamName} (${input.team.teamKey})`,
+    const existingTeam = findExistingTeamForCreateInput(teams, {
+      teamKey: input.team.teamKey,
+      teamName: input.team.teamName,
     });
-    selectedTeam = {
-      id: "pending-team",
-      key: input.team.teamKey,
-      name: input.team.teamName,
-    };
+    if (existingTeam) {
+      selectedTeam = existingTeam;
+    } else {
+      createActions.push({
+        kind: "team",
+        name: `${input.team.teamName} (${input.team.teamKey})`,
+      });
+      selectedTeam = {
+        id: "pending-team",
+        key: input.team.teamKey,
+        name: input.team.teamName,
+      };
+    }
   }
 
   let selectedProject: LinearProjectSummary | undefined;
@@ -177,15 +226,23 @@ export async function previewLinearSetup(
       (project) => project.id === input.project.projectId,
     );
   } else if (input.project.projectName && selectedTeam) {
-    createActions.push({
-      kind: "project",
-      name: input.project.projectName,
+    const existingProject = findExistingProjectForCreateInput(projects, {
+      projectName: input.project.projectName,
+      teamId: selectedTeam.id === "pending-team" ? undefined : selectedTeam.id,
     });
-    selectedProject = {
-      id: "pending-project",
-      name: input.project.projectName,
-      teamIds: selectedTeam.id === "pending-team" ? [] : [selectedTeam.id],
-    };
+    if (existingProject) {
+      selectedProject = existingProject;
+    } else {
+      createActions.push({
+        kind: "project",
+        name: input.project.projectName,
+      });
+      selectedProject = {
+        id: "pending-project",
+        name: input.project.projectName,
+        teamIds: selectedTeam.id === "pending-team" ? [] : [selectedTeam.id],
+      };
+    }
   }
 
   let workflowStates: WorkflowStatusPlanEntry[] = [];

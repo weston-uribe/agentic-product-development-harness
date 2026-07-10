@@ -11,6 +11,7 @@ import {
   isGuidedDisplayStepAllowed,
   localSetupFilesExist,
   readinessStepAdvanced,
+  shouldReadinessAdvanceGuidedDisplay,
   shouldShowGuidedBackButton,
 } from "../../apps/gui/lib/guided-setup";
 import type { SetupGuiViewModel } from "../../src/setup/gui-view-model";
@@ -132,6 +133,21 @@ describe("guided-setup navigation", () => {
     expect(
       readinessStepAdvanced("connect-services", "linear-workspace"),
     ).toBe(false);
+  });
+
+  it("does not auto-advance guided display from Step 1 to Step 2 on readiness alone", () => {
+    expect(
+      shouldReadinessAdvanceGuidedDisplay(
+        "connect-services",
+        "linear-workspace",
+      ),
+    ).toBe(false);
+    expect(
+      shouldReadinessAdvanceGuidedDisplay(
+        "linear-workspace",
+        "vercel-bridge",
+      ),
+    ).toBe(true);
   });
 
   it("detects when local setup files already exist", () => {
