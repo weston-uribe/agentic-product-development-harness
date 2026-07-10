@@ -12,8 +12,10 @@ import {
 
 import { LAYOUT, RESPONSIVE, SPACING } from "@/lib/constants";
 import {
+  clampGuidedDisplayStep,
   defaultGuidedDisplayStep,
   getPreviousGuidedDisplayStep,
+  readinessStepAdvanced,
   shouldShowGuidedBackButton,
   type GuidedDisplayStepId,
   type GuidedLocalSetupStep,
@@ -89,15 +91,15 @@ export function ConfigureExperience({
       previousReadinessStepRef.current = nextStepId;
       return;
     }
-    if (previousStepId !== nextStepId) {
+    if (readinessStepAdvanced(nextStepId, previousStepId)) {
       setDisplayedGuidedStep(
         defaultGuidedDisplayStep({
           currentStepId: nextStepId,
           summary,
         }),
       );
-      previousReadinessStepRef.current = nextStepId;
     }
+    previousReadinessStepRef.current = nextStepId;
   }, [readiness.currentStepId, summary]);
 
   const staleTargetRepoNeedsAttention =
@@ -191,7 +193,6 @@ export function ConfigureExperience({
           localReadinessReviewed: false,
           cloudSecretsReviewed: false,
           remoteSecretPreviewStale: true,
-          localPreviewStale: true,
         }));
         return;
       }
@@ -212,9 +213,17 @@ export function ConfigureExperience({
     if (!previous) {
       return;
     }
-    setDisplayedGuidedStep(previous);
-    invalidateDownstreamFromGuidedStep(previous);
-  }, [displayedGuidedStep, invalidateDownstreamFromGuidedStep]);
+    const nextDisplay = clampGuidedDisplayStep({
+      target: previous,
+      currentStepId: readiness.currentStepId,
+    });
+    setDisplayedGuidedStep(nextDisplay);
+    invalidateDownstreamFromGuidedStep(nextDisplay);
+  }, [
+    displayedGuidedStep,
+    invalidateDownstreamFromGuidedStep,
+    readiness.currentStepId,
+  ]);
 
   const showGuidedBackButton =
     mode === "guided" && shouldShowGuidedBackButton(displayedGuidedStep);
@@ -227,7 +236,7 @@ export function ConfigureExperience({
       case "choose-target-repos":
         return (
           <ConfigureWorkflow
-            key="guided-local-setup-workflow"
+            key={`guided-local-setup-${displayedGuidedStep}`}
             mode="guided"
             guidedStep={displayedGuidedStep}
             onGuidedStepChange={handleGuidedLocalStepChange}

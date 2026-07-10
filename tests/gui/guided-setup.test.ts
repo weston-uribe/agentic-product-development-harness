@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   compareGuidedDisplaySteps,
+  clampGuidedDisplayStep,
   defaultGuidedDisplayStep,
   getPreviousGuidedDisplayStep,
   isGuidedDisplayStepAllowed,
+  readinessStepAdvanced,
   shouldShowGuidedBackButton,
 } from "../../apps/gui/lib/guided-setup";
 import type { SetupGuiViewModel } from "../../src/setup/gui-view-model";
@@ -115,5 +117,23 @@ describe("guided-setup navigation", () => {
     expect(
       compareGuidedDisplaySteps("target-workflow", "cloud-secrets"),
     ).toBeGreaterThan(0);
+  });
+
+  it("detects readiness forward advancement only", () => {
+    expect(
+      readinessStepAdvanced("local-readiness", "local-setup"),
+    ).toBe(true);
+    expect(
+      readinessStepAdvanced("local-setup", "local-readiness"),
+    ).toBe(false);
+  });
+
+  it("allows navigating back to earlier local setup sub-steps", () => {
+    expect(
+      clampGuidedDisplayStep({
+        target: "connect-services",
+        currentStepId: "local-readiness",
+      }),
+    ).toBe("connect-services");
   });
 });

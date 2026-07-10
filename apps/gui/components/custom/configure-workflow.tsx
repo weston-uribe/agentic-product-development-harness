@@ -94,7 +94,6 @@ export function ConfigureWorkflow({
   const [internalGuidedStep, setInternalGuidedStep] =
     useState<GuidedLocalStep>("connect-services");
   const guidedStep = guidedStepProp ?? internalGuidedStep;
-  const setGuidedStep = onGuidedStepChange ?? setInternalGuidedStep;
   const [envValues, setEnvValues] = useState<EnvironmentFormValues>({
     harnessConfigPath: initialEnv.harnessConfigPath,
     githubDispatchRepository: initialEnv.githubDispatchRepository,
@@ -163,10 +162,28 @@ export function ConfigureWorkflow({
     JSON.stringify(previewPayload) === JSON.stringify(currentPayload);
 
   useEffect(() => {
+    if (mode !== "guided" || guidedStepProp === undefined) {
+      return;
+    }
+    setInternalGuidedStep(guidedStepProp);
+  }, [guidedStepProp, mode]);
+
+  useEffect(() => {
     onUiStateChange?.({
       localPreviewStale: preview !== null && !previewIsCurrent,
     });
   }, [onUiStateChange, preview, previewIsCurrent]);
+
+  const setGuidedStep = useCallback(
+    (step: GuidedLocalStep) => {
+      if (onGuidedStepChange) {
+        onGuidedStepChange(step);
+        return;
+      }
+      setInternalGuidedStep(step);
+    },
+    [onGuidedStepChange],
+  );
 
   const goToGuidedStep = useCallback(
     (nextStep: GuidedLocalStep) => {
@@ -178,7 +195,7 @@ export function ConfigureWorkflow({
         });
       });
     },
-    [prefersReducedMotion],
+    [prefersReducedMotion, setGuidedStep],
   );
 
   const serviceKeyReady = (key: ServiceKey) => {

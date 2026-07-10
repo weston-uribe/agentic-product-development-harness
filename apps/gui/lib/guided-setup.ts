@@ -4,6 +4,14 @@ import type { SetupGuiViewModel } from "@/lib/setup-server";
 /** Number of guided setup steps before the "Ready for first run" completion state. */
 export const GUIDED_SETUP_STEP_COUNT = 5;
 
+const FIRST_RUN_STEP_ORDER: readonly FirstRunStepId[] = [
+  "local-setup",
+  "local-readiness",
+  "cloud-secrets",
+  "target-workflow",
+  "ready-for-first-run",
+] as const;
+
 /** Sub-steps within guided Step 1–2 (local setup workflow). */
 export type GuidedLocalSetupStep = "connect-services" | "choose-target-repos";
 
@@ -108,10 +116,34 @@ export function compareGuidedDisplaySteps(
   return guidedDisplayStepIndex(left) - guidedDisplayStepIndex(right);
 }
 
+export function compareFirstRunStepIds(
+  left: FirstRunStepId,
+  right: FirstRunStepId,
+): number {
+  return FIRST_RUN_STEP_ORDER.indexOf(left) - FIRST_RUN_STEP_ORDER.indexOf(right);
+}
+
+export function readinessStepAdvanced(
+  next: FirstRunStepId,
+  previous: FirstRunStepId,
+): boolean {
+  return compareFirstRunStepIds(next, previous) > 0;
+}
+
 export function isGuidedDisplayStepAllowed(
   target: GuidedDisplayStepId,
   currentStepId: FirstRunStepId,
 ): boolean {
   const maxAllowed = maxGuidedDisplayStepForReadiness(currentStepId);
   return compareGuidedDisplaySteps(target, maxAllowed) <= 0;
+}
+
+export function clampGuidedDisplayStep(input: {
+  target: GuidedDisplayStepId;
+  currentStepId: FirstRunStepId;
+}): GuidedDisplayStepId {
+  const maxAllowed = maxGuidedDisplayStepForReadiness(input.currentStepId);
+  return compareGuidedDisplaySteps(input.target, maxAllowed) > 0
+    ? maxAllowed
+    : input.target;
 }

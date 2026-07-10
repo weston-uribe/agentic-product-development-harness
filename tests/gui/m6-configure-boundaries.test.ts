@@ -325,7 +325,7 @@ describe("M6 configure GUI boundaries", () => {
     );
 
     expect(experienceSource).toContain("displayedGuidedStep");
-    expect(experienceSource).toContain('key="guided-local-setup-workflow"');
+    expect(experienceSource).toContain('key={`guided-local-setup-${displayedGuidedStep}`}');
     expect(experienceSource).toContain("guidedStep={displayedGuidedStep}");
     expect(experienceSource).toContain("onGuidedStepChange={handleGuidedLocalStepChange}");
     expect(experienceSource).toContain('case "connect-services":');
@@ -550,7 +550,9 @@ describe("M6 configure GUI boundaries", () => {
     expect(experienceSource).toContain("Advanced checklist view");
     expect(experienceSource).toContain("defaultGuidedDisplayStep");
     expect(experienceSource).toContain("previousReadinessStepRef");
+    expect(experienceSource).toContain("readinessStepAdvanced");
     expect(experienceSource).toContain("invalidateDownstreamFromGuidedStep");
+    expect(experienceSource).not.toContain("localPreviewStale: true");
     expect(experienceSource).not.toMatch(/history\.back|router\.back/);
     expect(experienceSource).not.toMatch(/localStorage|sessionStorage/);
     expect(experienceSource).toContain('onClick={() => setMode("guided")}');
