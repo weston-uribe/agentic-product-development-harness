@@ -21,11 +21,20 @@ vi.mock("../../src/setup/linear-setup-plan.js", () => ({
   summarizeLinearWebhookReadiness: vi.fn(),
 }));
 
-vi.mock("../../src/setup/vercel-setup-client.js", () => ({
-  listVercelProjectEnvVars: vi.fn(),
-  summarizeRequiredEnvPresence: vi.fn(),
-  upsertVercelProjectEnvVar: vi.fn(),
-}));
+vi.mock("../../src/setup/vercel-setup-client.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../src/setup/vercel-setup-client.js")>();
+  return {
+    ...actual,
+    listVercelTeams: vi.fn(),
+    listVercelProjects: vi.fn(),
+    createVercelTeam: vi.fn(),
+    createVercelProject: vi.fn(),
+    listVercelProjectEnvVars: vi.fn(),
+    summarizeRequiredEnvPresence: vi.fn(),
+    upsertVercelProjectEnvVar: vi.fn(),
+  };
+});
 
 vi.mock("../../src/setup/control-plane-setup-state.js", () => ({
   updateControlPlaneSetupState: vi.fn(),
@@ -39,6 +48,8 @@ import {
 } from "../../src/setup/linear-webhook-secret.js";
 import {
   listVercelProjectEnvVars,
+  listVercelProjects,
+  listVercelTeams,
   summarizeRequiredEnvPresence,
   upsertVercelProjectEnvVar,
 } from "../../src/setup/vercel-setup-client.js";
@@ -47,6 +58,49 @@ import {
   VERCEL_SETUP_ACTIONS,
 } from "../../src/setup/vercel-setup-plan.js";
 import { applyVercelBridgeSetup } from "../../src/setup/vercel-setup-apply.js";
+
+const previewResult = {
+  actionId: VERCEL_SETUP_ACTIONS.preview.id,
+  teams: [],
+  projects: [{ id: "proj-1", name: "harness-gui", accountId: "acct-1" }],
+  selectedProject: { id: "proj-1", name: "harness-gui", accountId: "acct-1" },
+  productionUrl: "https://harness-gui.vercel.app",
+  webhookUrl: "https://harness-gui.vercel.app/api/linear-webhook",
+  endpointReachable: true,
+  envWritePlan: [
+    {
+      key: "LINEAR_WEBHOOK_SECRET",
+      action: "create",
+      source: "generated",
+    },
+    {
+      key: "GITHUB_DISPATCH_TOKEN",
+      action: "update",
+      source: "derived",
+      existingType: "sensitive",
+      desiredType: "sensitive",
+    },
+    {
+      key: "HARNESS_TEAM_KEY",
+      action: "create",
+      source: "derived",
+    },
+  ],
+  requiredEnvPresence: {
+    LINEAR_WEBHOOK_SECRET: "missing",
+    GITHUB_DISPATCH_TOKEN: "missing",
+    HARNESS_TEAM_KEY: "missing",
+  },
+  linearWebhookVerified: false,
+  readiness: {
+    ready: false,
+    blockers: [],
+    warnings: [],
+  },
+  manualSteps: [],
+  fingerprint: "preview-fingerprint",
+  permission: VERCEL_SETUP_ACTIONS.preview.permission,
+} as const;
 
 describe("vercel-setup-apply", () => {
   let tempRoot = "";
@@ -67,51 +121,25 @@ describe("vercel-setup-apply", () => {
         resourceTypes: ["Issue"],
       },
     });
-    vi.mocked(previewVercelBridgeSetup).mockResolvedValue({
-      actionId: VERCEL_SETUP_ACTIONS.preview.id,
-      teams: [],
-      projects: [{ id: "proj-1", name: "harness-gui", accountId: "acct-1" }],
-      selectedProject: { id: "proj-1", name: "harness-gui", accountId: "acct-1" },
-      productionUrl: "https://harness-gui.vercel.app",
-      webhookUrl: "https://harness-gui.vercel.app/api/linear-webhook",
-      endpointReachable: true,
-      envWritePlan: [
-        {
-          key: "LINEAR_WEBHOOK_SECRET",
-          action: "create",
-          source: "generated",
-        },
-        {
-          key: "GITHUB_DISPATCH_TOKEN",
-          action: "create",
-          source: "derived",
-        },
-        {
-          key: "HARNESS_TEAM_KEY",
-          action: "create",
-          source: "derived",
-        },
-      ],
-      requiredEnvPresence: {
-        LINEAR_WEBHOOK_SECRET: "missing",
-        GITHUB_DISPATCH_TOKEN: "missing",
-        HARNESS_TEAM_KEY: "missing",
-      },
-      linearWebhookVerified: false,
-      readiness: {
-        ready: false,
-        blockers: [],
-        warnings: [],
-      },
-      manualSteps: [],
-      fingerprint: "preview-fingerprint",
-      permission: VERCEL_SETUP_ACTIONS.preview.permission,
-    });
+    vi.mocked(previewVercelBridgeSetup).mockResolvedValue(previewResult);
+    vi.mocked(listVercelTeams).mockResolvedValue([
+      { id: "team-1", name: "Acme", slug: "acme" },
+    ]);
+    vi.mocked(listVercelProjects).mockResolvedValue([
+      { id: "proj-1", name: "harness-gui", accountId: "acct-1" },
+    ]);
     vi.mocked(listVercelProjectEnvVars)
-      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([
-        { id: "env-1", key: "LINEAR_WEBHOOK_SECRET", type: "encrypted" },
-        { id: "env-2", key: "GITHUB_DISPATCH_TOKEN", type: "encrypted" },
+        {
+          id: "env-sensitive",
+          key: "GITHUB_DISPATCH_TOKEN",
+          type: "sensitive",
+          target: ["production"],
+        },
+      ])
+      .mockResolvedValueOnce([
+        { id: "env-1", key: "LINEAR_WEBHOOK_SECRET", type: "sensitive" },
+        { id: "env-2", key: "GITHUB_DISPATCH_TOKEN", type: "sensitive" },
         { id: "env-3", key: "HARNESS_TEAM_KEY", type: "plain" },
       ]);
     vi.mocked(summarizeRequiredEnvPresence).mockReturnValue({
@@ -154,7 +182,7 @@ describe("vercel-setup-apply", () => {
     ).rejects.toThrow(/confirmation/i);
   });
 
-  it("writes env vars after confirmation and persists post-write presence", async () => {
+  it("writes env vars after confirmation and preserves existing env var metadata", async () => {
     const result = await applyVercelBridgeSetup({
       plan: {
         vercelToken: "vercel-token",
@@ -168,8 +196,15 @@ describe("vercel-setup-apply", () => {
       cwd: tempRoot,
     });
 
+    expect(previewVercelBridgeSetup).toHaveBeenCalledTimes(2);
     expect(ensureLinearIssueWebhook).toHaveBeenCalled();
-    expect(upsertVercelProjectEnvVar).toHaveBeenCalledTimes(3);
+    expect(upsertVercelProjectEnvVar).toHaveBeenCalledWith(
+      "vercel-token",
+      expect.objectContaining({
+        key: "GITHUB_DISPATCH_TOKEN",
+        existingEnv: expect.objectContaining({ type: "sensitive" }),
+      }),
+    );
     expect(listVercelProjectEnvVars).toHaveBeenCalledTimes(2);
     expect(updateControlPlaneSetupState).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -184,6 +219,7 @@ describe("vercel-setup-apply", () => {
       tempRoot,
     );
     expect(result.verified).toBe(true);
+    expect(result.project?.outcome).toBe("reused");
     expect(result.writtenEnvKeys).toEqual([
       "LINEAR_WEBHOOK_SECRET",
       "GITHUB_DISPATCH_TOKEN",
@@ -203,11 +239,6 @@ describe("vercel-setup-apply", () => {
       matchingWebhook: undefined,
       manualSteps: [],
     });
-    vi.mocked(summarizeRequiredEnvPresence).mockReturnValue({
-      LINEAR_WEBHOOK_SECRET: "present",
-      GITHUB_DISPATCH_TOKEN: "present",
-      HARNESS_TEAM_KEY: "present",
-    });
 
     const result = await applyVercelBridgeSetup({
       plan: {
@@ -219,12 +250,11 @@ describe("vercel-setup-apply", () => {
       },
       confirmed: true,
       fingerprint: "preview-fingerprint",
-      manualComplete: true,
       cwd: tempRoot,
     });
 
     expect(result.linearWebhookSetup.mode).toBe("manual-copy");
     expect(result.linearWebhookSetup.manualCopySecret).toBe("manual-copy-secret");
-    expect(result.verified).toBe(true);
+    expect(result.verified).toBe(false);
   });
 });

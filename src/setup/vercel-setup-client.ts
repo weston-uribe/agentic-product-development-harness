@@ -6,6 +6,13 @@ import {
 
 export const VERCEL_API_BASE = "https://api.vercel.com";
 
+export type VercelEnvVarType =
+  | "system"
+  | "encrypted"
+  | "plain"
+  | "sensitive"
+  | "secret";
+
 export interface VercelUserSummary {
   id: string;
   username: string;
@@ -36,6 +43,63 @@ export interface VercelDeploymentSummary {
   url: string;
   state: string;
   readyState?: string;
+}
+
+export class VercelEnvVarTypeError extends Error {
+  readonly key: string;
+  readonly existingType?: string;
+  readonly status: number;
+
+  constructor(input: {
+    key: string;
+    existingType?: string;
+    status: number;
+    message: string;
+  }) {
+    super(input.message);
+    this.name = "VercelEnvVarTypeError";
+    this.key = input.key;
+    this.existingType = input.existingType;
+    this.status = input.status;
+  }
+}
+
+const SECRET_ENV_VAR_KEYS = new Set<VercelBridgeEnvVarName | OptionalVercelBridgeEnvVarName>([
+  "LINEAR_WEBHOOK_SECRET",
+  "GITHUB_DISPATCH_TOKEN",
+]);
+
+export function getDefaultEnvVarType(
+  key: VercelBridgeEnvVarName | OptionalVercelBridgeEnvVarName,
+): VercelEnvVarType {
+  if (SECRET_ENV_VAR_KEYS.has(key)) {
+    return "sensitive";
+  }
+  return "plain";
+}
+
+function parseVercelEnvVarTypeError(input: {
+  key: string;
+  existingType?: string;
+  status: number;
+  body: string;
+}): VercelEnvVarTypeError | null {
+  if (
+    !/cannot change the type of a sensitive environment variable/i.test(
+      input.body,
+    )
+  ) {
+    return null;
+  }
+
+  return new VercelEnvVarTypeError({
+    key: input.key,
+    existingType: input.existingType,
+    status: input.status,
+    message:
+      `Vercel rejected updating ${input.key} because it is a sensitive environment variable whose type cannot be changed. ` +
+      "The app did not delete or recreate it. Update the value manually in Vercel or approve a separate delete/recreate repair.",
+  });
 }
 
 async function vercelFetch<T>(
@@ -89,6 +153,29 @@ export async function listVercelTeams(
   }));
 }
 
+export async function createVercelTeam(
+  token: string,
+  input: { slug: string; name?: string },
+): Promise<VercelTeamSummary> {
+  const data = await vercelFetch<{
+    id: string;
+    slug: string;
+    name?: string;
+  }>(token, "/v1/teams", {
+    method: "POST",
+    body: JSON.stringify({
+      slug: input.slug.trim(),
+      ...(input.name?.trim() ? { name: input.name.trim() } : {}),
+    }),
+  });
+
+  return {
+    id: data.id,
+    slug: data.slug,
+    name: data.name ?? input.name?.trim() ?? data.slug,
+  };
+}
+
 export async function listVercelProjects(
   token: string,
   teamId?: string,
@@ -101,6 +188,29 @@ export async function listVercelProjects(
     name: project.name,
     accountId: project.accountId,
   }));
+}
+
+export async function createVercelProject(
+  token: string,
+  input: { name: string; teamId?: string },
+): Promise<VercelProjectSummary> {
+  const data = await vercelFetch<{
+    id: string;
+    name: string;
+    accountId?: string;
+  }>(token, "/v11/projects", {
+    method: "POST",
+    teamId: input.teamId,
+    body: JSON.stringify({
+      name: input.name.trim(),
+    }),
+  });
+
+  return {
+    id: data.id,
+    name: data.name,
+    accountId: data.accountId,
+  };
 }
 
 export async function listVercelProjectEnvVars(
@@ -149,37 +259,91 @@ export async function upsertVercelProjectEnvVar(
     teamId?: string;
     key: VercelBridgeEnvVarName | OptionalVercelBridgeEnvVarName;
     value: string;
+    existingEnv?: VercelEnvVarSummary;
     existingEnvId?: string;
   },
 ): Promise<void> {
-  if (input.existingEnvId) {
-    await vercelFetch(
-      token,
-      `/v9/projects/${input.projectId}/env/${input.existingEnvId}`,
-      {
-        method: "PATCH",
-        teamId: input.teamId,
-        body: JSON.stringify({
-          key: input.key,
-          value: input.value,
-          type: "encrypted",
-          target: ["production"],
-        }),
+  const existingEnvId = input.existingEnv?.id ?? input.existingEnvId;
+  const existingType = input.existingEnv?.type;
+  const createType = getDefaultEnvVarType(input.key);
+
+  if (existingEnvId) {
+    const updateType = (existingType ?? "encrypted") as VercelEnvVarType;
+    const path = `/v9/projects/${input.projectId}/env/${existingEnvId}`;
+    const url = new URL(`${VERCEL_API_BASE}${path}`);
+    if (input.teamId) {
+      url.searchParams.set("teamId", input.teamId);
+    }
+
+    const response = await fetch(url, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${token.trim()}`,
+        "Content-Type": "application/json",
       },
-    );
+      body: JSON.stringify({
+        key: input.key,
+        value: input.value,
+        type: updateType,
+        target: input.existingEnv?.target?.length
+          ? input.existingEnv.target
+          : ["production"],
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      const typedError = parseVercelEnvVarTypeError({
+        key: input.key,
+        existingType: updateType,
+        status: response.status,
+        body,
+      });
+      if (typedError) {
+        throw typedError;
+      }
+      throw new Error(
+        `Vercel API ${response.status} on ${path}: ${body.slice(0, 200)}`,
+      );
+    }
     return;
   }
 
-  await vercelFetch(token, `/v11/projects/${input.projectId}/env`, {
+  const path = `/v10/projects/${input.projectId}/env`;
+  const url = new URL(`${VERCEL_API_BASE}${path}`);
+  if (input.teamId) {
+    url.searchParams.set("teamId", input.teamId);
+  }
+
+  const response = await fetch(url, {
     method: "POST",
-    teamId: input.teamId,
+    headers: {
+      Authorization: `Bearer ${token.trim()}`,
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify({
       key: input.key,
       value: input.value,
-      type: "encrypted",
+      type: createType,
       target: ["production"],
     }),
   });
+
+  if (!response.ok) {
+    const body = await response.text();
+    const typedError = parseVercelEnvVarTypeError({
+      key: input.key,
+      existingType: createType,
+      status: response.status,
+      body,
+    });
+    if (typedError) {
+      throw typedError;
+    }
+    throw new Error(
+      `Vercel API ${response.status} on ${path}: ${body.slice(0, 200)}`,
+    );
+  }
 }
 
 export async function checkWebhookEndpointReachable(
@@ -208,4 +372,20 @@ export function summarizeRequiredEnvPresence(
       keys.has(name) ? "present" : "missing",
     ]),
   ) as Record<VercelBridgeEnvVarName, "present" | "missing">;
+}
+
+export function findExistingTeamBySlug(
+  teams: VercelTeamSummary[],
+  slug: string,
+): VercelTeamSummary | undefined {
+  const normalized = slug.trim().toLowerCase();
+  return teams.find((team) => team.slug.toLowerCase() === normalized);
+}
+
+export function findExistingProjectByName(
+  projects: VercelProjectSummary[],
+  name: string,
+): VercelProjectSummary | undefined {
+  const normalized = name.trim().toLowerCase();
+  return projects.find((project) => project.name.toLowerCase() === normalized);
 }

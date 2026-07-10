@@ -16,15 +16,24 @@ import {
 import { SETUP_PERMISSIONS } from "./permission-model.js";
 import { collectRemoteSecretInputs } from "./redact-secrets.js";
 import {
+  createVercelProject,
+  createVercelTeam,
+  findExistingProjectByName,
+  findExistingTeamBySlug,
   listVercelProjectEnvVars,
+  listVercelProjects,
+  listVercelTeams,
   summarizeRequiredEnvPresence,
   upsertVercelProjectEnvVar,
+  VercelEnvVarTypeError,
+  type VercelProjectSummary,
 } from "./vercel-setup-client.js";
 import {
   REQUIRED_VERCEL_BRIDGE_ENV_VARS,
 } from "./vercel-bridge-readiness.js";
 import {
   VERCEL_SETUP_ACTIONS,
+  normalizeVercelBridgePlanInput,
   previewVercelBridgeSetup,
   resolveVercelBridgeEnvValue,
   type VercelBridgePlanInput,
@@ -37,16 +46,149 @@ export interface VercelBridgeLinearWebhookSetupResult {
   manualCopySecret?: string;
 }
 
+export interface VercelBridgeResourceResult {
+  id: string;
+  name: string;
+  outcome: "created" | "reused";
+}
+
 export interface VercelBridgeApplyResult {
   actionId: string;
   projectId: string;
   projectName: string;
+  team?: VercelBridgeResourceResult;
+  project?: VercelBridgeResourceResult;
   writtenEnvKeys: string[];
   skippedEnvKeys: string[];
   linearWebhookSetup: VercelBridgeLinearWebhookSetupResult;
   verified: boolean;
   fingerprint: string;
   permission: typeof SETUP_PERMISSIONS.remoteSecretWrite;
+}
+
+async function resolveVercelTeamForApply(input: {
+  plan: VercelBridgePlanInput;
+  created: string[];
+  reused: string[];
+}): Promise<{ teamId?: string; teamName?: string; team?: VercelBridgeResourceResult }> {
+  const normalized = normalizeVercelBridgePlanInput(input.plan);
+
+  if (normalized.team?.mode !== "create") {
+    const teamId = normalized.teamId?.trim() ? normalized.teamId : undefined;
+    const teams = await listVercelTeams(normalized.vercelToken);
+    const existing = teamId
+      ? teams.find((team) => team.id === teamId)
+      : undefined;
+    if (existing) {
+      input.reused.push(`team:${existing.slug}`);
+      return {
+        teamId: existing.id,
+        teamName: existing.name,
+        team: {
+          id: existing.id,
+          name: existing.name,
+          outcome: "reused",
+        },
+      };
+    }
+    return {
+      teamId,
+    };
+  }
+
+  const slug = normalized.team.teamSlug?.trim();
+  if (!slug) {
+    throw new Error("New Vercel team requires a team slug.");
+  }
+
+  const teams = await listVercelTeams(normalized.vercelToken);
+  const existing = findExistingTeamBySlug(teams, slug);
+  if (existing) {
+    input.reused.push(`team:${existing.slug}`);
+    return {
+      teamId: existing.id,
+      teamName: existing.name,
+      team: {
+        id: existing.id,
+        name: existing.name,
+        outcome: "reused",
+      },
+    };
+  }
+
+  const createdTeam = await createVercelTeam(normalized.vercelToken, {
+    slug,
+    name: normalized.team.teamName,
+  });
+  input.created.push(`team:${createdTeam.slug}`);
+  return {
+    teamId: createdTeam.id,
+    teamName: createdTeam.name,
+    team: {
+      id: createdTeam.id,
+      name: createdTeam.name,
+      outcome: "created",
+    },
+  };
+}
+
+async function resolveVercelProjectForApply(input: {
+  plan: VercelBridgePlanInput;
+  teamId?: string;
+  created: string[];
+  reused: string[];
+}): Promise<{ project: VercelProjectSummary; projectResult: VercelBridgeResourceResult }> {
+  const normalized = normalizeVercelBridgePlanInput(input.plan);
+  const projects = await listVercelProjects(normalized.vercelToken, input.teamId);
+
+  if (normalized.project?.mode === "existing") {
+    const projectId = normalized.projectId ?? normalized.project.projectId;
+    const existing = projects.find((project) => project.id === projectId);
+    if (!existing) {
+      throw new Error("Selected Vercel project is required for apply.");
+    }
+    input.reused.push(`project:${existing.name}`);
+    return {
+      project: existing,
+      projectResult: {
+        id: existing.id,
+        name: existing.name,
+        outcome: "reused",
+      },
+    };
+  }
+
+  const projectName = normalized.project?.projectName?.trim();
+  if (!projectName) {
+    throw new Error("New Vercel project requires a project name.");
+  }
+
+  const existing = findExistingProjectByName(projects, projectName);
+  if (existing) {
+    input.reused.push(`project:${existing.name}`);
+    return {
+      project: existing,
+      projectResult: {
+        id: existing.id,
+        name: existing.name,
+        outcome: "reused",
+      },
+    };
+  }
+
+  const created = await createVercelProject(normalized.vercelToken, {
+    name: projectName,
+    teamId: input.teamId,
+  });
+  input.created.push(`project:${created.name}`);
+  return {
+    project: created,
+    projectResult: {
+      id: created.id,
+      name: created.name,
+      outcome: "created",
+    },
+  };
 }
 
 export async function applyVercelBridgeSetup(input: {
@@ -62,22 +204,66 @@ export async function applyVercelBridgeSetup(input: {
     SETUP_PERMISSIONS.remoteSecretWrite.scope,
   );
 
-  const preview = await previewVercelBridgeSetup(input.plan);
-  assertRemoteSetupFingerprint(input.fingerprint, preview.fingerprint);
+  const normalized = normalizeVercelBridgePlanInput(input.plan);
+  const initialPreview = await previewVercelBridgeSetup(normalized);
+  assertRemoteSetupFingerprint(input.fingerprint, initialPreview.fingerprint);
+  if (initialPreview.validationError) {
+    throw new Error(initialPreview.validationError);
+  }
+
+  const created: string[] = [];
+  const reused: string[] = [];
+  const resolvedTeam = await resolveVercelTeamForApply({
+    plan: normalized,
+    created,
+    reused,
+  });
+
+  const resolvedProject = await resolveVercelProjectForApply({
+    plan: {
+      ...normalized,
+      teamId: resolvedTeam.teamId,
+      projectId:
+        normalized.project?.mode === "existing"
+          ? (normalized.projectId ?? normalized.project?.projectId)
+          : undefined,
+    },
+    teamId: resolvedTeam.teamId,
+    created,
+    reused,
+  });
+
+  const planForApply: VercelBridgePlanInput = {
+    ...normalized,
+    teamId: resolvedTeam.teamId,
+    projectId: resolvedProject.project.id,
+    projectName: resolvedProject.project.name,
+    team: {
+      mode: "existing",
+      teamId: resolvedTeam.teamId ?? "",
+    },
+    project: {
+      mode: "existing",
+      projectId: resolvedProject.project.id,
+      projectName: resolvedProject.project.name,
+    },
+  };
+
+  const preview = await previewVercelBridgeSetup(planForApply);
   if (preview.validationError) {
     throw new Error(preview.validationError);
   }
   if (!preview.selectedProject) {
-    throw new Error("Vercel bridge project must be selected before apply.");
+    throw new Error("Vercel project must be selected before apply.");
   }
   if (!preview.webhookUrl) {
     throw new Error(
-      "Vercel bridge webhook URL could not be resolved for the selected project.",
+      "Vercel production URL could not be resolved for the selected project. Deploy the project before applying settings.",
     );
   }
 
   const generatedLinearWebhookSecret =
-    input.plan.envInput?.LINEAR_WEBHOOK_SECRET?.trim() ??
+    normalized.envInput?.LINEAR_WEBHOOK_SECRET?.trim() ??
     generateLinearWebhookSecret();
 
   let linearWebhookSetup: VercelBridgeLinearWebhookSetupResult = {
@@ -86,11 +272,11 @@ export async function applyVercelBridgeSetup(input: {
     manualCopySecret: undefined,
   };
 
-  if (input.plan.linearApiKey?.trim()) {
+  if (normalized.linearApiKey?.trim()) {
     const ensured = await ensureLinearIssueWebhook({
-      linearApiKey: input.plan.linearApiKey,
+      linearApiKey: normalized.linearApiKey,
       webhookUrl: preview.webhookUrl,
-      linearTeamId: input.plan.linearTeamId,
+      linearTeamId: normalized.linearTeamId,
       secret: generatedLinearWebhookSecret,
     });
     linearWebhookSetup = {
@@ -111,23 +297,23 @@ export async function applyVercelBridgeSetup(input: {
   }
 
   const knownSecrets = collectRemoteSecretInputs({
-    linearApiKey: input.plan.linearApiKey,
+    linearApiKey: normalized.linearApiKey,
     githubToken:
-      input.plan.envInput?.GITHUB_DISPATCH_TOKEN ??
-      input.plan.derivedGithubDispatchToken,
+      normalized.envInput?.GITHUB_DISPATCH_TOKEN ??
+      normalized.derivedGithubDispatchToken,
   });
   knownSecrets.push(generatedLinearWebhookSecret);
-  if (input.plan.envInput?.GITHUB_DISPATCH_TOKEN) {
-    knownSecrets.push(input.plan.envInput.GITHUB_DISPATCH_TOKEN);
+  if (normalized.envInput?.GITHUB_DISPATCH_TOKEN) {
+    knownSecrets.push(normalized.envInput.GITHUB_DISPATCH_TOKEN);
   }
-  if (input.plan.derivedGithubDispatchToken) {
-    knownSecrets.push(input.plan.derivedGithubDispatchToken);
+  if (normalized.derivedGithubDispatchToken) {
+    knownSecrets.push(normalized.derivedGithubDispatchToken);
   }
 
   const existingEnv = await listVercelProjectEnvVars(
-    input.plan.vercelToken,
+    normalized.vercelToken,
     preview.selectedProject.id,
-    input.plan.teamId,
+    resolvedTeam.teamId,
   );
   const existingByKey = new Map(existingEnv.map((env) => [env.key, env]));
 
@@ -142,9 +328,9 @@ export async function applyVercelBridgeSetup(input: {
 
     const value = resolveVercelBridgeEnvValue({
       key: entry.key,
-      envInput: input.plan.envInput,
-      derivedHarnessTeamKey: input.plan.derivedHarnessTeamKey,
-      derivedGithubDispatchToken: input.plan.derivedGithubDispatchToken,
+      envInput: normalized.envInput,
+      derivedHarnessTeamKey: normalized.derivedHarnessTeamKey,
+      derivedGithubDispatchToken: normalized.derivedGithubDispatchToken,
       generatedLinearWebhookSecret,
     });
 
@@ -154,29 +340,36 @@ export async function applyVercelBridgeSetup(input: {
     }
 
     const existing = existingByKey.get(entry.key);
-    await upsertVercelProjectEnvVar(input.plan.vercelToken, {
-      projectId: preview.selectedProject.id,
-      teamId: input.plan.teamId,
-      key: entry.key,
-      value: value.trim(),
-      existingEnvId: existing?.id,
-    });
+    try {
+      await upsertVercelProjectEnvVar(normalized.vercelToken, {
+        projectId: preview.selectedProject.id,
+        teamId: resolvedTeam.teamId,
+        key: entry.key,
+        value: value.trim(),
+        existingEnv: existing,
+      });
+    } catch (error) {
+      if (error instanceof VercelEnvVarTypeError) {
+        throw error;
+      }
+      throw error;
+    }
     writtenEnvKeys.push(entry.key);
   }
 
   const postWriteEnv = await listVercelProjectEnvVars(
-    input.plan.vercelToken,
+    normalized.vercelToken,
     preview.selectedProject.id,
-    input.plan.teamId,
+    resolvedTeam.teamId,
   );
   const requiredEnvPresence = summarizeRequiredEnvPresence(postWriteEnv);
 
   let linearWebhookVerified = preview.linearWebhookVerified;
-  if (input.plan.linearApiKey?.trim()) {
+  if (normalized.linearApiKey?.trim()) {
     const webhookSummary = await summarizeLinearWebhookReadiness({
-      linearApiKey: input.plan.linearApiKey,
+      linearApiKey: normalized.linearApiKey,
       webhookUrl: preview.webhookUrl,
-      teamId: input.plan.linearTeamId,
+      teamId: normalized.linearTeamId,
     });
     linearWebhookVerified = Boolean(webhookSummary.matchingWebhook);
   }
@@ -190,7 +383,8 @@ export async function applyVercelBridgeSetup(input: {
       linearWebhookSetup.mode === "automated");
 
   const selection: VercelBridgeSelection = {
-    teamId: input.plan.teamId,
+    teamId: resolvedTeam.teamId,
+    teamName: resolvedTeam.teamName,
     projectId: preview.selectedProject.id,
     projectName: preview.selectedProject.name,
     productionUrl: preview.productionUrl ?? "",
@@ -226,6 +420,8 @@ export async function applyVercelBridgeSetup(input: {
     actionId: VERCEL_SETUP_ACTIONS.apply.id,
     projectId: preview.selectedProject.id,
     projectName: preview.selectedProject.name,
+    team: resolvedTeam.team,
+    project: resolvedProject.projectResult,
     writtenEnvKeys,
     skippedEnvKeys,
     linearWebhookSetup,

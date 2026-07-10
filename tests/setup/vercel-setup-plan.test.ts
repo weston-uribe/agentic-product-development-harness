@@ -1,14 +1,19 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
-vi.mock("../../src/setup/vercel-setup-client.js", () => ({
-  buildWebhookUrl: vi.fn((url: string) => `https://${url}/api/linear-webhook`),
-  checkWebhookEndpointReachable: vi.fn(),
-  listVercelProductionDeployments: vi.fn(),
-  listVercelProjectEnvVars: vi.fn(),
-  listVercelProjects: vi.fn(),
-  listVercelTeams: vi.fn(),
-  summarizeRequiredEnvPresence: vi.fn(),
-}));
+vi.mock("../../src/setup/vercel-setup-client.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../src/setup/vercel-setup-client.js")>();
+  return {
+    ...actual,
+    buildWebhookUrl: vi.fn((url: string) => `https://${url}/api/linear-webhook`),
+    checkWebhookEndpointReachable: vi.fn(),
+    listVercelProductionDeployments: vi.fn(),
+    listVercelProjectEnvVars: vi.fn(),
+    listVercelProjects: vi.fn(),
+    listVercelTeams: vi.fn(),
+    summarizeRequiredEnvPresence: vi.fn(),
+  };
+});
 
 vi.mock("../../src/setup/linear-setup-plan.js", () => ({
   summarizeLinearWebhookReadiness: vi.fn(),
@@ -108,20 +113,38 @@ describe("vercel-setup-plan", () => {
           key: "HARNESS_TEAM_KEY",
           source: "derived",
           action: "create",
+          desiredType: "plain",
         }),
         expect.objectContaining({
           key: "GITHUB_DISPATCH_TOKEN",
           source: "derived",
           action: "create",
+          desiredType: "sensitive",
         }),
         expect.objectContaining({
           key: "LINEAR_WEBHOOK_SECRET",
           source: "generated",
           action: "create",
+          desiredType: "sensitive",
         }),
       ]),
     );
     expect(JSON.stringify(preview)).not.toContain("ghp_saved");
     expect(JSON.stringify(preview)).not.toContain("generated-secret");
+  });
+
+  it("validates create-new project mode without failing preview", async () => {
+    const preview = await previewVercelBridgeSetup({
+      vercelToken: "vercel-token",
+      team: { mode: "existing", teamId: "" },
+      project: { mode: "create", projectName: "harness-configure-step3-test" },
+      derivedHarnessTeamKey: "WES",
+      derivedGithubDispatchToken: "ghp_saved",
+      willGenerateLinearWebhookSecret: true,
+    });
+
+    expect(preview.validationError).toBeUndefined();
+    expect(preview.selectedProject).toBeUndefined();
+    expect(preview.manualSteps.join(" ")).toMatch(/will be created during apply/i);
   });
 });
