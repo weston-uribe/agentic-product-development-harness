@@ -3,9 +3,13 @@ import {
   createGuidedRepoRowId,
   guidedRowsFromConfig,
   guidedRowsToConfigRepos,
+  isRepoFailedForActiveToken,
+  isRepoVerifiedForActiveToken,
   isRepoVerifiedForUrl,
   isServiceFailedForValue,
   isServiceVerifiedForValue,
+  resolveActiveGitHubToken,
+  SAVED_GITHUB_TOKEN_FINGERPRINT,
   valueFingerprint,
 } from "../../apps/gui/lib/verification-state.js";
 
@@ -78,6 +82,84 @@ describe("verification-state helpers", () => {
       { id: "", targetRepo: "https://github.com/acme/repo-one" },
       { id: "", targetRepo: "https://github.com/acme/repo-two" },
     ]);
+  });
+
+  it("prefers the typed GitHub token over a saved local token", () => {
+    const active = resolveActiveGitHubToken({
+      typedToken: "ghp_new_token_value",
+      hasSavedToken: true,
+    });
+
+    expect(active).toEqual({
+      tokenForRequest: "ghp_new_token_value",
+      source: "typed",
+      fingerprint: valueFingerprint("ghp_new_token_value"),
+    });
+    expect(active?.fingerprint).not.toContain("ghp_new_token_value");
+  });
+
+  it("falls back to saved GitHub token only when no typed token exists", () => {
+    expect(
+      resolveActiveGitHubToken({
+        typedToken: "",
+        hasSavedToken: true,
+      }),
+    ).toEqual({
+      source: "saved",
+      fingerprint: SAVED_GITHUB_TOKEN_FINGERPRINT,
+    });
+
+    expect(
+      resolveActiveGitHubToken({
+        typedToken: "   ",
+        hasSavedToken: true,
+      })?.source,
+    ).toBe("saved");
+  });
+
+  it("rejects repo verification tied to a previous GitHub token fingerprint", () => {
+    const url = "https://github.com/acme/my-product";
+    const oldFingerprint = valueFingerprint("old-token");
+    const newFingerprint = valueFingerprint("new-token");
+    const verification = {
+      state: "connected" as const,
+      verifiedTargetRepo: url,
+      verifiedGithubTokenFingerprint: oldFingerprint,
+      message: "Connected to acme/my-product",
+    };
+
+    expect(isRepoVerifiedForUrl(verification, url)).toBe(true);
+    expect(isRepoVerifiedForActiveToken(verification, url, newFingerprint)).toBe(
+      false,
+    );
+    expect(isRepoVerifiedForActiveToken(verification, url, oldFingerprint)).toBe(
+      true,
+    );
+  });
+
+  it("rejects failed repo verification tied to a previous GitHub token fingerprint", () => {
+    const url = "https://github.com/acme/my-product";
+    const verification = {
+      state: "failed" as const,
+      attemptedTargetRepo: url,
+      attemptedGithubTokenFingerprint: valueFingerprint("old-token"),
+      message: "Missing workflow access",
+    };
+
+    expect(
+      isRepoFailedForActiveToken(
+        verification,
+        url,
+        valueFingerprint("new-token"),
+      ),
+    ).toBe(false);
+    expect(
+      isRepoFailedForActiveToken(
+        verification,
+        url,
+        valueFingerprint("old-token"),
+      ),
+    ).toBe(true);
   });
 
   it("creates unique guided repo row ids", () => {

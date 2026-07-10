@@ -278,10 +278,10 @@ describe("M6 configure GUI boundaries", () => {
     expect(workflowSource).toContain("scrollIntoView");
     expect(workflowSource).toContain("guidedRepoRows");
     expect(workflowSource).toContain("resetRepoVerificationIfUrlChanged");
+    expect(workflowSource).toContain("clearAllRepoVerification");
     expect(workflowSource).toContain("canCreateSetupFiles");
     expect(workflowSource).toContain("ReviewGeneratedFilesDisclosure");
     expect(workflowSource).toContain("handlePreviewDisclosureOpenChange");
-    expect(workflowSource).not.toContain("setRepoVerification({})");
     expect(workflowSource).toContain("disabledReason={guidedConfirmDisabledReason}");
 
     expect(envSource).toContain("verifiedValueFingerprint");
@@ -335,7 +335,7 @@ describe("M6 configure GUI boundaries", () => {
     );
 
     expect(experienceSource).toContain("displayedGuidedStep");
-    expect(experienceSource).toContain('key={`guided-local-setup-${displayedGuidedStep}`}');
+    expect(experienceSource).toContain('key="guided-local-setup"');
     expect(experienceSource).toContain("guidedStep={displayedGuidedStep}");
     expect(experienceSource).toContain("onGuidedStepChange={handleGuidedLocalStepChange}");
     expect(experienceSource).toContain('case "connect-services":');
@@ -568,6 +568,36 @@ describe("M6 configure GUI boundaries", () => {
     expect(targetSource).toContain("workflow install capability");
     expect(workflowSource).toContain("workflowInstallReady");
     expect(workflowSource).toContain("limitation: data.limitation");
+  });
+
+  it("Step 2 repo verification uses the active GitHub token from Step 1", () => {
+    const workflowSource = readFileSync(
+      path.join(repoRoot, "apps/gui/components/custom/configure-workflow.tsx"),
+      "utf8",
+    );
+    const targetSource = readFileSync(
+      path.join(repoRoot, "apps/gui/components/custom/target-repo-config-form.tsx"),
+      "utf8",
+    );
+    const verificationSource = readFileSync(
+      path.join(repoRoot, "apps/gui/lib/verification-state.ts"),
+      "utf8",
+    );
+
+    expect(workflowSource).toContain("resolveActiveGitHubToken");
+    expect(workflowSource).toContain("tokenContext?.tokenForRequest");
+    expect(workflowSource).toContain("clearAllRepoVerification");
+    expect(workflowSource).toContain("verifiedGithubTokenFingerprint");
+    expect(workflowSource).toContain("githubTokenSourceHint");
+    expect(workflowSource).toContain("activeGithubTokenFingerprint");
+    expect(workflowSource).not.toMatch(
+      /envValues\.githubToken\.trim\(\)[\s\S]*?githubToken: envValues\.githubToken/,
+    );
+    expect(targetSource).toContain("isRepoVerifiedForActiveToken");
+    expect(targetSource).toContain("githubTokenSourceHint");
+    expect(verificationSource).toContain("Using current GitHub token from Step 1.");
+    expect(verificationSource).toContain("resolveActiveGitHubToken");
+    expect(verificationSource).toContain("SAVED_GITHUB_TOKEN_FINGERPRINT");
   });
 
   it("guided header Back button navigates wizard steps without browser history", () => {

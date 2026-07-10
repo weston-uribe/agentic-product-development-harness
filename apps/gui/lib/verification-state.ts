@@ -52,6 +52,82 @@ export function isRepoVerifiedForUrl(
   return verification.verifiedTargetRepo === normalized;
 }
 
+export type GitHubTokenSource = "typed" | "saved";
+
+/** Non-secret fingerprint for repo checks that used the saved `.env.local` token. */
+export const SAVED_GITHUB_TOKEN_FINGERPRINT = "saved-local";
+
+export interface ActiveGitHubToken {
+  /** Present when the user pasted a token in Step 1 during this session. */
+  tokenForRequest?: string;
+  source: GitHubTokenSource;
+  fingerprint: string;
+}
+
+export function resolveActiveGitHubToken(options: {
+  typedToken: string;
+  hasSavedToken: boolean;
+}): ActiveGitHubToken | null {
+  const trimmed = options.typedToken.trim();
+  if (trimmed) {
+    return {
+      tokenForRequest: trimmed,
+      source: "typed",
+      fingerprint: valueFingerprint(trimmed),
+    };
+  }
+
+  if (options.hasSavedToken) {
+    return {
+      source: "saved",
+      fingerprint: SAVED_GITHUB_TOKEN_FINGERPRINT,
+    };
+  }
+
+  return null;
+}
+
+export const GITHUB_TOKEN_SOURCE_HINT: Record<GitHubTokenSource, string> = {
+  typed: "Using current GitHub token from Step 1.",
+  saved: "Using saved GitHub token.",
+};
+
+export function isRepoVerifiedForActiveToken(
+  verification: RepoVerificationUi | undefined,
+  targetRepo: string,
+  activeGithubTokenFingerprint: string | null,
+): boolean {
+  if (!activeGithubTokenFingerprint) {
+    return false;
+  }
+  if (!isRepoVerifiedForUrl(verification, targetRepo)) {
+    return false;
+  }
+  return (
+    verification?.verifiedGithubTokenFingerprint === activeGithubTokenFingerprint
+  );
+}
+
+export function isRepoFailedForActiveToken(
+  verification: RepoVerificationUi | undefined,
+  targetRepo: string,
+  activeGithubTokenFingerprint: string | null,
+): boolean {
+  if (!activeGithubTokenFingerprint || !verification) {
+    return false;
+  }
+  if (verification.state !== "failed") {
+    return false;
+  }
+  const normalized = targetRepo.trim();
+  if (!normalized || verification.attemptedTargetRepo !== normalized) {
+    return false;
+  }
+  return (
+    verification.attemptedGithubTokenFingerprint === activeGithubTokenFingerprint
+  );
+}
+
 export function createGuidedRepoRowId(counter: number): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();

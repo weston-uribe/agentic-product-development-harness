@@ -35,8 +35,10 @@ import {
   createGuidedRepoRowId,
   guidedRowsFromConfig,
   guidedRowsToConfigRepos,
-  isRepoVerifiedForUrl,
+  GITHUB_TOKEN_SOURCE_HINT,
+  isRepoVerifiedForActiveToken,
   isServiceVerifiedForValue,
+  resolveActiveGitHubToken,
   valueFingerprint,
   type GuidedRepoRow,
 } from "@/lib/verification-state";
@@ -224,6 +226,19 @@ export function ConfigureWorkflow({
     serviceConnectionReady("CURSOR_API_KEY") &&
     serviceConnectionReady("GITHUB_TOKEN");
 
+  const activeGithubToken = useMemo(
+    () =>
+      resolveActiveGitHubToken({
+        typedToken: envValues.githubToken,
+        hasSavedToken: presence.GITHUB_TOKEN,
+      }),
+    [envValues.githubToken, presence.GITHUB_TOKEN],
+  );
+
+  const githubTokenSourceHint = activeGithubToken
+    ? GITHUB_TOKEN_SOURCE_HINT[activeGithubToken.source]
+    : undefined;
+
   const guidedRepos =
     preparedConfig.repos.length > 0
       ? preparedConfig.repos
@@ -234,9 +249,10 @@ export function ConfigureWorkflow({
   );
 
   const allReposVerified = guidedRepoRows.every((row) =>
-    isRepoVerifiedForUrl(
+    isRepoVerifiedForActiveToken(
       repoVerification[row.rowId],
       row.targetRepo.trim(),
+      activeGithubToken?.fingerprint ?? null,
     ),
   );
 
@@ -260,6 +276,10 @@ export function ConfigureWorkflow({
       [key]: { state: "unchecked" },
     }));
   };
+
+  const clearAllRepoVerification = useCallback(() => {
+    setRepoVerification({});
+  }, []);
 
   const resetRepoVerificationIfUrlChanged = useCallback(
     (rows: GuidedRepoRow[]) => {
@@ -360,6 +380,11 @@ export function ConfigureWorkflow({
       }
 
       const targetRepo = repo.targetRepo.trim();
+      const tokenContext = resolveActiveGitHubToken({
+        typedToken: envValues.githubToken,
+        hasSavedToken: presence.GITHUB_TOKEN,
+      });
+      const tokenFingerprint = tokenContext?.fingerprint ?? null;
 
       setVerifyingRepoRowId(rowId);
       setRepoVerification((current) => ({
@@ -373,8 +398,8 @@ export function ConfigureWorkflow({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             targetRepo,
-            ...(envValues.githubToken.trim()
-              ? { githubToken: envValues.githubToken }
+            ...(tokenContext?.tokenForRequest
+              ? { githubToken: tokenContext.tokenForRequest }
               : {}),
           }),
         });
@@ -390,6 +415,7 @@ export function ConfigureWorkflow({
               ? {
                   state: "connected",
                   verifiedTargetRepo: targetRepo,
+                  verifiedGithubTokenFingerprint: tokenFingerprint ?? undefined,
                   message: data.message,
                   repoSlug: data.repoSlug,
                   limitation: data.limitation,
@@ -398,6 +424,7 @@ export function ConfigureWorkflow({
               : {
                   state: "failed",
                   attemptedTargetRepo: targetRepo,
+                  attemptedGithubTokenFingerprint: tokenFingerprint ?? undefined,
                   message: data.message,
                   repoSlug: data.repoSlug,
                   limitation: data.limitation,
@@ -410,6 +437,7 @@ export function ConfigureWorkflow({
           [rowId]: {
             state: "failed",
             attemptedTargetRepo: targetRepo,
+            attemptedGithubTokenFingerprint: tokenFingerprint ?? undefined,
             message:
               verifyError instanceof Error
                 ? verifyError.message
@@ -420,7 +448,7 @@ export function ConfigureWorkflow({
         setVerifyingRepoRowId(null);
       }
     },
-    [envValues.githubToken, guidedRepoRows],
+    [envValues.githubToken, guidedRepoRows, presence.GITHUB_TOKEN],
   );
 
   const handleServiceBlur = useCallback(
@@ -443,12 +471,18 @@ export function ConfigureWorkflow({
       if (!repo || !GITHUB_REPO_URL_PATTERN.test(repo.targetRepo.trim())) {
         return;
       }
-      if (isRepoVerifiedForUrl(repoVerification[rowId], repo.targetRepo.trim())) {
+      if (
+        isRepoVerifiedForActiveToken(
+          repoVerification[rowId],
+          repo.targetRepo.trim(),
+          activeGithubToken?.fingerprint ?? null,
+        )
+      ) {
         return;
       }
       void verifyRepo(rowId);
     },
-    [guidedRepoRows, repoVerification, verifyRepo],
+    [activeGithubToken?.fingerprint, guidedRepoRows, repoVerification, verifyRepo],
   );
 
   const handlePreview = useCallback(async () => {
@@ -597,6 +631,7 @@ export function ConfigureWorkflow({
                   }
                   if (values.githubToken !== envValues.githubToken) {
                     markServiceUnchecked("GITHUB_TOKEN");
+                    clearAllRepoVerification();
                   }
                 }}
                 onVerifyService={verifyService}
@@ -646,6 +681,8 @@ export function ConfigureWorkflow({
                 }}
                 onVerifyRepo={verifyRepo}
                 onRepoBlur={handleRepoBlur}
+                githubTokenSourceHint={githubTokenSourceHint}
+                activeGithubTokenFingerprint={activeGithubToken?.fingerprint ?? null}
                 onAddRepo={() => {
                   invalidatePreview();
                   guidedRepoRowCounter.current += 1;

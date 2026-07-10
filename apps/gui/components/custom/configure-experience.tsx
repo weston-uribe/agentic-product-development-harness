@@ -236,7 +236,7 @@ export function ConfigureExperience({
       case "choose-target-repos":
         return (
           <ConfigureWorkflow
-            key={`guided-local-setup-${displayedGuidedStep}`}
+            key="guided-local-setup"
             mode="guided"
             guidedStep={displayedGuidedStep}
             onGuidedStepChange={handleGuidedLocalStepChange}

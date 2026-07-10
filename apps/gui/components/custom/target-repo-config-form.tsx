@@ -11,7 +11,10 @@ import { StatusBadge } from "@/components/custom/status-badge";
 import { RepoIcon } from "@/components/custom/service-icons";
 import { ConnectedStatusMessage } from "@/components/custom/connected-status";
 import type { GuidedRepoRow } from "@/lib/verification-state";
-import { isRepoVerifiedForUrl } from "@/lib/verification-state";
+import {
+  isRepoFailedForActiveToken,
+  isRepoVerifiedForActiveToken,
+} from "@/lib/verification-state";
 import { cn } from "@/lib/utils";
 
 export type RepoVerificationUiState =
@@ -24,6 +27,8 @@ export interface RepoVerificationUi {
   state: RepoVerificationUiState;
   verifiedTargetRepo?: string;
   attemptedTargetRepo?: string;
+  verifiedGithubTokenFingerprint?: string;
+  attemptedGithubTokenFingerprint?: string;
   message?: string;
   repoSlug?: string;
   limitation?: string;
@@ -47,6 +52,8 @@ interface TargetRepoConfigFormProps {
   onRepoBlur?: (rowId: string) => void;
   onAddRepo?: () => void;
   onRemoveRepo?: (rowId: string) => void;
+  githubTokenSourceHint?: string;
+  activeGithubTokenFingerprint?: string | null;
 }
 
 export function TargetRepoConfigForm({
@@ -63,6 +70,8 @@ export function TargetRepoConfigForm({
   onRepoBlur,
   onAddRepo,
   onRemoveRepo,
+  githubTokenSourceHint,
+  activeGithubTokenFingerprint = null,
 }: TargetRepoConfigFormProps) {
   const [showBranchSettings, setShowBranchSettings] = useState<
     Record<string, boolean>
@@ -107,6 +116,10 @@ export function TargetRepoConfigForm({
           </div>
         ) : null}
 
+        {githubTokenSourceHint ? (
+          <p className="text-sm text-muted-foreground">{githubTokenSourceHint}</p>
+        ) : null}
+
         <div className="space-y-4">
           {repos.map((repo, index) => {
             const verification = repoVerification[repo.rowId] ?? {
@@ -114,14 +127,16 @@ export function TargetRepoConfigForm({
             };
             const badge = repoVerificationBadge(verification.state);
             const trimmedUrl = repo.targetRepo.trim();
-            const verifiedForCurrentUrl = isRepoVerifiedForUrl(
+            const verifiedForCurrentUrl = isRepoVerifiedForActiveToken(
               verification,
               trimmedUrl,
+              activeGithubTokenFingerprint,
             );
-            const failedForCurrentUrl =
-              verification.state === "failed" &&
-              Boolean(trimmedUrl) &&
-              verification.attemptedTargetRepo === trimmedUrl;
+            const failedForCurrentUrl = isRepoFailedForActiveToken(
+              verification,
+              trimmedUrl,
+              activeGithubTokenFingerprint,
+            );
 
             const verifyButtonLabel =
               verifyingRepoRowId === repo.rowId
