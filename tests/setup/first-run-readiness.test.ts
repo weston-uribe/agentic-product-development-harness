@@ -11,6 +11,7 @@ import {
 import type { SetupGuiViewModel } from "../../src/setup/gui-view-model.js";
 import type { RemoteSetupSummary } from "../../src/setup/remote-setup-summary.js";
 import { HARNESS_ACTIONS_SECRET_NAMES } from "../../src/setup/remote-actions.js";
+import type { ControlPlaneReadinessContext } from "../../src/setup/control-plane-types.js";
 
 function baseSummary(
   overrides: Partial<SetupGuiViewModel> = {},
@@ -39,6 +40,7 @@ function baseSummary(
       LINEAR_API_KEY: false,
       CURSOR_API_KEY: false,
       GITHUB_TOKEN: false,
+      VERCEL_TOKEN: false,
       HARNESS_CONFIG_PATH: false,
     },
     scaffoldPreviews: [],
@@ -106,6 +108,7 @@ function completeLocalSummary(): SetupGuiViewModel {
       LINEAR_API_KEY: true,
       CURSOR_API_KEY: true,
       GITHUB_TOKEN: true,
+      VERCEL_TOKEN: true,
       HARNESS_CONFIG_PATH: true,
     },
     doctor: {
@@ -150,15 +153,61 @@ function baseRemoteSummary(
   };
 }
 
+function completeControlPlaneContext(): ControlPlaneReadinessContext {
+  return {
+    state: {
+      version: 1,
+      linear: {
+        teamMode: "existing",
+        teamId: "team-1",
+        teamKey: "ENG",
+        teamName: "Engineering",
+        projectMode: "existing",
+        projectId: "proj-1",
+        projectName: "Harness",
+        statusCoverageComplete: true,
+      },
+      vercel: {
+        projectId: "prj-1",
+        projectName: "harness-bridge",
+        productionUrl: "https://harness-bridge.vercel.app",
+        webhookUrl: "https://harness-bridge.vercel.app/api/linear-webhook",
+        endpointReachable: true,
+        envVarPresence: {
+          LINEAR_WEBHOOK_SECRET: "present",
+          GITHUB_DISPATCH_TOKEN: "present",
+          HARNESS_TEAM_KEY: "present",
+        },
+        linearWebhookVerified: true,
+      },
+    },
+    linearTeamKeyFromConfig: "ENG",
+  };
+}
+
+function deriveReadiness(input: {
+  summary: SetupGuiViewModel;
+  remoteSummary: RemoteSetupSummary;
+  uiState?: Parameters<typeof deriveFirstRunReadiness>[0]["uiState"];
+  staleSmokeDiagnostics?: Parameters<typeof deriveFirstRunReadiness>[0]["staleSmokeDiagnostics"];
+  controlPlaneContext?: ControlPlaneReadinessContext;
+}) {
+  return deriveFirstRunReadiness({
+    ...input,
+    controlPlaneContext:
+      input.controlPlaneContext ?? completeControlPlaneContext(),
+  });
+}
+
 describe("first-run-readiness", () => {
-  it("blocks step 1 when .env.local is missing", () => {
+  it("blocks local setup when .env.local is missing", () => {
     const blockers = collectLocalSetupBlockers(baseSummary());
     expect(blockers[0]?.id).toBe("missing-env-local");
     expect(blockers[0]?.message).toContain("Setup needed");
     expect(blockers[0]?.tone).toBe("setup_needed");
   });
 
-  it("blocks step 1 when CURSOR_API_KEY is missing before remote warnings", () => {
+  it("blocks connect services when CURSOR_API_KEY is missing before remote warnings", () => {
     const summary = baseSummary({
       localFiles: [
         { label: ".env.local", path: "/tmp/.env.local", exists: true },
@@ -172,16 +221,18 @@ describe("first-run-readiness", () => {
         LINEAR_API_KEY: true,
         CURSOR_API_KEY: false,
         GITHUB_TOKEN: true,
+        VERCEL_TOKEN: true,
         HARNESS_CONFIG_PATH: true,
       },
     });
 
-    const readiness = deriveFirstRunReadiness({
+    const readiness = deriveReadiness({
       summary,
       remoteSummary: baseRemoteSummary({ githubTokenConfigured: true }),
+      controlPlaneContext: { state: null },
     });
 
-    expect(readiness.currentStepId).toBe("local-setup");
+    expect(readiness.currentStepId).toBe("connect-services");
     expect(readiness.highestPriorityBlocker?.id).toBe("missing-cursor-key");
     expect(
       readiness.nonBlockingWarnings.some((warning) =>
@@ -196,7 +247,7 @@ describe("first-run-readiness", () => {
     summary.overview.configResolved = false;
     summary.overview.readyForLocalDoctor = false;
 
-    const readiness = deriveFirstRunReadiness({
+    const readiness = deriveReadiness({
       summary,
       remoteSummary: baseRemoteSummary(),
     });
@@ -227,10 +278,19 @@ describe("first-run-readiness", () => {
       harnessRepoAccess: "denied",
     });
 
-    const readiness = deriveFirstRunReadiness({ summary, remoteSummary });
-    const blockers = collectRemoteSetupBlockers(summary, remoteSummary).blockers;
+    const readiness = deriveReadiness({
+      summary,
+      remoteSummary,
+      uiState: { localReadinessReviewed: true },
+    });
+    const blockers = collectRemoteSetupBlockers(
+      summary,
+      remoteSummary,
+      { localReadinessReviewed: true },
+      completeControlPlaneContext(),
+    ).blockers;
 
-    expect(readiness.currentStepId).toBe("local-readiness");
+    expect(readiness.currentStepId).toBe("cloud-secrets");
     expect(blockers.some((blocker) => blocker.id === "missing-github-token-remote")).toBe(
       true,
     );
@@ -246,7 +306,7 @@ describe("first-run-readiness", () => {
       harnessRepoAccess: "denied",
     });
 
-    const readiness = deriveFirstRunReadiness({
+    const readiness = deriveReadiness({
       summary,
       remoteSummary,
       uiState: { localReadinessReviewed: true },
@@ -276,7 +336,7 @@ describe("first-run-readiness", () => {
       ],
     });
 
-    const readiness = deriveFirstRunReadiness({
+    const readiness = deriveReadiness({
       summary,
       remoteSummary,
       uiState: {
@@ -290,7 +350,7 @@ describe("first-run-readiness", () => {
 
   it("keeps local readiness as the current step after local setup files exist", () => {
     const summary = completeLocalSummary();
-    const readiness = deriveFirstRunReadiness({
+    const readiness = deriveReadiness({
       summary,
       remoteSummary: baseRemoteSummary({ githubTokenConfigured: true }),
     });
@@ -386,7 +446,7 @@ describe("first-run-readiness", () => {
       ],
     });
 
-    const readiness = deriveFirstRunReadiness({ summary, remoteSummary });
+    const readiness = deriveReadiness({ summary, remoteSummary });
     expect(readiness.highestPriorityBlocker?.blocking).toBe(true);
     expect(readiness.nonBlockingWarnings.length).toBeGreaterThan(0);
     expect(readiness.highestPriorityBlocker?.priority).toBeLessThan(
@@ -415,7 +475,7 @@ describe("first-run-readiness", () => {
       ],
     });
 
-    const readiness = deriveFirstRunReadiness({
+    const readiness = deriveReadiness({
       summary,
       remoteSummary,
       uiState: {
@@ -430,9 +490,10 @@ describe("first-run-readiness", () => {
   });
 
   it("projects missing steps from blocking readiness entries", () => {
-    const readiness = deriveFirstRunReadiness({
+    const readiness = deriveReadiness({
       summary: baseSummary(),
       remoteSummary: baseRemoteSummary(),
+      controlPlaneContext: { state: null },
     });
 
     const missingSteps = projectMissingStepsFromReadiness(readiness);
@@ -442,7 +503,7 @@ describe("first-run-readiness", () => {
 
   it("treats stale local preview as a blocker", () => {
     const summary = completeLocalSummary();
-    const readiness = deriveFirstRunReadiness({
+    const readiness = deriveReadiness({
       summary,
       remoteSummary: baseRemoteSummary({ githubTokenConfigured: true }),
       uiState: { localPreviewStale: true },
@@ -478,10 +539,11 @@ describe("first-run-readiness", () => {
       staleSmokeDiagnostics,
     });
 
-    const readiness = deriveFirstRunReadiness({
+    const readiness = deriveReadiness({
       summary,
       remoteSummary,
       staleSmokeDiagnostics,
+      controlPlaneContext: completeControlPlaneContext(),
     });
 
     expect(readiness.highestPriorityBlocker?.id).toBe("stale-smoke-dispatch-repo");
@@ -505,7 +567,11 @@ describe("first-run-readiness", () => {
       harnessRepoAccess: "denied",
     });
 
-    const readiness = deriveFirstRunReadiness({ summary, remoteSummary });
+    const readiness = deriveReadiness({
+      summary,
+      remoteSummary,
+      uiState: { localReadinessReviewed: true },
+    });
 
     expect(readiness.highestPriorityBlocker?.message).toContain(
       "I tried to check owner/harness and GitHub denied access.",

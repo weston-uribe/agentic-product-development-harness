@@ -14,6 +14,7 @@ const SECRET_KEYS = [
   "LINEAR_API_KEY",
   "CURSOR_API_KEY",
   "GITHUB_TOKEN",
+  "VERCEL_TOKEN",
 ] as const;
 
 const MANAGED_KEYS = [
@@ -30,6 +31,7 @@ export interface EnvKeyPresence {
   LINEAR_API_KEY: boolean;
   CURSOR_API_KEY: boolean;
   GITHUB_TOKEN: boolean;
+  VERCEL_TOKEN: boolean;
 }
 
 export interface ParsedEnvFile {
@@ -58,6 +60,7 @@ export function parseEnvFileContent(content: string): ParsedEnvFile {
     LINEAR_API_KEY: false,
     CURSOR_API_KEY: false,
     GITHUB_TOKEN: false,
+    VERCEL_TOKEN: false,
   };
 
   for (const line of content.split("\n")) {
@@ -120,6 +123,7 @@ export function mergeEnvInput(
     linearApiKey: "LINEAR_API_KEY",
     cursorApiKey: "CURSOR_API_KEY",
     githubToken: "GITHUB_TOKEN",
+    vercelToken: "VERCEL_TOKEN",
   } as const;
 
   for (const [inputKey, envKey] of Object.entries(secretMap)) {
@@ -142,6 +146,7 @@ function managedValuesFromMerged(merged: SetupEnvInput): Record<ManagedKey, stri
     LINEAR_API_KEY: merged.linearApiKey ?? "",
     CURSOR_API_KEY: merged.cursorApiKey ?? "",
     GITHUB_TOKEN: merged.githubToken ?? "",
+    VERCEL_TOKEN: merged.vercelToken ?? "",
   };
 }
 
@@ -156,6 +161,7 @@ GITHUB_DISPATCH_REPOSITORY=${values.GITHUB_DISPATCH_REPOSITORY}
 LINEAR_API_KEY=${values.LINEAR_API_KEY}
 CURSOR_API_KEY=${values.CURSOR_API_KEY}
 GITHUB_TOKEN=${values.GITHUB_TOKEN}
+VERCEL_TOKEN=${values.VERCEL_TOKEN}
 `;
 }
 
@@ -230,6 +236,7 @@ export function summarizeManagedKeyPresence(
     LINEAR_API_KEY: Boolean(merged.linearApiKey?.trim()),
     CURSOR_API_KEY: Boolean(merged.cursorApiKey?.trim()),
     GITHUB_TOKEN: Boolean(merged.githubToken?.trim()),
+    VERCEL_TOKEN: Boolean(merged.vercelToken?.trim()),
   };
 }
 

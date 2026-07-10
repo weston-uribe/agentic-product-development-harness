@@ -1,5 +1,5 @@
 import type { ServiceKey } from "@/components/custom/environment-config-form";
-import { SiCursor, SiGithub, SiLinear } from "react-icons/si";
+import { SiCursor, SiGithub, SiLinear, SiVercel } from "react-icons/si";
 import { cn } from "@/lib/utils";
 
 const ICON_CLASS = "size-4 shrink-0 text-muted-foreground";
@@ -20,6 +20,8 @@ export function ServiceIcon({
       return <SiCursor className={iconClass} aria-hidden="true" />;
     case "GITHUB_TOKEN":
       return <SiGithub className={iconClass} aria-hidden="true" />;
+    case "VERCEL_TOKEN":
+      return <SiVercel className={iconClass} aria-hidden="true" />;
   }
 }
 

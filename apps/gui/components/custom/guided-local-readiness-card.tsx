@@ -94,7 +94,7 @@ export function GuidedLocalReadinessCard({
 
   return (
     <SectionCard
-      title={`Step 3 of ${GUIDED_SETUP_STEP_COUNT} · Check local readiness`}
+      title={`Step 5 of ${GUIDED_SETUP_STEP_COUNT} · Check local readiness`}
       description="We're checking whether this machine is ready for remote setup."
     >
       <div className={SPACING.stackSm}>

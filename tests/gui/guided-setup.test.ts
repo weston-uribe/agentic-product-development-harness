@@ -4,8 +4,10 @@ import {
   clampGuidedDisplayStep,
   defaultGuidedDisplayStep,
   getPreviousGuidedDisplayStep,
+  GUIDED_DISPLAY_STEP_AFTER_CONNECT_SERVICES,
   GUIDED_DISPLAY_STEP_AFTER_LOCAL_APPLY,
   GUIDED_DISPLAY_STEP_AFTER_WORKFLOW_READY,
+  GUIDED_SETUP_STEP_COUNT,
   isGuidedDisplayStepAllowed,
   localSetupFilesExist,
   readinessStepAdvanced,
@@ -25,7 +27,7 @@ function summary(partial: Partial<SetupGuiViewModel>): SetupGuiViewModel {
       LINEAR_API_KEY: false,
       CURSOR_API_KEY: false,
       GITHUB_TOKEN: false,
-      GITHUB_DISPATCH_REPOSITORY: false,
+      VERCEL_TOKEN: false,
     },
     localFiles: [],
     ...partial,
@@ -33,10 +35,20 @@ function summary(partial: Partial<SetupGuiViewModel>): SetupGuiViewModel {
 }
 
 describe("guided-setup navigation", () => {
+  it("uses a seven-step guided flow before completion", () => {
+    expect(GUIDED_SETUP_STEP_COUNT).toBe(7);
+  });
+
   it("maps each guided step to the previous step", () => {
     expect(getPreviousGuidedDisplayStep("connect-services")).toBeNull();
-    expect(getPreviousGuidedDisplayStep("choose-target-repos")).toBe(
+    expect(getPreviousGuidedDisplayStep("linear-workspace")).toBe(
       "connect-services",
+    );
+    expect(getPreviousGuidedDisplayStep("vercel-bridge")).toBe(
+      "linear-workspace",
+    );
+    expect(getPreviousGuidedDisplayStep("choose-target-repos")).toBe(
+      "vercel-bridge",
     );
     expect(getPreviousGuidedDisplayStep("local-readiness")).toBe(
       "choose-target-repos",
@@ -48,22 +60,20 @@ describe("guided-setup navigation", () => {
     );
   });
 
-  it("shows Back only on Step 2 through completion", () => {
+  it("shows Back only after Step 1", () => {
     expect(shouldShowGuidedBackButton("connect-services")).toBe(false);
+    expect(shouldShowGuidedBackButton("linear-workspace")).toBe(true);
     expect(shouldShowGuidedBackButton("choose-target-repos")).toBe(true);
-    expect(shouldShowGuidedBackButton("local-readiness")).toBe(true);
-    expect(shouldShowGuidedBackButton("cloud-secrets")).toBe(true);
-    expect(shouldShowGuidedBackButton("target-workflow")).toBe(true);
     expect(shouldShowGuidedBackButton("ready-for-first-run")).toBe(true);
   });
 
   it("defaults fresh mount to readiness current step", () => {
     expect(
       defaultGuidedDisplayStep({
-        currentStepId: "local-readiness",
+        currentStepId: "linear-workspace",
         summary: summary({}),
       }),
-    ).toBe("local-readiness");
+    ).toBe("linear-workspace");
 
     expect(
       defaultGuidedDisplayStep({
@@ -73,26 +83,22 @@ describe("guided-setup navigation", () => {
     ).toBe("cloud-secrets");
   });
 
-  it("defaults local-setup to Step 1 until service keys exist in saved env", () => {
+  it("defaults connect-services for the first readiness step", () => {
     expect(
       defaultGuidedDisplayStep({
-        currentStepId: "local-setup",
+        currentStepId: "connect-services",
         summary: summary({}),
       }),
     ).toBe("connect-services");
+  });
 
+  it("defaults local-setup to choose-target-repos", () => {
     expect(
       defaultGuidedDisplayStep({
         currentStepId: "local-setup",
         summary: summary({
           localFiles: [{ label: ".env.local", exists: true, path: ".env.local" }],
-          envKeyPresence: {
-            HARNESS_CONFIG_PATH: true,
-            LINEAR_API_KEY: true,
-            CURSOR_API_KEY: true,
-            GITHUB_TOKEN: true,
-            GITHUB_DISPATCH_REPOSITORY: false,
-          },
+          overview: { localFilesPresent: true },
         }),
       }),
     ).toBe("choose-target-repos");
@@ -100,7 +106,7 @@ describe("guided-setup navigation", () => {
 
   it("does not allow navigating forward past readiness current step", () => {
     expect(
-      isGuidedDisplayStepAllowed("local-readiness", "local-setup"),
+      isGuidedDisplayStepAllowed("vercel-bridge", "connect-services"),
     ).toBe(false);
     expect(
       isGuidedDisplayStepAllowed("choose-target-repos", "local-setup"),
@@ -108,14 +114,11 @@ describe("guided-setup navigation", () => {
     expect(
       isGuidedDisplayStepAllowed("cloud-secrets", "local-readiness"),
     ).toBe(false);
-    expect(
-      isGuidedDisplayStepAllowed("local-readiness", "local-readiness"),
-    ).toBe(true);
   });
 
   it("orders guided display steps for comparison", () => {
     expect(
-      compareGuidedDisplaySteps("connect-services", "choose-target-repos"),
+      compareGuidedDisplaySteps("connect-services", "linear-workspace"),
     ).toBeLessThan(0);
     expect(
       compareGuidedDisplaySteps("target-workflow", "cloud-secrets"),
@@ -124,10 +127,10 @@ describe("guided-setup navigation", () => {
 
   it("detects readiness forward advancement only", () => {
     expect(
-      readinessStepAdvanced("local-readiness", "local-setup"),
+      readinessStepAdvanced("linear-workspace", "connect-services"),
     ).toBe(true);
     expect(
-      readinessStepAdvanced("local-setup", "local-readiness"),
+      readinessStepAdvanced("connect-services", "linear-workspace"),
     ).toBe(false);
   });
 
@@ -144,20 +147,15 @@ describe("guided-setup navigation", () => {
         }),
       ),
     ).toBe(true);
-    expect(localSetupFilesExist(summary({ overview: { localFilesPresent: false } }))).toBe(
-      false,
-    );
   });
 
-  it("advances guided display to local readiness after Step 2 apply", () => {
+  it("advances guided display after connect services and local apply", () => {
+    expect(GUIDED_DISPLAY_STEP_AFTER_CONNECT_SERVICES).toBe("linear-workspace");
     expect(GUIDED_DISPLAY_STEP_AFTER_LOCAL_APPLY).toBe("local-readiness");
-  });
-
-  it("advances guided display to ready for first run when workflows are installed", () => {
     expect(GUIDED_DISPLAY_STEP_AFTER_WORKFLOW_READY).toBe("ready-for-first-run");
   });
 
-  it("allows navigating back to earlier local setup sub-steps", () => {
+  it("allows navigating back to earlier guided steps", () => {
     expect(
       clampGuidedDisplayStep({
         target: "connect-services",

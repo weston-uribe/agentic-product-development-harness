@@ -4,6 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SetupGuiViewModel } from "@/lib/setup-server";
 import type { RemoteSetupSummary } from "@/lib/setup-server";
 import type { LocalConfigFormInput } from "@harness/setup/config-local-editor";
+import type { LinearSetupSummary } from "@harness/setup/linear-setup-summary";
+import type { VercelSetupSummary } from "@harness/setup/vercel-setup-summary";
+import type { ControlPlaneReadinessContext } from "@harness/setup/control-plane-types";
 import {
   deriveFirstRunReadiness,
   type FirstRunReadinessUiState,
@@ -17,6 +20,7 @@ import {
   getPreviousGuidedDisplayStep,
   GUIDED_DISPLAY_STEP_AFTER_LOCAL_APPLY,
   GUIDED_DISPLAY_STEP_AFTER_WORKFLOW_READY,
+  GUIDED_DISPLAY_STEP_AFTER_CONNECT_SERVICES,
   localSetupFilesExist,
   readinessStepAdvanced,
   shouldShowGuidedBackButton,
@@ -29,6 +33,8 @@ import { StatusBadge } from "@/components/custom/status-badge";
 import { ReadinessBanner } from "@/components/custom/readiness-banner";
 import { SetupDashboard } from "@/components/custom/setup-dashboard";
 import { ConfigureWorkflow } from "@/components/custom/configure-workflow";
+import { GuidedLinearWorkspaceCard } from "@/components/custom/guided-linear-workspace-card";
+import { GuidedVercelBridgeCard } from "@/components/custom/guided-vercel-bridge-card";
 import { GuidedLocalReadinessCard } from "@/components/custom/guided-local-readiness-card";
 import { GuidedCloudSecretsCard } from "@/components/custom/guided-cloud-secrets-card";
 import { GuidedTargetWorkflowCard } from "@/components/custom/guided-target-workflow-card";
@@ -39,6 +45,8 @@ type ConfigureMode = "guided" | "advanced";
 interface ConfigureExperienceProps {
   initialSummary: SetupGuiViewModel;
   initialRemoteSummary: RemoteSetupSummary;
+  initialLinearSummary: LinearSetupSummary;
+  initialVercelSummary: VercelSetupSummary;
   formDefaults: {
     env: {
       harnessConfigPath: string;
@@ -48,21 +56,51 @@ interface ConfigureExperienceProps {
         LINEAR_API_KEY: boolean;
         CURSOR_API_KEY: boolean;
         GITHUB_TOKEN: boolean;
+        VERCEL_TOKEN: boolean;
       };
     };
     config: LocalConfigFormInput;
   };
 }
 
+function buildControlPlaneContext(input: {
+  linearSummary: LinearSetupSummary;
+  vercelSummary: VercelSetupSummary;
+  summary: SetupGuiViewModel;
+}): ControlPlaneReadinessContext {
+  return {
+    state: {
+      version: 1,
+      linear: input.linearSummary.controlPlane?.linear,
+      vercel: input.vercelSummary.controlPlane?.vercel,
+    },
+    linearTeamKeyFromConfig: input.summary.configSummary?.linearTeamKey,
+  };
+}
+
 export function ConfigureExperience({
   initialSummary,
   initialRemoteSummary,
+  initialLinearSummary,
+  initialVercelSummary,
   formDefaults,
 }: ConfigureExperienceProps) {
   const [mode, setMode] = useState<ConfigureMode>("guided");
   const [summary, setSummary] = useState(initialSummary);
   const [remoteSummary, setRemoteSummary] = useState(initialRemoteSummary);
+  const [linearSummary, setLinearSummary] = useState(initialLinearSummary);
+  const [vercelSummary, setVercelSummary] = useState(initialVercelSummary);
   const [uiState, setUiState] = useState<FirstRunReadinessUiState>({});
+  const controlPlaneContext = useMemo(
+    () =>
+      buildControlPlaneContext({
+        linearSummary,
+        vercelSummary,
+        summary,
+      }),
+    [linearSummary, vercelSummary, summary],
+  );
+
   const [displayedGuidedStep, setDisplayedGuidedStep] =
     useState<GuidedDisplayStepId>(() =>
       defaultGuidedDisplayStep({
@@ -71,6 +109,11 @@ export function ConfigureExperience({
           remoteSummary: initialRemoteSummary,
           uiState: {},
           staleSmokeDiagnostics: initialRemoteSummary.staleSmokeDiagnostics,
+          controlPlaneContext: buildControlPlaneContext({
+            linearSummary: initialLinearSummary,
+            vercelSummary: initialVercelSummary,
+            summary: initialSummary,
+          }),
         }).currentStepId,
         summary: initialSummary,
       }),
@@ -87,8 +130,9 @@ export function ConfigureExperience({
         remoteSummary,
         uiState,
         staleSmokeDiagnostics: remoteSummary.staleSmokeDiagnostics,
+        controlPlaneContext,
       }),
-    [summary, remoteSummary, uiState],
+    [summary, remoteSummary, uiState, controlPlaneContext],
   );
 
   useEffect(() => {
@@ -130,6 +174,7 @@ export function ConfigureExperience({
         LINEAR_API_KEY: summary.envKeyPresence.LINEAR_API_KEY,
         CURSOR_API_KEY: summary.envKeyPresence.CURSOR_API_KEY,
         GITHUB_TOKEN: summary.envKeyPresence.GITHUB_TOKEN,
+        VERCEL_TOKEN: summary.envKeyPresence.VERCEL_TOKEN,
       },
     };
   }, [
@@ -138,6 +183,7 @@ export function ConfigureExperience({
     summary.envKeyPresence.CURSOR_API_KEY,
     summary.envKeyPresence.GITHUB_TOKEN,
     summary.envKeyPresence.LINEAR_API_KEY,
+    summary.envKeyPresence.VERCEL_TOKEN,
   ]);
 
   const handleLocalUiStateChange = useCallback(
@@ -169,6 +215,48 @@ export function ConfigureExperience({
     },
     [],
   );
+
+  const handleLinearUiStateChange = useCallback(
+    (state: { linearPreviewStale: boolean }) => {
+      setUiState((current) => {
+        if (current.linearPreviewStale === state.linearPreviewStale) {
+          return current;
+        }
+        return {
+          ...current,
+          linearPreviewStale: state.linearPreviewStale,
+        };
+      });
+    },
+    [],
+  );
+
+  const handleVercelUiStateChange = useCallback(
+    (state: { vercelPreviewStale: boolean }) => {
+      setUiState((current) => {
+        if (current.vercelPreviewStale === state.vercelPreviewStale) {
+          return current;
+        }
+        return {
+          ...current,
+          vercelPreviewStale: state.vercelPreviewStale,
+        };
+      });
+    },
+    [],
+  );
+
+  const handleConnectServicesComplete = useCallback(() => {
+    setDisplayedGuidedStep(GUIDED_DISPLAY_STEP_AFTER_CONNECT_SERVICES);
+  }, []);
+
+  const handleLinearWorkspaceContinue = useCallback(() => {
+    setDisplayedGuidedStep("vercel-bridge");
+  }, []);
+
+  const handleVercelBridgeContinue = useCallback(() => {
+    setDisplayedGuidedStep("choose-target-repos");
+  }, []);
 
   const handleLocalReadinessReviewed = useCallback(() => {
     setUiState((current) => ({
@@ -211,12 +299,25 @@ export function ConfigureExperience({
 
   const invalidateDownstreamFromGuidedStep = useCallback(
     (step: GuidedDisplayStepId) => {
-      if (step === "connect-services" || step === "choose-target-repos") {
+      if (
+        step === "connect-services" ||
+        step === "linear-workspace" ||
+        step === "vercel-bridge" ||
+        step === "choose-target-repos"
+      ) {
         setUiState((current) => ({
           ...current,
           localReadinessReviewed: false,
           cloudSecretsReviewed: false,
           remoteSecretPreviewStale: true,
+          linearPreviewStale: step === "connect-services" || step === "linear-workspace"
+            ? true
+            : current.linearPreviewStale,
+          vercelPreviewStale: step === "connect-services" ||
+            step === "linear-workspace" ||
+            step === "vercel-bridge"
+            ? true
+            : current.vercelPreviewStale,
         }));
         return;
       }
@@ -257,13 +358,43 @@ export function ConfigureExperience({
   const renderGuidedActionPanel = () => {
     switch (displayedGuidedStep) {
       case "connect-services":
+        return (
+          <ConfigureWorkflow
+            key="guided-connect-services"
+            mode="guided"
+            guidedStep="connect-services"
+            initialEnv={initialEnvForWorkflow}
+            initialConfig={formDefaults.config}
+            onSummaryUpdated={handleSummaryUpdated}
+            onConnectServicesComplete={handleConnectServicesComplete}
+          />
+        );
+      case "linear-workspace":
+        return (
+          <GuidedLinearWorkspaceCard
+            readiness={readiness}
+            initialSummary={linearSummary}
+            onSummaryUpdated={setLinearSummary}
+            onUiStateChange={handleLinearUiStateChange}
+            onContinue={handleLinearWorkspaceContinue}
+          />
+        );
+      case "vercel-bridge":
+        return (
+          <GuidedVercelBridgeCard
+            readiness={readiness}
+            initialSummary={vercelSummary}
+            onSummaryUpdated={setVercelSummary}
+            onUiStateChange={handleVercelUiStateChange}
+            onContinue={handleVercelBridgeContinue}
+          />
+        );
       case "choose-target-repos":
         return (
           <ConfigureWorkflow
             key="guided-local-setup"
             mode="guided"
-            guidedStep={displayedGuidedStep}
-            onGuidedStepChange={handleGuidedLocalStepChange}
+            guidedStep="choose-target-repos"
             initialEnv={initialEnvForWorkflow}
             initialConfig={formDefaults.config}
             highlightStaleDispatch={staleDispatchRepoNeedsAttention}

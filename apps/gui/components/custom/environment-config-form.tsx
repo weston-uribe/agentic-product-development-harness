@@ -24,12 +24,14 @@ export interface EnvironmentFormValues {
   linearApiKey: string;
   cursorApiKey: string;
   githubToken: string;
+  vercelToken: string;
 }
 
 export interface EnvironmentFormPresence {
   LINEAR_API_KEY: boolean;
   CURSOR_API_KEY: boolean;
   GITHUB_TOKEN: boolean;
+  VERCEL_TOKEN: boolean;
 }
 
 export type ServiceKey = keyof EnvironmentFormPresence;
@@ -55,6 +57,7 @@ export const INITIAL_SERVICE_VERIFICATION: ServiceVerificationMap = {
   LINEAR_API_KEY: { state: "unchecked" },
   CURSOR_API_KEY: { state: "unchecked" },
   GITHUB_TOKEN: { state: "unchecked" },
+  VERCEL_TOKEN: { state: "unchecked" },
 };
 
 interface EnvironmentConfigFormProps {
@@ -75,7 +78,7 @@ const SERVICE_DEFINITIONS: Array<{
   displayName: string;
   valueKey: keyof Pick<
     EnvironmentFormValues,
-    "linearApiKey" | "cursorApiKey" | "githubToken"
+    "linearApiKey" | "cursorApiKey" | "githubToken" | "vercelToken"
   >;
   helperText: string;
   inputLabel?: string;
@@ -102,6 +105,15 @@ const SERVICE_DEFINITIONS: Array<{
     valueKey: "githubToken",
     helperText: GITHUB_TOKEN_GUIDED_HELPER_TEXT,
     inputLabel: GITHUB_TOKEN_INPUT_LABEL,
+  },
+  {
+    key: "VERCEL_TOKEN",
+    id: "vercel-token",
+    displayName: "Vercel",
+    valueKey: "vercelToken",
+    helperText:
+      "Used to verify the webhook bridge project and configure required production environment variables for the Linear webhook bridge.",
+    inputLabel: "Paste your Vercel token",
   },
 ];
 

@@ -177,8 +177,8 @@ describe("M6 configure GUI boundaries", () => {
 
     expect(workflowSource).toContain('variant="guided-services"');
     expect(workflowSource).toContain('variant="guided-minimal"');
-    expect(workflowSource).toContain("Step 1 of 5");
-    expect(workflowSource).toContain("Step 2 of 5");
+    expect(workflowSource).toContain("Step 1 of ${GUIDED_SETUP_STEP_COUNT}");
+    expect(workflowSource).toContain("Step 4 of ${GUIDED_SETUP_STEP_COUNT}");
     expect(workflowSource).toContain("Create local setup files");
     expect(workflowSource).toContain("Review generated files");
     expect(workflowSource).toContain("/api/setup/verify-service");
@@ -337,11 +337,14 @@ describe("M6 configure GUI boundaries", () => {
 
     expect(experienceSource).toContain("displayedGuidedStep");
     expect(experienceSource).toContain('key="guided-local-setup"');
-    expect(experienceSource).toContain("guidedStep={displayedGuidedStep}");
-    expect(experienceSource).toContain("onGuidedStepChange={handleGuidedLocalStepChange}");
+    expect(experienceSource).toContain('key="guided-connect-services"');
+    expect(experienceSource).toContain('case "linear-workspace":');
+    expect(experienceSource).toContain('case "vercel-bridge":');
     expect(experienceSource).toContain('case "connect-services":');
     expect(experienceSource).toContain('case "choose-target-repos":');
     expect(experienceSource).not.toContain("guidedLocalSetupActive");
+    expect(experienceSource).toContain("GuidedLinearWorkspaceCard");
+    expect(experienceSource).toContain("GuidedVercelBridgeCard");
     expect(experienceSource).toContain("GuidedLocalReadinessCard");
     expect(experienceSource).toContain("localReadinessReviewed");
     expect(workflowSource).toContain("previewError");
@@ -371,7 +374,7 @@ describe("M6 configure GUI boundaries", () => {
     expect(experienceSource).toContain('case "local-readiness":');
     expect(experienceSource).toContain("<GuidedLocalReadinessCard");
     expect(readinessCardSource).toContain(
-      "Step 3 of ${GUIDED_SETUP_STEP_COUNT} · Check local readiness",
+      "Step 5 of ${GUIDED_SETUP_STEP_COUNT} · Check local readiness",
     );
     expect(readinessCardSource).not.toContain("Target workflow differs");
     expect(readinessCardSource).not.toContain("I need this from you now");
@@ -409,10 +412,10 @@ describe("M6 configure GUI boundaries", () => {
     expect(experienceSource).toContain("<GuidedCloudSecretsCard");
     expect(experienceSource).toContain("<GuidedTargetWorkflowCard");
     expect(cloudSecretsSource).toContain(
-      "Step 4 of ${GUIDED_SETUP_STEP_COUNT} · Connect cloud secrets",
+      "Step 6 of ${GUIDED_SETUP_STEP_COUNT} · Connect cloud secrets",
     );
     expect(targetWorkflowSource).toContain(
-      "Step 5 of ${GUIDED_SETUP_STEP_COUNT} · Install target repo workflow",
+      "Step 7 of ${GUIDED_SETUP_STEP_COUNT} · Install target repo workflow",
     );
     expect(cloudSecretsSource).not.toContain("TargetWorkflowPrCard");
     expect(targetWorkflowSource).not.toContain("RemoteSecretForm");

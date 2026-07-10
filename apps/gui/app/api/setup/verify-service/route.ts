@@ -9,6 +9,7 @@ const ALLOWED_SERVICES = new Set<SetupServiceName>([
   "linear",
   "cursor",
   "github",
+  "vercel",
 ]);
 
 export async function POST(request: Request) {
@@ -20,7 +21,7 @@ export async function POST(request: Request) {
 
     if (!body.service || !ALLOWED_SERVICES.has(body.service)) {
       return NextResponse.json(
-        { error: "A valid service is required: linear, cursor, or github." },
+        { error: "A valid service is required: linear, cursor, github, or vercel." },
         { status: 400 },
       );
     }

@@ -41,6 +41,7 @@ const SECRET_ENV_KEYS = [
   "LINEAR_API_KEY",
   "CURSOR_API_KEY",
   "GITHUB_TOKEN",
+  "VERCEL_TOKEN",
   "HARNESS_CONFIG_PATH",
 ] as const;
 
@@ -131,6 +132,7 @@ export async function summarizeEnvKeyPresence(
     LINEAR_API_KEY: false,
     CURSOR_API_KEY: false,
     GITHUB_TOKEN: false,
+    VERCEL_TOKEN: false,
     HARNESS_CONFIG_PATH: false,
   };
 
@@ -333,7 +335,15 @@ function deriveMissingSteps(input: {
     steps.push({
       id: "missing-github-token",
       label: "Add GITHUB_TOKEN for handoff and merge checks",
-      detail: "Fill GITHUB_TOKEN in .env.local for local doctor GitHub checks.",
+      detail: "Fill GITHUB_TOKEN in .env.local when ready for live validation.",
+    });
+  }
+
+  if (!input.envKeyPresence.VERCEL_TOKEN) {
+    steps.push({
+      id: "missing-vercel-token",
+      label: "Add VERCEL_TOKEN for Vercel bridge setup",
+      detail: "Fill VERCEL_TOKEN in .env.local for Configure-time Vercel inspection.",
     });
   }
 

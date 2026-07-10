@@ -190,7 +190,7 @@ export function GuidedTargetWorkflowCard({
 
   return (
     <SectionCard
-      title={`Step 5 of ${GUIDED_SETUP_STEP_COUNT} · Install target repo workflow`}
+      title={`Step 7 of ${GUIDED_SETUP_STEP_COUNT} · Install target repo workflow`}
       description={
         awaitingMerge
           ? "Workflow install PR created. Merge it in GitHub, then refresh status here."

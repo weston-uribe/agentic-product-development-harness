@@ -9,8 +9,18 @@ import {
   remoteSetupBlockedByStaleSmoke,
   shouldSuppressRemoteDownstreamStatus,
 } from "./stale-smoke-repo.js";
+import {
+  collectConnectServicesBlockers,
+  collectLinearWorkspaceBlockers,
+  collectVercelBridgeBlockers,
+  isCloudSecretsStaleFromControlPlane,
+} from "./control-plane-readiness.js";
+import type { ControlPlaneReadinessContext } from "./control-plane-types.js";
 
 export type FirstRunStepId =
+  | "connect-services"
+  | "linear-workspace"
+  | "vercel-bridge"
   | "local-setup"
   | "local-readiness"
   | "cloud-secrets"
@@ -55,6 +65,8 @@ export interface FirstRunStep {
 export interface FirstRunReadinessUiState {
   localPreviewStale?: boolean;
   remoteSecretPreviewStale?: boolean;
+  linearPreviewStale?: boolean;
+  vercelPreviewStale?: boolean;
   /** Set when the operator finishes reviewing local readiness and continues. */
   localReadinessReviewed?: boolean;
   /** Set when the operator finishes cloud secrets setup and continues. */
@@ -91,6 +103,9 @@ export interface FirstRunReadiness {
 }
 
 const STEP_ORDER: FirstRunStepId[] = [
+  "connect-services",
+  "linear-workspace",
+  "vercel-bridge",
   "local-setup",
   "local-readiness",
   "cloud-secrets",
@@ -99,8 +114,11 @@ const STEP_ORDER: FirstRunStepId[] = [
 ];
 
 const STEP_LABELS: Record<FirstRunStepId, string> = {
-  "local-setup": "Local setup",
-  "local-readiness": "Local readiness",
+  "connect-services": "Connect services",
+  "linear-workspace": "Set up Linear workspace",
+  "vercel-bridge": "Set up Vercel webhook bridge",
+  "local-setup": "Choose target repo(s)",
+  "local-readiness": "Check local readiness",
   "cloud-secrets": "Connect cloud secrets",
   "target-workflow": "Install target repo workflow",
   "ready-for-first-run": "Ready for first run",
@@ -123,7 +141,10 @@ const SETUP_NEEDED_BLOCKER_IDS = new Set([
   "missing-linear-key",
   "missing-cursor-key",
   "missing-github-token",
+  "missing-vercel-token",
   "config-unresolved",
+  "linear-workspace-not-applied",
+  "vercel-bridge-not-applied",
 ]);
 
 function pushBlocker(
@@ -161,7 +182,7 @@ export function collectLocalSetupBlockers(
       id: "missing-env-local",
       stepId: "local-setup",
       message: "Setup needed: create .env.local on this machine.",
-      action: "Add your service keys in Step 1, then preview setup files.",
+      action: "Add your target repo in Step 4, then preview setup files.",
       priority: 100,
     });
   }
@@ -171,7 +192,7 @@ export function collectLocalSetupBlockers(
       id: "missing-config-local",
       stepId: "local-setup",
       message: "Setup needed: create .harness/config.local.json.",
-      action: "Choose your target repo in Step 2, then preview setup files.",
+      action: "Choose your target repo in Step 4, then preview setup files.",
       priority: 101,
     });
   }
@@ -187,42 +208,12 @@ export function collectLocalSetupBlockers(
     });
   }
 
-  if (!summary.envKeyPresence.LINEAR_API_KEY) {
-    pushBlocker(blockers, {
-      id: "missing-linear-key",
-      stepId: "local-setup",
-      message: "Setup needed: LINEAR_API_KEY is not configured yet.",
-      action: "Add it in Step 1 · Connect services.",
-      priority: 103,
-    });
-  }
-
-  if (!summary.envKeyPresence.CURSOR_API_KEY) {
-    pushBlocker(blockers, {
-      id: "missing-cursor-key",
-      stepId: "local-setup",
-      message: "Setup needed: CURSOR_API_KEY is not configured yet.",
-      action: "Add it in Step 1 · Connect services.",
-      priority: 104,
-    });
-  }
-
-  if (!summary.envKeyPresence.GITHUB_TOKEN) {
-    pushBlocker(blockers, {
-      id: "missing-github-token",
-      stepId: "local-setup",
-      message: "Setup needed: GITHUB_TOKEN is not configured yet.",
-      action: "Add it in Step 1 · Connect services.",
-      priority: 105,
-    });
-  }
-
   if (!summary.overview.configResolved && !summary.configSource.parseError) {
     pushBlocker(blockers, {
       id: "config-unresolved",
       stepId: "local-setup",
       message: "Setup needed: harness config is not configured locally yet.",
-      action: "Complete the guided steps to create local setup files.",
+      action: "Complete Step 4 to create local setup files.",
       priority: 106,
     });
   }
@@ -319,6 +310,7 @@ export function collectCloudSecretsBlockers(
   remoteSummary: RemoteSetupSummary,
   uiState?: FirstRunReadinessUiState,
   staleSmokeDiagnostics?: StaleSmokeDiagnostics,
+  controlPlaneContext?: ControlPlaneReadinessContext,
 ): { blockers: ReadinessBlocker[]; warnings: ReadinessBlocker[] } {
   const blockers: ReadinessBlocker[] = [];
   const warnings: ReadinessBlocker[] = [];
@@ -408,6 +400,22 @@ export function collectCloudSecretsBlockers(
       action:
         "Next: Regenerate the secrets preview, then confirm and create or update secrets.",
       priority: 307,
+    });
+  }
+
+  if (
+    controlPlaneContext &&
+    isCloudSecretsStaleFromControlPlane(controlPlaneContext)
+  ) {
+    pushBlocker(blockers, {
+      id: "cloud-secrets-stale-linear-config",
+      stepId: "cloud-secrets",
+      message:
+        "Blocked: HARNESS_CONFIG_JSON_B64 is stale after Linear workspace changes.",
+      action:
+        "Next: Regenerate cloud secrets preview after updating local config, then apply.",
+      priority: 308,
+      tone: "error",
     });
   }
 
@@ -502,12 +510,14 @@ export function collectRemoteSetupBlockers(
   remoteSummary: RemoteSetupSummary,
   uiState?: FirstRunReadinessUiState,
   staleSmokeDiagnostics?: StaleSmokeDiagnostics,
+  controlPlaneContext?: ControlPlaneReadinessContext,
 ): { blockers: ReadinessBlocker[]; warnings: ReadinessBlocker[] } {
   const cloudSecrets = collectCloudSecretsBlockers(
     summary,
     remoteSummary,
     uiState,
     staleSmokeDiagnostics,
+    controlPlaneContext,
   );
   const targetWorkflow = collectTargetWorkflowBlockers(
     summary,
@@ -527,14 +537,23 @@ export function collectRemoteSetupBlockers(
 
 function stepPrerequisitesMet(
   stepId: FirstRunStepId,
+  connectServicesComplete: boolean,
+  linearWorkspaceComplete: boolean,
+  vercelBridgeComplete: boolean,
   localSetupComplete: boolean,
   localReadinessComplete: boolean,
   cloudSecretsComplete: boolean,
   targetWorkflowComplete: boolean,
 ): boolean {
   switch (stepId) {
-    case "local-setup":
+    case "connect-services":
       return true;
+    case "linear-workspace":
+      return connectServicesComplete;
+    case "vercel-bridge":
+      return linearWorkspaceComplete;
+    case "local-setup":
+      return vercelBridgeComplete;
     case "local-readiness":
       return localSetupComplete;
     case "cloud-secrets":
@@ -560,6 +579,24 @@ function primaryActionForStep(
   }
 
   switch (stepId) {
+    case "connect-services":
+      return {
+        id: "preview-connect-services",
+        label: "Connect services",
+        stepId,
+      };
+    case "linear-workspace":
+      return {
+        id: "complete-linear-workspace",
+        label: "Set up Linear workspace",
+        stepId,
+      };
+    case "vercel-bridge":
+      return {
+        id: "complete-vercel-bridge",
+        label: "Set up Vercel webhook bridge",
+        stepId,
+      };
     case "local-setup":
       return {
         id: "preview-local-files",
@@ -682,8 +719,14 @@ function derivePrimarySetupTask(input: {
     const localSetupTitle =
       input.highestPriorityBlocker.id === "missing-config-local" ||
       input.highestPriorityBlocker.id === "config-unresolved"
-        ? "Step 2 of 5 · Choose target repo"
-        : "Step 1 of 5 · Connect services";
+        ? "Step 4 of 7 · Choose target repo"
+        : input.highestPriorityBlocker.stepId === "connect-services"
+          ? "Step 1 of 7 · Connect services"
+          : input.highestPriorityBlocker.stepId === "linear-workspace"
+            ? "Step 2 of 7 · Set up Linear workspace"
+            : input.highestPriorityBlocker.stepId === "vercel-bridge"
+              ? "Step 3 of 7 · Set up Vercel webhook bridge"
+              : "Step 1 of 7 · Connect services";
 
     return {
       id: input.highestPriorityBlocker.id,
@@ -718,6 +761,7 @@ export function deriveFirstRunReadiness(input: {
   remoteSummary: RemoteSetupSummary;
   uiState?: FirstRunReadinessUiState;
   staleSmokeDiagnostics?: StaleSmokeDiagnostics;
+  controlPlaneContext?: ControlPlaneReadinessContext;
 }): FirstRunReadiness {
   const staleSmokeDiagnostics = input.staleSmokeDiagnostics ?? {
     hasStaleConfig: false,
@@ -725,6 +769,17 @@ export function deriveFirstRunReadiness(input: {
     staleTargetRepos: [],
   };
 
+  const controlPlaneContext = input.controlPlaneContext ?? { state: null };
+
+  const connectServicesBlockers = collectConnectServicesBlockers(input.summary);
+  const linearWorkspaceBlockers = collectLinearWorkspaceBlockers(
+    controlPlaneContext,
+    input.uiState,
+  );
+  const vercelBridgeBlockers = collectVercelBridgeBlockers(
+    controlPlaneContext,
+    input.uiState,
+  );
   const localSetupBlockers = collectLocalSetupBlockers(
     input.summary,
     input.uiState,
@@ -736,6 +791,7 @@ export function deriveFirstRunReadiness(input: {
     input.remoteSummary,
     input.uiState,
     staleSmokeDiagnostics,
+    controlPlaneContext,
   );
   const targetWorkflow = collectTargetWorkflowBlockers(
     input.summary,
@@ -743,7 +799,11 @@ export function deriveFirstRunReadiness(input: {
     staleSmokeDiagnostics,
   );
 
-  const localSetupComplete = localSetupBlockers.length === 0;
+  const connectServicesComplete = connectServicesBlockers.length === 0;
+  const linearWorkspaceComplete = linearWorkspaceBlockers.length === 0;
+  const vercelBridgeComplete = vercelBridgeBlockers.length === 0;
+  const localSetupComplete =
+    vercelBridgeComplete && localSetupBlockers.length === 0;
   const localReadinessBlockersCleared =
     localSetupComplete &&
     localReadiness.blockers.length === 0 &&
@@ -761,6 +821,9 @@ export function deriveFirstRunReadiness(input: {
   const readyForFirstRun = targetWorkflowComplete;
 
   const allBlockers = [
+    ...connectServicesBlockers,
+    ...linearWorkspaceBlockers,
+    ...vercelBridgeBlockers,
     ...localSetupBlockers,
     ...localReadiness.blockers,
     ...cloudSecrets.blockers,
@@ -774,17 +837,26 @@ export function deriveFirstRunReadiness(input: {
   ].sort((left, right) => left.priority - right.priority);
 
   const currentStepId =
-    !localSetupComplete
-      ? "local-setup"
-      : !localReadinessComplete
-        ? "local-readiness"
-        : !cloudSecretsComplete
-          ? "cloud-secrets"
-          : !targetWorkflowComplete
-            ? "target-workflow"
-            : "ready-for-first-run";
+    !connectServicesComplete
+      ? "connect-services"
+      : !linearWorkspaceComplete
+        ? "linear-workspace"
+        : !vercelBridgeComplete
+          ? "vercel-bridge"
+          : !localSetupComplete
+            ? "local-setup"
+            : !localReadinessComplete
+              ? "local-readiness"
+              : !cloudSecretsComplete
+                ? "cloud-secrets"
+                : !targetWorkflowComplete
+                  ? "target-workflow"
+                  : "ready-for-first-run";
 
   const stepBlockers: Record<FirstRunStepId, ReadinessBlocker[]> = {
+    "connect-services": connectServicesBlockers,
+    "linear-workspace": linearWorkspaceBlockers,
+    "vercel-bridge": vercelBridgeBlockers,
     "local-setup": localSetupBlockers,
     "local-readiness": localReadiness.blockers,
     "cloud-secrets": cloudSecrets.blockers,
@@ -806,6 +878,9 @@ export function deriveFirstRunReadiness(input: {
   const steps: FirstRunStep[] = STEP_ORDER.map((stepId) => {
     const prerequisitesMet = stepPrerequisitesMet(
       stepId,
+      connectServicesComplete,
+      linearWorkspaceComplete,
+      vercelBridgeComplete,
       localSetupComplete,
       localReadinessComplete,
       cloudSecretsComplete,
@@ -821,15 +896,21 @@ export function deriveFirstRunReadiness(input: {
             ? targetWorkflow.warnings
             : [];
     const complete =
-      stepId === "local-setup"
-        ? localSetupComplete
-        : stepId === "local-readiness"
-          ? localReadinessComplete
-          : stepId === "cloud-secrets"
-            ? cloudSecretsComplete
-            : stepId === "target-workflow"
-              ? targetWorkflowComplete
-              : readyForFirstRun;
+      stepId === "connect-services"
+        ? connectServicesComplete
+        : stepId === "linear-workspace"
+          ? linearWorkspaceComplete
+          : stepId === "vercel-bridge"
+            ? vercelBridgeComplete
+            : stepId === "local-setup"
+              ? localSetupComplete
+              : stepId === "local-readiness"
+                ? localReadinessComplete
+                : stepId === "cloud-secrets"
+                  ? cloudSecretsComplete
+                  : stepId === "target-workflow"
+                    ? targetWorkflowComplete
+                    : readyForFirstRun;
     const isCurrent = stepId === currentStepId;
 
     return {

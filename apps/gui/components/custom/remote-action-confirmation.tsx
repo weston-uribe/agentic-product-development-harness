@@ -4,7 +4,10 @@ import { FORM } from "@/lib/constants";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 
-type RemoteConfirmationScope = "remote-secret-write" | "remote-repo-write";
+type RemoteConfirmationScope =
+  | "remote-secret-write"
+  | "remote-repo-write"
+  | "linear-write";
 type RemoteConfirmationVariant = "advanced" | "guided";
 
 interface RemoteActionConfirmationProps {
@@ -65,6 +68,27 @@ const COPY: Record<
       ],
       label:
         "I reviewed the workflow preview and want to create or update the workflow install PR.",
+    },
+  },
+  "linear-write": {
+    advanced: {
+      title: "Confirm Linear workspace writes",
+      bullets: [
+        "May create or update Linear teams, projects, and workflow statuses.",
+        "Preview is read-only until you confirm this write.",
+        "No harness phases, GitHub dispatch, or target repo changes run from this step.",
+      ],
+      label:
+        "I reviewed the Linear setup preview and want to apply workspace changes.",
+    },
+    guided: {
+      title: "Confirm Linear workspace setup",
+      bullets: [
+        "This may create missing Linear workflow statuses or workspace resources.",
+        "It does not run harness automation or modify your target app repo.",
+      ],
+      label:
+        "I understand this will apply Linear workspace setup changes.",
     },
   },
 };

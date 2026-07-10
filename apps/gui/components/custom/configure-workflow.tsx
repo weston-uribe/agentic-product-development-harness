@@ -10,6 +10,7 @@ import type {
 } from "@harness/setup/local-apply-actions";
 import type { SetupGuiViewModel } from "@/lib/setup-server";
 import { FORM, SPACING } from "@/lib/constants";
+import { GUIDED_SETUP_STEP_COUNT } from "@/lib/guided-setup";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { SectionCard } from "@/components/custom/section-card";
@@ -62,22 +63,28 @@ interface ConfigureWorkflowProps {
   onSummaryUpdated?: (summary: SetupGuiViewModel) => void;
   onUiStateChange?: (state: { localPreviewStale: boolean }) => void;
   onGuidedLocalApplySuccess?: () => void;
+  onConnectServicesComplete?: () => void;
   localSetupFilesExist?: boolean;
 }
 
-const SERVICE_API_MAP: Record<ServiceKey, "linear" | "cursor" | "github"> = {
+const SERVICE_API_MAP: Record<ServiceKey, "linear" | "cursor" | "github" | "vercel"> = {
   LINEAR_API_KEY: "linear",
   CURSOR_API_KEY: "cursor",
   GITHUB_TOKEN: "github",
+  VERCEL_TOKEN: "vercel",
 };
 
 const SERVICE_VALUE_KEY: Record<
   ServiceKey,
-  keyof Pick<EnvironmentFormValues, "linearApiKey" | "cursorApiKey" | "githubToken">
+  keyof Pick<
+    EnvironmentFormValues,
+    "linearApiKey" | "cursorApiKey" | "githubToken" | "vercelToken"
+  >
 > = {
   LINEAR_API_KEY: "linearApiKey",
   CURSOR_API_KEY: "cursorApiKey",
   GITHUB_TOKEN: "githubToken",
+  VERCEL_TOKEN: "vercelToken",
 };
 
 export function ConfigureWorkflow({
@@ -91,6 +98,7 @@ export function ConfigureWorkflow({
   onSummaryUpdated,
   onUiStateChange,
   onGuidedLocalApplySuccess,
+  onConnectServicesComplete,
   localSetupFilesExist = false,
 }: ConfigureWorkflowProps) {
   const prefersReducedMotion = useReducedMotion();
@@ -106,6 +114,7 @@ export function ConfigureWorkflow({
     linearApiKey: "",
     cursorApiKey: "",
     githubToken: "",
+    vercelToken: "",
   });
   const [configValues, setConfigValues] =
     useState<LocalConfigFormInput>(initialConfig);
@@ -228,7 +237,8 @@ export function ConfigureWorkflow({
   const connectServicesReady =
     serviceConnectionReady("LINEAR_API_KEY") &&
     serviceConnectionReady("CURSOR_API_KEY") &&
-    serviceConnectionReady("GITHUB_TOKEN");
+    serviceConnectionReady("GITHUB_TOKEN") &&
+    serviceConnectionReady("VERCEL_TOKEN");
 
   const activeGithubToken = useMemo(
     () =>
@@ -530,6 +540,59 @@ export function ConfigureWorkflow({
     [handlePreview, loading, previewIsCurrent],
   );
 
+  const handleSaveConnectServices = async () => {
+    setLoading("apply");
+    resetApplyState();
+    try {
+      const previewResponse = await fetch("/api/setup/preview-connect-services", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(envValues),
+      });
+      const previewData = await previewResponse.json();
+      if (!previewResponse.ok) {
+        throw new Error(previewData.error ?? "Preview failed");
+      }
+
+      const response = await fetch("/api/setup/apply-connect-services", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          env: envValues,
+          confirmed: true,
+          fingerprint: previewData.fingerprint,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error ?? "Apply failed");
+      }
+
+      onSummaryUpdated?.(data.summary as SetupGuiViewModel);
+      setPresence({
+        LINEAR_API_KEY: data.summary.envKeyPresence.LINEAR_API_KEY,
+        CURSOR_API_KEY: data.summary.envKeyPresence.CURSOR_API_KEY,
+        GITHUB_TOKEN: data.summary.envKeyPresence.GITHUB_TOKEN,
+        VERCEL_TOKEN: data.summary.envKeyPresence.VERCEL_TOKEN,
+      });
+      setEnvValues((current) => ({
+        ...current,
+        linearApiKey: "",
+        cursorApiKey: "",
+        githubToken: "",
+        vercelToken: "",
+      }));
+      setApplySuccess(true);
+    } catch (applyFailure) {
+      setError(
+        applyFailure instanceof Error ? applyFailure.message : "Apply failed",
+      );
+      setApplySuccess(false);
+    } finally {
+      setLoading(null);
+    }
+  };
+
   const handleApply = async () => {
     if (!preview || !previewIsCurrent || !confirmed) {
       return;
@@ -557,12 +620,14 @@ export function ConfigureWorkflow({
         LINEAR_API_KEY: data.summary.envKeyPresence.LINEAR_API_KEY,
         CURSOR_API_KEY: data.summary.envKeyPresence.CURSOR_API_KEY,
         GITHUB_TOKEN: data.summary.envKeyPresence.GITHUB_TOKEN,
+        VERCEL_TOKEN: data.summary.envKeyPresence.VERCEL_TOKEN,
       });
       setEnvValues((current) => ({
         ...current,
         linearApiKey: "",
         cursorApiKey: "",
         githubToken: "",
+        vercelToken: "",
       }));
       setPreview(null);
       setPreviewPayload(null);
@@ -627,7 +692,7 @@ export function ConfigureWorkflow({
         case "connect-services":
           return (
             <SectionCard
-              title="Step 1 of 5 · Connect services"
+              title={`Step 1 of ${GUIDED_SETUP_STEP_COUNT} · Connect services`}
               description="Add the API keys the harness needs on this machine."
             >
               <EnvironmentConfigForm
@@ -649,6 +714,9 @@ export function ConfigureWorkflow({
                     markServiceUnchecked("GITHUB_TOKEN");
                     clearAllRepoVerification();
                   }
+                  if (values.vercelToken !== envValues.vercelToken) {
+                    markServiceUnchecked("VERCEL_TOKEN");
+                  }
                 }}
                 onVerifyService={verifyService}
                 onServiceBlur={handleServiceBlur}
@@ -656,7 +724,14 @@ export function ConfigureWorkflow({
               <div className={FORM.actions}>
                 <Button
                   type="button"
-                  onClick={() => goToGuidedStep("choose-target-repos")}
+                  onClick={() => void handleSaveConnectServices()}
+                  disabled={loading !== null || !connectServicesReady}
+                >
+                  {loading === "apply" ? "Saving…" : "Save service keys"}
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => onConnectServicesComplete?.()}
                   disabled={!connectServicesReady}
                 >
                   Continue
@@ -673,7 +748,7 @@ export function ConfigureWorkflow({
         case "choose-target-repos":
           return (
             <SectionCard
-              title="Step 2 of 5 · Choose target repo(s) and create setup files"
+              title={`Step 4 of ${GUIDED_SETUP_STEP_COUNT} · Choose target repo(s) and create setup files`}
               description="Tell the harness which GitHub repo(s) it should work against, then create local setup files on this machine."
             >
               <TargetRepoConfigForm

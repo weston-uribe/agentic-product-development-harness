@@ -39,8 +39,14 @@ vi.mock("@cursor/sdk", () => ({
   },
 }));
 
+vi.mock("../../src/setup/vercel-setup-client.js", () => ({
+  verifyVercelToken: vi.fn(),
+}));
+
 import { pingLinear } from "../../src/linear/client.js";
 import { GitHubClient } from "../../src/github/client.js";
+import { verifyVercelToken } from "../../src/setup/vercel-setup-client.js";
+import { verifyVercelTokenForSetup } from "../../src/setup/service-verification.js";
 
 async function getCursorSdk() {
   return import("@cursor/sdk");
@@ -289,5 +295,18 @@ describe("service-verification", () => {
     expect(result.workflowInstallReady).toBe(true);
     expect(result.repoSlug).toBe("acme/my-product");
     expect(result.message).toContain("workflow install access");
+  });
+
+  it("verifies Vercel token via account metadata lookup", async () => {
+    vi.mocked(verifyVercelToken).mockResolvedValue({
+      id: "user_1",
+      username: "weston",
+    });
+
+    const result = await verifyVercelTokenForSetup("vercel-token-abc");
+
+    expect(result.status).toBe("connected");
+    expect(result.label).toBe("weston");
+    expect(result.message).toContain("Connected as weston");
   });
 });

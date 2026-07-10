@@ -15,8 +15,9 @@ import { redactKnownSecretValues } from "./redact-secrets.js";
 import { parseGitHubRepoSlug } from "./github-repo-slug.js";
 import { readExistingEnvFile } from "./env-merge.js";
 import { resolveLocalFilePaths } from "./setup-state.js";
+import { verifyVercelToken } from "./vercel-setup-client.js";
 
-export type SetupServiceName = "linear" | "cursor" | "github";
+export type SetupServiceName = "linear" | "cursor" | "github" | "vercel";
 
 export type VerificationStatus = "connected" | "failed";
 
@@ -396,9 +397,48 @@ export async function verifyGitHubRepoAccess(input: {
   }
 }
 
+export async function verifyVercelTokenForSetup(
+  token: string,
+): Promise<ServiceVerificationResult> {
+  const trimmed = token.trim();
+  if (!trimmed) {
+    return {
+      status: "failed",
+      message: "Enter a Vercel token before verifying.",
+    };
+  }
+
+  try {
+    const user = await verifyVercelToken(trimmed);
+    return {
+      status: "connected",
+      label: user.username,
+      message: `Connected as ${user.username}.`,
+      limitation:
+        "This confirms the Vercel token can read account metadata. Project and env var writes still require preview + confirmation.",
+    };
+  } catch (error) {
+    const raw = error instanceof Error ? error.message : String(error);
+    if (/unauthorized|forbidden|401|403/i.test(raw)) {
+      return {
+        status: "failed",
+        message: "Vercel rejected this token. Check that VERCEL_TOKEN is valid.",
+      };
+    }
+    return {
+      status: "failed",
+      message: sanitizeMessage(raw, [trimmed]),
+    };
+  }
+}
+
 export async function loadSecretFromEnvLocal(options: {
   cwd?: string;
-  key: "LINEAR_API_KEY" | "CURSOR_API_KEY" | "GITHUB_TOKEN";
+  key:
+    | "LINEAR_API_KEY"
+    | "CURSOR_API_KEY"
+    | "GITHUB_TOKEN"
+    | "VERCEL_TOKEN";
 }): Promise<string | undefined> {
   const paths = resolveLocalFilePaths(options.cwd);
   const existingEnv = await readExistingEnvFile(paths);
@@ -416,10 +456,14 @@ export async function resolveServiceToken(options: {
     return { token: trimmed, usedSavedKey: false };
   }
 
-  const keyMap: Record<SetupServiceName, "LINEAR_API_KEY" | "CURSOR_API_KEY" | "GITHUB_TOKEN"> = {
+  const keyMap: Record<
+    SetupServiceName,
+    "LINEAR_API_KEY" | "CURSOR_API_KEY" | "GITHUB_TOKEN" | "VERCEL_TOKEN"
+  > = {
     linear: "LINEAR_API_KEY",
     cursor: "CURSOR_API_KEY",
     github: "GITHUB_TOKEN",
+    vercel: "VERCEL_TOKEN",
   };
 
   const saved = await loadSecretFromEnvLocal({
@@ -446,6 +490,7 @@ export async function verifySetupService(options: {
       linear: "LINEAR_API_KEY",
       cursor: "CURSOR_API_KEY",
       github: "GITHUB_TOKEN",
+      vercel: "VERCEL_TOKEN",
     };
     return {
       status: "failed",
@@ -464,6 +509,9 @@ export async function verifySetupService(options: {
       break;
     case "github":
       result = await verifyGitHubToken(resolved.token);
+      break;
+    case "vercel":
+      result = await verifyVercelTokenForSetup(resolved.token);
       break;
   }
 

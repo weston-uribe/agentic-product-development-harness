@@ -227,7 +227,7 @@ export function GuidedCloudSecretsCard({
 
   return (
     <SectionCard
-      title={`Step 4 of ${GUIDED_SETUP_STEP_COUNT} · Connect cloud secrets`}
+      title={`Step 6 of ${GUIDED_SETUP_STEP_COUNT} · Connect cloud secrets`}
       description="Your local setup is ready. Now we'll copy the required values into encrypted GitHub Actions secrets so the remote harness can run later."
     >
       <div className={SPACING.stackSm}>
