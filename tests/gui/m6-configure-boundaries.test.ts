@@ -508,4 +508,25 @@ describe("M6 configure GUI boundaries", () => {
     expect(experienceSource).not.toContain("readiness.primaryTask?.stepId");
     expect(experienceSource).not.toContain("PrimarySetupTaskCard");
   });
+
+  it("guided setup surfaces GitHub workflow permission requirements in Steps 1 and 2", () => {
+    const envSource = readFileSync(
+      path.join(repoRoot, "apps/gui/components/custom/environment-config-form.tsx"),
+      "utf8",
+    );
+    const targetSource = readFileSync(
+      path.join(repoRoot, "apps/gui/components/custom/target-repo-config-form.tsx"),
+      "utf8",
+    );
+    const workflowSource = readFileSync(
+      path.join(repoRoot, "apps/gui/components/custom/configure-workflow.tsx"),
+      "utf8",
+    );
+
+    expect(envSource).toContain("GITHUB_TOKEN_GUIDED_HELPER_TEXT");
+    expect(targetSource).toContain("Verify repo + workflow access");
+    expect(targetSource).toContain("workflow install capability");
+    expect(workflowSource).toContain("workflowInstallReady");
+    expect(workflowSource).toContain("limitation: data.limitation");
+  });
 });

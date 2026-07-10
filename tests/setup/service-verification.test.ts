@@ -1,6 +1,10 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { GitHubApiError } from "../../src/github/client.js";
 import {
+  GITHUB_CLASSIC_PAT_MISSING_WORKFLOW_MESSAGE,
+  GITHUB_FINE_GRAINED_STEP1_LIMITATION,
+} from "../../src/setup/github-workflow-permissions.js";
+import {
   parseTargetRepoUrl,
   verifyCursorToken,
   verifyGitHubRepoAccess,
@@ -20,7 +24,6 @@ vi.mock("../../src/github/client.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/github/client.js")>();
   return {
     ...actual,
-    pingGitHub: vi.fn(),
     GitHubClient: vi.fn(),
   };
 });
@@ -37,10 +40,45 @@ vi.mock("@cursor/sdk", () => ({
 }));
 
 import { pingLinear } from "../../src/linear/client.js";
-import { GitHubClient, pingGitHub } from "../../src/github/client.js";
+import { GitHubClient } from "../../src/github/client.js";
 
 async function getCursorSdk() {
   return import("@cursor/sdk");
+}
+
+function mockGitHubClient(
+  implementation: Partial<{
+    inspectAuthenticatedUser: () => Promise<{
+      login: string;
+      oauthScopes: string[];
+      tokenType: string | null;
+    }>;
+    getRepository: () => Promise<{
+      permissions?: {
+        pull?: boolean;
+        push?: boolean;
+        admin?: boolean;
+        maintain?: boolean;
+      };
+    }>;
+    listActionsWorkflows: () => Promise<{ total_count: number }>;
+  }>,
+) {
+  vi.mocked(GitHubClient).mockImplementation(
+    () =>
+      ({
+        inspectAuthenticatedUser: vi
+          .fn()
+          .mockResolvedValue({
+            login: "weston-uribe",
+            oauthScopes: ["repo", "workflow"],
+            tokenType: "classic",
+          }),
+        getRepository: vi.fn(),
+        listActionsWorkflows: vi.fn().mockResolvedValue({ total_count: 0 }),
+        ...implementation,
+      }) as never,
+  );
 }
 
 describe("service-verification", () => {
@@ -73,15 +111,57 @@ describe("service-verification", () => {
     expect(failure.message).not.toContain(SENTINEL_LINEAR);
   });
 
-  it("verifies GitHub tokens without leaking secrets on failure", async () => {
-    vi.mocked(pingGitHub).mockResolvedValueOnce("weston-uribe");
+  it("does not mark classic PAT without workflow scope as verified", async () => {
+    mockGitHubClient({
+      inspectAuthenticatedUser: vi.fn().mockResolvedValue({
+        login: "weston-uribe",
+        oauthScopes: ["repo"],
+        tokenType: "classic",
+      }),
+    });
+
+    const result = await verifyGitHubToken(SENTINEL_GITHUB);
+    expect(result.status).toBe("failed");
+    expect(result.message).toBe(GITHUB_CLASSIC_PAT_MISSING_WORKFLOW_MESSAGE);
+    expect(result.message).not.toContain(SENTINEL_GITHUB);
+  });
+
+  it("verifies classic PAT with repo and workflow scopes", async () => {
+    mockGitHubClient({
+      inspectAuthenticatedUser: vi.fn().mockResolvedValue({
+        login: "weston-uribe",
+        oauthScopes: ["repo", "workflow"],
+        tokenType: "classic",
+      }),
+    });
+
     const success = await verifyGitHubToken(SENTINEL_GITHUB);
     expect(success.status).toBe("connected");
     expect(success.label).toBe("weston-uribe");
+    expect(success.limitation).toContain("repo and workflow");
+  });
 
-    vi.mocked(pingGitHub).mockRejectedValueOnce(
-      new GitHubApiError(401, SENTINEL_GITHUB),
-    );
+  it("connects fine-grained PAT at Step 1 with Step 2 workflow caveat", async () => {
+    mockGitHubClient({
+      inspectAuthenticatedUser: vi.fn().mockResolvedValue({
+        login: "weston-uribe",
+        oauthScopes: [],
+        tokenType: "fine-grained",
+      }),
+    });
+
+    const success = await verifyGitHubToken(SENTINEL_GITHUB);
+    expect(success.status).toBe("connected");
+    expect(success.limitation).toContain(GITHUB_FINE_GRAINED_STEP1_LIMITATION);
+  });
+
+  it("verifies GitHub tokens without leaking secrets on auth failure", async () => {
+    mockGitHubClient({
+      inspectAuthenticatedUser: vi
+        .fn()
+        .mockRejectedValue(new GitHubApiError(401, SENTINEL_GITHUB)),
+    });
+
     const failure = await verifyGitHubToken(SENTINEL_GITHUB);
     expect(failure.status).toBe("failed");
     expect(failure.message).toContain("GitHub rejected");
@@ -121,15 +201,36 @@ describe("service-verification", () => {
     expect(GitHubClient).not.toHaveBeenCalled();
   });
 
+  it("fails repo verification when classic PAT lacks workflow scope", async () => {
+    mockGitHubClient({
+      inspectAuthenticatedUser: vi.fn().mockResolvedValue({
+        login: "weston-uribe",
+        oauthScopes: ["repo"],
+        tokenType: "classic",
+      }),
+    });
+
+    const result = await verifyGitHubRepoAccess({
+      token: SENTINEL_GITHUB,
+      targetRepo: "https://github.com/acme/my-product",
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.workflowInstallReady).toBe(false);
+    expect(result.message).toBe(GITHUB_CLASSIC_PAT_MISSING_WORKFLOW_MESSAGE);
+  });
+
   it("maps repo access failures to PM-readable messages", async () => {
-    vi.mocked(GitHubClient).mockImplementation(
-      () =>
-        ({
-          getRepository: vi.fn().mockRejectedValue(
-            new GitHubApiError(404, "Not Found"),
-          ),
-        }) as never,
-    );
+    mockGitHubClient({
+      inspectAuthenticatedUser: vi.fn().mockResolvedValue({
+        login: "weston-uribe",
+        oauthScopes: ["repo", "workflow"],
+        tokenType: "classic",
+      }),
+      getRepository: vi
+        .fn()
+        .mockRejectedValue(new GitHubApiError(404, "Not Found")),
+    });
 
     const result = await verifyGitHubRepoAccess({
       token: SENTINEL_GITHUB,
@@ -138,19 +239,45 @@ describe("service-verification", () => {
 
     expect(result.status).toBe("failed");
     expect(result.repoSlug).toBe("acme/private-repo");
+    expect(result.workflowInstallReady).toBe(false);
     expect(result.message).toContain("not found");
     expect(result.message).not.toContain(SENTINEL_GITHUB);
   });
 
-  it("reports connected repo access when GitHub returns readable permissions", async () => {
-    vi.mocked(GitHubClient).mockImplementation(
-      () =>
-        ({
-          getRepository: vi.fn().mockResolvedValue({
-            permissions: { pull: true },
-          }),
-        }) as never,
-    );
+  it("fails when token can read but cannot write repository contents", async () => {
+    mockGitHubClient({
+      inspectAuthenticatedUser: vi.fn().mockResolvedValue({
+        login: "weston-uribe",
+        oauthScopes: ["repo", "workflow"],
+        tokenType: "classic",
+      }),
+      getRepository: vi.fn().mockResolvedValue({
+        permissions: { pull: true },
+      }),
+    });
+
+    const result = await verifyGitHubRepoAccess({
+      token: SENTINEL_GITHUB,
+      targetRepo: "https://github.com/acme/my-product",
+    });
+
+    expect(result.status).toBe("failed");
+    expect(result.workflowInstallReady).toBe(false);
+    expect(result.message).toContain("Contents write");
+  });
+
+  it("reports workflow install readiness when repo and Actions access succeed", async () => {
+    mockGitHubClient({
+      inspectAuthenticatedUser: vi.fn().mockResolvedValue({
+        login: "weston-uribe",
+        oauthScopes: ["repo", "workflow"],
+        tokenType: "classic",
+      }),
+      getRepository: vi.fn().mockResolvedValue({
+        permissions: { pull: true, push: true },
+      }),
+      listActionsWorkflows: vi.fn().mockResolvedValue({ total_count: 1 }),
+    });
 
     const result = await verifyGitHubRepoAccess({
       token: SENTINEL_GITHUB,
@@ -158,7 +285,8 @@ describe("service-verification", () => {
     });
 
     expect(result.status).toBe("connected");
+    expect(result.workflowInstallReady).toBe(true);
     expect(result.repoSlug).toBe("acme/my-product");
-    expect(result.message).toContain("Connected to acme/my-product");
+    expect(result.message).toContain("workflow install access");
   });
 });

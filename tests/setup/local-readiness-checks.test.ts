@@ -11,7 +11,6 @@ vi.mock("../../src/github/client.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../src/github/client.js")>();
   return {
     ...actual,
-    pingGitHub: vi.fn(),
     GitHubClient: vi.fn(),
   };
 });
@@ -28,8 +27,9 @@ vi.mock("@cursor/sdk", () => ({
 }));
 
 import { pingLinear } from "../../src/linear/client.js";
-import { GitHubClient, pingGitHub } from "../../src/github/client.js";
+import { GitHubClient } from "../../src/github/client.js";
 import { runLocalReadinessChecks } from "../../src/setup/local-readiness-checks.js";
+import { GITHUB_CLASSIC_PAT_MISSING_WORKFLOW_MESSAGE } from "../../src/setup/github-workflow-permissions.js";
 
 const CONFIG_EXAMPLE = JSON.stringify(
   {
@@ -50,6 +50,41 @@ const CONFIG_EXAMPLE = JSON.stringify(
   null,
   2,
 );
+
+function mockGitHubClient(
+  implementation: Partial<{
+    inspectAuthenticatedUser: () => Promise<{
+      login: string;
+      oauthScopes: string[];
+      tokenType: string | null;
+    }>;
+    getRepository: () => Promise<{
+      permissions?: {
+        pull?: boolean;
+        push?: boolean;
+      };
+    }>;
+    listActionsWorkflows: () => Promise<{ total_count: number }>;
+  }>,
+) {
+  vi.mocked(GitHubClient).mockImplementation(
+    () =>
+      ({
+        inspectAuthenticatedUser: vi
+          .fn()
+          .mockResolvedValue({
+            login: "weston-uribe",
+            oauthScopes: ["repo", "workflow"],
+            tokenType: "classic",
+          }),
+        getRepository: vi.fn().mockResolvedValue({
+          permissions: { pull: true, push: true },
+        }),
+        listActionsWorkflows: vi.fn().mockResolvedValue({ total_count: 0 }),
+        ...implementation,
+      }) as unknown as InstanceType<typeof GitHubClient>,
+  );
+}
 
 describe("local-readiness-checks", () => {
   let tempRoot: string;
@@ -75,15 +110,7 @@ describe("local-readiness-checks", () => {
     );
 
     vi.mocked(pingLinear).mockResolvedValue("Weston Uribe");
-    vi.mocked(pingGitHub).mockResolvedValue("weston-uribe");
-    vi.mocked(GitHubClient).mockImplementation(
-      () =>
-        ({
-          getRepository: vi.fn().mockResolvedValue({
-            permissions: { pull: true, push: true },
-          }),
-        }) as unknown as InstanceType<typeof GitHubClient>,
-    );
+    mockGitHubClient({});
 
     const cursorSdk = await import("@cursor/sdk");
     vi.mocked(cursorSdk.Cursor.models.list).mockResolvedValue([{ id: "composer-2.5" }]);
@@ -100,12 +127,12 @@ describe("local-readiness-checks", () => {
     expect(result.checks.some((check) => check.label === "Cursor API key works")).toBe(
       true,
     );
-    expect(result.checks.some((check) => check.label === "GitHub token works")).toBe(
-      true,
-    );
+    expect(
+      result.checks.some((check) => check.label === "GitHub token supports guided setup"),
+    ).toBe(true);
     expect(
       result.checks.some((check) =>
-        check.label.includes("Target repo acme/my-product is accessible"),
+        check.label.includes("Target repo acme/my-product supports workflow install"),
       ),
     ).toBe(true);
     expect(JSON.stringify(result)).not.toContain("CLI-only");
@@ -121,6 +148,27 @@ describe("local-readiness-checks", () => {
 
     expect(linear?.status).toBe("failed");
     expect(linear?.action).toContain("Step 1");
+    expect(result.allPassed).toBe(false);
+  });
+
+  it("does not pass local readiness when GitHub token lacks workflow scope", async () => {
+    mockGitHubClient({
+      inspectAuthenticatedUser: vi.fn().mockResolvedValue({
+        login: "weston-uribe",
+        oauthScopes: ["repo"],
+        tokenType: "classic",
+      }),
+    });
+
+    const result = await runLocalReadinessChecks({ cwd: tempRoot });
+    const github = result.checks.find((check) => check.id === "github-token");
+    const targetRepo = result.checks.find((check) =>
+      check.id.startsWith("target-repo-"),
+    );
+
+    expect(github?.status).toBe("failed");
+    expect(github?.detail).toContain(GITHUB_CLASSIC_PAT_MISSING_WORKFLOW_MESSAGE);
+    expect(targetRepo?.status).toBe("failed");
     expect(result.allPassed).toBe(false);
   });
 });

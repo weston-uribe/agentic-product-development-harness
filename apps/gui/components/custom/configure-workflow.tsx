@@ -368,18 +368,22 @@ export function ConfigureWorkflow({
         setRepoVerification((current) => ({
           ...current,
           [rowId]:
-            data.status === "connected"
+            data.status === "connected" && data.workflowInstallReady !== false
               ? {
                   state: "connected",
                   verifiedTargetRepo: targetRepo,
                   message: data.message,
                   repoSlug: data.repoSlug,
+                  limitation: data.limitation,
+                  workflowInstallReady: data.workflowInstallReady,
                 }
               : {
                   state: "failed",
                   attemptedTargetRepo: targetRepo,
                   message: data.message,
                   repoSlug: data.repoSlug,
+                  limitation: data.limitation,
+                  workflowInstallReady: data.workflowInstallReady,
                 },
         }));
       } catch (verifyError) {

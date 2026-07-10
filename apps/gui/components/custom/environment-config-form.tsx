@@ -12,6 +12,7 @@ import {
   isServiceVerifiedForValue,
 } from "@/lib/verification-state";
 import { cn } from "@/lib/utils";
+import { GITHUB_TOKEN_GUIDED_HELPER_TEXT } from "@harness/setup/github-workflow-permissions";
 
 export interface EnvironmentFormValues {
   harnessConfigPath: string;
@@ -94,8 +95,7 @@ const SERVICE_DEFINITIONS: Array<{
     id: "github-token",
     displayName: "GitHub",
     valueKey: "githubToken",
-    helperText:
-      "Lets setup check GitHub repo access and later prepare remote setup.",
+    helperText: GITHUB_TOKEN_GUIDED_HELPER_TEXT,
   },
 ];
 
@@ -312,7 +312,8 @@ function ServiceConnectionCard({
         </p>
       ) : null}
 
-      {verification.limitation && verifiedForCurrentValue ? (
+      {verification.limitation &&
+      (verifiedForCurrentValue || failedForCurrentValue) ? (
         <p className="text-xs text-muted-foreground">{verification.limitation}</p>
       ) : null}
 

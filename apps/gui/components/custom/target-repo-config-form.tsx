@@ -26,6 +26,8 @@ export interface RepoVerificationUi {
   attemptedTargetRepo?: string;
   message?: string;
   repoSlug?: string;
+  limitation?: string;
+  workflowInstallReady?: boolean;
 }
 
 const GITHUB_REPO_URL_PATTERN =
@@ -123,10 +125,10 @@ export function TargetRepoConfigForm({
 
             const verifyButtonLabel =
               verifyingRepoRowId === repo.rowId
-                ? "Checking access…"
+                ? "Checking repo + workflow access…"
                 : verifiedForCurrentUrl
                   ? "Verified"
-                  : "Verify repo access";
+                  : "Verify repo + workflow access";
 
             const verifyButtonDisabled =
               verifyingRepoRowId === repo.rowId ||
@@ -168,7 +170,9 @@ export function TargetRepoConfigForm({
                     autoComplete="off"
                   />
                   <p className={FORM.secretHint}>
-                    The GitHub repo where harness work should land.
+                    The GitHub repo where harness work should land. Verification
+                    checks read access and workflow install capability for this
+                    token.
                   </p>
                   {highlightStaleTarget && index === 0 ? (
                     <p className={FORM.secretHint}>
@@ -185,6 +189,13 @@ export function TargetRepoConfigForm({
                     message={verification.message}
                     failed
                   />
+                ) : null}
+
+                {verification.limitation &&
+                (verifiedForCurrentUrl || failedForCurrentUrl) ? (
+                  <p className="text-xs text-muted-foreground">
+                    {verification.limitation}
+                  </p>
                 ) : null}
 
                 <div className="flex flex-wrap items-center gap-2">

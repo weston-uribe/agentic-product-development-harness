@@ -237,22 +237,25 @@ export async function runLocalReadinessChecks(options?: {
     service: "github",
   });
   if (githubResult.status === "connected") {
+    const githubDetail = githubResult.label
+      ? `Connected as ${githubResult.label}.`
+      : githubResult.message;
     checks.push(
       passed(
         "github-token",
-        "GitHub token works",
-        githubResult.label
-          ? `Connected as ${githubResult.label}.`
-          : githubResult.message,
+        "GitHub token supports guided setup",
+        githubResult.limitation
+          ? `${githubDetail} ${githubResult.limitation}`
+          : githubDetail,
       ),
     );
   } else {
     checks.push(
       failed(
         "github-token",
-        "GitHub token works",
+        "GitHub token supports guided setup",
         githubResult.message,
-        "Return to Step 1 and verify your GitHub token, then recreate local setup files if needed.",
+        "Return to Step 1 and update GITHUB_TOKEN with repo + workflow (classic PAT) or Contents write + Workflows write on target repos (fine-grained PAT), then verify again.",
         secrets,
       ),
     );
@@ -265,21 +268,27 @@ export async function runLocalReadinessChecks(options?: {
         targetRepo: repo.targetRepo,
       });
       const slug = repoResult.repoSlug ?? repo.targetRepo;
-      if (repoResult.status === "connected") {
+      if (
+        repoResult.status === "connected" &&
+        repoResult.workflowInstallReady !== false
+      ) {
+        const detail = repoResult.limitation
+          ? `${repoResult.message} ${repoResult.limitation}`
+          : repoResult.message;
         checks.push(
           passed(
             `target-repo-${repo.id}`,
-            `Target repo ${slug} is accessible`,
-            repoResult.message,
+            `Target repo ${slug} supports workflow install`,
+            detail,
           ),
         );
       } else {
         checks.push(
           failed(
             `target-repo-${repo.id}`,
-            `Target repo ${slug} is accessible`,
+            `Target repo ${slug} supports workflow install`,
             repoResult.message,
-            "Return to Step 2 and confirm the target repo URL, or update your GitHub token in Step 1.",
+            "Return to Step 2 and verify repo + workflow access, or update GITHUB_TOKEN in Step 1 with workflow permissions and verify again.",
             secrets,
           ),
         );
@@ -290,8 +299,8 @@ export async function runLocalReadinessChecks(options?: {
       checks.push(
         failed(
           `target-repo-${repo.id}`,
-          `Target repo ${repo.targetRepo} is accessible`,
-          "GitHub token must work before target repo access can be checked.",
+          `Target repo ${repo.targetRepo} supports workflow install`,
+          "GitHub token must support guided setup before target repo workflow access can be checked.",
           "Fix your GitHub token in Step 1 first.",
         ),
       );

@@ -209,6 +209,48 @@ export class GitHubClient {
     return this.request<{ login: string }>("/user");
   }
 
+  async inspectAuthenticatedUser(): Promise<{
+    login: string;
+    oauthScopes: string[];
+    tokenType: string | null;
+  }> {
+    const response = await fetch(`${GITHUB_API}/user`, {
+      method: "GET",
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${this.token}`,
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
+
+    const text = await response.text();
+    if (!response.ok) {
+      const message = redactSecretsString(
+        text || `GitHub API request failed: ${response.status}`,
+      );
+      throw new GitHubApiError(response.status, message);
+    }
+
+    const payload = JSON.parse(text) as { login: string };
+    return {
+      login: payload.login,
+      oauthScopes: (response.headers.get("x-oauth-scopes") ?? "")
+        .split(",")
+        .map((scope) => scope.trim().toLowerCase())
+        .filter(Boolean),
+      tokenType: response.headers.get("github-authentication-token-type"),
+    };
+  }
+
+  async listActionsWorkflows(
+    owner: string,
+    repo: string,
+  ): Promise<{ total_count: number }> {
+    return this.request<{ total_count: number }>(
+      `/repos/${owner}/${repo}/actions/workflows?per_page=1`,
+    );
+  }
+
   async getBranchRef(
     owner: string,
     repo: string,

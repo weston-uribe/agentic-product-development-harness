@@ -1,4 +1,14 @@
-import { GitHubApiError, GitHubClient, pingGitHub } from "../github/client.js";
+import {
+  assessClassicPatGuidedCapabilities,
+  FINE_GRAINED_WORKFLOW_WRITE_LIMITATION,
+  GITHUB_CLASSIC_PAT_MISSING_WORKFLOW_MESSAGE,
+  GITHUB_FINE_GRAINED_STEP1_LIMITATION,
+  GITHUB_TOKEN_GUIDED_HELPER_TEXT,
+  GITHUB_WORKFLOW_SCOPE_SETUP_ERROR,
+  resolveGitHubTokenType,
+  type GitHubTokenMetadata,
+} from "./github-workflow-permissions.js";
+import { GitHubApiError, GitHubClient } from "../github/client.js";
 import { parseGitHubRepoUrl } from "../github/base-branch.js";
 import { pingLinear } from "../linear/client.js";
 import { redactKnownSecretValues } from "./redact-secrets.js";
@@ -22,6 +32,36 @@ export interface RepoVerificationResult {
   message: string;
   repoSlug?: string;
   normalizedUrl?: string;
+  workflowInstallReady?: boolean;
+  limitation?: string;
+}
+
+export async function inspectGitHubTokenMetadata(
+  token: string,
+): Promise<GitHubTokenMetadata> {
+  const client = new GitHubClient({ token: token.trim() });
+  const inspected = await client.inspectAuthenticatedUser();
+  const tokenType = resolveGitHubTokenType(
+    inspected.tokenType,
+    inspected.oauthScopes,
+  );
+
+  return {
+    login: inspected.login,
+    tokenType,
+    oauthScopes: inspected.oauthScopes,
+    hasWorkflowScope: inspected.oauthScopes.includes("workflow"),
+    hasRepoScope:
+      inspected.oauthScopes.includes("repo") ||
+      inspected.oauthScopes.includes("public_repo"),
+  };
+}
+
+function isWorkflowPermissionApiError(error: GitHubApiError): boolean {
+  return (
+    (error.status === 403 || error.status === 404) &&
+    /workflow/i.test(error.message)
+  );
 }
 
 function sanitizeMessage(message: string, secrets: readonly string[]): string {
@@ -117,16 +157,33 @@ export async function verifyGitHubToken(
   }
 
   try {
-    const login = await pingGitHub(trimmed);
+    const metadata = await inspectGitHubTokenMetadata(trimmed);
+    const capability = assessClassicPatGuidedCapabilities(metadata);
+    if (!capability.ok) {
+      return {
+        status: "failed",
+        message: capability.message,
+        limitation: GITHUB_TOKEN_GUIDED_HELPER_TEXT,
+      };
+    }
+
+    const limitation =
+      capability.limitation ??
+      (metadata.tokenType === "classic"
+        ? "Classic PAT scopes include repo and workflow for the guided setup flow."
+        : GITHUB_FINE_GRAINED_STEP1_LIMITATION);
+
     return {
       status: "connected",
-      label: login,
-      message: `Connected as ${login}.`,
+      label: metadata.login,
+      message: `Connected as ${metadata.login}.`,
+      limitation: `${GITHUB_TOKEN_GUIDED_HELPER_TEXT} ${limitation}`,
     };
   } catch (error) {
     return {
       status: "failed",
       message: formatGitHubTokenError(error, trimmed),
+      limitation: GITHUB_TOKEN_GUIDED_HELPER_TEXT,
     };
   }
 }
@@ -200,15 +257,31 @@ export async function verifyGitHubRepoAccess(input: {
     return {
       status: "failed",
       message:
-        "Add or save a GitHub token first, then verify repo access.",
+        "Add or save a GitHub token first, then verify repo + workflow access.",
     };
   }
 
   try {
+    const metadata = await inspectGitHubTokenMetadata(token);
+    if (metadata.tokenType === "classic" && !metadata.hasWorkflowScope) {
+      return {
+        status: "failed",
+        repoSlug: parsed.slug,
+        normalizedUrl: parsed.normalizedUrl,
+        workflowInstallReady: false,
+        message: GITHUB_CLASSIC_PAT_MISSING_WORKFLOW_MESSAGE,
+        limitation: GITHUB_TOKEN_GUIDED_HELPER_TEXT,
+      };
+    }
+
     const client = new GitHubClient({ token });
     const repository = await client.getRepository(parsed.owner, parsed.repo);
     const canRead =
       repository.permissions?.pull === true ||
+      repository.permissions?.push === true ||
+      repository.permissions?.admin === true ||
+      repository.permissions?.maintain === true;
+    const canWriteContents =
       repository.permissions?.push === true ||
       repository.permissions?.admin === true ||
       repository.permissions?.maintain === true;
@@ -218,7 +291,53 @@ export async function verifyGitHubRepoAccess(input: {
         status: "failed",
         repoSlug: parsed.slug,
         normalizedUrl: parsed.normalizedUrl,
+        workflowInstallReady: false,
         message: `GitHub token cannot read ${parsed.slug}. Grant repo read access to this token.`,
+      };
+    }
+
+    if (!canWriteContents) {
+      return {
+        status: "failed",
+        repoSlug: parsed.slug,
+        normalizedUrl: parsed.normalizedUrl,
+        workflowInstallReady: false,
+        message: `GitHub token cannot write repository contents for ${parsed.slug}. Workflow install PRs need Contents write access. Use a classic PAT with repo + workflow or a fine-grained PAT with Contents write + Workflows write on this repo.`,
+      };
+    }
+
+    try {
+      await client.listActionsWorkflows(parsed.owner, parsed.repo);
+    } catch (error) {
+      if (error instanceof GitHubApiError && isWorkflowPermissionApiError(error)) {
+        return {
+          status: "failed",
+          repoSlug: parsed.slug,
+          normalizedUrl: parsed.normalizedUrl,
+          workflowInstallReady: false,
+          message: GITHUB_WORKFLOW_SCOPE_SETUP_ERROR,
+        };
+      }
+      if (error instanceof GitHubApiError && error.status === 403) {
+        return {
+          status: "failed",
+          repoSlug: parsed.slug,
+          normalizedUrl: parsed.normalizedUrl,
+          workflowInstallReady: false,
+          message: `GitHub denied Actions workflow access for ${parsed.slug}. Grant Workflows write (fine-grained PAT) or workflow scope (classic PAT), then update GITHUB_TOKEN and verify again.`,
+        };
+      }
+      throw error;
+    }
+
+    if (metadata.tokenType === "fine-grained") {
+      return {
+        status: "connected",
+        repoSlug: parsed.slug,
+        normalizedUrl: parsed.normalizedUrl,
+        workflowInstallReady: true,
+        message: `Connected to ${parsed.slug} with repo + workflow install access expected.`,
+        limitation: FINE_GRAINED_WORKFLOW_WRITE_LIMITATION,
       };
     }
 
@@ -226,7 +345,8 @@ export async function verifyGitHubRepoAccess(input: {
       status: "connected",
       repoSlug: parsed.slug,
       normalizedUrl: parsed.normalizedUrl,
-      message: `Connected to ${parsed.slug}.`,
+      workflowInstallReady: true,
+      message: `Connected to ${parsed.slug} with repo + workflow install access.`,
     };
   } catch (error) {
     if (error instanceof GitHubApiError) {
@@ -235,12 +355,14 @@ export async function verifyGitHubRepoAccess(input: {
           status: "failed",
           repoSlug: parsed.slug,
           normalizedUrl: parsed.normalizedUrl,
+          workflowInstallReady: false,
           message: `Repo ${parsed.slug} was not found or this token cannot access it.`,
         };
       }
       if (error.status === 401) {
         return {
           status: "failed",
+          workflowInstallReady: false,
           message: "GitHub rejected the token. Verify GITHUB_TOKEN and try again.",
         };
       }
@@ -249,11 +371,13 @@ export async function verifyGitHubRepoAccess(input: {
           status: "failed",
           repoSlug: parsed.slug,
           normalizedUrl: parsed.normalizedUrl,
+          workflowInstallReady: false,
           message: `GitHub denied access to ${parsed.slug}. Check token permissions for this repo.`,
         };
       }
       return {
         status: "failed",
+        workflowInstallReady: false,
         message: sanitizeMessage(
           `GitHub API returned HTTP ${error.status} while checking ${parsed.slug}.`,
           [token],
@@ -263,6 +387,7 @@ export async function verifyGitHubRepoAccess(input: {
 
     return {
       status: "failed",
+      workflowInstallReady: false,
       message: sanitizeMessage(
         error instanceof Error ? error.message : String(error),
         [token],
