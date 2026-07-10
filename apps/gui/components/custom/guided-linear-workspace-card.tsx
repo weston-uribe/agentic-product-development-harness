@@ -67,6 +67,7 @@ export function GuidedLinearWorkspaceCard({
   const [applyResult, setApplyResult] = useState<LinearSetupApplyResult | null>(
     null,
   );
+  const [verifiedSuccess, setVerifiedSuccess] = useState(false);
 
   useEffect(() => {
     setSummary(initialSummary);
@@ -82,6 +83,17 @@ export function GuidedLinearWorkspaceCard({
 
   const apiKeyConfigured =
     linearApiKeyConfigured ?? summary.linearApiKeyConfigured;
+
+  const clearVerifiedSuccess = useCallback(() => {
+    setVerifiedSuccess(false);
+    setApplyResult(null);
+  }, []);
+
+  const invalidatePreview = useCallback(() => {
+    setPreview(null);
+    setPreviewGenerated(false);
+    clearVerifiedSuccess();
+  }, [clearVerifiedSuccess]);
 
   const loadWorkspaceOptions = useCallback(async () => {
     if (!apiKeyConfigured) {
@@ -163,24 +175,30 @@ export function GuidedLinearWorkspaceCard({
     [projectId, projectMode, projectName, teamId, teamKey, teamMode, teamName],
   );
 
+  const runPreview = useCallback(async () => {
+    const response = await fetch("/api/setup/preview-linear-setup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildPlanPayload()),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error ?? "Preview failed");
+    }
+    const nextPreview = data as LinearSetupPreview;
+    setPreview(nextPreview);
+    setPreviewGenerated(true);
+    return nextPreview;
+  }, [buildPlanPayload]);
+
   const handlePreview = useCallback(async () => {
     setLoading("preview");
     setError(null);
     setPreviewError(null);
-    setApplyResult(null);
+    clearVerifiedSuccess();
     setConfirmed(false);
     try {
-      const response = await fetch("/api/setup/preview-linear-setup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildPlanPayload()),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error ?? "Preview failed");
-      }
-      setPreview(data as LinearSetupPreview);
-      setPreviewGenerated(true);
+      await runPreview();
     } catch (nextPreviewError) {
       setPreview(null);
       setPreviewGenerated(false);
@@ -192,32 +210,48 @@ export function GuidedLinearWorkspaceCard({
     } finally {
       setLoading(null);
     }
-  }, [buildPlanPayload]);
+  }, [clearVerifiedSuccess, runPreview]);
 
   const handleApply = async () => {
-    if (!preview || !previewIsCurrent || !confirmed) {
+    if (!confirmed) {
       return;
     }
 
     setLoading("apply");
     setError(null);
+    clearVerifiedSuccess();
     try {
+      const currentPreview =
+        previewIsCurrent && preview ? preview : await runPreview();
+      if (currentPreview.validationError) {
+        throw new Error(currentPreview.validationError);
+      }
+
       const response = await fetch("/api/setup/apply-linear-setup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           plan: buildPlanPayload(),
           confirmed: true,
-          fingerprint: preview.fingerprint,
+          fingerprint: currentPreview.fingerprint,
         }),
       });
       const data = await response.json();
       if (!response.ok) {
         throw new Error(data.error ?? "Apply failed");
       }
-      setApplyResult(data.apply as LinearSetupApplyResult);
+
+      const apply = data.apply as LinearSetupApplyResult;
+      if (!apply.verified) {
+        throw new Error(
+          "Linear workspace apply finished, but post-apply verification did not pass.",
+        );
+      }
+
+      setApplyResult(apply);
       setSummary(data.summary as LinearSetupSummary);
       onSummaryUpdated?.(data.summary as LinearSetupSummary);
+      setVerifiedSuccess(true);
       setPreview(null);
       setPreviewGenerated(false);
       setConfirmed(false);
@@ -230,8 +264,16 @@ export function GuidedLinearWorkspaceCard({
   };
 
   const canContinue =
+    verifiedSuccess ||
     readiness.steps.find((step) => step.id === "linear-workspace")?.status ===
-      "complete" || summary.workspace.configured;
+      "complete" ||
+    summary.workspace.configured;
+
+  const formComplete =
+    teamMode === "existing"
+      ? Boolean(teamId) && (projectMode === "existing" ? Boolean(projectId) : Boolean(projectName))
+      : Boolean(teamKey && teamName) &&
+        (projectMode === "existing" ? Boolean(projectId) : Boolean(projectName));
 
   return (
     <SectionCard
@@ -254,8 +296,7 @@ export function GuidedLinearWorkspaceCard({
                   value={teamMode}
                   onChange={(event) => {
                     setTeamMode(event.target.value as "existing" | "create");
-                    setPreview(null);
-                    setPreviewGenerated(false);
+                    invalidatePreview();
                   }}
                 >
                   <option value="existing">Use existing team</option>
@@ -269,8 +310,7 @@ export function GuidedLinearWorkspaceCard({
                       onChange={(event) => {
                         setTeamId(event.target.value);
                         setProjectId("");
-                        setPreview(null);
-                        setPreviewGenerated(false);
+                        invalidatePreview();
                       }}
                       disabled={optionsLoading}
                     >
@@ -297,12 +337,18 @@ export function GuidedLinearWorkspaceCard({
                     <Input
                       placeholder="Team name"
                       value={teamName}
-                      onChange={(event) => setTeamName(event.target.value)}
+                      onChange={(event) => {
+                        setTeamName(event.target.value);
+                        invalidatePreview();
+                      }}
                     />
                     <Input
                       placeholder="Team key (e.g. ENG)"
                       value={teamKey}
-                      onChange={(event) => setTeamKey(event.target.value)}
+                      onChange={(event) => {
+                        setTeamKey(event.target.value);
+                        invalidatePreview();
+                      }}
                     />
                   </div>
                 )}
@@ -316,8 +362,7 @@ export function GuidedLinearWorkspaceCard({
                   value={projectMode}
                   onChange={(event) => {
                     setProjectMode(event.target.value as "existing" | "create");
-                    setPreview(null);
-                    setPreviewGenerated(false);
+                    invalidatePreview();
                   }}
                 >
                   <option value="existing">Use existing project</option>
@@ -330,8 +375,7 @@ export function GuidedLinearWorkspaceCard({
                       value={projectId}
                       onChange={(event) => {
                         setProjectId(event.target.value);
-                        setPreview(null);
-                        setPreviewGenerated(false);
+                        invalidatePreview();
                       }}
                       disabled={optionsLoading}
                     >
@@ -367,7 +411,10 @@ export function GuidedLinearWorkspaceCard({
                   <Input
                     placeholder="Project name"
                     value={projectName}
-                    onChange={(event) => setProjectName(event.target.value)}
+                    onChange={(event) => {
+                      setProjectName(event.target.value);
+                      invalidatePreview();
+                    }}
                   />
                 )}
               </div>
@@ -378,14 +425,12 @@ export function GuidedLinearWorkspaceCard({
             ) : null}
 
             <div className="flex flex-wrap items-center gap-2">
-              <StatusBadge
-                label={
-                  summary.workspace.configured
-                    ? `Team ${summary.workspace.teamKey} configured`
-                    : "Workspace not applied yet"
-                }
-                variant={summary.workspace.configured ? "success" : "secondary"}
-              />
+              {summary.workspace.configured ? (
+                <StatusBadge
+                  label={`Team ${summary.workspace.teamKey} configured`}
+                  variant="success"
+                />
+              ) : null}
               <Button
                 type="button"
                 variant="outline"
@@ -434,35 +479,37 @@ export function GuidedLinearWorkspaceCard({
               scope="linear-write"
               variant="guided"
               confirmed={confirmed}
-              disabled={!previewIsCurrent || Boolean(preview?.validationError)}
+              disabled={loading !== null || !formComplete}
               disabledReason={
-                !previewIsCurrent
-                  ? "Generate a current preview before confirming."
-                  : preview?.validationError
+                !formComplete
+                  ? "Select or enter the Linear team and project before confirming."
+                  : undefined
               }
               onConfirmedChange={setConfirmed}
             />
 
-            <div className={FORM.actions}>
-              <Button
-                type="button"
-                onClick={() => void handleApply()}
-                disabled={
-                  loading !== null ||
-                  !previewIsCurrent ||
-                  !confirmed ||
-                  Boolean(preview?.validationError)
-                }
-              >
-                {loading === "apply" ? "Applying…" : "Apply Linear workspace setup"}
-              </Button>
-            </div>
+            {!verifiedSuccess ? (
+              <div className={FORM.actions}>
+                <Button
+                  type="button"
+                  onClick={() => void handleApply()}
+                  disabled={
+                    loading !== null ||
+                    !confirmed ||
+                    !formComplete ||
+                    Boolean(preview?.validationError)
+                  }
+                >
+                  {loading === "apply" ? "Applying…" : "Apply Linear workspace setup"}
+                </Button>
+              </div>
+            ) : null}
 
             {error ? <SetupApplyResult success={false} message={error} /> : null}
-            {applyResult ? (
+            {verifiedSuccess && applyResult ? (
               <SetupApplyResult
                 success
-                message={`Linear workspace updated. Created: ${applyResult.created.join(", ") || "none"}. Reused: ${applyResult.skipped.join(", ") || "none"}.`}
+                message={`Linear workspace verified. Created: ${applyResult.created.join(", ") || "none"}. Reused: ${applyResult.skipped.join(", ") || "none"}.`}
               />
             ) : null}
 

@@ -3,6 +3,12 @@ import {
 } from "./control-plane-setup-state.js";
 import type { VercelBridgeSelection } from "./control-plane-types.js";
 import {
+  ensureLinearIssueWebhook,
+  generateLinearWebhookSecret,
+  type LinearWebhookSecretMode,
+} from "./linear-webhook-secret.js";
+import { summarizeLinearWebhookReadiness } from "./linear-setup-plan.js";
+import {
   assertRemoteSetupConfirmed,
   assertRemoteSetupFingerprint,
   assertRemoteSetupPermissionScope,
@@ -11,18 +17,25 @@ import { SETUP_PERMISSIONS } from "./permission-model.js";
 import { collectRemoteSecretInputs } from "./redact-secrets.js";
 import {
   listVercelProjectEnvVars,
+  summarizeRequiredEnvPresence,
   upsertVercelProjectEnvVar,
 } from "./vercel-setup-client.js";
 import {
-  DEFAULT_VERCEL_BRIDGE_ENV_DEFAULTS,
   REQUIRED_VERCEL_BRIDGE_ENV_VARS,
 } from "./vercel-bridge-readiness.js";
 import {
   VERCEL_SETUP_ACTIONS,
   previewVercelBridgeSetup,
+  resolveVercelBridgeEnvValue,
   type VercelBridgePlanInput,
   type VercelBridgePreview,
 } from "./vercel-setup-plan.js";
+
+export interface VercelBridgeLinearWebhookSetupResult {
+  mode: LinearWebhookSecretMode;
+  manualSteps: string[];
+  manualCopySecret?: string;
+}
 
 export interface VercelBridgeApplyResult {
   actionId: string;
@@ -30,6 +43,8 @@ export interface VercelBridgeApplyResult {
   projectName: string;
   writtenEnvKeys: string[];
   skippedEnvKeys: string[];
+  linearWebhookSetup: VercelBridgeLinearWebhookSetupResult;
+  verified: boolean;
   fingerprint: string;
   permission: typeof SETUP_PERMISSIONS.remoteSecretWrite;
 }
@@ -55,13 +70,58 @@ export async function applyVercelBridgeSetup(input: {
   if (!preview.selectedProject) {
     throw new Error("Vercel bridge project must be selected before apply.");
   }
+  if (!preview.webhookUrl) {
+    throw new Error(
+      "Vercel bridge webhook URL could not be resolved for the selected project.",
+    );
+  }
+
+  const generatedLinearWebhookSecret =
+    input.plan.envInput?.LINEAR_WEBHOOK_SECRET?.trim() ??
+    generateLinearWebhookSecret();
+
+  let linearWebhookSetup: VercelBridgeLinearWebhookSetupResult = {
+    mode: "manual-copy",
+    manualSteps: [],
+    manualCopySecret: undefined,
+  };
+
+  if (input.plan.linearApiKey?.trim()) {
+    const ensured = await ensureLinearIssueWebhook({
+      linearApiKey: input.plan.linearApiKey,
+      webhookUrl: preview.webhookUrl,
+      linearTeamId: input.plan.linearTeamId,
+      secret: generatedLinearWebhookSecret,
+    });
+    linearWebhookSetup = {
+      mode: ensured.mode,
+      manualSteps: ensured.manualSteps,
+      manualCopySecret:
+        ensured.mode === "automated" ? undefined : ensured.secret,
+    };
+  } else {
+    linearWebhookSetup = {
+      mode: "manual-copy",
+      manualSteps: [
+        "Add LINEAR_API_KEY in Step 1 before automated Linear webhook setup can run.",
+        "Copy the generated webhook secret into Linear when prompted.",
+      ],
+      manualCopySecret: generatedLinearWebhookSecret,
+    };
+  }
 
   const knownSecrets = collectRemoteSecretInputs({
     linearApiKey: input.plan.linearApiKey,
-    githubToken: input.plan.envInput?.GITHUB_DISPATCH_TOKEN,
+    githubToken:
+      input.plan.envInput?.GITHUB_DISPATCH_TOKEN ??
+      input.plan.derivedGithubDispatchToken,
   });
-  if (input.plan.envInput?.LINEAR_WEBHOOK_SECRET) {
-    knownSecrets.push(input.plan.envInput.LINEAR_WEBHOOK_SECRET);
+  knownSecrets.push(generatedLinearWebhookSecret);
+  if (input.plan.envInput?.GITHUB_DISPATCH_TOKEN) {
+    knownSecrets.push(input.plan.envInput.GITHUB_DISPATCH_TOKEN);
+  }
+  if (input.plan.derivedGithubDispatchToken) {
+    knownSecrets.push(input.plan.derivedGithubDispatchToken);
   }
 
   const existingEnv = await listVercelProjectEnvVars(
@@ -80,13 +140,13 @@ export async function applyVercelBridgeSetup(input: {
       continue;
     }
 
-    const value =
-      entry.key in REQUIRED_VERCEL_BRIDGE_ENV_VARS
-        ? input.plan.envInput?.[entry.key as keyof typeof input.plan.envInput]
-        : input.plan.envInput?.[entry.key as keyof typeof input.plan.envInput] ??
-          DEFAULT_VERCEL_BRIDGE_ENV_DEFAULTS[
-            entry.key as keyof typeof DEFAULT_VERCEL_BRIDGE_ENV_DEFAULTS
-          ];
+    const value = resolveVercelBridgeEnvValue({
+      key: entry.key,
+      envInput: input.plan.envInput,
+      derivedHarnessTeamKey: input.plan.derivedHarnessTeamKey,
+      derivedGithubDispatchToken: input.plan.derivedGithubDispatchToken,
+      generatedLinearWebhookSecret,
+    });
 
     if (!value?.trim()) {
       skippedEnvKeys.push(entry.key);
@@ -104,6 +164,31 @@ export async function applyVercelBridgeSetup(input: {
     writtenEnvKeys.push(entry.key);
   }
 
+  const postWriteEnv = await listVercelProjectEnvVars(
+    input.plan.vercelToken,
+    preview.selectedProject.id,
+    input.plan.teamId,
+  );
+  const requiredEnvPresence = summarizeRequiredEnvPresence(postWriteEnv);
+
+  let linearWebhookVerified = preview.linearWebhookVerified;
+  if (input.plan.linearApiKey?.trim()) {
+    const webhookSummary = await summarizeLinearWebhookReadiness({
+      linearApiKey: input.plan.linearApiKey,
+      webhookUrl: preview.webhookUrl,
+      teamId: input.plan.linearTeamId,
+    });
+    linearWebhookVerified = Boolean(webhookSummary.matchingWebhook);
+  }
+
+  const verified =
+    REQUIRED_VERCEL_BRIDGE_ENV_VARS.every(
+      (key) => requiredEnvPresence[key] === "present",
+    ) &&
+    (linearWebhookVerified ||
+      input.manualComplete === true ||
+      linearWebhookSetup.mode === "automated");
+
   const selection: VercelBridgeSelection = {
     teamId: input.plan.teamId,
     projectId: preview.selectedProject.id,
@@ -111,8 +196,8 @@ export async function applyVercelBridgeSetup(input: {
     productionUrl: preview.productionUrl ?? "",
     webhookUrl: preview.webhookUrl ?? "",
     endpointReachable: preview.endpointReachable,
-    envVarPresence: preview.requiredEnvPresence,
-    linearWebhookVerified: preview.linearWebhookVerified,
+    envVarPresence: requiredEnvPresence,
+    linearWebhookVerified,
     appliedFingerprint: preview.fingerprint,
     appliedAt: new Date().toISOString(),
     manualComplete: input.manualComplete,
@@ -120,11 +205,17 @@ export async function applyVercelBridgeSetup(input: {
 
   await updateControlPlaneSetupState({ vercel: selection }, input.cwd);
 
-  const serialized = JSON.stringify({
+  const resultPayload = {
     actionId: VERCEL_SETUP_ACTIONS.apply.id,
     writtenEnvKeys,
     skippedEnvKeys,
-  });
+    linearWebhookSetup: {
+      mode: linearWebhookSetup.mode,
+      manualSteps: linearWebhookSetup.manualSteps,
+    },
+    verified,
+  };
+  const serialized = JSON.stringify(resultPayload);
   for (const secret of knownSecrets) {
     if (serialized.includes(secret)) {
       throw new Error("Vercel bridge apply result leaked secret material");
@@ -137,6 +228,8 @@ export async function applyVercelBridgeSetup(input: {
     projectName: preview.selectedProject.name,
     writtenEnvKeys,
     skippedEnvKeys,
+    linearWebhookSetup,
+    verified,
     fingerprint: preview.fingerprint,
     permission: VERCEL_SETUP_ACTIONS.apply.permission,
   };

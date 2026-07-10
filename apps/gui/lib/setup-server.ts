@@ -70,6 +70,12 @@ import {
 import { buildVercelSetupSummary } from "@harness/setup/vercel-setup-summary";
 import { previewVercelBridgeSetup } from "@harness/setup/vercel-setup-plan";
 import { loadSecretFromEnvLocal } from "@harness/setup/service-verification";
+import { readControlPlaneSetupState } from "@harness/setup/control-plane-setup-state";
+import { assessGitHubDispatchTokenEligibility } from "@harness/setup/github-dispatch-token";
+import {
+  loadVercelBridgeOptions,
+  loadVercelBridgeProjectsForScope,
+} from "@harness/setup/vercel-bridge-options";
 import type {
   RemoteHarnessSecretApplyResult,
   RemoteHarnessSecretPreview,
@@ -289,6 +295,39 @@ async function loadVercelToken(cwd: string): Promise<string | undefined> {
   return loadSecretFromEnvLocal({ cwd, key: "VERCEL_TOKEN" });
 }
 
+async function enrichVercelBridgePlan(
+  cwd: string,
+  plan: Omit<VercelBridgePlanInput, "vercelToken" | "linearApiKey"> & {
+    vercelToken?: string;
+    linearApiKey?: string;
+  },
+): Promise<VercelBridgePlanInput> {
+  const vercelToken = plan.vercelToken ?? (await loadVercelToken(cwd)) ?? "";
+  const linearApiKey = plan.linearApiKey ?? (await loadLinearApiKey(cwd));
+  const githubToken = await loadSecretFromEnvLocal({ cwd, key: "GITHUB_TOKEN" });
+  const controlPlane = await readControlPlaneSetupState(cwd);
+  const dispatchEligibility = await assessGitHubDispatchTokenEligibility({
+    githubToken,
+    cwd,
+  });
+
+  return {
+    ...plan,
+    vercelToken,
+    linearApiKey,
+    linearTeamId: plan.linearTeamId ?? controlPlane?.linear?.teamId,
+    derivedHarnessTeamKey:
+      plan.derivedHarnessTeamKey ?? controlPlane?.linear?.teamKey,
+    derivedGithubDispatchToken:
+      plan.envInput?.GITHUB_DISPATCH_TOKEN?.trim() || !dispatchEligibility.eligible
+        ? undefined
+        : githubToken,
+    willGenerateLinearWebhookSecret:
+      plan.willGenerateLinearWebhookSecret ??
+      !plan.envInput?.LINEAR_WEBHOOK_SECRET?.trim(),
+  };
+}
+
 export async function loadLinearSetupSummary() {
   return buildLinearSetupSummary(resolveCwd());
 }
@@ -349,6 +388,26 @@ export async function applyLinearSetupRemote(options: {
   return { apply, summary };
 }
 
+export async function loadVercelBridgeOptionsRemote(input?: {
+  teamId?: string;
+}) {
+  const cwd = resolveCwd();
+  const vercelToken = (await loadVercelToken(cwd)) ?? "";
+  const githubToken = await loadSecretFromEnvLocal({ cwd, key: "GITHUB_TOKEN" });
+  return loadVercelBridgeOptions({
+    vercelToken,
+    githubToken,
+    cwd,
+    teamId: input?.teamId,
+  });
+}
+
+export async function loadVercelBridgeProjectsRemote(teamId?: string) {
+  const cwd = resolveCwd();
+  const vercelToken = (await loadVercelToken(cwd)) ?? "";
+  return loadVercelBridgeProjectsForScope({ vercelToken, teamId });
+}
+
 export async function previewVercelBridgeRemote(
   payload: Omit<VercelBridgePlanInput, "vercelToken" | "linearApiKey"> & {
     vercelToken?: string;
@@ -356,13 +415,8 @@ export async function previewVercelBridgeRemote(
   },
 ): Promise<VercelBridgePreview> {
   const cwd = resolveCwd();
-  const vercelToken = payload.vercelToken ?? (await loadVercelToken(cwd)) ?? "";
-  const linearApiKey = payload.linearApiKey ?? (await loadLinearApiKey(cwd));
-  return previewVercelBridgeSetup({
-    ...payload,
-    vercelToken,
-    linearApiKey,
-  });
+  const plan = await enrichVercelBridgePlan(cwd, payload);
+  return previewVercelBridgeSetup(plan);
 }
 
 export async function applyVercelBridgeRemote(options: {
@@ -378,12 +432,9 @@ export async function applyVercelBridgeRemote(options: {
   summary: Awaited<ReturnType<typeof buildVercelSetupSummary>>;
 }> {
   const cwd = resolveCwd();
-  const vercelToken =
-    options.plan.vercelToken ?? (await loadVercelToken(cwd)) ?? "";
-  const linearApiKey =
-    options.plan.linearApiKey ?? (await loadLinearApiKey(cwd));
+  const plan = await enrichVercelBridgePlan(cwd, options.plan);
   const apply = await applyVercelBridgeSetup({
-    plan: { ...options.plan, vercelToken, linearApiKey },
+    plan,
     confirmed: options.confirmed,
     fingerprint: options.fingerprint,
     manualComplete: options.manualComplete,
