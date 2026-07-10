@@ -47,7 +47,6 @@ interface ConfigureWorkflowProps {
   mode?: "guided" | "advanced";
   guidedStep?: GuidedLocalStep;
   onGuidedStepChange?: (step: GuidedLocalStep) => void;
-  onGuidedLocalSetupComplete?: () => void;
   initialEnv: {
     harnessConfigPath: string;
     githubDispatchRepository: string;
@@ -80,7 +79,6 @@ export function ConfigureWorkflow({
   mode = "advanced",
   guidedStep: guidedStepProp,
   onGuidedStepChange,
-  onGuidedLocalSetupComplete,
   initialEnv,
   initialConfig,
   highlightStaleDispatch = false,
@@ -497,7 +495,6 @@ export function ConfigureWorkflow({
       setApplySuccess(true);
       setApplySummary(data.summary as SetupGuiViewModel);
       onSummaryUpdated?.(data.summary as SetupGuiViewModel);
-      onGuidedLocalSetupComplete?.();
       setPresence({
         LINEAR_API_KEY: data.summary.envKeyPresence.LINEAR_API_KEY,
         CURSOR_API_KEY: data.summary.envKeyPresence.CURSOR_API_KEY,

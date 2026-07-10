@@ -318,12 +318,15 @@ describe("M6 configure GUI boundaries", () => {
       "utf8",
     );
 
-    expect(experienceSource).toContain("guidedLocalSetupActive");
     expect(experienceSource).toContain("guidedWorkflowStep");
     expect(experienceSource).toContain('key="guided-local-setup-workflow"');
     expect(experienceSource).toContain("onGuidedStepChange={setGuidedWorkflowStep}");
     expect(experienceSource).toContain("guidedStep={guidedWorkflowStep}");
-    expect(experienceSource).toContain("onGuidedLocalSetupComplete");
+    expect(experienceSource).toContain('readiness.currentStepId === "local-setup"');
+    expect(experienceSource).not.toContain("guidedLocalSetupActive");
+    expect(experienceSource).toContain("Local readiness checks");
+    expect(experienceSource).toContain("localReadinessReviewed");
+    expect(experienceSource).toContain("Continue to remote setup");
     expect(workflowSource).toContain("previewError");
     expect(workflowSource).toContain("setPreviewError");
     expect(workflowSource).toMatch(
@@ -331,5 +334,46 @@ describe("M6 configure GUI boundaries", () => {
     );
     expect(workflowSource).toContain("guidedStepProp");
     expect(workflowSource).toContain("onGuidedStepChange");
+    expect(workflowSource).not.toContain("onGuidedLocalSetupComplete");
+  });
+
+  it("guided local setup renders only for local-setup readiness step", () => {
+    const experienceSource = readFileSync(
+      path.join(repoRoot, "apps/gui/components/custom/configure-experience.tsx"),
+      "utf8",
+    );
+
+    expect(experienceSource).toContain(
+      'if (readiness.currentStepId === "local-setup")',
+    );
+    expect(experienceSource).toContain('case "local-readiness":');
+    expect(experienceSource).not.toMatch(
+      /guidedLocalSetupActive[\s\S]*readiness\.currentStepId === "local-setup"/,
+    );
+  });
+
+  it("back to guided flow does not force local setup wizard state", () => {
+    const experienceSource = readFileSync(
+      path.join(repoRoot, "apps/gui/components/custom/configure-experience.tsx"),
+      "utf8",
+    );
+
+    expect(experienceSource).toContain('onClick={() => setMode("guided")}');
+    expect(experienceSource).not.toContain("setGuidedLocalSetupActive(true)");
+    expect(experienceSource).not.toContain("guidedLocalSetupActive");
+  });
+
+  it("guided local readiness panel appears after local setup completes", () => {
+    const experienceSource = readFileSync(
+      path.join(repoRoot, "apps/gui/components/custom/configure-experience.tsx"),
+      "utf8",
+    );
+
+    expect(experienceSource).toContain(
+      "Local setup files were created. Next, check whether this machine is ready to run the harness.",
+    );
+    expect(experienceSource).toContain("<DoctorChecklist checks={summary.doctor.checks} />");
+    expect(experienceSource).toContain("switch (readiness.currentStepId)");
+    expect(experienceSource).not.toContain("readiness.primaryTask?.stepId");
   });
 });

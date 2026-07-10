@@ -54,6 +54,8 @@ export interface FirstRunStep {
 export interface FirstRunReadinessUiState {
   localPreviewStale?: boolean;
   remoteSecretPreviewStale?: boolean;
+  /** Set when the operator finishes reviewing local readiness and continues. */
+  localReadinessReviewed?: boolean;
 }
 
 export interface PrimarySetupTask {
@@ -77,6 +79,8 @@ export interface FirstRunReadiness {
   staleSmokeDiagnostics: StaleSmokeDiagnostics;
   remoteSetupBlockedByUpstream: boolean;
   readyForFirstRun: boolean;
+  localReadinessBlockersCleared: boolean;
+  localReadinessReviewed: boolean;
   nonBlockingWarnings: ReadinessBlocker[];
   prohibitedActionsNote: string;
 }
@@ -676,10 +680,13 @@ export function deriveFirstRunReadiness(input: {
   );
 
   const localSetupComplete = localSetupBlockers.length === 0;
-  const localReadinessComplete =
+  const localReadinessBlockersCleared =
     localSetupComplete &&
     localReadiness.blockers.length === 0 &&
     input.summary.overview.readyForLocalDoctor;
+  const localReadinessReviewed = input.uiState?.localReadinessReviewed ?? false;
+  const localReadinessComplete =
+    localReadinessBlockersCleared && localReadinessReviewed;
   const remoteSetupComplete =
     localReadinessComplete && remoteSetup.blockers.length === 0;
   const readyForFirstRun = remoteSetupComplete;
@@ -793,6 +800,8 @@ export function deriveFirstRunReadiness(input: {
       staleSmokeDiagnostics,
     ),
     readyForFirstRun,
+    localReadinessBlockersCleared,
+    localReadinessReviewed,
     nonBlockingWarnings,
     prohibitedActionsNote: PROHIBITED_ACTIONS_NOTE,
   };

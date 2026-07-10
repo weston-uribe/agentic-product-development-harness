@@ -228,13 +228,41 @@ describe("first-run-readiness", () => {
     const readiness = deriveFirstRunReadiness({ summary, remoteSummary });
     const blockers = collectRemoteSetupBlockers(summary, remoteSummary).blockers;
 
-    expect(readiness.currentStepId).toBe("remote-setup");
+    expect(readiness.currentStepId).toBe("local-readiness");
     expect(blockers.some((blocker) => blocker.id === "missing-github-token-remote")).toBe(
       true,
     );
     expect(blockers.some((blocker) => blocker.id === "harness-repo-access-denied")).toBe(
       true,
     );
+  });
+
+  it("advances to remote setup after local readiness is reviewed", () => {
+    const summary = completeLocalSummary();
+    const remoteSummary = baseRemoteSummary({
+      githubTokenConfigured: false,
+      harnessRepoAccess: "denied",
+    });
+
+    const readiness = deriveFirstRunReadiness({
+      summary,
+      remoteSummary,
+      uiState: { localReadinessReviewed: true },
+    });
+
+    expect(readiness.currentStepId).toBe("remote-setup");
+  });
+
+  it("keeps local readiness as the current step after local setup files exist", () => {
+    const summary = completeLocalSummary();
+    const readiness = deriveFirstRunReadiness({
+      summary,
+      remoteSummary: baseRemoteSummary({ githubTokenConfigured: true }),
+    });
+
+    expect(readiness.currentStepId).toBe("local-readiness");
+    expect(readiness.localReadinessBlockersCleared).toBe(true);
+    expect(readiness.localReadinessReviewed).toBe(false);
   });
 
   it("blocks step 3 when harness secrets or target workflows are incomplete", () => {
@@ -317,7 +345,11 @@ describe("first-run-readiness", () => {
       ],
     });
 
-    const readiness = deriveFirstRunReadiness({ summary, remoteSummary });
+    const readiness = deriveFirstRunReadiness({
+      summary,
+      remoteSummary,
+      uiState: { localReadinessReviewed: true },
+    });
 
     expect(readiness.readyForFirstRun).toBe(true);
     expect(readiness.currentStepId).toBe("ready-for-first-run");
