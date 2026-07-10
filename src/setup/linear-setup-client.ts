@@ -27,6 +27,7 @@ export interface LinearWebhookSummary {
   enabled: boolean;
   resourceTypes: string[];
   teamId?: string;
+  secret?: string;
 }
 
 export interface LinearSetupCapabilities {
@@ -198,7 +199,7 @@ export function isDuplicateWorkflowStateError(error: unknown): boolean {
 
 export async function createLinearIssueWebhook(
   client: LinearClient,
-  input: { url: string; teamId?: string; label?: string },
+  input: { url: string; teamId?: string; label?: string; secret?: string },
 ): Promise<LinearWebhookSummary> {
   const payload = await client.createWebhook({
     url: input.url,
@@ -206,17 +207,23 @@ export async function createLinearIssueWebhook(
     resourceTypes: ["Issue"],
     teamId: input.teamId,
     allPublicTeams: input.teamId ? undefined : true,
+    ...(input.secret ? { secret: input.secret } : {}),
   });
   const webhook = await payload.webhook;
   if (!webhook) {
     throw new Error("Linear webhook creation did not return a webhook");
   }
+  const secret =
+    typeof (webhook as { secret?: unknown }).secret === "string"
+      ? ((webhook as { secret?: string }).secret ?? undefined)
+      : input.secret;
   return {
     id: webhook.id,
     url: webhook.url ?? input.url,
     enabled: webhook.enabled ?? true,
     resourceTypes: webhook.resourceTypes ?? ["Issue"],
     teamId: webhook.teamId ?? input.teamId,
+    secret,
   };
 }
 

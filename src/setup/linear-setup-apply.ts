@@ -43,6 +43,8 @@ export interface LinearSetupApplyResult {
   project: LinearProjectSummary;
   created: string[];
   skipped: string[];
+  statusCoverageComplete: boolean;
+  verified: boolean;
   fingerprint: string;
   permission: typeof SETUP_PERMISSIONS.linearWrite;
   configUpdated: boolean;
@@ -257,6 +259,8 @@ export async function applyLinearSetup(input: {
     project,
     created,
     skipped,
+    statusCoverageComplete,
+    verified: Boolean(team.id && project.id && statusCoverageComplete),
     fingerprint: preview.fingerprint,
     permission: LINEAR_SETUP_ACTIONS.apply.permission,
     configUpdated,
