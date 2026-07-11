@@ -36,7 +36,6 @@ import {
   createGuidedRepoRowId,
   guidedRowsFromConfig,
   guidedRowsToConfigRepos,
-  GITHUB_TOKEN_SOURCE_HINT,
   isRepoVerifiedForActiveToken,
   isServiceVerifiedForValue,
   resolveActiveGitHubToken,
@@ -233,6 +232,15 @@ export function ConfigureWorkflow({
     serviceConnectionReady("GITHUB_TOKEN") &&
     serviceConnectionReady("VERCEL_TOKEN");
 
+  const servicesPersistedReady =
+    presence.LINEAR_API_KEY &&
+    presence.CURSOR_API_KEY &&
+    presence.GITHUB_TOKEN &&
+    presence.VERCEL_TOKEN;
+
+  const isGuidedLocalSetupStep =
+    mode === "guided" && guidedStep === "choose-target-repos";
+
   const activeGithubToken = useMemo(
     () =>
       resolveActiveGitHubToken({
@@ -241,10 +249,6 @@ export function ConfigureWorkflow({
       }),
     [envValues.githubToken, presence.GITHUB_TOKEN],
   );
-
-  const githubTokenSourceHint = activeGithubToken
-    ? GITHUB_TOKEN_SOURCE_HINT[activeGithubToken.source]
-    : undefined;
 
   const guidedRepos =
     preparedConfig.repos.length > 0
@@ -542,22 +546,28 @@ export function ConfigureWorkflow({
     [activeGithubToken?.fingerprint, guidedRepoRows, repoVerification, verifyRepo],
   );
 
+  const runPreview = useCallback(async (): Promise<LocalSetupPreviewResult> => {
+    const response = await fetch("/api/setup/preview-local-files", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(currentPayload),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error ?? "Preview failed");
+    }
+    const result = data as LocalSetupPreviewResult;
+    setPreview(result);
+    setPreviewPayload(currentPayload);
+    return result;
+  }, [currentPayload]);
+
   const handlePreview = useCallback(async () => {
     setLoading("preview");
     setPreviewError(null);
     setConfirmed(false);
     try {
-      const response = await fetch("/api/setup/preview-local-files", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(currentPayload),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error ?? "Preview failed");
-      }
-      setPreview(data as LocalSetupPreviewResult);
-      setPreviewPayload(currentPayload);
+      await runPreview();
       setShowPreviewDisclosure(true);
     } catch (previewFailure) {
       setPreview(null);
@@ -571,7 +581,7 @@ export function ConfigureWorkflow({
     } finally {
       setLoading(null);
     }
-  }, [currentPayload]);
+  }, [runPreview]);
 
   const handlePreviewDisclosureOpenChange = useCallback(
     (open: boolean) => {
@@ -584,20 +594,36 @@ export function ConfigureWorkflow({
   );
 
   const handleApply = async () => {
-    if (!preview || !previewIsCurrent || !confirmed) {
+    if (isGuidedLocalSetupStep) {
+      if (!confirmed) {
+        return;
+      }
+    } else if (!preview || !previewIsCurrent || !confirmed) {
       return;
     }
 
     setLoading("apply");
     resetApplyState();
     try {
+      const applyPreview = isGuidedLocalSetupStep
+        ? previewIsCurrent && preview
+          ? preview
+          : await runPreview()
+        : preview;
+      if (!applyPreview) {
+        throw new Error("Preview failed");
+      }
+      if (applyPreview.validationError) {
+        throw new Error(applyPreview.validationError);
+      }
+
       const response = await fetch("/api/setup/apply-local-files", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...currentPayload,
           confirmed: true,
-          fingerprint: preview.fingerprint,
+          fingerprint: applyPreview.fingerprint,
         }),
       });
       const data = await response.json();
@@ -662,12 +688,29 @@ export function ConfigureWorkflow({
 
   const canCreateSetupFiles =
     loading === null &&
-    connectServicesReady &&
+    servicesPersistedReady &&
     targetReposReady &&
     allReposVerified &&
-    previewIsCurrent &&
-    !preview?.validationError &&
     confirmed;
+
+  const guidedApplyBlockedReason =
+    loading !== null
+      ? "Wait for the current action to finish."
+      : !servicesPersistedReady
+        ? "Complete Step 1 service setup before creating local files."
+        : !targetReposReady
+          ? "Enter a valid GitHub target repo URL for each repo row to continue."
+          : !allReposVerified
+            ? `Verify access for each target repo before ${
+                localSetupFilesExist ? "updating" : "creating"
+              } setup files.`
+            : !confirmed
+              ? `Confirm that you understand local setup files will be ${
+                  localSetupFilesExist ? "updated" : "created"
+                } on this machine.`
+              : preview?.validationError
+                ? "Fix validation errors before creating setup files."
+                : undefined;
 
   const guidedLocalSetupActionLabel = localSetupFilesExist
     ? "Update local setup files"
@@ -738,9 +781,14 @@ export function ConfigureWorkflow({
                 values={guidedConfigValues}
                 highlightStaleTarget={highlightStaleTarget}
                 variant="guided-minimal"
-                suggestedHarnessDispatchRepo={
-                  initialEnv.suggestedHarnessDispatchRepo
-                }
+                harnessDispatchRepository={envValues.githubDispatchRepository}
+                onHarnessDispatchRepositoryChange={(value) => {
+                  invalidatePreview();
+                  setEnvValues((current) => ({
+                    ...current,
+                    githubDispatchRepository: value,
+                  }));
+                }}
                 guidedRepos={guidedRepoRows}
                 repoVerification={repoVerification}
                 verifyingRepoRowId={verifyingRepoRowId}
@@ -755,7 +803,6 @@ export function ConfigureWorkflow({
                 }}
                 onVerifyRepo={verifyRepo}
                 onRepoBlur={handleRepoBlur}
-                githubTokenSourceHint={githubTokenSourceHint}
                 activeGithubTokenFingerprint={activeGithubToken?.fingerprint ?? null}
                 onAddRepo={() => {
                   invalidatePreview();
@@ -811,9 +858,7 @@ export function ConfigureWorkflow({
                   intent={localSetupFilesExist ? "update" : "create"}
                   plan={previewIsCurrent ? preview?.plan : undefined}
                   confirmed={confirmed}
-                  disabled={
-                    !previewIsCurrent || Boolean(preview?.validationError)
-                  }
+                  disabled={Boolean(preview?.validationError)}
                   disabledReason={guidedConfirmDisabledReason}
                   onConfirmedChange={setConfirmed}
                 />
@@ -831,25 +876,9 @@ export function ConfigureWorkflow({
                     : guidedLocalSetupActionLabel}
                 </Button>
               </div>
-              {!targetReposReady ? (
+              {!canCreateSetupFiles && guidedApplyBlockedReason ? (
                 <p className="text-sm text-muted-foreground">
-                  Enter a valid GitHub target repo URL for each repo row to
-                  continue.
-                </p>
-              ) : !allReposVerified ? (
-                <p className="text-sm text-muted-foreground">
-                  Verify access for each target repo before{" "}
-                  {localSetupFilesExist ? "updating" : "creating"} setup files.
-                </p>
-              ) : !previewIsCurrent ? (
-                <p className="text-sm text-muted-foreground">
-                  Open Review generated files to preview the local changes
-                  before confirming.
-                </p>
-              ) : !confirmed ? (
-                <p className="text-sm text-muted-foreground">
-                  Confirm that you understand local setup files will be{" "}
-                  {localSetupFilesExist ? "updated" : "created"} on this machine.
+                  {guidedApplyBlockedReason}
                 </p>
               ) : null}
             </SectionCard>
