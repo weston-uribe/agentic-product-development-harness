@@ -113,4 +113,70 @@ describe("configure GUI fix loop", () => {
     expect(source).not.toContain("GITHUB_TOKEN");
     expect(source).not.toContain("LINEAR_WEBHOOK_SECRET");
   });
+
+  it("Step 4 uses clear copy, optional preview, and correct apply gating", () => {
+    const targetSource = readFileSync(
+      path.join(
+        repoRoot,
+        "apps/gui/components/custom/target-repo-config-form.tsx",
+      ),
+      "utf8",
+    );
+    const workflowSource = readFileSync(
+      path.join(
+        repoRoot,
+        "apps/gui/components/custom/configure-workflow.tsx",
+      ),
+      "utf8",
+    );
+
+    const guidedMinimalStart = targetSource.indexOf('if (variant === "guided-minimal")');
+    const guidedMinimalEnd = targetSource.indexOf(
+      "  const repo = values.repos[0]",
+      guidedMinimalStart,
+    );
+    const guidedMinimalSource = targetSource.slice(
+      guidedMinimalStart,
+      guidedMinimalEnd,
+    );
+
+    expect(guidedMinimalSource).toContain(
+      "GitHub repo for the harness setup",
+    );
+    expect(guidedMinimalSource).not.toContain(
+      "Used for remote setup checks later",
+    );
+    expect(guidedMinimalSource).not.toContain("Using saved GitHub token");
+    expect(guidedMinimalSource).not.toContain(
+      "Verification checks read access",
+    );
+    expect(guidedMinimalSource).toContain("Copy-paste the main repo URL.");
+    expect(guidedMinimalSource).toContain(
+      '<ConnectedStatusMessage message="Connected" />',
+    );
+
+    const guidedStep4Start = workflowSource.indexOf(
+      'case "choose-target-repos":',
+    );
+    const guidedStep4End = workflowSource.indexOf(
+      "            </SectionCard>\n          );",
+      guidedStep4Start,
+    );
+    const guidedStep4Source = workflowSource.slice(
+      guidedStep4Start,
+      guidedStep4End + "            </SectionCard>\n          );".length,
+    );
+
+    expect(guidedStep4Source).toContain("ReviewGeneratedFilesDisclosure");
+    expect(guidedStep4Source).toContain(
+      "disabled={Boolean(preview?.validationError)}",
+    );
+    expect(guidedStep4Source).not.toContain("githubTokenSourceHint");
+    expect(workflowSource).toContain("servicesPersistedReady");
+    expect(workflowSource).toContain("guidedApplyBlockedReason");
+    expect(workflowSource).toMatch(
+      /previewIsCurrent && preview[\s\S]*\? preview[\s\S]*: await runPreview\(\)/,
+    );
+    expect(workflowSource).toContain("onGuidedLocalApplySuccess?.()");
+  });
 });

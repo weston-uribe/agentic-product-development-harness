@@ -180,7 +180,7 @@ describe("M6 configure GUI boundaries", () => {
     expect(workflowSource).toContain("Step 1 of ${GUIDED_SETUP_STEP_COUNT}");
     expect(workflowSource).toContain("Step 4 of ${GUIDED_SETUP_STEP_COUNT}");
     expect(workflowSource).toContain("Create local setup files");
-    expect(workflowSource).toContain("Review generated files");
+    expect(workflowSource).toContain("ReviewGeneratedFilesDisclosure");
     expect(workflowSource).toContain("/api/setup/verify-service");
     expect(workflowSource).toContain("/api/setup/verify-target-repo");
     expect(workflowSource).not.toContain("Step 3 of 3");
@@ -251,7 +251,7 @@ describe("M6 configure GUI boundaries", () => {
 
     expect(localSource).toContain("LocalWriteConfirmation");
     expect(localSource).toContain("confirmed: true");
-    expect(localSource).toContain("fingerprint: preview.fingerprint");
+    expect(localSource).toContain("fingerprint: applyPreview.fingerprint");
     expect(localSource).toContain("disabledReason");
     expect(remoteSource).toContain("RemoteActionConfirmation");
     expect(remoteSource).toContain("confirmed: true");
@@ -644,7 +644,7 @@ describe("M6 configure GUI boundaries", () => {
       GITHUB_TOKEN_HELP_DISCLOSURE_LABEL,
     );
     expect(targetSource).toContain("Verify repo + workflow access");
-    expect(targetSource).toContain("workflow install capability");
+    expect(targetSource).toContain("Copy-paste the main repo URL.");
     expect(workflowSource).toContain("workflowInstallReady");
     expect(workflowSource).toContain("limitation: data.limitation");
   });
@@ -667,7 +667,7 @@ describe("M6 configure GUI boundaries", () => {
     expect(workflowSource).toContain("tokenContext?.tokenForRequest");
     expect(workflowSource).toContain("clearAllRepoVerification");
     expect(workflowSource).toContain("verifiedGithubTokenFingerprint");
-    expect(workflowSource).toContain("githubTokenSourceHint");
+    expect(workflowSource).toContain("servicesPersistedReady");
     expect(workflowSource).toContain("activeGithubTokenFingerprint");
     expect(workflowSource).not.toMatch(
       /envValues\.githubToken\.trim\(\)[\s\S]*?githubToken: envValues\.githubToken/,

@@ -52,6 +52,8 @@ interface TargetRepoConfigFormProps {
   onRepoBlur?: (rowId: string) => void;
   onAddRepo?: () => void;
   onRemoveRepo?: (rowId: string) => void;
+  harnessDispatchRepository?: string;
+  onHarnessDispatchRepositoryChange?: (value: string) => void;
   githubTokenSourceHint?: string;
   activeGithubTokenFingerprint?: string | null;
 }
@@ -70,6 +72,8 @@ export function TargetRepoConfigForm({
   onRepoBlur,
   onAddRepo,
   onRemoveRepo,
+  harnessDispatchRepository = "",
+  onHarnessDispatchRepositoryChange,
   githubTokenSourceHint,
   activeGithubTokenFingerprint = null,
 }: TargetRepoConfigFormProps) {
@@ -105,20 +109,22 @@ export function TargetRepoConfigForm({
 
     return (
       <div className="space-y-6">
-        {suggestedHarnessDispatchRepo ? (
-          <div className={FORM.fieldStack}>
-            <Label>Harness repo</Label>
-            <p className="text-sm font-medium">{suggestedHarnessDispatchRepo}</p>
-            <p className={FORM.secretHint}>
-              Inferred from git remote origin. Used for remote setup checks
-              later.
-            </p>
-          </div>
-        ) : null}
-
-        {githubTokenSourceHint ? (
-          <p className="text-sm text-muted-foreground">{githubTokenSourceHint}</p>
-        ) : null}
+        <div className={FORM.fieldStack}>
+          <Label htmlFor="harness-dispatch-repository-guided">Harness repo</Label>
+          <Input
+            id="harness-dispatch-repository-guided"
+            value={harnessDispatchRepository}
+            onChange={(event) =>
+              onHarnessDispatchRepositoryChange?.(event.target.value)
+            }
+            autoComplete="off"
+          />
+          <p className={FORM.secretHint}>
+            This is the GitHub repo for the harness setup. It is prefilled from
+            your git remote when available. If it is not correct, you can change
+            it.
+          </p>
+        </div>
 
         <div className="space-y-4">
           {repos.map((repo, index) => {
@@ -184,11 +190,7 @@ export function TargetRepoConfigForm({
                     }
                     autoComplete="off"
                   />
-                  <p className={FORM.secretHint}>
-                    The GitHub repo where harness work should land. Verification
-                    checks read access and workflow install capability for this
-                    token.
-                  </p>
+                  <p className={FORM.secretHint}>Copy-paste the main repo URL.</p>
                   {highlightStaleTarget && index === 0 ? (
                     <p className={FORM.secretHint}>
                       Enter the target repo you actually intend to use. The app
@@ -197,8 +199,8 @@ export function TargetRepoConfigForm({
                   ) : null}
                 </div>
 
-                {verifiedForCurrentUrl && verification.message ? (
-                  <ConnectedStatusMessage message={verification.message} />
+                {verifiedForCurrentUrl ? (
+                  <ConnectedStatusMessage message="Connected" />
                 ) : failedForCurrentUrl && verification.message ? (
                   <ConnectedStatusMessage
                     message={verification.message}
