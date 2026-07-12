@@ -829,6 +829,23 @@ describe("M6 configure GUI boundaries", () => {
     );
   });
 
+  it("explicit Continue handler advances Step 6 to Step 7 target workflow", () => {
+    const experienceSource = readFileSync(
+      path.join(repoRoot, "apps/gui/components/custom/configure-experience.tsx"),
+      "utf8",
+    );
+
+    expect(experienceSource).toContain("handleCloudSecretsReviewed");
+    expect(experienceSource).toContain(
+      "setDisplayedGuidedStep(GUIDED_DISPLAY_STEP_AFTER_CLOUD_SECRETS)",
+    );
+    expect(experienceSource).toContain(
+      "onContinue={handleCloudSecretsReviewed}",
+    );
+    expect(experienceSource).toContain('case "cloud-secrets":');
+    expect(experienceSource).toContain('case "target-workflow":');
+  });
+
   it("top nav renders the theme toggle", () => {
     const appShellSource = readFileSync(
       path.join(repoRoot, "apps/gui/components/custom/app-shell.tsx"),

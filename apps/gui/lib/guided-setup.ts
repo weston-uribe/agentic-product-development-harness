@@ -106,6 +106,10 @@ export const GUIDED_DISPLAY_STEP_AFTER_WORKFLOW_READY: GuidedDisplayStepId =
 export const GUIDED_DISPLAY_STEP_AFTER_CONNECT_SERVICES: GuidedDisplayStepId =
   "linear-workspace";
 
+/** Guided display step after cloud secrets are verified and reviewed in Step 6. */
+export const GUIDED_DISPLAY_STEP_AFTER_CLOUD_SECRETS: GuidedDisplayStepId =
+  "target-workflow";
+
 /**
  * Default guided screen after mount or when readiness advances forward.
  * Does not resurrect a manually visited earlier sub-step from browser/session storage.

@@ -251,4 +251,66 @@ describe("configure GUI fix loop", () => {
     expect(manualRouteSource).toContain("confirmedSensitiveReveal");
     expect(manualRouteSource).not.toMatch(/console\.(log|info|debug|warn|error)/);
   });
+
+  it("Step 6 Continue advances to Step 7 target workflow UI", () => {
+    const cloudSecretsSource = readFileSync(
+      path.join(
+        repoRoot,
+        "apps/gui/components/custom/guided-cloud-secrets-card.tsx",
+      ),
+      "utf8",
+    );
+    const experienceSource = readFileSync(
+      path.join(
+        repoRoot,
+        "apps/gui/components/custom/configure-experience.tsx",
+      ),
+      "utf8",
+    );
+    const targetWorkflowSource = readFileSync(
+      path.join(
+        repoRoot,
+        "apps/gui/components/custom/guided-target-workflow-card.tsx",
+      ),
+      "utf8",
+    );
+
+    // before: verified success shows Continue
+    expect(cloudSecretsSource).toContain("canContinue");
+    expect(cloudSecretsSource).toContain("verifiedAutomaticSuccess");
+    expect(cloudSecretsSource).toContain("verifiedManualSuccess");
+    expect(cloudSecretsSource).toMatch(
+      /\{canContinue \?[\s\S]*Continue to target workflow/,
+    );
+    expect(cloudSecretsSource).toContain("!readiness.cloudSecretsReviewed");
+
+    // action: clicking Continue calls the parent handler
+    expect(cloudSecretsSource).toContain("onClick={onContinue}");
+    expect(experienceSource).toContain("handleCloudSecretsReviewed");
+    expect(experienceSource).toContain(
+      "onContinue={handleCloudSecretsReviewed}",
+    );
+
+    // after: handler advances guided display to Step 7
+    expect(experienceSource).toContain("GUIDED_DISPLAY_STEP_AFTER_CLOUD_SECRETS");
+    const continueHandler = experienceSource.match(
+      /const handleCloudSecretsReviewed = useCallback\([\s\S]*?\n  \);/,
+    )?.[0];
+    expect(continueHandler).toBeDefined();
+    expect(continueHandler).toContain("cloudSecretsReviewed: true");
+    expect(continueHandler).toContain(
+      "setDisplayedGuidedStep(GUIDED_DISPLAY_STEP_AFTER_CLOUD_SECRETS)",
+    );
+    expect(experienceSource).toMatch(
+      /case "target-workflow":[\s\S]*GuidedTargetWorkflowCard/,
+    );
+    expect(targetWorkflowSource).toContain(
+      `Step 7 of \${GUIDED_SETUP_STEP_COUNT}`,
+    );
+
+    // Continue must not trigger remote writes or harness phases
+    expect(continueHandler).not.toContain("fetch(");
+    expect(continueHandler).not.toContain("dispatch");
+    expect(continueHandler).not.toMatch(/apply-harness-secrets|delete/i);
+  });
 });

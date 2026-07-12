@@ -21,6 +21,7 @@ import {
   GUIDED_DISPLAY_STEP_AFTER_LOCAL_APPLY,
   GUIDED_DISPLAY_STEP_AFTER_WORKFLOW_READY,
   GUIDED_DISPLAY_STEP_AFTER_CONNECT_SERVICES,
+  GUIDED_DISPLAY_STEP_AFTER_CLOUD_SECRETS,
   localSetupFilesExist,
   shouldReadinessAdvanceGuidedDisplay,
   shouldShowGuidedBackButton,
@@ -280,6 +281,7 @@ export function ConfigureExperience({
       ...current,
       cloudSecretsReviewed: true,
     }));
+    setDisplayedGuidedStep(GUIDED_DISPLAY_STEP_AFTER_CLOUD_SECRETS);
   }, []);
 
   const handleSummaryUpdated = useCallback((nextSummary: SetupGuiViewModel) => {
