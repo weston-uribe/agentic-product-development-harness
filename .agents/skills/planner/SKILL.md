@@ -204,7 +204,7 @@ For each slice, include:
 - Validation commands/checks
 - Known risks and open questions
 
-The planner does **not** create implementation branches or PRs. The later `implementation` skill (planned) should consume one selected slice and perform code changes.
+The planner does **not** create implementation branches or PRs. The implemented [`.agents/skills/implementation/SKILL.md`](../implementation/SKILL.md) should consume one selected slice and perform code changes.
 
 ## Planning process
 

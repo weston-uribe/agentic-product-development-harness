@@ -204,7 +204,9 @@ Planning is **optional** in the target Linear workflow. Low-risk issues may bypa
 
 **Implemented (Milestone 8):** Event-driven auto-runner — Vercel webhook bridge verifies Linear signatures, filters to dispatch allowlist statuses, and triggers GitHub Actions via `repository_dispatch`. See [`docs/milestones/m8-linear-watcher.md`](docs/milestones/m8-linear-watcher.md).
 
-**Still deferred:** Additional skills beyond issue intake. See [`docs/skills/skill-architecture.md`](docs/skills/skill-architecture.md) for planned architecture concepts.
+**Implemented (skills):** Initial canonical skill set — `issue-intake`, `code-health-audit`, `planner`, and `implementation` at [`.agents/skills/`](.agents/skills/). See [`docs/skills/skill-architecture.md`](docs/skills/skill-architecture.md).
+
+**Still deferred:** Additional audit skills (`architecture-evolution-audit`, `security-audit`, `performance-cost-audit`), skill registry/package manager, skill manifests, provider/client adapters, and runner-skill prompt integration. SDK runners continue to use [`src/prompts/`](src/prompts/) today.
 
 **State machine:** [`docs/architecture/linear-automation-state-machine.md`](docs/architecture/linear-automation-state-machine.md)
 

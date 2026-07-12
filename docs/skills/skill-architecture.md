@@ -93,13 +93,15 @@ Used directly by the operator in an agent client (Cursor, future clients). The o
 
 ### Runner / agent phase skills
 
-Reusable contracts used by harness phases or cloud agents when triggered by Linear status or runner orchestration. These are distinct from operator-invoked skills.
+Reusable workflow contracts aligned with harness phases and cloud agent runs. They describe what an agent should do when planning or implementing work; they are distinct from operator-invoked skills.
+
+Runner/agent phase skills are **workflow contracts only** today. They are **not** wired as runner prompt integration — SDK runners continue to use [`src/prompts/*.md`](../src/prompts/). Status routing and Linear transitions remain runner-owned.
 
 **Implemented:**
 
 | Skill | Trigger context | Purpose |
 |-------|-----------------|---------|
-| `planner` | Ready for Planning | Produce durable plan comments and route to build |
+| `planner` | Ready for Planning | Produce durable planning output and reviewable PR slices for operator or runner use |
 | `implementation` | Ready for Build, Needs Revision, integration repair | Scoped code changes on a feature branch |
 
 #### Planner modes (implemented)
@@ -135,10 +137,21 @@ The first implemented audit skill is `code-health-audit`. Additional audit skill
 
 These remain templates, runner behavior, or references — not formal top-level skills:
 
-- UI/design standards (likely an implementation **reference**, not a standalone agent)
+- UI/design standards (planned future implementation **reference**, not a standalone skill)
 - Reporting contracts and handoff reports
 - PR-readiness review
 - Umbrella release-readiness audit
+
+## Shared references and embedded standards
+
+Some cross-cutting concerns are embedded in skill boundaries rather than promoted to standalone skills:
+
+| Concern | Status |
+|---------|--------|
+| **PR slicing** | Implemented as a shared planner capability — not a standalone skill |
+| **Scope control** | Embedded in planner and implementation skill boundaries |
+| **Validation expectations** | Embedded by role — audit and planner skills are read-only; implementation performs validation and reports results |
+| **UI/design standards** | Planned future implementation reference — not a standalone skill and not implemented in this PR |
 
 ## Relationship to runner prompts
 
@@ -166,6 +179,8 @@ After this document and the accompanying migration:
 | `security-audit` | Planned architecture concept only |
 | `performance-cost-audit` | Planned architecture concept only |
 | Skill registry / package manager | Not implemented — intentionally deferred |
+| Skill manifests | Not implemented — intentionally deferred |
+| Runner-skill / prompt integration | Not implemented — `src/prompts/*.md` remain runner implementation details |
 | Provider/client adapters | Not implemented — documented as future work |
 
 ## Compatibility

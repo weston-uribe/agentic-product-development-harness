@@ -118,7 +118,7 @@ docs/decisions/     → Architecture decision records
 docs/research/      → Workflow research notes
 templates/          → Issue, plan, readiness, eval templates
 evals/              → Eval rubric contracts (manual first)
-.agents/skills/     → Canonical harness skills (issue-intake implemented)
+.agents/skills/     → Canonical harness skills (issue-intake, code-health-audit, planner, implementation)
 docs/skills/        → Skill system architecture
 skills/             → Compatibility pointers only
 examples/           → Example runs

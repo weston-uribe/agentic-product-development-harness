@@ -13,7 +13,7 @@
 
 ## What is deferred
 
-- Lead agent, planner/implementer skills (planned architecture concepts — see [`docs/skills/skill-architecture.md`](../skills/skill-architecture.md))
+- Lead agent skill, additional audit skills, skill registry/package manager, manifests, provider/client adapters, and runner-skill integration (see [`docs/skills/skill-architecture.md`](../skills/skill-architecture.md))
 - ChatGPT/Linear automation for intake
 - Label enforcement in runner code
 - Writing to Linear from the validator
