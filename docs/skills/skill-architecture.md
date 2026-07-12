@@ -1,6 +1,6 @@
 # Skill architecture
 
-**Status:** Implemented — architecture artifact and canonical path. Operator-invoked skills: `issue-intake`, `code-health-audit`, and `architecture-evolution-audit` are implemented. Runner/agent phase skills: `planner` and `implementation` are implemented.
+**Status:** Implemented — architecture artifact and canonical path. Operator-invoked skills: `issue-intake`, `code-health-audit`, `architecture-evolution-audit`, and `security-audit` are implemented. Runner/agent phase skills: `planner` and `implementation` are implemented.
 
 This document defines the harness skill system. It does **not** create the full skill set.
 
@@ -83,12 +83,12 @@ Used directly by the operator in an agent client (Cursor, future clients). The o
 | `issue-intake` | Turn a fuzzy product idea into a harness-compatible Linear issue |
 | `code-health-audit` | Report-only inspection of code health |
 | `architecture-evolution-audit` | Report-only inspection of architecture evolution and future-change readiness |
+| `security-audit` | Report-only security risk inspection |
 
 **Planned architecture concepts only** (not implemented):
 
 | Skill | Purpose |
 |-------|---------|
-| `security-audit` | Report-only security inspection |
 | `performance-cost-audit` | Report-only performance and cost inspection |
 
 ### Runner / agent phase skills
@@ -131,7 +131,7 @@ Audit skills are **report-only**. They inspect and produce findings. They do not
 | Planner | Convert findings into remediation plans and reviewable PR slices |
 | Implementation agent | Make scoped code changes |
 
-Implemented audit skills are `code-health-audit` and `architecture-evolution-audit`. Additional audit skills remain planned.
+Implemented audit skills are `code-health-audit`, `architecture-evolution-audit`, and `security-audit`. Additional audit skills remain planned.
 
 ## What is not a skill (for now)
 
@@ -159,7 +159,7 @@ SDK runner prompts in [`src/prompts/`](../src/prompts/) are **implementation det
 
 | Layer | Location | Status |
 |-------|----------|--------|
-| Canonical skills | `.agents/skills/<skill-name>/SKILL.md` | `issue-intake`, `code-health-audit`, `architecture-evolution-audit`, `planner`, `implementation` implemented |
+| Canonical skills | `.agents/skills/<skill-name>/SKILL.md` | `issue-intake`, `code-health-audit`, `architecture-evolution-audit`, `security-audit`, `planner`, `implementation` implemented |
 | Runner prompts | `src/prompts/*.md` | Implemented for SDK phases |
 | Client adapters | `.cursor/skills`, etc. | Manual install/export only |
 
@@ -176,7 +176,7 @@ After this document and the accompanying migration:
 | `planner` | **Implemented** at [`.agents/skills/planner/SKILL.md`](../../.agents/skills/planner/SKILL.md) |
 | `implementation` | **Implemented** at [`.agents/skills/implementation/SKILL.md`](../../.agents/skills/implementation/SKILL.md) |
 | `architecture-evolution-audit` | **Implemented** at [`.agents/skills/architecture-evolution-audit/SKILL.md`](../../.agents/skills/architecture-evolution-audit/SKILL.md) |
-| `security-audit` | Planned architecture concept only |
+| `security-audit` | **Implemented** at [`.agents/skills/security-audit/SKILL.md`](../../.agents/skills/security-audit/SKILL.md) |
 | `performance-cost-audit` | Planned architecture concept only |
 | Skill registry / package manager | Not implemented — intentionally deferred |
 | Skill manifests | Not implemented — intentionally deferred |
