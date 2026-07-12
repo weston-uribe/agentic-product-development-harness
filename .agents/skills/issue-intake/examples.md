@@ -1,6 +1,6 @@
 # Issue intake examples
 
-Generic examples aligned with [`prompts/issue-intake-chatgpt.md`](../../prompts/issue-intake-chatgpt.md). Validator fixtures in `tests/fixtures/issues/` may use operator-specific allowlist repos.
+Generic examples aligned with [`prompts/issue-intake-chatgpt.md`](../../../prompts/issue-intake-chatgpt.md). Validator fixtures in `tests/fixtures/issues/` may use operator-specific allowlist repos.
 
 ## Build-direct (Ready for Build candidate)
 

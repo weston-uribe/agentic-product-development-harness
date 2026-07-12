@@ -8,7 +8,7 @@ v0.2.0 harness repo: SDK runners (M1–M8), templates, eval contracts, and event
 
 The harness has **M1–M8 SDK runners and tooling** (planning through merge, issue intake validation, and event-driven auto-run via Linear webhook + GitHub Actions).
 
-For new harness work intake, use [`skills/issue-intake/SKILL.md`](skills/issue-intake/SKILL.md) and validate with `npm run harness:validate-issue`.
+For new harness work intake, use [`.agents/skills/issue-intake/SKILL.md`](.agents/skills/issue-intake/SKILL.md) and validate with `npm run harness:validate-issue`.
 
 Status changes on allowlisted Linear statuses trigger cloud harness runs automatically — see [`docs/linear-watcher-setup.md`](docs/linear-watcher-setup.md).
 
@@ -20,7 +20,7 @@ Status changes on allowlisted Linear statuses trigger cloud harness runs automat
 
 3. **Prefer docs and templates before code.** If a workflow is new, add or refine templates and ADRs first. Code and skills come after manual validation.
 
-4. **Do not create skills until a repeated workflow is validated across multiple runs.** See [`skills/README.md`](skills/README.md). Skills encode proven manual loops—not guesses.
+4. **Skill creation is human-owned.** See [`docs/skills/skill-architecture.md`](docs/skills/skill-architecture.md). Agents may propose, draft, or document skill candidates, but must not autonomously create, promote, or enforce skill-creation policy.
 
 5. **Update ROADMAP and ARCHITECTURE when changing scope.** If you add a component, phase, or platform assumption, reflect it in both files.
 
@@ -102,7 +102,7 @@ These are distinct artifacts. Do not conflate them in docs or reports.
 - Autonomously ship software or merge PRs without human gates
 - Overstate eval automation (v0.1 evals are human-readable rubrics)
 - Recommend strategic next steps unless the operator explicitly asks
-- Create skills after a single run
+- Autonomously create or promote skills without explicit human approval
 - Create releases without explicit approval and external usefulness
 
 ## File map
@@ -118,7 +118,9 @@ docs/decisions/     → Architecture decision records
 docs/research/      → Workflow research notes
 templates/          → Issue, plan, readiness, eval templates
 evals/              → Eval rubric contracts (manual first)
-skills/             → Deferred until workflows are validated
+.agents/skills/     → Canonical harness skills (issue-intake, code-health-audit, planner, implementation)
+docs/skills/        → Skill system architecture
+skills/             → Compatibility pointers only
 examples/           → Example runs
 ```
 

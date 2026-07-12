@@ -4,7 +4,7 @@
 
 ## What exists
 
-- **Issue intake skill** — [`skills/issue-intake/SKILL.md`](../skills/issue-intake/SKILL.md) interviews Weston and produces a Linear-ready issue package
+- **Issue intake skill** — [`.agents/skills/issue-intake/SKILL.md`](../.agents/skills/issue-intake/SKILL.md) interviews Weston and produces a Linear-ready issue package
 - **Parser-aligned template** — [`templates/linear-issue.md`](../templates/linear-issue.md)
 - **Operator guide** — [`docs/issue-intake.md`](../issue-intake.md)
 - **Read-only validator CLI** — `harness validate-issue` with route-specific `--intended-phase planning|implementation`
@@ -13,7 +13,7 @@
 
 ## What is deferred
 
-- Lead agent, planner/implementer skills
+- Lead agent skill, additional audit skills, skill registry/package manager, manifests, provider/client adapters, and runner-skill integration (see [`docs/skills/skill-architecture.md`](../skills/skill-architecture.md))
 - ChatGPT/Linear automation for intake
 - Label enforcement in runner code
 - Writing to Linear from the validator

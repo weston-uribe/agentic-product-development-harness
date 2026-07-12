@@ -24,6 +24,7 @@ It is not provider-agnostic, not an npm package, and not a plug-and-play product
 | Release contract (v0.2.0) | [`docs/releases/v0.2.0.md`](docs/releases/v0.2.0.md) |
 | Security baseline | [`docs/security.md`](docs/security.md) |
 | Provider portability | [`docs/provider-portability.md`](docs/provider-portability.md) |
+| Skill architecture | [`docs/skills/skill-architecture.md`](docs/skills/skill-architecture.md) |
 | Linear watcher setup | [`docs/linear-watcher-setup.md`](docs/linear-watcher-setup.md) |
 
 ## Why it exists
@@ -59,7 +60,7 @@ The architecture is modular by subsystem, but it is **not provider-agnostic**. S
 | Agent provider | Cursor Cloud Agents only (implemented) |
 | Linear / status gates | Required — automation respects allowlisted statuses |
 | GitHub review requirement (solo repo) | **0 approvals** — PR + required checks only |
-| Reusable skills beyond issue intake | Deferred |
+| Canonical harness skills | Implemented — `issue-intake`, `code-health-audit`, `planner`, `implementation` (see [`docs/skills/skill-architecture.md`](docs/skills/skill-architecture.md)) |
 
 ## Auto-run flow
 
@@ -84,7 +85,7 @@ Each step has a template in [`templates/`](templates/). Status changes on allowl
 - SDK harness runners for planning, implementation, handoff, revision, merge, and production sync — see [`ROADMAP.md`](ROADMAP.md)
 - Event-driven auto-runner — [`api/linear-webhook.ts`](api/linear-webhook.ts), [`.github/workflows/harness-auto-runner.yml`](.github/workflows/harness-auto-runner.yml)
 - ChatGPT intake prompt — [`prompts/issue-intake-chatgpt.md`](prompts/issue-intake-chatgpt.md)
-- Issue intake skill — [`skills/issue-intake/`](skills/issue-intake/)
+- Canonical harness skills — [`issue-intake`](.agents/skills/issue-intake/), [`code-health-audit`](.agents/skills/code-health-audit/), [`planner`](.agents/skills/planner/), [`implementation`](.agents/skills/implementation/) under [`.agents/skills/`](.agents/skills/)
 - Cursor Cloud Agents as the single implemented agent provider
 - Templates, evals, examples, architecture docs
 
@@ -99,7 +100,7 @@ This repo does **not** claim provider agnosticism, or support for Claude Code, C
 
 ## What is planned
 
-See [`ROADMAP.md`](ROADMAP.md) for deferred work: additional skills, automated eval contract, and future portability.
+See [`ROADMAP.md`](ROADMAP.md) for deferred work: additional audit skills, skill registry/package manager, runner-skill integration, automated eval contract, and future portability.
 
 ## Target repos
 
@@ -123,13 +124,13 @@ See [`docs/target-repo-branch-setup.md`](docs/target-repo-branch-setup.md) for i
 - Autonomous shipping without Linear/status gates
 - Production-grade robustness or portability
 - Provider agnosticism (Cursor is the only implemented agent provider)
-- Lead agent or planner/implementer skills
+- Lead agent skill, skill registry/package manager, runner-skill integration, or provider/client skill adapters
 - npm package publication
 - Polling-based Linear watcher
 
 Git tags and GitHub releases are operator-controlled milestones — see [`docs/releases/release-process.md`](docs/releases/release-process.md). They are not created from doc PRs.
 
-Issue intake is implemented via [`prompts/issue-intake-chatgpt.md`](prompts/issue-intake-chatgpt.md) (ChatGPT) and [`skills/issue-intake/`](skills/issue-intake/) (Cursor). Additional skills remain deferred.
+Four canonical skills are implemented under [`.agents/skills/`](.agents/skills/): `issue-intake`, `code-health-audit`, `planner`, and `implementation`. Issue intake is also available via [`prompts/issue-intake-chatgpt.md`](prompts/issue-intake-chatgpt.md) (ChatGPT). Remaining audit skills, registry/package manager, manifests, provider adapters, and runner-skill integration are planned or not implemented — see [`docs/skills/skill-architecture.md`](docs/skills/skill-architecture.md).
 
 ## Getting started
 
@@ -137,7 +138,7 @@ See [`docs/getting-started.md`](docs/getting-started.md) for the full operator g
 
 1. Read [`ARCHITECTURE.md`](ARCHITECTURE.md) for the modular component model
 2. Read [`AGENTS.md`](AGENTS.md) if you are an AI agent working in this repo
-3. **PM intake:** copy [`prompts/issue-intake-chatgpt.md`](prompts/issue-intake-chatgpt.md) into ChatGPT — or use [`skills/issue-intake/SKILL.md`](skills/issue-intake/SKILL.md) in Cursor
+3. **PM intake:** copy [`prompts/issue-intake-chatgpt.md`](prompts/issue-intake-chatgpt.md) into ChatGPT — or use [`.agents/skills/issue-intake/SKILL.md`](.agents/skills/issue-intake/SKILL.md) in Cursor
 4. Validate: `npm run harness:validate-issue -- --file draft.md --intended-phase planning`
 5. Dry-run: `npm run harness:run -- --issue WES-XX --dry-run`
 6. **Auto-run setup:** [`docs/linear-watcher-setup.md`](docs/linear-watcher-setup.md)

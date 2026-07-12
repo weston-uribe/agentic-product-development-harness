@@ -86,7 +86,7 @@ Direct implementation without a prior planning run requires:
 - Acceptance criteria ≤ 7 hyphen bullets
 - Low-risk, clear scope
 
-See [`src/validate/constants.ts`](../../src/validate/constants.ts) for canonical values. Full rules in [`prompts/issue-intake-chatgpt.md`](../../prompts/issue-intake-chatgpt.md).
+See [`src/validate/constants.ts`](../../../src/validate/constants.ts) for canonical values. Full rules in [`prompts/issue-intake-chatgpt.md`](../../../prompts/issue-intake-chatgpt.md).
 
 ## Output package
 
@@ -104,7 +104,7 @@ Produce this artifact when intake is complete:
 <paste-ready markdown matching description contract>
 ```
 
-Apply the readiness assessment algorithm from [`prompts/issue-intake-chatgpt.md`](../../prompts/issue-intake-chatgpt.md) internally — do not include it in the final package.
+Apply the readiness assessment algorithm from [`prompts/issue-intake-chatgpt.md`](../../../prompts/issue-intake-chatgpt.md) internally — do not include it in the final package.
 
 ## Description contract
 
@@ -117,18 +117,18 @@ Required sections (level-2 headers, case-insensitive):
 
 Optional: `## Validation expectations`, `## Context and links`, `## User / job story`, `## Eval hints`, `## Definition of ready`
 
-Authoritative copy: [`prompts/issue-intake-chatgpt.md`](../../prompts/issue-intake-chatgpt.md)
+Authoritative copy: [`prompts/issue-intake-chatgpt.md`](../../../prompts/issue-intake-chatgpt.md)
 
 ## ChatGPT path
 
 PMs copy the canonical prompt into a normal ChatGPT thread:
 
-1. Open [`prompts/issue-intake-chatgpt.md`](../../prompts/issue-intake-chatgpt.md) and copy the entire file into ChatGPT
+1. Open [`prompts/issue-intake-chatgpt.md`](../../../prompts/issue-intake-chatgpt.md) and copy the entire file into ChatGPT
 2. Answer the upfront intake form; review the proposed Linear issue
 3. Approve creation; ChatGPT creates via Linear access if available, otherwise create manually in Linear with the recommended status and labels
 4. Operator optionally validates live issues with CLI (below)
 
-Deferred Custom GPT setup: [`gpt/issue-intake/setup-guide.md`](../../gpt/issue-intake/setup-guide.md)
+Deferred Custom GPT setup: [`gpt/issue-intake/setup-guide.md`](../../../gpt/issue-intake/setup-guide.md)
 
 ## Cursor validation path
 
@@ -155,8 +155,9 @@ npm run harness:validate-issue -- --issue TEAM-XX --intended-phase implementatio
 
 ## References
 
-- Canonical ChatGPT prompt: [`prompts/issue-intake-chatgpt.md`](../../prompts/issue-intake-chatgpt.md)
-- Deferred GPT package: [`gpt/issue-intake/`](../../gpt/issue-intake/)
-- Template: [`templates/linear-issue.md`](../../templates/linear-issue.md)
-- Operator guide: [`docs/issue-intake.md`](../../docs/issue-intake.md)
-- Examples: [`skills/issue-intake/examples.md`](examples.md)
+- Canonical ChatGPT prompt: [`prompts/issue-intake-chatgpt.md`](../../../prompts/issue-intake-chatgpt.md)
+- Deferred GPT package: [`gpt/issue-intake/`](../../../gpt/issue-intake/)
+- Template: [`templates/linear-issue.md`](../../../templates/linear-issue.md)
+- Operator guide: [`docs/issue-intake.md`](../../../docs/issue-intake.md)
+- Skill architecture: [`docs/skills/skill-architecture.md`](../../../docs/skills/skill-architecture.md)
+- Examples: [`.agents/skills/issue-intake/examples.md`](examples.md)

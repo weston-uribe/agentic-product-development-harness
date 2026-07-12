@@ -24,7 +24,7 @@ Product managers draft issues in a **normal ChatGPT thread**—no Custom GPT req
 
 ### Cursor skill + CLI (operator path)
 
-1. Invoke the **issue-intake** skill in Cursor ([`skills/issue-intake/SKILL.md`](../skills/issue-intake/SKILL.md))
+1. Invoke the **issue-intake** skill in Cursor ([`.agents/skills/issue-intake/SKILL.md`](../.agents/skills/issue-intake/SKILL.md))
 2. Answer the upfront intake form (same eight fields as the ChatGPT prompt)
 3. Save the description to a draft markdown file
 4. Validate with route-specific flags:
@@ -112,7 +112,9 @@ Required description sections:
 
 ## Skill installation
 
-The skill lives at [`skills/issue-intake/`](../skills/issue-intake/). To use it as a Cursor project skill, symlink or copy to `.cursor/skills/issue-intake/` in this repo or your user skills directory.
+The canonical skill lives at [`.agents/skills/issue-intake/`](../.agents/skills/issue-intake/). To use it as a Cursor project skill, symlink or copy to `.cursor/skills/issue-intake/` in this repo or your user skills directory. The `.cursor/skills` path is a Cursor adapter location, not the canonical source.
+
+The legacy [`skills/issue-intake/`](../skills/issue-intake/) path is a compatibility pointer only.
 
 ## Related
 

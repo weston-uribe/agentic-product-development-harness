@@ -23,4 +23,4 @@ Capture what works and what fails when running the harness loop manually—befor
 
 ## v0.1 status
 
-Research notes from manual runs and integration spikes. Skills and automation remain deferred per [`skills/README.md`](../../skills/README.md).
+Research notes from manual runs and integration spikes. Skill system architecture: [`docs/skills/skill-architecture.md`](../skills/skill-architecture.md).
