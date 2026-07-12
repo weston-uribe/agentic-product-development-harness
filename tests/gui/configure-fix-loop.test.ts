@@ -313,4 +313,42 @@ describe("configure GUI fix loop", () => {
     expect(continueHandler).not.toContain("dispatch");
     expect(continueHandler).not.toMatch(/apply-harness-secrets|delete/i);
   });
+
+  it("Step 7 completion shows setup complete only after readiness is true", () => {
+    const experienceSource = readFileSync(
+      path.join(
+        repoRoot,
+        "apps/gui/components/custom/configure-experience.tsx",
+      ),
+      "utf8",
+    );
+    const targetWorkflowSource = readFileSync(
+      path.join(
+        repoRoot,
+        "apps/gui/components/custom/guided-target-workflow-card.tsx",
+      ),
+      "utf8",
+    );
+
+    expect(targetWorkflowSource).toContain(
+      `Step 7 of \${GUIDED_SETUP_STEP_COUNT} · Install target repo workflow`,
+    );
+
+    expect(experienceSource).toContain("handleGuidedWorkflowSetupComplete");
+    const workflowCompleteHandler = experienceSource.match(
+      /const handleGuidedWorkflowSetupComplete = useCallback\([\s\S]*?\n  \);/,
+    )?.[0];
+    expect(workflowCompleteHandler).toBeDefined();
+    expect(workflowCompleteHandler).not.toContain(
+      "setDisplayedGuidedStep(GUIDED_DISPLAY_STEP_AFTER_WORKFLOW_READY)",
+    );
+
+    expect(experienceSource).toContain('title="Setup complete"');
+    expect(experienceSource).toContain("readiness.readyForFirstRun");
+    expect(experienceSource).toContain(
+      'displayedGuidedStep === "ready-for-first-run"',
+    );
+    expect(experienceSource).toContain("defaultGuidedDisplayStep");
+    expect(experienceSource).not.toContain("Blocked for first run");
+  });
 });

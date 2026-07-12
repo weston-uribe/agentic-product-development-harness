@@ -9,6 +9,7 @@ import type { VercelSetupSummary } from "@harness/setup/vercel-setup-summary";
 import type { ControlPlaneReadinessContext } from "@harness/setup/control-plane-types";
 import {
   deriveFirstRunReadiness,
+  type CloudSecretsApplyEvidence,
   type FirstRunReadinessUiState,
   type FirstRunStepId,
 } from "@harness/setup/first-run-readiness";
@@ -154,6 +155,31 @@ export function ConfigureExperience({
     previousReadinessStepRef.current = nextStepId;
   }, [readiness.currentStepId, summary]);
 
+  useEffect(() => {
+    if (readiness.readyForFirstRun) {
+      setDisplayedGuidedStep("ready-for-first-run");
+    }
+  }, [readiness.readyForFirstRun]);
+
+  useEffect(() => {
+    if (
+      displayedGuidedStep === "ready-for-first-run" &&
+      !readiness.readyForFirstRun
+    ) {
+      setDisplayedGuidedStep(
+        defaultGuidedDisplayStep({
+          currentStepId: readiness.currentStepId,
+          summary,
+        }),
+      );
+    }
+  }, [
+    displayedGuidedStep,
+    readiness.readyForFirstRun,
+    readiness.currentStepId,
+    summary,
+  ]);
+
   const staleTargetRepoNeedsAttention =
     readiness.staleSmokeDiagnostics.staleTargetRepos.length > 0;
   const staleDispatchRepoNeedsAttention = Boolean(
@@ -204,15 +230,33 @@ export function ConfigureExperience({
   );
 
   const handleRemoteUiStateChange = useCallback(
-    (state: { remoteSecretPreviewStale: boolean }) => {
+    (state: {
+      remoteSecretPreviewStale?: boolean;
+      cloudSecretsApplyEvidence?: CloudSecretsApplyEvidence;
+    }) => {
       setUiState((current) => {
-        if (current.remoteSecretPreviewStale === state.remoteSecretPreviewStale) {
-          return current;
+        let next = current;
+        if (
+          state.remoteSecretPreviewStale !== undefined &&
+          current.remoteSecretPreviewStale !== state.remoteSecretPreviewStale
+        ) {
+          next = {
+            ...next,
+            remoteSecretPreviewStale: state.remoteSecretPreviewStale,
+          };
         }
-        return {
-          ...current,
-          remoteSecretPreviewStale: state.remoteSecretPreviewStale,
-        };
+        if ("cloudSecretsApplyEvidence" in state) {
+          if (
+            current.cloudSecretsApplyEvidence === state.cloudSecretsApplyEvidence
+          ) {
+            return next === current ? current : next;
+          }
+          next = {
+            ...next,
+            cloudSecretsApplyEvidence: state.cloudSecretsApplyEvidence,
+          };
+        }
+        return next === current ? current : next;
       });
     },
     [],
@@ -299,7 +343,6 @@ export function ConfigureExperience({
   const handleGuidedWorkflowSetupComplete = useCallback(() => {
     setWorkflowAwaitingMerge(false);
     setWorkflowInstallPendingByRepo({});
-    setDisplayedGuidedStep(GUIDED_DISPLAY_STEP_AFTER_WORKFLOW_READY);
   }, []);
 
   const handleGuidedLocalApplySuccess = useCallback(() => {
@@ -307,6 +350,7 @@ export function ConfigureExperience({
       ...current,
       localReadinessReviewed: false,
       cloudSecretsReviewed: false,
+      cloudSecretsApplyEvidence: undefined,
       remoteSecretPreviewStale: true,
       localPreviewStale: false,
     }));
@@ -329,6 +373,7 @@ export function ConfigureExperience({
           ...current,
           localReadinessReviewed: false,
           cloudSecretsReviewed: false,
+          cloudSecretsApplyEvidence: undefined,
           remoteSecretPreviewStale: true,
           linearPreviewStale: step === "connect-services" || step === "linear-workspace"
             ? true
@@ -346,6 +391,7 @@ export function ConfigureExperience({
         setUiState((current) => ({
           ...current,
           cloudSecretsReviewed: false,
+          cloudSecretsApplyEvidence: undefined,
           remoteSecretPreviewStale: true,
         }));
       }
@@ -440,6 +486,7 @@ export function ConfigureExperience({
             setupSummary={summary}
             controlPlaneContext={controlPlaneContext}
             remoteSecretPreviewStale={uiState.remoteSecretPreviewStale}
+            cloudSecretsApplyEvidence={uiState.cloudSecretsApplyEvidence}
             initialSummary={remoteSummary}
             onSummaryUpdated={setRemoteSummary}
             onUiStateChange={handleRemoteUiStateChange}
@@ -462,31 +509,17 @@ export function ConfigureExperience({
       case "ready-for-first-run":
         return (
           <SectionCard
-            title="Ready for first run"
-            description="Setup readiness only. No live harness phase is available in M6."
+            title="Setup complete"
+            description="Harness setup is ready for a future first run."
           >
             <div className={SPACING.stackSm}>
-              <StatusBadge
-                label={
-                  readiness.readyForFirstRun
-                    ? "Ready for first run"
-                    : "Blocked for first run"
-                }
-                variant={readiness.readyForFirstRun ? "success" : "warning"}
-              />
-              {readiness.readyForFirstRun ? (
-                <p className="text-sm text-muted-foreground">
-                  Your harness setup is ready. If you just merged a workflow
-                  install PR, that merge is what made the target workflow ready.
-                  A later milestone can add a safe first-issue dry run or no-op
-                  harness validation.
-                </p>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  {readiness.highestPriorityBlocker?.action ??
-                    "Complete the earlier setup steps first."}
-                </p>
-              )}
+              <StatusBadge label="Setup complete" variant="success" />
+              <p className="text-sm text-muted-foreground">
+                Your harness setup is ready. If you just merged a workflow
+                install PR, that merge is what made the target workflow ready.
+                A later milestone can add a safe first-issue dry run or no-op
+                harness validation.
+              </p>
               <p className="text-sm text-muted-foreground">
                 {readiness.prohibitedActionsNote}
               </p>
@@ -506,7 +539,7 @@ export function ConfigureExperience({
     : "secondary";
 
   const guidedStatusBadgeLabel = readiness.readyForFirstRun
-    ? "Ready for first run"
+    ? "Setup complete"
     : workflowAwaitingMerge
       ? "Waiting for workflow PR merge"
       : "Setup in progress";

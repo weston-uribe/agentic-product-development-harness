@@ -15,6 +15,7 @@ import {
   collectConnectServicesBlockers,
   collectLinearWorkspaceBlockers,
   collectVercelBridgeBlockers,
+  computeCloudSecretsConfigStateFingerprint,
   isCloudSecretsStaleFromControlPlane,
 } from "./control-plane-readiness.js";
 import type { ControlPlaneReadinessContext } from "./control-plane-types.js";
@@ -73,6 +74,15 @@ export interface FirstRunReadinessUiState {
   localReadinessReviewed?: boolean;
   /** Set when the operator finishes cloud secrets setup and continues. */
   cloudSecretsReviewed?: boolean;
+  /** Verified automatic cloud-secrets apply evidence for blocker resolution. */
+  cloudSecretsApplyEvidence?: CloudSecretsApplyEvidence;
+}
+
+export interface CloudSecretsApplyEvidence {
+  path: "automatic";
+  applyFingerprint: string;
+  configStateFingerprint: string;
+  harnessConfigJsonB64Written: boolean;
 }
 
 export interface PrimarySetupTask {
@@ -439,7 +449,7 @@ export function step6PostApplyVerificationReady(
   );
 }
 
-function harnessConfigJsonB64WasWritten(
+export function harnessConfigJsonB64WasWritten(
   applyResult?: RemoteHarnessSecretApplyResult,
 ): boolean {
   if (!applyResult) {
@@ -452,6 +462,55 @@ function harnessConfigJsonB64WasWritten(
   );
 }
 
+export function buildCloudSecretsApplyEvidence(input: {
+  applyResult: RemoteHarnessSecretApplyResult;
+  setupSummary: SetupGuiViewModel;
+  controlPlaneContext?: ControlPlaneReadinessContext;
+}): CloudSecretsApplyEvidence {
+  return {
+    path: "automatic",
+    applyFingerprint: input.applyResult.fingerprint,
+    configStateFingerprint: computeCloudSecretsConfigStateFingerprint({
+      setupSummary: input.setupSummary,
+      controlPlaneContext: input.controlPlaneContext,
+    }),
+    harnessConfigJsonB64Written: harnessConfigJsonB64WasWritten(
+      input.applyResult,
+    ),
+  };
+}
+
+export function isCloudSecretsStaleLinearConfigResolved(input: {
+  evidence?: CloudSecretsApplyEvidence;
+  currentConfigStateFingerprint: string;
+}): boolean {
+  if (!input.evidence) return false;
+  if (input.evidence.path !== "automatic") return false;
+  if (!input.evidence.harnessConfigJsonB64Written) return false;
+  return input.evidence.configStateFingerprint === input.currentConfigStateFingerprint;
+}
+
+export function filterResolvedCloudSecretsBlockers(input: {
+  blockers: ReadinessBlocker[];
+  evidence?: CloudSecretsApplyEvidence;
+  currentConfigStateFingerprint: string;
+  previewStaleCleared?: boolean;
+  postApplyVerificationReady?: boolean;
+}): ReadinessBlocker[] {
+  return input.blockers.filter((blocker) => {
+    if (blocker.id === "remote-secret-preview-stale") {
+      return !(input.previewStaleCleared && input.postApplyVerificationReady);
+    }
+    if (blocker.id === "cloud-secrets-stale-linear-config") {
+      return !isCloudSecretsStaleLinearConfigResolved({
+        evidence: input.evidence,
+        currentConfigStateFingerprint: input.currentConfigStateFingerprint,
+      });
+    }
+    return true;
+  });
+}
+
 export interface DeriveStep6ContinueEligibilityInput {
   summary: RemoteSetupSummary;
   setupSummary: SetupGuiViewModel;
@@ -459,8 +518,6 @@ export interface DeriveStep6ContinueEligibilityInput {
   uiState?: FirstRunReadinessUiState;
   staleSmokeDiagnostics: StaleSmokeDiagnostics;
   controlPlaneContext?: ControlPlaneReadinessContext;
-  applyResult?: RemoteHarnessSecretApplyResult;
-  verifiedPath: "automatic" | "manual";
   /** When true, remote-secret-preview-stale is treated as cleared. */
   previewStaleCleared?: boolean;
 }
@@ -475,29 +532,17 @@ function resolveStep6HardBlockers(
   blockers: ReadinessBlocker[],
   input: {
     postApplyVerificationReady: boolean;
-    verifiedPath: "automatic" | "manual";
-    applyResult?: RemoteHarnessSecretApplyResult;
     previewStaleCleared: boolean;
+    evidence?: CloudSecretsApplyEvidence;
+    currentConfigStateFingerprint: string;
   },
 ): ReadinessBlocker[] {
-  return blockers.filter((blocker) => {
-    if (blocker.id === "remote-secret-preview-stale") {
-      if (input.previewStaleCleared && input.postApplyVerificationReady) {
-        return false;
-      }
-      return true;
-    }
-    if (blocker.id === "cloud-secrets-stale-linear-config") {
-      if (
-        input.verifiedPath === "automatic" &&
-        input.postApplyVerificationReady &&
-        harnessConfigJsonB64WasWritten(input.applyResult)
-      ) {
-        return false;
-      }
-      return true;
-    }
-    return true;
+  return filterResolvedCloudSecretsBlockers({
+    blockers,
+    evidence: input.evidence,
+    currentConfigStateFingerprint: input.currentConfigStateFingerprint,
+    previewStaleCleared: input.previewStaleCleared,
+    postApplyVerificationReady: input.postApplyVerificationReady,
   });
 }
 
@@ -526,9 +571,12 @@ export function deriveStep6ContinueEligibility(
 
   const remainingBlockers = resolveStep6HardBlockers(cloudSecrets.blockers, {
     postApplyVerificationReady,
-    verifiedPath: input.verifiedPath,
-    applyResult: input.applyResult,
     previewStaleCleared,
+    evidence: input.uiState?.cloudSecretsApplyEvidence,
+    currentConfigStateFingerprint: computeCloudSecretsConfigStateFingerprint({
+      setupSummary: input.setupSummary,
+      controlPlaneContext: input.controlPlaneContext,
+    }),
   });
 
   const canContinue =
@@ -904,13 +952,25 @@ export function deriveFirstRunReadiness(input: {
     staleSmokeDiagnostics,
   );
   const localReadiness = collectLocalReadinessBlockers(input.summary);
-  const cloudSecrets = collectCloudSecretsBlockers(
+  const rawCloudSecrets = collectCloudSecretsBlockers(
     input.summary,
     input.remoteSummary,
     input.uiState,
     staleSmokeDiagnostics,
     controlPlaneContext,
   );
+  const configStateFingerprint = computeCloudSecretsConfigStateFingerprint({
+    setupSummary: input.summary,
+    controlPlaneContext,
+  });
+  const cloudSecrets = {
+    blockers: filterResolvedCloudSecretsBlockers({
+      blockers: rawCloudSecrets.blockers,
+      evidence: input.uiState?.cloudSecretsApplyEvidence,
+      currentConfigStateFingerprint: configStateFingerprint,
+    }),
+    warnings: rawCloudSecrets.warnings,
+  };
   const targetWorkflow = collectTargetWorkflowBlockers(
     input.summary,
     input.remoteSummary,
