@@ -33,7 +33,7 @@ export function ReviewCloudSecretsDisclosure({
           onOpenChange(!open);
         }}
       >
-        Review generated secrets
+        Review generated secrets (optional)
       </summary>
       <div className="mt-3 space-y-3">
         {isLoading ? (

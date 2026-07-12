@@ -35,6 +35,13 @@ export interface RepoVerificationUi {
   workflowInstallReady?: boolean;
 }
 
+export interface HarnessRepoVerificationUi {
+  state: RepoVerificationUiState;
+  verifiedRepo?: string;
+  message?: string;
+  limitation?: string;
+}
+
 const GITHUB_REPO_URL_PATTERN =
   /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/?$/;
 
@@ -43,6 +50,9 @@ interface TargetRepoConfigFormProps {
   highlightStaleTarget?: boolean;
   variant?: "guided-minimal" | "advanced";
   suggestedHarnessDispatchRepo?: string;
+  savedHarnessDispatchRepository?: string;
+  harnessRepoVerification?: HarnessRepoVerificationUi;
+  verifyingHarnessRepo?: boolean;
   guidedRepos?: GuidedRepoRow[];
   repoVerification?: Record<string, RepoVerificationUi>;
   verifyingRepoRowId?: string | null;
@@ -54,6 +64,7 @@ interface TargetRepoConfigFormProps {
   onRemoveRepo?: (rowId: string) => void;
   harnessDispatchRepository?: string;
   onHarnessDispatchRepositoryChange?: (value: string) => void;
+  onVerifyHarnessRepo?: () => void;
   githubTokenSourceHint?: string;
   activeGithubTokenFingerprint?: string | null;
 }
@@ -63,6 +74,9 @@ export function TargetRepoConfigForm({
   highlightStaleTarget = false,
   variant = "advanced",
   suggestedHarnessDispatchRepo,
+  savedHarnessDispatchRepository = "",
+  harnessRepoVerification = { state: "unchecked" },
+  verifyingHarnessRepo = false,
   guidedRepos,
   repoVerification = {},
   verifyingRepoRowId = null,
@@ -74,12 +88,31 @@ export function TargetRepoConfigForm({
   onRemoveRepo,
   harnessDispatchRepository = "",
   onHarnessDispatchRepositoryChange,
+  onVerifyHarnessRepo,
   githubTokenSourceHint,
   activeGithubTokenFingerprint = null,
 }: TargetRepoConfigFormProps) {
   const [showBranchSettings, setShowBranchSettings] = useState<
     Record<string, boolean>
   >({});
+  const [editingHarnessRepo, setEditingHarnessRepo] = useState(false);
+  const [draftHarnessRepo, setDraftHarnessRepo] = useState(
+    harnessDispatchRepository,
+  );
+
+  const effectiveHarnessRepo =
+    harnessDispatchRepository.trim() ||
+    savedHarnessDispatchRepository.trim() ||
+    suggestedHarnessDispatchRepo?.trim() ||
+    "";
+  const harnessRepoSource = savedHarnessDispatchRepository.trim()
+    ? "Saved in .env.local"
+    : suggestedHarnessDispatchRepo?.trim()
+      ? "Detected from git remote"
+      : "Not detected yet";
+  const harnessRepoVerified =
+    harnessRepoVerification.state === "connected" &&
+    harnessRepoVerification.verifiedRepo === draftHarnessRepo.trim();
 
   const updateRepo = (index: number, patch: Partial<(typeof values.repos)[0]>) => {
     const repos = [...values.repos];
@@ -111,19 +144,115 @@ export function TargetRepoConfigForm({
       <div className="space-y-6">
         <div className={FORM.fieldStack}>
           <Label htmlFor="harness-dispatch-repository-guided">Harness repo</Label>
-          <Input
-            id="harness-dispatch-repository-guided"
-            value={harnessDispatchRepository}
-            onChange={(event) =>
-              onHarnessDispatchRepositoryChange?.(event.target.value)
-            }
-            autoComplete="off"
-          />
-          <p className={FORM.secretHint}>
-            This is the GitHub repo for the harness setup. It is prefilled from
-            your git remote when available. If it is not correct, you can change
-            it.
-          </p>
+          {!editingHarnessRepo ? (
+            <>
+              <p className="text-sm font-medium break-all">
+                {effectiveHarnessRepo || "Not detected yet"}
+              </p>
+              <p className={FORM.secretHint}>
+                This is the GitHub repo where harness GitHub Actions secrets and
+                future dispatch/workflow setup are configured. It is not your
+                target app repo.
+              </p>
+              <p className={FORM.secretHint}>{harnessRepoSource}</p>
+              {savedHarnessDispatchRepository.trim() &&
+              suggestedHarnessDispatchRepo?.trim() &&
+              savedHarnessDispatchRepository.trim() !==
+                suggestedHarnessDispatchRepo.trim() ? (
+                <p className={FORM.secretHint}>
+                  Detected git remote: {suggestedHarnessDispatchRepo}. Your saved
+                  override in `.env.local` takes precedence.
+                </p>
+              ) : null}
+              {!savedHarnessDispatchRepository.trim() &&
+              suggestedHarnessDispatchRepo?.trim() &&
+              effectiveHarnessRepo === suggestedHarnessDispatchRepo ? (
+                <p className={FORM.secretHint}>
+                  If this detected repo is correct, you do not need to change it.
+                </p>
+              ) : null}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setDraftHarnessRepo(effectiveHarnessRepo);
+                  setEditingHarnessRepo(true);
+                }}
+              >
+                Update harness repo
+              </Button>
+            </>
+          ) : (
+            <>
+              <Input
+                id="harness-dispatch-repository-guided"
+                value={draftHarnessRepo}
+                onChange={(event) => setDraftHarnessRepo(event.target.value)}
+                autoComplete="off"
+              />
+              <p className={FORM.secretHint}>
+                Enter the harness repo slug or GitHub URL. Saving to `.env.local`
+                still happens when you create or update local setup files.
+              </p>
+              {harnessRepoVerification.state === "connected" &&
+              harnessRepoVerification.message ? (
+                <ConnectedStatusMessage message={harnessRepoVerification.message} />
+              ) : harnessRepoVerification.state === "failed" &&
+                harnessRepoVerification.message ? (
+                <ConnectedStatusMessage
+                  message={harnessRepoVerification.message}
+                  failed
+                />
+              ) : null}
+              {harnessRepoVerification.limitation ? (
+                <p className="text-xs text-muted-foreground">
+                  {harnessRepoVerification.limitation}
+                </p>
+              ) : null}
+              <div className="flex flex-wrap items-center gap-2">
+                {onVerifyHarnessRepo ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onVerifyHarnessRepo()}
+                    disabled={
+                      verifyingHarnessRepo || !draftHarnessRepo.trim()
+                    }
+                  >
+                    {verifyingHarnessRepo
+                      ? "Verifying harness repo…"
+                      : harnessRepoVerified
+                        ? "Verified"
+                        : "Verify harness repo"}
+                  </Button>
+                ) : null}
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => {
+                    onHarnessDispatchRepositoryChange?.(draftHarnessRepo.trim());
+                    setEditingHarnessRepo(false);
+                  }}
+                  disabled={!draftHarnessRepo.trim()}
+                >
+                  Use this harness repo
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setDraftHarnessRepo(effectiveHarnessRepo);
+                    setEditingHarnessRepo(false);
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </>
+          )}
         </div>
 
         <div className="space-y-4">

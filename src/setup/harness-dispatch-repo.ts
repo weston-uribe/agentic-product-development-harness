@@ -1,15 +1,16 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import {
+  MANUAL_HARNESS_DISPATCH_REPO_PLACEHOLDER,
+} from "./remote-actions.js";
+import {
   parseGitHubRepoSlug,
   parseGitRemoteOriginUrl,
 } from "./github-repo-slug.js";
 import { resolveLocalFilePaths } from "./setup-state.js";
 
 export { parseGitHubRepoSlug, parseGitRemoteOriginUrl } from "./github-repo-slug.js";
-
-export const MANUAL_HARNESS_DISPATCH_REPO_PLACEHOLDER =
-  "<harness-dispatch-repo>";
+export { MANUAL_HARNESS_DISPATCH_REPO_PLACEHOLDER } from "./remote-actions.js";
 
 export type HarnessDispatchRepoSource =
   | "explicit-config"

@@ -53,6 +53,7 @@ interface ConfigureWorkflowProps {
   initialEnv: {
     harnessConfigPath: string;
     githubDispatchRepository: string;
+    savedHarnessDispatchRepository?: string;
     suggestedHarnessDispatchRepo?: string;
     secretPresence: EnvironmentFormPresence;
   };
@@ -109,7 +110,10 @@ export function ConfigureWorkflow({
   const guidedStep = guidedStepProp ?? internalGuidedStep;
   const [envValues, setEnvValues] = useState<EnvironmentFormValues>({
     harnessConfigPath: initialEnv.harnessConfigPath,
-    githubDispatchRepository: initialEnv.githubDispatchRepository,
+    githubDispatchRepository:
+      initialEnv.githubDispatchRepository ||
+      initialEnv.suggestedHarnessDispatchRepo ||
+      "",
     linearApiKey: "",
     cursorApiKey: "",
     githubToken: "",
@@ -133,6 +137,13 @@ export function ConfigureWorkflow({
   const [verifyingRepoRowId, setVerifyingRepoRowId] = useState<string | null>(
     null,
   );
+  const [harnessRepoVerification, setHarnessRepoVerification] = useState<{
+    state: "unchecked" | "checking" | "connected" | "failed";
+    verifiedRepo?: string;
+    message?: string;
+    limitation?: string;
+  }>({ state: "unchecked" });
+  const [verifyingHarnessRepo, setVerifyingHarnessRepo] = useState(false);
   const [showPreviewDisclosure, setShowPreviewDisclosure] = useState(false);
   const [preview, setPreview] = useState<LocalSetupPreviewResult | null>(null);
   const [previewPayload, setPreviewPayload] =
@@ -432,6 +443,63 @@ export function ConfigureWorkflow({
     },
     [envValues, saveConnectServiceKey],
   );
+
+  const verifyHarnessRepo = useCallback(async () => {
+    const harnessDispatchRepo = envValues.githubDispatchRepository.trim();
+    const tokenContext = resolveActiveGitHubToken({
+      typedToken: envValues.githubToken,
+      hasSavedToken: presence.GITHUB_TOKEN,
+    });
+
+    setVerifyingHarnessRepo(true);
+    setHarnessRepoVerification({ state: "checking" });
+
+    try {
+      const response = await fetch("/api/setup/verify-harness-repo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          harnessDispatchRepo,
+          ...(tokenContext?.tokenForRequest
+            ? { githubToken: tokenContext.tokenForRequest }
+            : {}),
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error ?? "Harness repo verification failed");
+      }
+
+      setHarnessRepoVerification(
+        data.status === "connected"
+          ? {
+              state: "connected",
+              verifiedRepo: data.repoSlug,
+              message: data.message,
+              limitation: data.limitation,
+            }
+          : {
+              state: "failed",
+              message: data.message,
+              limitation: data.limitation,
+            },
+      );
+    } catch (verifyError) {
+      setHarnessRepoVerification({
+        state: "failed",
+        message:
+          verifyError instanceof Error
+            ? verifyError.message
+            : "Harness repo verification failed",
+      });
+    } finally {
+      setVerifyingHarnessRepo(false);
+    }
+  }, [
+    envValues.githubDispatchRepository,
+    envValues.githubToken,
+    presence.GITHUB_TOKEN,
+  ]);
 
   const verifyRepo = useCallback(
     async (rowId: string) => {
@@ -782,13 +850,23 @@ export function ConfigureWorkflow({
                 highlightStaleTarget={highlightStaleTarget}
                 variant="guided-minimal"
                 harnessDispatchRepository={envValues.githubDispatchRepository}
+                savedHarnessDispatchRepository={
+                  initialEnv.savedHarnessDispatchRepository
+                }
+                suggestedHarnessDispatchRepo={
+                  initialEnv.suggestedHarnessDispatchRepo
+                }
+                harnessRepoVerification={harnessRepoVerification}
+                verifyingHarnessRepo={verifyingHarnessRepo}
                 onHarnessDispatchRepositoryChange={(value) => {
                   invalidatePreview();
+                  setHarnessRepoVerification({ state: "unchecked" });
                   setEnvValues((current) => ({
                     ...current,
                     githubDispatchRepository: value,
                   }));
                 }}
+                onVerifyHarnessRepo={verifyHarnessRepo}
                 guidedRepos={guidedRepoRows}
                 repoVerification={repoVerification}
                 verifyingRepoRowId={verifyingRepoRowId}

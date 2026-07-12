@@ -129,6 +129,13 @@ describe("configure GUI fix loop", () => {
       ),
       "utf8",
     );
+    const experienceSource = readFileSync(
+      path.join(
+        repoRoot,
+        "apps/gui/components/custom/configure-experience.tsx",
+      ),
+      "utf8",
+    );
 
     const guidedMinimalStart = targetSource.indexOf('if (variant === "guided-minimal")');
     const guidedMinimalEnd = targetSource.indexOf(
@@ -140,19 +147,25 @@ describe("configure GUI fix loop", () => {
       guidedMinimalEnd,
     );
 
-    expect(guidedMinimalSource).toContain(
-      "GitHub repo for the harness setup",
-    );
+    expect(guidedMinimalSource).toContain("Update harness repo");
+    expect(guidedMinimalSource).toContain("Use this harness repo");
+    expect(guidedMinimalSource).toContain("Verify harness repo");
+    expect(targetSource).toContain("Detected from git remote");
+    expect(targetSource).toContain("Saved in .env.local");
+    expect(guidedMinimalSource).toContain("{harnessRepoSource}");
     expect(guidedMinimalSource).not.toContain(
-      "Used for remote setup checks later",
-    );
-    expect(guidedMinimalSource).not.toContain("Using saved GitHub token");
-    expect(guidedMinimalSource).not.toContain(
-      "Verification checks read access",
+      "This is the GitHub repo for the harness setup",
     );
     expect(guidedMinimalSource).toContain("Copy-paste the main repo URL.");
     expect(guidedMinimalSource).toContain(
       '<ConnectedStatusMessage message="Connected" />',
+    );
+
+    expect(workflowSource).toContain("savedHarnessDispatchRepository");
+    expect(workflowSource).toContain("suggestedHarnessDispatchRepo ||");
+    expect(workflowSource).toContain("/api/setup/verify-harness-repo");
+    expect(experienceSource).toMatch(
+      /githubDispatchRepository:\s*shouldResetDispatch[\s\S]*formDefaults\.env\.githubDispatchRepository \|\| suggested \|\| ""/,
     );
 
     const guidedStep4Start = workflowSource.indexOf(
@@ -178,5 +191,50 @@ describe("configure GUI fix loop", () => {
       /previewIsCurrent && preview[\s\S]*\? preview[\s\S]*: await runPreview\(\)/,
     );
     expect(workflowSource).toContain("onGuidedLocalApplySuccess?.()");
+  });
+
+  it("Step 6 supports optional preview, manual setup, and verified Continue", () => {
+    const source = readFileSync(
+      path.join(
+        repoRoot,
+        "apps/gui/components/custom/guided-cloud-secrets-card.tsx",
+      ),
+      "utf8",
+    );
+    const manualRouteSource = readFileSync(
+      path.join(
+        repoRoot,
+        "apps/gui/app/api/setup/manual-harness-secret-values/route.ts",
+      ),
+      "utf8",
+    );
+
+    expect(source).toContain("Automatic setup");
+    expect(source).toContain("Manual setup");
+    expect(source).not.toMatch(
+      /RemoteActionConfirmation[\s\S]*disabled=\{!previewIsCurrent/,
+    );
+    expect(source).not.toMatch(
+      /onClick=\{\(\) => void handleApply\(\)\}[\s\S]*!previewIsCurrent/,
+    );
+    expect(source).toMatch(
+      /previewIsCurrent && preview \? preview : await runPreview\(\)/,
+    );
+    expect(source).toContain("Generate manual copy values");
+    expect(source).toContain("Verify manual setup");
+    expect(source).toContain("Continue to target workflow");
+    expect(source).toContain("verifiedAutomaticSuccess");
+    expect(source).toContain("verifiedManualSuccess");
+    expect(source).toContain("/api/setup/manual-harness-secret-values");
+    expect(source).toContain("Copy value");
+    expect(source).toContain("Hide values");
+    expect(source).toContain("Clear values");
+    expect(source).toContain(
+      "GitHub does not allow secret values to be read back",
+    );
+    expect(source).not.toContain("localStorage");
+    expect(source).not.toContain("sessionStorage");
+    expect(manualRouteSource).toContain("confirmedSensitiveReveal");
+    expect(manualRouteSource).not.toMatch(/console\.(log|info|debug|warn|error)/);
   });
 });

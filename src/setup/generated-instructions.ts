@@ -1,6 +1,4 @@
-import {
-  MANUAL_HARNESS_DISPATCH_REPO_PLACEHOLDER,
-} from "./harness-dispatch-repo.js";
+import { MANUAL_HARNESS_DISPATCH_REPO_PLACEHOLDER } from "./remote-actions.js";
 
 export interface GeneratedInstructions {
   summary: string;
