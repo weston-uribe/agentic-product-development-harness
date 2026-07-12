@@ -11,7 +11,14 @@ import {
   HARNESS_ACTIONS_SECRET_NAMES,
 } from "@harness/setup/remote-actions";
 import type { RemoteSetupSummary } from "@harness/setup/remote-setup-summary";
-import type { FirstRunReadiness } from "@harness/setup/first-run-readiness";
+import type { SetupGuiViewModel } from "@/lib/setup-server";
+import type { ControlPlaneReadinessContext } from "@harness/setup/control-plane-types";
+import {
+  deriveStep6ContinueEligibility,
+  step6PostApplyVerificationReady,
+  type FirstRunReadiness,
+  type ReadinessBlocker,
+} from "@harness/setup/first-run-readiness";
 import { generateGitHubSecretInstructions } from "@harness/setup/generated-instructions";
 
 import { FORM, SPACING } from "@/lib/constants";
@@ -20,49 +27,22 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { SectionCard } from "@/components/custom/section-card";
-import { StatusBadge } from "@/components/custom/status-badge";
 import { RemoteActionConfirmation } from "@/components/custom/remote-action-confirmation";
 import { ReviewCloudSecretsDisclosure } from "@/components/custom/review-cloud-secrets-disclosure";
 import { SetupApplyResult } from "@/components/custom/setup-apply-result";
 
+type CloudSecretsSetupType = "automatic" | "manual";
+
 interface GuidedCloudSecretsCardProps {
   readiness: FirstRunReadiness;
+  setupSummary: SetupGuiViewModel;
+  controlPlaneContext?: ControlPlaneReadinessContext;
+  remoteSecretPreviewStale?: boolean;
   initialSummary: RemoteSetupSummary;
   onSummaryUpdated?: (summary: RemoteSetupSummary) => void;
   onUiStateChange?: (state: { remoteSecretPreviewStale: boolean }) => void;
   onContinue: () => void;
   blockedByUpstream?: boolean;
-}
-
-function accessVariant(
-  status: RemoteSetupSummary["harnessRepoAccess"],
-): "success" | "warning" | "destructive" | "secondary" {
-  if (status === "available") return "success";
-  if (status === "denied") return "destructive";
-  return "secondary";
-}
-
-function aggregateSecretsStatus(
-  summary: RemoteSetupSummary,
-): { label: string; variant: "success" | "warning" | "secondary" } {
-  const statuses = summary.harnessSecretStatuses.map((entry) => entry.status);
-  if (statuses.every((status) => status === "present")) {
-    return { label: "All required secrets present", variant: "success" };
-  }
-  if (statuses.some((status) => status === "missing")) {
-    return { label: "Ready to create or update", variant: "warning" };
-  }
-  return { label: "Status pending verification", variant: "secondary" };
-}
-
-function cloudSecretsVerificationReady(summary: RemoteSetupSummary): boolean {
-  const presence = evaluateHarnessSecretPresence(summary.harnessSecretStatuses);
-  return (
-    summary.githubTokenConfigured &&
-    summary.harnessDispatchRepoResolved &&
-    summary.harnessRepoAccess !== "denied" &&
-    presence.allPresent
-  );
 }
 
 function cloudSecretVerificationMessage(summary: RemoteSetupSummary): string {
@@ -80,6 +60,15 @@ function cloudSecretVerificationMessage(summary: RemoteSetupSummary): string {
   return parts.join(". ");
 }
 
+function Step6BlockerPanel({ blocker }: { blocker: ReadinessBlocker }) {
+  return (
+    <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-4">
+      <p className="text-sm font-medium">{blocker.message}</p>
+      <p className="text-sm text-muted-foreground">{blocker.action}</p>
+    </div>
+  );
+}
+
 async function copyTextToClipboard(value: string): Promise<void> {
   if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(value);
@@ -90,6 +79,9 @@ async function copyTextToClipboard(value: string): Promise<void> {
 
 export function GuidedCloudSecretsCard({
   readiness,
+  setupSummary,
+  controlPlaneContext,
+  remoteSecretPreviewStale = false,
   initialSummary,
   onSummaryUpdated,
   onUiStateChange,
@@ -97,6 +89,8 @@ export function GuidedCloudSecretsCard({
   blockedByUpstream = false,
 }: GuidedCloudSecretsCardProps) {
   const [summary, setSummary] = useState(initialSummary);
+  const [setupType, setSetupType] = useState<CloudSecretsSetupType | null>(null);
+  const [previewStaleCleared, setPreviewStaleCleared] = useState(false);
   const [preview, setPreview] = useState<RemoteHarnessSecretPreview | null>(null);
   const [previewGenerated, setPreviewGenerated] = useState(false);
   const [disclosureOpen, setDisclosureOpen] = useState(false);
@@ -140,11 +134,6 @@ export function GuidedCloudSecretsCard({
     });
   }, [onUiStateChange, preview, previewIsCurrent]);
 
-  const secretsStatus = useMemo(
-    () => aggregateSecretsStatus(summary),
-    [summary],
-  );
-
   const needsSecretWrite = summary.harnessSecretStatuses.some(
     (entry) => entry.status === "missing",
   );
@@ -161,12 +150,58 @@ export function GuidedCloudSecretsCard({
     [summary.harnessDispatchRepo],
   );
 
+  const clearAutomaticPathState = useCallback(() => {
+    setPreview(null);
+    setPreviewGenerated(false);
+    setPreviewError(null);
+    setApplyResult(null);
+    setVerifiedAutomaticSuccess(false);
+    setConfirmed(false);
+    setDisclosureOpen(false);
+    setError(null);
+  }, []);
+
+  const clearManualPathState = useCallback(() => {
+    setManualValues(null);
+    setManualValuesRevealed(false);
+    setManualValuesError(null);
+    setManualVerifyMessage(null);
+    setVerifiedManualSuccess(false);
+    setCopyFeedback(null);
+  }, []);
+
+  const handleSetupTypeChange = useCallback(
+    (nextType: CloudSecretsSetupType) => {
+      setSetupType(nextType);
+      setPreviewStaleCleared(false);
+      if (nextType === "automatic") {
+        clearManualPathState();
+      } else {
+        clearAutomaticPathState();
+      }
+    },
+    [clearAutomaticPathState, clearManualPathState],
+  );
+
   const clearManualValues = useCallback(() => {
     setManualValues(null);
     setManualValuesRevealed(false);
     setManualValuesError(null);
     setCopyFeedback(null);
   }, []);
+
+  const markVerifiedSuccess = useCallback(
+    (path: CloudSecretsSetupType) => {
+      setPreviewStaleCleared(true);
+      onUiStateChange?.({ remoteSecretPreviewStale: false });
+      if (path === "automatic") {
+        setVerifiedAutomaticSuccess(true);
+      } else {
+        setVerifiedManualSuccess(true);
+      }
+    },
+    [onUiStateChange],
+  );
 
   const refreshSummary = useCallback(async () => {
     setLoading("refresh");
@@ -269,7 +304,8 @@ export function GuidedCloudSecretsCard({
       }
 
       const nextSummary = data.summary as RemoteSetupSummary;
-      setApplyResult(data.apply as RemoteHarnessSecretApplyResult);
+      const nextApplyResult = data.apply as RemoteHarnessSecretApplyResult;
+      setApplyResult(nextApplyResult);
       setSummary(nextSummary);
       onSummaryUpdated?.(nextSummary);
       setPreview(null);
@@ -277,11 +313,11 @@ export function GuidedCloudSecretsCard({
       setConfirmed(false);
       setDisclosureOpen(false);
 
-      if (cloudSecretsVerificationReady(nextSummary)) {
-        setVerifiedAutomaticSuccess(true);
+      if (step6PostApplyVerificationReady(nextSummary)) {
+        markVerifiedSuccess("automatic");
       } else {
         setError(
-          "Write request completed, but verification still reports missing or unknown secrets. Refresh or retry.",
+          `Write request completed, but verification failed: ${cloudSecretVerificationMessage(nextSummary)}. Refresh or retry.`,
         );
       }
     } catch (applyError) {
@@ -342,8 +378,8 @@ export function GuidedCloudSecretsCard({
       if (!nextSummary) {
         return;
       }
-      if (cloudSecretsVerificationReady(nextSummary)) {
-        setVerifiedManualSuccess(true);
+      if (step6PostApplyVerificationReady(nextSummary)) {
+        markVerifiedSuccess("manual");
         setManualVerifyMessage(cloudSecretVerificationMessage(nextSummary));
         clearManualValues();
       } else {
@@ -371,6 +407,38 @@ export function GuidedCloudSecretsCard({
     }
   };
 
+  const verifiedPath: "automatic" | "manual" = verifiedAutomaticSuccess
+    ? "automatic"
+    : "manual";
+
+  const eligibility = useMemo(
+    () =>
+      deriveStep6ContinueEligibility({
+        summary,
+        setupSummary,
+        localReadinessComplete: readiness.localReadinessComplete,
+        uiState: { remoteSecretPreviewStale },
+        staleSmokeDiagnostics: readiness.staleSmokeDiagnostics,
+        controlPlaneContext,
+        applyResult:
+          verifiedAutomaticSuccess && applyResult ? applyResult : undefined,
+        verifiedPath,
+        previewStaleCleared,
+      }),
+    [
+      summary,
+      setupSummary,
+      readiness.localReadinessComplete,
+      readiness.staleSmokeDiagnostics,
+      remoteSecretPreviewStale,
+      controlPlaneContext,
+      verifiedAutomaticSuccess,
+      applyResult,
+      verifiedPath,
+      previewStaleCleared,
+    ],
+  );
+
   const upstreamBlockedReason = blockedByUpstream
     ? "Fix harness repo access in local setup before cloud secrets can be configured."
     : undefined;
@@ -389,27 +457,32 @@ export function GuidedCloudSecretsCard({
         ? "Add GITHUB_TOKEN in Step 1 before writing cloud secrets."
         : undefined);
 
-  const verificationReady = cloudSecretsVerificationReady(summary);
+  const userVerifiedSuccess = verifiedAutomaticSuccess || verifiedManualSuccess;
+
   const canContinue =
-    (verifiedAutomaticSuccess || verifiedManualSuccess || verificationReady) &&
-    readiness.cloudSecretsBlockersCleared &&
+    userVerifiedSuccess &&
+    eligibility.canContinue &&
     !readiness.cloudSecretsReviewed &&
-    !loading;
+    !loading &&
+    !blockedByUpstream;
 
-  const secretApplyMessage =
-    verifiedAutomaticSuccess && applyResult
-      ? "Encrypted GitHub Actions secrets were created or updated successfully."
-      : null;
+  const automaticSuccessEligible =
+    verifiedAutomaticSuccess && applyResult && eligibility.canContinue;
 
-  const manualVerifySuccessMessage =
-    verifiedManualSuccess && manualVerifyMessage ? manualVerifyMessage : null;
+  const manualSuccessEligible =
+    verifiedManualSuccess &&
+    manualVerifyMessage !== null &&
+    eligibility.canContinue;
 
-  const githubAccessLabel =
-    summary.harnessRepoAccess === "available"
-      ? "connected"
-      : summary.harnessRepoAccess === "denied"
-        ? "access denied"
-        : "pending verification";
+  const automaticSuccessBlocked =
+    verifiedAutomaticSuccess && applyResult && !eligibility.canContinue;
+
+  const manualSuccessBlocked =
+    verifiedManualSuccess &&
+    manualVerifyMessage !== null &&
+    !eligibility.canContinue;
+
+  const primaryBlocker = eligibility.blockers[0];
 
   return (
     <SectionCard
@@ -433,257 +506,273 @@ export function GuidedCloudSecretsCard({
           </>
         ) : (
           <>
-            <dl className="grid grid-cols-1 gap-3 text-sm md:grid-cols-2">
-              <div>
-                <dt className="text-muted-foreground">Harness repo</dt>
-                <dd className="break-all font-medium">
-                  {summary.harnessDispatchRepo}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">GitHub access</dt>
-                <dd>
-                  <StatusBadge
-                    label={githubAccessLabel}
-                    variant={accessVariant(summary.harnessRepoAccess)}
-                  />
-                </dd>
-              </div>
-              <div className="md:col-span-2">
-                <dt className="text-muted-foreground">Required secrets</dt>
-                <dd>
-                  <StatusBadge
-                    label={secretsStatus.label}
-                    variant={secretsStatus.variant}
-                  />
-                </dd>
-              </div>
-            </dl>
-
-            <div className="rounded-md border border-border bg-muted/10 p-4 space-y-4">
-              <div className="space-y-2">
-                <p className="text-sm font-medium">Automatic setup</p>
-                <p className="text-sm text-muted-foreground">
-                  Write encrypted GitHub Actions secrets to the harness repo
-                  through the GitHub API. Preview is optional; preflight runs
-                  before apply when you skip preview.
-                </p>
-              </div>
-
-              <ReviewCloudSecretsDisclosure
-                open={disclosureOpen}
-                onOpenChange={handleDisclosureOpenChange}
-                isLoading={loading === "preview"}
-                previewError={previewError ?? undefined}
-                preview={preview ?? undefined}
-                previewIsCurrent={previewIsCurrent}
-              />
-
-              <RemoteActionConfirmation
-                scope="remote-secret-write"
-                variant="guided"
-                confirmed={confirmed}
-                disabled={
-                  Boolean(upstreamBlockedReason) ||
-                  Boolean(preview?.validationError)
-                }
-                disabledReason={confirmDisabledReason}
-                onConfirmedChange={setConfirmed}
-              />
-
-              <div className={FORM.actions}>
-                <Button
-                  type="button"
-                  onClick={() => void handleApply()}
-                  disabled={
-                    loading !== null ||
-                    !confirmed ||
-                    Boolean(preview?.validationError) ||
-                    Boolean(upstreamBlockedReason) ||
-                    !summary.githubTokenConfigured ||
-                    verifiedAutomaticSuccess
-                  }
-                  variant={verifiedAutomaticSuccess ? "outline" : "default"}
-                >
-                  {loading === "apply" ? "Writing secrets…" : applyLabel}
-                </Button>
-              </div>
-
-              {applyDisabledReason && !upstreamBlockedReason ? (
-                <p className="text-sm text-muted-foreground">
-                  {applyDisabledReason}
-                </p>
-              ) : null}
-            </div>
-
-            <div className="rounded-md border border-border bg-background p-4 space-y-4">
-              <div className="space-y-2">
-                <p className="text-sm font-medium">Manual setup</p>
-                <p className="text-sm text-muted-foreground">
-                  Create or update the required GitHub Actions secrets yourself
-                  in the harness repo, then run verify-only checks here.
-                </p>
-              </div>
-
-              <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                {manualInstructions.map((step) => (
-                  <li key={step}>{step}</li>
-                ))}
-              </ul>
-
-              <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 space-y-3">
-                <p className="text-sm font-medium text-destructive">
-                  Sensitive values warning
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  Manual copy values are secret. Do not paste them into logs,
-                  PRs, issues, screenshots, chat, or saved notes.
-                </p>
-                <div className="flex items-start gap-3">
+            <fieldset className="space-y-3">
+              <legend className="text-sm font-medium">Setup type</legend>
+              <div className="flex flex-col gap-3 sm:flex-row sm:gap-6">
+                <div className="flex items-center gap-3">
                   <Checkbox
-                    id="manual-values-warning"
-                    checked={manualValuesWarningAccepted}
-                    onChange={(event) =>
-                      setManualValuesWarningAccepted(event.target.checked)
-                    }
+                    id="setup-type-automatic"
+                    type="radio"
+                    name="cloud-secrets-setup-type"
+                    checked={setupType === "automatic"}
+                    onChange={() => handleSetupTypeChange("automatic")}
                   />
-                  <Label
-                    htmlFor="manual-values-warning"
-                    className="text-sm leading-snug"
-                  >
-                    I understand these values are sensitive and will handle them
-                    carefully.
+                  <Label htmlFor="setup-type-automatic" className="text-sm">
+                    Automatic setup
+                  </Label>
+                </div>
+                <div className="flex items-center gap-3">
+                  <Checkbox
+                    id="setup-type-manual"
+                    type="radio"
+                    name="cloud-secrets-setup-type"
+                    checked={setupType === "manual"}
+                    onChange={() => handleSetupTypeChange("manual")}
+                  />
+                  <Label htmlFor="setup-type-manual" className="text-sm">
+                    Manual setup
                   </Label>
                 </div>
               </div>
+            </fieldset>
 
-              <div className="flex flex-wrap items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => void handleGenerateManualValues()}
+            {setupType === "automatic" ? (
+              <div className="rounded-md border border-border bg-muted/10 p-4 space-y-4">
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Automatic setup</p>
+                  <p className="text-sm text-muted-foreground">
+                    Write encrypted GitHub Actions secrets to the harness repo
+                    through the GitHub API. Preview is optional; preflight runs
+                    before apply when you skip preview.
+                  </p>
+                </div>
+
+                <ReviewCloudSecretsDisclosure
+                  open={disclosureOpen}
+                  onOpenChange={handleDisclosureOpenChange}
+                  isLoading={loading === "preview"}
+                  previewError={previewError ?? undefined}
+                  preview={preview ?? undefined}
+                  previewIsCurrent={previewIsCurrent}
+                />
+
+                <RemoteActionConfirmation
+                  scope="remote-secret-write"
+                  variant="guided"
+                  confirmed={confirmed}
                   disabled={
-                    loading !== null || !manualValuesWarningAccepted
+                    Boolean(upstreamBlockedReason) ||
+                    Boolean(preview?.validationError)
                   }
-                >
-                  {loading === "manual-values"
-                    ? "Generating manual copy values…"
-                    : "Generate manual copy values"}
-                </Button>
-                {manualValues ? (
-                  <>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setManualValuesRevealed((current) => !current)}
-                    >
-                      {manualValuesRevealed ? "Hide values" : "Show values"}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={clearManualValues}
-                    >
-                      Clear values
-                    </Button>
-                  </>
+                  disabledReason={confirmDisabledReason}
+                  onConfirmedChange={setConfirmed}
+                />
+
+                <div className={FORM.actions}>
+                  <Button
+                    type="button"
+                    onClick={() => void handleApply()}
+                    disabled={
+                      loading !== null ||
+                      !confirmed ||
+                      Boolean(preview?.validationError) ||
+                      Boolean(upstreamBlockedReason) ||
+                      !summary.githubTokenConfigured ||
+                      verifiedAutomaticSuccess
+                    }
+                    variant={verifiedAutomaticSuccess ? "outline" : "default"}
+                  >
+                    {loading === "apply" ? "Writing secrets…" : applyLabel}
+                  </Button>
+                </div>
+
+                {applyDisabledReason && !upstreamBlockedReason ? (
+                  <p className="text-sm text-muted-foreground">
+                    {applyDisabledReason}
+                  </p>
                 ) : null}
               </div>
+            ) : null}
 
-              {manualValuesError ? (
-                <p className="text-sm text-destructive">{manualValuesError}</p>
-              ) : null}
-              {copyFeedback ? (
-                <p className="text-sm text-muted-foreground">{copyFeedback}</p>
-              ) : null}
-
-              {manualValues ? (
-                <div className="space-y-3">
-                  {HARNESS_ACTIONS_SECRET_NAMES.map((secretName) => {
-                    const value = manualValues.values[secretName];
-                    return (
-                      <div
-                        key={secretName}
-                        className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border p-3"
-                      >
-                        <div>
-                          <p className="text-sm font-medium">{secretName}</p>
-                          {manualValuesRevealed && value ? (
-                            <p className="mt-1 break-all font-mono text-xs text-muted-foreground">
-                              {value}
-                            </p>
-                          ) : (
-                            <p className="text-xs text-muted-foreground">
-                              {value
-                                ? "Value ready to copy."
-                                : "Value unavailable locally."}
-                            </p>
-                          )}
-                        </div>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={!value}
-                          onClick={() => void handleCopySecret(secretName, value)}
-                        >
-                          Copy value
-                        </Button>
-                      </div>
-                    );
-                  })}
+            {setupType === "manual" ? (
+              <div className="rounded-md border border-border bg-background p-4 space-y-4">
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Manual setup</p>
+                  <p className="text-sm text-muted-foreground">
+                    Create or update the required GitHub Actions secrets yourself
+                    in the harness repo, then run verify-only checks here.
+                  </p>
                 </div>
-              ) : null}
 
-              <p className="text-sm text-muted-foreground">
-                GitHub does not allow secret values to be read back. Verify-only
-                confirms required secret names exist and the harness repo is
-                reachable; it cannot prove the values match your local config or
-                keys.
-              </p>
+                <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                  {manualInstructions.map((step) => (
+                    <li key={step}>{step}</li>
+                  ))}
+                </ul>
 
-              <div className={FORM.actions}>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => void handleManualVerify()}
-                  disabled={loading !== null}
-                >
-                  {loading === "manual-verify"
-                    ? "Verifying manual setup…"
-                    : "Verify manual setup"}
-                </Button>
-              </div>
+                <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 space-y-3">
+                  <p className="text-sm font-medium text-destructive">
+                    Sensitive values warning
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Manual copy values are secret. Do not paste them into logs,
+                    PRs, issues, screenshots, chat, or saved notes.
+                  </p>
+                  <div className="flex items-start gap-3">
+                    <Checkbox
+                      id="manual-values-warning"
+                      checked={manualValuesWarningAccepted}
+                      onChange={(event) =>
+                        setManualValuesWarningAccepted(event.target.checked)
+                      }
+                    />
+                    <Label
+                      htmlFor="manual-values-warning"
+                      className="text-sm leading-snug"
+                    >
+                      I understand these values are sensitive and will handle them
+                      carefully.
+                    </Label>
+                  </div>
+                </div>
 
-              {manualVerifyMessage && !verifiedManualSuccess ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void handleGenerateManualValues()}
+                    disabled={
+                      loading !== null || !manualValuesWarningAccepted
+                    }
+                  >
+                    {loading === "manual-values"
+                      ? "Generating manual copy values…"
+                      : "Generate manual copy values"}
+                  </Button>
+                  {manualValues ? (
+                    <>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                          setManualValuesRevealed((current) => !current)
+                        }
+                      >
+                        {manualValuesRevealed ? "Hide values" : "Show values"}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={clearManualValues}
+                      >
+                        Clear values
+                      </Button>
+                    </>
+                  ) : null}
+                </div>
+
+                {manualValuesError ? (
+                  <p className="text-sm text-destructive">{manualValuesError}</p>
+                ) : null}
+                {copyFeedback ? (
+                  <p className="text-sm text-muted-foreground">{copyFeedback}</p>
+                ) : null}
+
+                {manualValues ? (
+                  <div className="space-y-3">
+                    {HARNESS_ACTIONS_SECRET_NAMES.map((secretName) => {
+                      const value = manualValues.values[secretName];
+                      return (
+                        <div
+                          key={secretName}
+                          className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border p-3"
+                        >
+                          <div>
+                            <p className="text-sm font-medium">{secretName}</p>
+                            {manualValuesRevealed && value ? (
+                              <p className="mt-1 break-all font-mono text-xs text-muted-foreground">
+                                {value}
+                              </p>
+                            ) : (
+                              <p className="text-xs text-muted-foreground">
+                                {value
+                                  ? "Value ready to copy."
+                                  : "Value unavailable locally."}
+                              </p>
+                            )}
+                          </div>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={!value}
+                            onClick={() =>
+                              void handleCopySecret(secretName, value)
+                            }
+                          >
+                            Copy value
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+
                 <p className="text-sm text-muted-foreground">
-                  {manualVerifyMessage}
+                  GitHub does not allow secret values to be read back. Verify-only
+                  confirms required secret names exist and the harness repo is
+                  reachable; it cannot prove the values match your local config or
+                  keys.
                 </p>
-              ) : null}
-              {manualVerifySuccessMessage ? (
-                <SetupApplyResult
-                  success
-                  message={manualVerifySuccessMessage}
-                />
-              ) : null}
-            </div>
+
+                <div className={FORM.actions}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void handleManualVerify()}
+                    disabled={loading !== null}
+                  >
+                    {loading === "manual-verify"
+                      ? "Verifying manual setup…"
+                      : "Verify manual setup"}
+                  </Button>
+                </div>
+
+                {manualVerifyMessage && !verifiedManualSuccess ? (
+                  <p className="text-sm text-muted-foreground">
+                    {manualVerifyMessage}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
 
             {error ? <SetupApplyResult success={false} message={error} /> : null}
-            {secretApplyMessage ? (
-              <SetupApplyResult success message={secretApplyMessage} />
+
+            {automaticSuccessEligible ? (
+              <SetupApplyResult
+                success
+                message="Encrypted GitHub Actions secrets were created or updated successfully."
+              />
+            ) : null}
+
+            {automaticSuccessBlocked && primaryBlocker ? (
+              <Step6BlockerPanel blocker={primaryBlocker} />
+            ) : null}
+
+            {manualSuccessEligible ? (
+              <SetupApplyResult success message={manualVerifyMessage!} />
+            ) : null}
+
+            {manualSuccessBlocked && primaryBlocker ? (
+              <Step6BlockerPanel blocker={primaryBlocker} />
             ) : null}
 
             {canContinue ? (
               <Button type="button" onClick={onContinue}>
                 Continue to target workflow
               </Button>
-            ) : verificationReady === false &&
-              (verifiedAutomaticSuccess || verifiedManualSuccess) ? (
-              <p className="text-sm text-muted-foreground">
-                {cloudSecretVerificationMessage(summary)}
-              </p>
             ) : null}
           </>
         )}
