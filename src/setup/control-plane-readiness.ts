@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import type { SetupGuiViewModel } from "./gui-view-model.js";
 import type { ControlPlaneReadinessContext } from "./control-plane-types.js";
 import { requiredStatusNames } from "./linear-status-contract.js";
@@ -230,9 +229,8 @@ export function computeCloudSecretsConfigStateFingerprint(input: {
   setupSummary: SetupGuiViewModel;
   controlPlaneContext?: ControlPlaneReadinessContext;
 }): string {
-  return createHash("sha256")
-    .update(JSON.stringify(normalizeCloudSecretsConfigState(input)))
-    .digest("hex");
+  // JSON snapshot only — used for equality checks in client + server bundles.
+  return JSON.stringify(normalizeCloudSecretsConfigState(input));
 }
 
 export function isCloudSecretsStaleFromControlPlane(
