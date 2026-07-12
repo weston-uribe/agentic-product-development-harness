@@ -11,6 +11,8 @@ export function createPendingRedeployVerification(input: {
   sourceDeploymentId?: string;
   newDeploymentId: string;
   message?: string;
+  writtenEnvKeys?: string[];
+  skippedEnvKeys?: string[];
 }): VercelBridgeRedeployVerification {
   const startedAt = new Date().toISOString();
   return {
@@ -30,5 +32,7 @@ export function createPendingRedeployVerification(input: {
     message:
       input.message ??
       "Production redeploy triggered. Waiting for Vercel deployment READY.",
+    writtenEnvKeys: input.writtenEnvKeys,
+    skippedEnvKeys: input.skippedEnvKeys,
   };
 }

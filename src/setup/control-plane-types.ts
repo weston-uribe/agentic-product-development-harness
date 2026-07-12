@@ -55,6 +55,8 @@ export interface VercelBridgeRedeployVerification {
   message?: string;
   blockedMessage?: string;
   blockedNextSteps?: string[];
+  writtenEnvKeys?: string[];
+  skippedEnvKeys?: string[];
 }
 
 export interface VercelBridgeSelection {

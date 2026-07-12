@@ -55,6 +55,14 @@ vi.mock("../../src/setup/vercel-production-redeploy.js", async (importOriginal) 
   };
 });
 
+vi.mock("../../src/setup/service-verification.js", () => ({
+  loadSecretFromEnvLocal: vi.fn(),
+}));
+
+vi.mock("../../src/setup/github-dispatch-token.js", () => ({
+  assessGitHubDispatchTokenEligibility: vi.fn(),
+}));
+
 import { runSignedWebhookProbe } from "../../src/setup/vercel-webhook-probe.js";
 import {
   updateControlPlaneSetupState,
@@ -75,8 +83,12 @@ import {
   previewVercelBridgeSetup,
   VERCEL_SETUP_ACTIONS,
 } from "../../src/setup/vercel-setup-plan.js";
-import { pollVercelBridgeRedeployVerification } from "../../src/setup/vercel-bridge-redeploy-poll.js";
+import {
+  pollVercelBridgeRedeployVerification,
+} from "../../src/setup/vercel-bridge-redeploy-poll.js";
 import { inspectProductionRedeployStatus } from "../../src/setup/vercel-production-redeploy.js";
+import { loadSecretFromEnvLocal } from "../../src/setup/service-verification.js";
+import { assessGitHubDispatchTokenEligibility } from "../../src/setup/github-dispatch-token.js";
 
 const previewResult = {
   actionId: VERCEL_SETUP_ACTIONS.preview.id,
@@ -104,6 +116,7 @@ const pendingVerification = {
   actionId: "vercel-redeploy-test",
   projectId: "proj-1",
   projectName: "harness-gui",
+  teamId: "team-1",
   webhookUrl: "https://harness-gui.vercel.app/api/linear-webhook",
   fingerprint: "preview-fingerprint",
   sourceDeploymentId: "dpl-source-1",
@@ -113,9 +126,13 @@ const pendingVerification = {
   updatedAt: new Date().toISOString(),
   deadlineAt: new Date(Date.now() + 300_000).toISOString(),
   verifyAttempted: false,
+  writtenEnvKeys: ["LINEAR_WEBHOOK_SECRET", "HARNESS_TEAM_KEY"],
+  skippedEnvKeys: ["GITHUB_DISPATCH_TOKEN"],
 };
 
 const baseVercelState = {
+  teamId: "team-1",
+  teamName: "Acme",
   projectId: "proj-1",
   projectName: "harness-gui",
   productionUrl: "https://harness-gui.vercel.app",
@@ -136,6 +153,15 @@ describe("vercel-bridge-redeploy-poll", () => {
   let tempRoot = "";
   let storedState: {
     version: 1;
+    linear?: {
+      teamId: string;
+      teamKey: string;
+      teamName: string;
+      teamMode: "existing";
+      projectMode: "existing";
+      projectName: string;
+      statusCoverageComplete: boolean;
+    };
     vercel: typeof baseVercelState;
   };
 
@@ -146,11 +172,37 @@ describe("vercel-bridge-redeploy-poll", () => {
     vi.clearAllMocks();
     storedState = {
       version: 1,
+      linear: {
+        teamId: "linear-team-1",
+        teamKey: "WES",
+        teamName: "Weston",
+        teamMode: "existing",
+        projectMode: "existing",
+        projectName: "Harness",
+        statusCoverageComplete: true,
+      },
       vercel: {
         ...baseVercelState,
         redeployVerification: { ...pendingVerification },
       },
     };
+    vi.mocked(loadSecretFromEnvLocal).mockImplementation(async ({ key }) => {
+      if (key === "VERCEL_TOKEN") {
+        return "vercel-token";
+      }
+      if (key === "LINEAR_API_KEY") {
+        return "lin_api_test";
+      }
+      if (key === "GITHUB_TOKEN") {
+        return "ghp_saved";
+      }
+      return undefined;
+    });
+    vi.mocked(assessGitHubDispatchTokenEligibility).mockResolvedValue({
+      eligible: true,
+      reason: "eligible",
+      repoSlug: "weston-uribe/agentic-product-development-harness",
+    });
     vi.mocked(readControlPlaneSetupState).mockImplementation(async () => storedState);
     vi.mocked(resolveLinearWebhookCandidateSecret).mockResolvedValue({
       secret: "stable-webhook-secret",
@@ -225,17 +277,84 @@ describe("vercel-bridge-redeploy-poll", () => {
   it("returns building state while deployment is not READY", async () => {
     const result = await pollVercelBridgeRedeployVerification({
       actionId: "vercel-redeploy-test",
-      plan: {
-        vercelToken: "vercel-token",
-        projectId: "proj-1",
-        linearApiKey: "lin_api_test",
-      },
       cwd: tempRoot,
     });
 
     expect(result.setupPending).toBe(true);
     expect(result.productionRedeployStatus).toBe("building");
     expect(result.verified).toBe(false);
+    expect(result.writtenEnvKeys).toEqual([
+      "LINEAR_WEBHOOK_SECRET",
+      "HARNESS_TEAM_KEY",
+    ]);
+    expect(result.writtenEnvKeys.join(", ")).not.toBe("none");
+    expect(ensureLinearIssueWebhook).not.toHaveBeenCalled();
+  });
+
+  it("succeeds with only actionId and no client plan payload", async () => {
+    vi.mocked(inspectProductionRedeployStatus).mockResolvedValue({
+      status: "ready",
+      sourceDeploymentId: "dpl-source-1",
+      newDeploymentId: "dpl-new-1",
+      message: "Production redeploy completed and deployment is READY.",
+    });
+
+    const result = await pollVercelBridgeRedeployVerification({
+      actionId: "vercel-redeploy-test",
+      cwd: tempRoot,
+    });
+
+    expect(result.verified).toBe(true);
+    expect(result.setupPending).toBe(false);
+  });
+
+  it("reconstructs verify plan from persisted state with linear team and github dispatch context", async () => {
+    vi.mocked(inspectProductionRedeployStatus).mockResolvedValue({
+      status: "ready",
+      sourceDeploymentId: "dpl-source-1",
+      newDeploymentId: "dpl-new-1",
+      message: "Production redeploy completed and deployment is READY.",
+    });
+
+    await pollVercelBridgeRedeployVerification({
+      actionId: "vercel-redeploy-test",
+      cwd: tempRoot,
+    });
+
+    expect(previewVercelBridgeSetup).toHaveBeenCalledWith(
+      expect.objectContaining({
+        teamId: "team-1",
+        projectId: "proj-1",
+        projectName: "harness-gui",
+        linearTeamId: "linear-team-1",
+        derivedHarnessTeamKey: "WES",
+        derivedGithubDispatchToken: "ghp_saved",
+      }),
+    );
+    expect(ensureLinearIssueWebhook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        mutatePolicy: "verify-only",
+        linearTeamId: "linear-team-1",
+      }),
+    );
+  });
+
+  it("returns setupBlocked when persisted fingerprint no longer matches reconstructed plan", async () => {
+    vi.mocked(previewVercelBridgeSetup).mockResolvedValue({
+      ...previewResult,
+      fingerprint: "different-fingerprint",
+    });
+
+    const result = await pollVercelBridgeRedeployVerification({
+      actionId: "vercel-redeploy-test",
+      cwd: tempRoot,
+    });
+
+    expect(result.setupBlocked?.message).toMatch(
+      /Persisted Step 3 setup context no longer matches/i,
+    );
+    expect(result.setupPending).toBe(false);
+    expect(JSON.stringify(result)).not.toContain("Preview fingerprint is stale");
     expect(ensureLinearIssueWebhook).not.toHaveBeenCalled();
   });
 
@@ -249,13 +368,6 @@ describe("vercel-bridge-redeploy-poll", () => {
 
     const result = await pollVercelBridgeRedeployVerification({
       actionId: "vercel-redeploy-test",
-      plan: {
-        vercelToken: "vercel-token",
-        projectId: "proj-1",
-        linearApiKey: "lin_api_test",
-        derivedHarnessTeamKey: "WES",
-        derivedGithubDispatchToken: "ghp_saved",
-      },
       cwd: tempRoot,
     });
 
@@ -298,13 +410,6 @@ describe("vercel-bridge-redeploy-poll", () => {
 
     const result = await pollVercelBridgeRedeployVerification({
       actionId: "vercel-redeploy-test",
-      plan: {
-        vercelToken: "vercel-token",
-        projectId: "proj-1",
-        linearApiKey: "lin_api_test",
-        derivedHarnessTeamKey: "WES",
-        derivedGithubDispatchToken: "ghp_saved",
-      },
       cwd: tempRoot,
     });
 
@@ -326,11 +431,6 @@ describe("vercel-bridge-redeploy-poll", () => {
 
     const result = await pollVercelBridgeRedeployVerification({
       actionId: "vercel-redeploy-test",
-      plan: {
-        vercelToken: "vercel-token",
-        projectId: "proj-1",
-        linearApiKey: "lin_api_test",
-      },
       cwd: tempRoot,
     });
 
@@ -350,28 +450,34 @@ describe("vercel-bridge-redeploy-poll", () => {
     await Promise.all([
       pollVercelBridgeRedeployVerification({
         actionId: "vercel-redeploy-test",
-        plan: {
-          vercelToken: "vercel-token",
-          projectId: "proj-1",
-          linearApiKey: "lin_api_test",
-          derivedHarnessTeamKey: "WES",
-          derivedGithubDispatchToken: "ghp_saved",
-        },
         cwd: tempRoot,
       }),
       pollVercelBridgeRedeployVerification({
         actionId: "vercel-redeploy-test",
-        plan: {
-          vercelToken: "vercel-token",
-          projectId: "proj-1",
-          linearApiKey: "lin_api_test",
-          derivedHarnessTeamKey: "WES",
-          derivedGithubDispatchToken: "ghp_saved",
-        },
         cwd: tempRoot,
       }),
     ]);
 
     expect(ensureLinearIssueWebhook).toHaveBeenCalledTimes(1);
+  });
+
+  it("buildPollVerifyPlanFromPersistedState never exposes secret values in poll results", async () => {
+    vi.mocked(inspectProductionRedeployStatus).mockResolvedValue({
+      status: "building",
+      sourceDeploymentId: "dpl-source-1",
+      newDeploymentId: "dpl-new-1",
+      message: "Waiting for Vercel deployment READY…",
+    });
+
+    const result = await pollVercelBridgeRedeployVerification({
+      actionId: "vercel-redeploy-test",
+      cwd: tempRoot,
+    });
+
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain("ghp_saved");
+    expect(serialized).not.toContain("lin_api_test");
+    expect(serialized).not.toContain("vercel-token");
+    expect(serialized).not.toContain("stable-webhook-secret");
   });
 });

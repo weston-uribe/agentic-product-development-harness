@@ -439,6 +439,8 @@ async function maybeOrchestrateAutoRedeploy(input: {
     sourceDeploymentId: redeployResult.sourceDeploymentId,
     newDeploymentId: redeployResult.newDeploymentId,
     message: redeployResult.message,
+    writtenEnvKeys: input.baseResult.writtenEnvKeys,
+    skippedEnvKeys: input.baseResult.skippedEnvKeys,
   });
 
   await updateControlPlaneSetupState(
