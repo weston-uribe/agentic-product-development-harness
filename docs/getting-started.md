@@ -140,7 +140,7 @@ These require operator configuration outside this repo:
 ## PM issue intake
 
 1. Copy [`prompts/issue-intake-chatgpt.md`](../prompts/issue-intake-chatgpt.md) into ChatGPT, **or**
-2. Use [`skills/issue-intake/SKILL.md`](../skills/issue-intake/SKILL.md) in Cursor
+2. Use [`.agents/skills/issue-intake/SKILL.md`](../.agents/skills/issue-intake/SKILL.md) in Cursor
 3. Validate before creating the Linear issue: `npm run harness:validate-issue`
 
 Details: [`docs/issue-intake.md`](issue-intake.md)

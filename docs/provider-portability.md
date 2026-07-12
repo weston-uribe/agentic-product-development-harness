@@ -97,6 +97,17 @@ the runner phases today:
 - validation evidence reporting
 - raw provider artifact retention
 
+## Skill portability
+
+Harness skills are portable workflow contracts stored canonically at
+[`.agents/skills/<skill-name>/SKILL.md`](../.agents/skills/). Client-specific
+locations (`.cursor/skills`, `.claude/skills`, ChatGPT project files, future
+Codex adapters) are export or adaptation targets — not canonical sources.
+
+Only `issue-intake` is implemented today. Skill registry, package manager, and
+provider/client adapters are **not implemented** — see
+[`docs/skills/skill-architecture.md`](skills/skill-architecture.md).
+
 ## Recommended next implementation steps
 
 1. **Make Cursor explicit** in docs and config posture rather than implying
