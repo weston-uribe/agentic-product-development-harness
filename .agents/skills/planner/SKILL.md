@@ -14,7 +14,7 @@ Convert approved product intent, Linear issues, product requests, or audit repor
 
 - A Linear issue is in **Ready for Planning** and needs a durable plan before build
 - An approved product request needs implementation-ready planning
-- A `code-health-audit` or future audit report needs remediation planning
+- A `code-health-audit`, `architecture-evolution-audit`, or future audit report needs remediation planning
 - Work is too large for one reviewable PR and needs ordered PR slices
 - The operator wants a planner-consumable plan without implementation changes
 
@@ -50,7 +50,7 @@ Do not duplicate audit or implementation responsibilities.
 ## Planner modes
 
 - **feature-planning** — Use for approved product intent or Linear issues that need a plan before build. Output one implementation plan if the work is PR-sized; otherwise apply PR slicing and output multiple ordered slices.
-- **audit-remediation-planning** — Use for `code-health-audit` or future audit reports. Convert findings into prioritized remediation slices without doing the fixes.
+- **audit-remediation-planning** — Use for `code-health-audit`, `architecture-evolution-audit`, or future audit reports. Convert findings into prioritized remediation slices without doing the fixes.
 
 If no mode is specified:
 
@@ -78,7 +78,7 @@ Ask for or infer:
 3. **Planner mode** — `feature-planning` or `audit-remediation-planning` (infer if not specified)
 4. **Scope boundaries** — include / exclude paths or subsystems
 5. **Repo context** — `AGENTS.md`, README, architecture docs, `templates/implementation-plan.md`, prior plan comments
-6. **Audit finding IDs** — when planning audit remediation (e.g. `CH-001`, `CH-003`)
+6. **Audit finding IDs** — when planning audit remediation (e.g. `CH-001`, `AE-001`)
 
 **Sensible default:** plan from the current workspace and current branch using durable artifacts only. Do not run expensive, destructive, or long-running commands unless explicitly asked. Lightweight read-only inspection is allowed.
 
@@ -95,11 +95,11 @@ Ask for or infer:
 
 ## Audit-remediation planning rules
 
-- Consume audit findings by stable ID (`CH-001`, etc.) from `code-health-audit` or future audit skills
+- Consume audit findings by stable ID (`CH-001`, `AE-001`, etc.) from `code-health-audit`, `architecture-evolution-audit`, or future audit skills
 - Prioritize **Critical** (if emitted), then **High**, then **Medium**
 - Usually **exclude Low and Info** unless the operator explicitly asks or they are bundled into a nearby higher-priority slice with minimal additional scope
 - Convert findings into remediation goals and acceptance criteria, not implementation instructions
-- Keep security, performance/cost, product/design, and broad architecture findings out of code-health remediation unless the operator explicitly routes them to the appropriate audit/planning workflow
+- Keep security, performance/cost, and product/design findings out of code-health or architecture-evolution remediation unless the operator explicitly routes them to the appropriate audit/planning workflow
 - If findings require product or architecture judgment, mark them as `needs human decision` rather than planning implementation
 
 ## Output package
@@ -224,5 +224,6 @@ The planner does **not** create implementation branches or PRs. The implemented 
 - Skill architecture: [`docs/skills/skill-architecture.md`](../../../docs/skills/skill-architecture.md)
 - Implementation plan template: [`templates/implementation-plan.md`](../../../templates/implementation-plan.md)
 - Code health audit skill: [`.agents/skills/code-health-audit/SKILL.md`](../code-health-audit/SKILL.md)
+- Architecture evolution audit skill: [`.agents/skills/architecture-evolution-audit/SKILL.md`](../architecture-evolution-audit/SKILL.md)
 - Linear automation state machine: [`docs/architecture/linear-automation-state-machine.md`](../../../docs/architecture/linear-automation-state-machine.md)
 - Agent guide: [`AGENTS.md`](../../../AGENTS.md)
