@@ -10,8 +10,13 @@ const repoRoot = path.resolve(
 const nextConfig: NextConfig = {
   transpilePackages: [],
   serverExternalPackages: ["@cursor/sdk", "@linear/sdk"],
+  // GitHub Codespaces / forwarded dev URLs use *.app.github.dev as the browser Host.
+  allowedDevOrigins: ["*.app.github.dev"],
   experimental: {
     externalDir: true,
+    serverActions: {
+      allowedOrigins: ["localhost:3000", "*.app.github.dev"],
+    },
   },
   webpack: (config) => {
     config.resolve.alias = {
