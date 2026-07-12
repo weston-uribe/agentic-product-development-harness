@@ -40,10 +40,11 @@ import type { VercelSignedProbeEvidence } from "./vercel-webhook-probe.js";
 import {
   isAutoRedeployEligible,
   isStaleDeploymentSignatureProbeFailure,
-  triggerAndWaitForProductionRedeploy,
+  triggerProductionRedeployOnce,
   findLatestReadyProductionDeploymentId,
   type ProductionRedeployStatus,
 } from "./vercel-production-redeploy.js";
+import { createPendingRedeployVerification } from "./vercel-bridge-redeploy-state.js";
 import { REQUIRED_VERCEL_BRIDGE_ENV_VARS } from "./vercel-bridge-readiness.js";
 import {
   VERCEL_SETUP_ACTIONS,
@@ -111,6 +112,8 @@ export interface VercelBridgeApplyResult {
   signedProbeRetryResult?: VercelSignedProbeEvidence;
   setupBlocked?: VercelBridgeSetupBlocked;
   orchestrationSteps?: VercelBridgeOrchestrationStep[];
+  setupPending?: boolean;
+  pollActionId?: string;
 }
 
 async function resolveVercelTeamForApply(input: {
@@ -249,21 +252,6 @@ function buildSetupBlockedForMissingDeployment(): VercelBridgeSetupBlocked {
   };
 }
 
-function buildSetupBlockedForPostRedeployVerificationFailure(input?: {
-  retryReason?: string;
-}): VercelBridgeSetupBlocked {
-  const reasonSuffix = input?.retryReason?.trim()
-    ? ` (${input.retryReason})`
-    : "";
-  return {
-    message: `Production redeploy completed, but signed webhook delivery verification still failed${reasonSuffix}.`,
-    nextSteps: [
-      "Use Retry verification without rewriting env vars or rotating secrets.",
-      "If verification still fails, confirm the Linear webhook signing secret matches Vercel production.",
-    ],
-  };
-}
-
 function buildManualRedeployRecoveryMessage(
   redeployStatus: ProductionRedeployStatus,
   redeployMessage?: string,
@@ -297,12 +285,20 @@ async function maybeOrchestrateAutoRedeploy(input: {
   projectId: string;
   projectName: string;
   teamId?: string;
+  webhookUrl: string;
+  fingerprint: string;
+  priorSelection: VercelBridgeSelection;
 }): Promise<VercelBridgeApplyResult> {
   const orchestrationSteps: VercelBridgeOrchestrationStep[] = [
     {
       phase: "writing_env_vars",
       status: input.baseResult.writtenEnvKeys.length > 0 ? "completed" : "failed",
       message: "Writing Vercel env vars…",
+    },
+    {
+      phase: "verifying_webhook",
+      status: "failed",
+      message: "Initial signed probe failed due to stale deployment.",
     },
   ];
 
@@ -320,6 +316,38 @@ async function maybeOrchestrateAutoRedeploy(input: {
       signedProbe: signedProbeInitialResult,
       productionRedeployTriggered: false,
       productionRedeployStatus: "not_triggered",
+      orchestrationSteps: orchestrationSteps.slice(0, 1),
+    };
+  }
+
+  const latestState = await readControlPlaneSetupState(input.applyInput.cwd);
+  const existingPending =
+    latestState?.vercel?.redeployVerification ??
+    input.priorSelection.redeployVerification;
+
+  if (
+    existingPending?.newDeploymentId &&
+    existingPending.fingerprint === input.fingerprint &&
+    !["verified", "verify_failed", "failed", "timeout", "no_source_deployment"].includes(
+      existingPending.status,
+    )
+  ) {
+    orchestrationSteps.push({
+      phase: "redeploying_production",
+      status: "completed",
+      message: "Redeploying production so new env vars take effect…",
+    });
+
+    return {
+      ...input.baseResult,
+      envVarsWritten,
+      signedProbeInitialResult,
+      signedProbe: signedProbeInitialResult,
+      productionRedeployTriggered: true,
+      productionRedeployStatus:
+        existingPending.status === "building" ? "building" : "triggered",
+      setupPending: true,
+      pollActionId: existingPending.actionId,
       orchestrationSteps,
     };
   }
@@ -357,11 +385,11 @@ async function maybeOrchestrateAutoRedeploy(input: {
       signedProbe: signedProbeInitialResult,
       productionRedeployTriggered: false,
       productionRedeployStatus: "not_triggered",
-      orchestrationSteps,
+      orchestrationSteps: orchestrationSteps.slice(0, 1),
     };
   }
 
-  const redeployResult = await triggerAndWaitForProductionRedeploy({
+  const redeployResult = await triggerProductionRedeployOnce({
     vercelToken: input.vercelToken,
     projectId: input.projectId,
     projectName: input.projectName,
@@ -369,7 +397,7 @@ async function maybeOrchestrateAutoRedeploy(input: {
     sourceDeploymentId,
   });
 
-  if (redeployResult.status !== "ready") {
+  if (redeployResult.status !== "triggered" || !redeployResult.newDeploymentId) {
     orchestrationSteps.push({
       phase: "redeploying_production",
       status: "failed",
@@ -383,7 +411,7 @@ async function maybeOrchestrateAutoRedeploy(input: {
       envVarsWritten,
       signedProbeInitialResult,
       signedProbe: signedProbeInitialResult,
-      productionRedeployTriggered: true,
+      productionRedeployTriggered: false,
       productionRedeployStatus: redeployResult.status,
       setupBlocked:
         redeployResult.status === "no_source_deployment"
@@ -402,44 +430,42 @@ async function maybeOrchestrateAutoRedeploy(input: {
     };
   }
 
+  const pendingVerification = createPendingRedeployVerification({
+    projectId: input.projectId,
+    projectName: input.projectName,
+    teamId: input.teamId,
+    webhookUrl: input.webhookUrl,
+    fingerprint: input.fingerprint,
+    sourceDeploymentId: redeployResult.sourceDeploymentId,
+    newDeploymentId: redeployResult.newDeploymentId,
+    message: redeployResult.message,
+  });
+
+  await updateControlPlaneSetupState(
+    {
+      vercel: {
+        ...input.priorSelection,
+        redeployVerification: pendingVerification,
+      },
+    },
+    input.applyInput.cwd,
+  );
+
   orchestrationSteps.push({
     phase: "redeploying_production",
     status: "completed",
     message: "Redeploying production so new env vars take effect…",
   });
 
-  const retryResult = await applyVercelBridgeSetup({
-    ...input.applyInput,
-    verifyOnly: true,
-  });
-
-  orchestrationSteps.push({
-    phase: "verifying_webhook",
-    status: retryResult.signedProbeVerified ? "completed" : "failed",
-    message: "Verifying signed webhook delivery…",
-  });
-
-  const signedProbeRetryResult = retryResult.signedProbe;
-
   return {
-    ...retryResult,
-    writtenEnvKeys: input.baseResult.writtenEnvKeys,
-    skippedEnvKeys: input.baseResult.skippedEnvKeys,
-    linearWebhookSetup: input.baseResult.linearWebhookSetup,
-    team: input.baseResult.team ?? retryResult.team,
-    project: input.baseResult.project ?? retryResult.project,
-    envVarsWritten: true,
+    ...input.baseResult,
+    envVarsWritten,
     signedProbeInitialResult,
-    signedProbeRetryResult,
-    signedProbe: signedProbeRetryResult ?? retryResult.signedProbe,
+    signedProbe: signedProbeInitialResult,
     productionRedeployTriggered: true,
-    productionRedeployStatus: redeployResult.status,
-    verificationRetry: true,
-    setupBlocked: retryResult.signedProbeVerified
-      ? undefined
-      : buildSetupBlockedForPostRedeployVerificationFailure({
-          retryReason: retryResult.signedProbeReason,
-        }),
+    productionRedeployStatus: "triggered",
+    setupPending: true,
+    pollActionId: pendingVerification.actionId,
     orchestrationSteps,
   };
 }
@@ -543,10 +569,19 @@ export async function applyVercelBridgeSetup(input: {
   }
 
   const priorState = await readControlPlaneSetupState(input.cwd);
+  const activePendingRedeploy = Boolean(
+    priorState?.vercel?.redeployVerification?.newDeploymentId &&
+      priorState.vercel.redeployVerification.status !== "verified" &&
+      priorState.vercel.redeployVerification.status !== "verify_failed" &&
+      priorState.vercel.redeployVerification.status !== "failed" &&
+      priorState.vercel.redeployVerification.status !== "timeout" &&
+      priorState.vercel.redeployVerification.status !== "no_source_deployment",
+  );
   const isVerificationRetry =
     input.verifyOnly === true ||
     Boolean(
-      priorState?.vercel?.deploymentRedeployRequired &&
+      !activePendingRedeploy &&
+        priorState?.vercel?.deploymentRedeployRequired &&
         priorState.vercel.projectId === preview.selectedProject.id &&
         priorState.vercel.webhookUrl === preview.webhookUrl &&
         priorState.vercel.appliedFingerprint === preview.fingerprint,
@@ -838,6 +873,9 @@ export async function applyVercelBridgeSetup(input: {
     projectId: preview.selectedProject.id,
     projectName: preview.selectedProject.name,
     teamId: resolvedTeam.teamId,
+    webhookUrl: preview.webhookUrl ?? "",
+    fingerprint: preview.fingerprint,
+    priorSelection: selection,
   });
 }
 

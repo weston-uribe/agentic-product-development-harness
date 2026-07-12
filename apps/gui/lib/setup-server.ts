@@ -70,6 +70,7 @@ import {
   type VercelBridgePlanInput,
   type VercelBridgePreview,
 } from "@harness/setup/vercel-setup-apply";
+import { pollVercelBridgeRedeployVerification } from "@harness/setup/vercel-bridge-redeploy-poll";
 import { buildVercelSetupSummary } from "@harness/setup/vercel-setup-summary";
 import { previewVercelBridgeSetup } from "@harness/setup/vercel-setup-plan";
 import { loadSecretFromEnvLocal } from "@harness/setup/service-verification";
@@ -444,6 +445,27 @@ export async function applyVercelBridgeRemote(options: {
     fingerprint: options.fingerprint,
     manualComplete: options.manualComplete,
     verifyOnly: options.verifyOnly,
+    cwd,
+  });
+  const summary = await buildVercelSetupSummary(cwd);
+  return { apply, summary };
+}
+
+export async function pollVercelBridgeRedeployRemote(options: {
+  actionId?: string;
+  plan: Omit<VercelBridgePlanInput, "vercelToken" | "linearApiKey"> & {
+    vercelToken?: string;
+    linearApiKey?: string;
+  };
+}): Promise<{
+  apply: VercelBridgeApplyResult;
+  summary: Awaited<ReturnType<typeof buildVercelSetupSummary>>;
+}> {
+  const cwd = resolveCwd();
+  const plan = await enrichVercelBridgePlan(cwd, options.plan);
+  const apply = await pollVercelBridgeRedeployVerification({
+    actionId: options.actionId,
+    plan,
     cwd,
   });
   const summary = await buildVercelSetupSummary(cwd);
