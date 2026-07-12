@@ -466,7 +466,7 @@ describe("vercel-setup-apply", () => {
     expect(result.signedProbeVerified).toBe(false);
   });
 
-  it("returns deploymentRedeployRequired when redeploy retry still fails signed probe", async () => {
+  it("returns setupBlocked when redeploy reaches READY but verifyOnly retry still fails", async () => {
     vi.mocked(runSignedWebhookProbe).mockResolvedValue({
       passed: false,
       result: "auth_failed",
@@ -494,6 +494,14 @@ describe("vercel-setup-apply", () => {
     expect(result.signedProbeVerified).toBe(false);
     expect(result.verified).toBe(false);
     expect(result.candidateSecretSource).toBe("generated");
+    expect(result.signedProbeInitialResult?.reason).toBe("invalid_signature");
+    expect(result.signedProbeRetryResult?.reason).toBe("invalid_signature");
+    expect(result.setupBlocked?.message).toMatch(
+      /Production redeploy completed, but signed webhook delivery verification still failed/i,
+    );
+    expect(result.setupBlocked?.nextSteps.join(" ")).toMatch(/Retry verification/i);
+    expect(JSON.stringify(result)).not.toContain("generated-webhook-secret");
+    expect(JSON.stringify(result)).not.toContain("ghp_saved");
   });
 
   it("upserts reused-readable LINEAR_WEBHOOK_SECRET even when Vercel already has the env var", async () => {

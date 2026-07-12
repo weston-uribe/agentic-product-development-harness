@@ -249,6 +249,21 @@ function buildSetupBlockedForMissingDeployment(): VercelBridgeSetupBlocked {
   };
 }
 
+function buildSetupBlockedForPostRedeployVerificationFailure(input?: {
+  retryReason?: string;
+}): VercelBridgeSetupBlocked {
+  const reasonSuffix = input?.retryReason?.trim()
+    ? ` (${input.retryReason})`
+    : "";
+  return {
+    message: `Production redeploy completed, but signed webhook delivery verification still failed${reasonSuffix}.`,
+    nextSteps: [
+      "Use Retry verification without rewriting env vars or rotating secrets.",
+      "If verification still fails, confirm the Linear webhook signing secret matches Vercel production.",
+    ],
+  };
+}
+
 function buildManualRedeployRecoveryMessage(
   redeployStatus: ProductionRedeployStatus,
   redeployMessage?: string,
@@ -420,6 +435,11 @@ async function maybeOrchestrateAutoRedeploy(input: {
     productionRedeployTriggered: true,
     productionRedeployStatus: redeployResult.status,
     verificationRetry: true,
+    setupBlocked: retryResult.signedProbeVerified
+      ? undefined
+      : buildSetupBlockedForPostRedeployVerificationFailure({
+          retryReason: retryResult.signedProbeReason,
+        }),
     orchestrationSteps,
   };
 }

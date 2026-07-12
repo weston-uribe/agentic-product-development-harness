@@ -77,7 +77,10 @@ function shouldShowRetryVerification(apply: VercelBridgeApplyResult | null): boo
   }
   return Boolean(
     apply.setupBlocked ||
-      (apply.deploymentRedeployRequired && !apply.signedProbeVerified),
+      (apply.deploymentRedeployRequired && !apply.signedProbeVerified) ||
+      (apply.productionRedeployTriggered &&
+        apply.productionRedeployStatus === "ready" &&
+        !apply.signedProbeVerified),
   );
 }
 
