@@ -407,14 +407,8 @@ export async function applyVercelBridgeSetup(input: {
     resolvedTeam.teamId,
   );
   const existingByKey = new Map(existingEnv.map((env) => [env.key, env]));
-  const vercelHasWebhookSecret = existingByKey.has("LINEAR_WEBHOOK_SECRET");
   const shouldWriteWebhookSecret =
-    !isVerificationRetry &&
-    Boolean(candidateWebhookSecret?.trim()) &&
-    (candidateResolution.source === "generated" ||
-      candidateResolution.source === "operator" ||
-      candidateResolution.source === "unreadable" ||
-      (candidateResolution.source === "reused-readable" && !vercelHasWebhookSecret));
+    !isVerificationRetry && Boolean(candidateWebhookSecret?.trim());
 
   const writtenEnvKeys: string[] = [];
   const skippedEnvKeys: string[] = [];

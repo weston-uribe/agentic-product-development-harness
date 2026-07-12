@@ -470,6 +470,83 @@ describe("vercel-setup-apply", () => {
     expect(result.candidateSecretSource).toBe("generated");
   });
 
+  it("upserts reused-readable LINEAR_WEBHOOK_SECRET even when Vercel already has the env var", async () => {
+    vi.mocked(resolveLinearWebhookCandidateSecret).mockResolvedValue({
+      secret: "stable-webhook-secret",
+      source: "reused-readable",
+      manualSteps: [],
+    });
+    vi.mocked(previewVercelBridgeSetup).mockResolvedValue({
+      ...previewResult,
+      envWritePlan: [
+        {
+          key: "LINEAR_WEBHOOK_SECRET",
+          action: "skip",
+          source: "preserve-existing",
+        },
+        {
+          key: "GITHUB_DISPATCH_TOKEN",
+          action: "update",
+          source: "derived",
+        },
+        {
+          key: "HARNESS_TEAM_KEY",
+          action: "create",
+          source: "derived",
+        },
+      ],
+    });
+    vi.mocked(listVercelProjectEnvVars).mockReset();
+    vi.mocked(listVercelProjectEnvVars).mockResolvedValue([
+      { id: "env-1", key: "LINEAR_WEBHOOK_SECRET", type: "sensitive" },
+      { id: "env-2", key: "GITHUB_DISPATCH_TOKEN", type: "sensitive" },
+      { id: "env-3", key: "HARNESS_TEAM_KEY", type: "plain" },
+    ]);
+    vi.mocked(runSignedWebhookProbe).mockResolvedValue({
+      passed: false,
+      result: "auth_failed",
+      reason: "invalid_signature",
+      probedAt: new Date().toISOString(),
+    });
+    vi.mocked(ensureLinearIssueWebhook).mockResolvedValue({
+      mode: "automated",
+      secret: "stable-webhook-secret",
+      manualSteps: [],
+      webhook: {
+        id: "wh-1",
+        url: "https://harness-gui.vercel.app/api/linear-webhook",
+        enabled: true,
+        resourceTypes: ["Issue"],
+      },
+    });
+
+    const result = await applyVercelBridgeSetup({
+      plan: {
+        vercelToken: "vercel-token",
+        projectId: "proj-1",
+        linearApiKey: "lin_api_test",
+        derivedHarnessTeamKey: "WES",
+        derivedGithubDispatchToken: "ghp_saved",
+      },
+      confirmed: true,
+      fingerprint: "preview-fingerprint",
+      cwd: tempRoot,
+    });
+
+    expect(upsertVercelProjectEnvVar).toHaveBeenCalledWith(
+      "vercel-token",
+      expect.objectContaining({
+        key: "LINEAR_WEBHOOK_SECRET",
+        value: "stable-webhook-secret",
+      }),
+    );
+    expect(result.writtenEnvKeys).toContain("LINEAR_WEBHOOK_SECRET");
+    expect(result.candidateSecretSource).toBe("reused-readable");
+    expect(result.signedProbeVerified).toBe(false);
+    expect(result.deploymentRedeployRequired).toBe(true);
+    expect(JSON.stringify(result)).not.toContain("stable-webhook-secret");
+  });
+
   it("reuses the same webhook secret on verification retry without rewriting Vercel or rotating Linear", async () => {
     vi.mocked(readControlPlaneSetupState).mockResolvedValue({
       version: 1,
