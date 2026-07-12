@@ -78,6 +78,11 @@ describe("configure GUI fix loop", () => {
     expect(source).toContain("Create new project");
     expect(source).toContain("deployment-required");
     expect(source).toContain("Deployment status:");
+    expect(source).toContain("Applying Vercel settings…");
+    expect(source).toContain("Retry verification");
+    expect(source).toContain("verifyOnly: true");
+    expect(source).toContain("orchestrationSteps");
+    expect(source).toContain("buildVercelApplyResultMessage");
   });
 
   it("Step 3 confirmation uses Vercel bridge copy", () => {

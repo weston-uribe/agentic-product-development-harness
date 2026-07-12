@@ -31,6 +31,56 @@ interface GuidedVercelBridgeCardProps {
 const selectClassName =
   "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
 
+function buildVercelApplyResultMessage(apply: VercelBridgeApplyResult): string {
+  if (apply.status === "deployment-required") {
+    return `${apply.deploymentRequired?.message ?? "Deployment required."} ${apply.deploymentRequired?.nextSteps.join(" ") ?? ""}`;
+  }
+
+  const parts = [
+    `Vercel team: ${apply.team?.outcome ?? "unchanged"} ${apply.team?.name ?? ""}.`,
+    `Vercel project: ${apply.project?.outcome ?? "unchanged"} ${apply.project?.name ?? apply.projectName}.`,
+    `Env vars written: ${apply.writtenEnvKeys.join(", ") || "none"}.`,
+    `Linear webhook setup: ${apply.linearWebhookSetup.mode}.`,
+    `Signed probe: ${apply.signedProbeVerified ? "passed" : "failed"}${apply.signedProbeReason ? ` (${apply.signedProbeReason})` : ""}.`,
+  ];
+
+  if (apply.productionRedeployTriggered) {
+    parts.push(
+      `Production redeploy: ${apply.productionRedeployStatus ?? "unknown"}.`,
+    );
+  }
+
+  if (apply.setupBlocked) {
+    parts.push(apply.setupBlocked.message);
+    if (apply.setupBlocked.nextSteps.length > 0) {
+      parts.push(apply.setupBlocked.nextSteps.join(" "));
+    }
+  } else if (
+    apply.deploymentRedeployRequired &&
+    !apply.signedProbeVerified &&
+    !apply.productionRedeployTriggered
+  ) {
+    parts.push(
+      "Redeploy production in Vercel, then use Retry verification (this will not rotate secrets or rewrite env vars).",
+    );
+  }
+
+  return parts.join(" ");
+}
+
+function shouldShowRetryVerification(apply: VercelBridgeApplyResult | null): boolean {
+  if (!apply) {
+    return false;
+  }
+  if (apply.verified && apply.signedProbeVerified) {
+    return false;
+  }
+  return Boolean(
+    apply.setupBlocked ||
+      (apply.deploymentRedeployRequired && !apply.signedProbeVerified),
+  );
+}
+
 export function GuidedVercelBridgeCard({
   readiness,
   initialSummary,
@@ -550,10 +600,11 @@ export function GuidedVercelBridgeCard({
                     Boolean(preview?.validationError)
                   }
                 >
-                  {loading === "apply" ? "Applying…" : "Apply Vercel Settings"}
+                  {loading === "apply"
+                    ? "Applying Vercel settings…"
+                    : "Apply Vercel Settings"}
                 </Button>
-                {applyResult?.deploymentRedeployRequired &&
-                !applyResult.signedProbeVerified ? (
+                {shouldShowRetryVerification(applyResult) ? (
                   <Button
                     type="button"
                     variant="outline"
@@ -566,15 +617,21 @@ export function GuidedVercelBridgeCard({
               </div>
             ) : null}
 
+            {applyResult?.orchestrationSteps?.length ? (
+              <ul className="list-disc pl-5 text-sm text-muted-foreground">
+                {applyResult.orchestrationSteps.map((step) => (
+                  <li key={`${step.phase}-${step.status}`}>
+                    {step.message}
+                    {step.status === "failed" ? " (failed)" : ""}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
             {error ? <SetupApplyResult success={false} message={error} /> : null}
             {applyResult ? (
               <SetupApplyResult
                 success={applyResult.verified}
-                message={
-                  applyResult.status === "deployment-required"
-                    ? `${applyResult.deploymentRequired?.message ?? "Deployment required."} ${applyResult.deploymentRequired?.nextSteps.join(" ") ?? ""}`
-                    : `Vercel team: ${applyResult.team?.outcome ?? "unchanged"} ${applyResult.team?.name ?? ""}. Vercel project: ${applyResult.project?.outcome ?? "unchanged"} ${applyResult.project?.name ?? applyResult.projectName}. Env vars written: ${applyResult.writtenEnvKeys.join(", ") || "none"}. Linear webhook setup: ${applyResult.linearWebhookSetup.mode}. Signed probe: ${applyResult.signedProbeVerified ? "passed" : "failed"}${applyResult.signedProbeReason ? ` (${applyResult.signedProbeReason})` : ""}.${applyResult.deploymentRedeployRequired ? " Redeploy production in Vercel, then use Retry verification (this will not rotate secrets or rewrite env vars)." : ""}`
-                }
+                message={buildVercelApplyResultMessage(applyResult)}
               />
             ) : null}
 

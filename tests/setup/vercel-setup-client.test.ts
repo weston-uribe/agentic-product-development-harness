@@ -181,6 +181,105 @@ describe("vercel-setup-client env var upsert", () => {
   });
 });
 
+describe("vercel production redeploy client", () => {
+  beforeEach(() => {
+    fetchMock.mockReset();
+  });
+
+  it("lists production deployments with state filter", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        deployments: [
+          {
+            uid: "dpl-ready",
+            url: "harness-gui.vercel.app",
+            state: "READY",
+            readyState: "READY",
+          },
+        ],
+      }),
+    });
+
+    const { listVercelProductionDeployments } = await import(
+      "../../src/setup/vercel-setup-client.js"
+    );
+    const deployments = await listVercelProductionDeployments(
+      "vercel-token",
+      "proj-1",
+      "team-1",
+      { state: "READY", limit: 3 },
+    );
+
+    const [url] = fetchMock.mock.calls[0] ?? [];
+    expect(String(url)).toContain("projectId=proj-1");
+    expect(String(url)).toContain("target=production");
+    expect(String(url)).toContain("state=READY");
+    expect(String(url)).toContain("teamId=team-1");
+    expect(deployments[0]?.id).toBe("dpl-ready");
+  });
+
+  it("triggers production redeploy from an existing deployment id", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        uid: "dpl-new",
+        url: "harness-gui-new.vercel.app",
+        state: "BUILDING",
+        readyState: "BUILDING",
+      }),
+    });
+
+    const { triggerVercelProductionRedeploy } = await import(
+      "../../src/setup/vercel-setup-client.js"
+    );
+    const deployment = await triggerVercelProductionRedeploy("vercel-token", {
+      projectName: "harness-gui",
+      sourceDeploymentId: "dpl-source",
+      teamId: "team-1",
+    });
+
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(String(url)).toContain("/v13/deployments");
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(String(init?.body))).toEqual({
+      name: "harness-gui",
+      deploymentId: "dpl-source",
+      target: "production",
+    });
+    expect(deployment.id).toBe("dpl-new");
+  });
+
+  it("fetches deployment status for polling", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        uid: "dpl-new",
+        url: "harness-gui-new.vercel.app",
+        state: "READY",
+        readyState: "READY",
+      }),
+    });
+
+    const { getVercelDeployment } = await import(
+      "../../src/setup/vercel-setup-client.js"
+    );
+    const deployment = await getVercelDeployment(
+      "vercel-token",
+      "dpl-new",
+      "team-1",
+    );
+
+    const [url] = fetchMock.mock.calls[0] ?? [];
+    expect(String(url)).toContain("/v13/deployments/dpl-new");
+    expect(String(url)).toContain("teamId=team-1");
+    expect(deployment.readyState).toBe("READY");
+  });
+});
+
 describe("createVercelTeam provider errors", () => {
   beforeEach(() => {
     fetchMock.mockReset();
