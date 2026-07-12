@@ -200,6 +200,39 @@ export function collectVercelBridgeBlockers(
   return blockers.sort((left, right) => left.priority - right.priority);
 }
 
+
+function normalizeCloudSecretsConfigState(input: {
+  setupSummary: SetupGuiViewModel;
+  controlPlaneContext?: ControlPlaneReadinessContext;
+}) {
+  const configSummary = input.setupSummary.configSummary;
+  return {
+    configResolved: input.setupSummary.overview.configResolved,
+    operatorConfigResolved: input.setupSummary.overview.operatorConfigResolved,
+    linearTeamKeyFromConfig:
+      input.controlPlaneContext?.linearTeamKeyFromConfig ?? null,
+    linearTeamKeyFromControlPlane:
+      input.controlPlaneContext?.state?.linear?.teamKey ?? null,
+    repoIds: (configSummary?.repos ?? [])
+      .map((repo) => repo.id)
+      .sort((left, right) => left.localeCompare(right)),
+    repoTargets: (configSummary?.repos ?? [])
+      .map((repo) => ({ id: repo.id, targetRepo: repo.targetRepo }))
+      .sort((left, right) => left.id.localeCompare(right.id)),
+    allowedTargetRepos: [...(configSummary?.allowedTargetRepos ?? [])].sort(
+      (left, right) => left.localeCompare(right),
+    ),
+  };
+}
+
+export function computeCloudSecretsConfigStateFingerprint(input: {
+  setupSummary: SetupGuiViewModel;
+  controlPlaneContext?: ControlPlaneReadinessContext;
+}): string {
+  // JSON snapshot only — used for equality checks in client + server bundles.
+  return JSON.stringify(normalizeCloudSecretsConfigState(input));
+}
+
 export function isCloudSecretsStaleFromControlPlane(
   context: ControlPlaneReadinessContext,
 ): boolean {

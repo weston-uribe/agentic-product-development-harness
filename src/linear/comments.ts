@@ -22,6 +22,7 @@ import {
   type HarnessErrorPhase,
   type PhaseStartPhase,
 } from "./phase-labels.js";
+import { appendExecutionEnvironmentMetadataLines } from "../runner/execution-environment.js";
 
 export type { PhaseStartPhase, HarnessErrorPhase };
 
@@ -198,7 +199,7 @@ function buildHarnessMetadataLines(
   if (input.repairCycleId) {
     lines.push(`repair_cycle_id: ${input.repairCycleId}`);
   }
-  return lines;
+  return appendExecutionEnvironmentMetadataLines(lines);
 }
 
 function summarizeAgentText(text: string, maxLength = 600): string {

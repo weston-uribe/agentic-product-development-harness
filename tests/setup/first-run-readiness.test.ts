@@ -8,7 +8,12 @@ import {
   deriveFirstRunReadiness,
   deriveStep6ContinueEligibility,
   projectMissingStepsFromReadiness,
+  buildCloudSecretsApplyEvidence,
+  filterResolvedCloudSecretsBlockers,
+  harnessConfigJsonB64WasWritten,
+  isCloudSecretsStaleLinearConfigResolved,
 } from "../../src/setup/first-run-readiness.js";
+import { computeCloudSecretsConfigStateFingerprint } from "../../src/setup/control-plane-readiness.js";
 import type { SetupGuiViewModel } from "../../src/setup/gui-view-model.js";
 import type { RemoteSetupSummary } from "../../src/setup/remote-setup-summary.js";
 import { HARNESS_ACTIONS_SECRET_NAMES } from "../../src/setup/remote-actions.js";
@@ -616,6 +621,138 @@ describe("first-run-readiness", () => {
   });
 });
 
+
+function automaticApplyResult(
+  overrides: Partial<{
+    writtenSecrets: Array<{
+      name: (typeof HARNESS_ACTIONS_SECRET_NAMES)[number];
+      status: "created" | "updated";
+    }>;
+    skippedSecretNames: (typeof HARNESS_ACTIONS_SECRET_NAMES)[number][];
+    fingerprint: string;
+  }> = {},
+) {
+  return {
+    actionId: "apply-harness-secrets",
+    harnessDispatchRepo: "owner/harness",
+    writtenSecrets: overrides.writtenSecrets ?? [
+      { name: "HARNESS_CONFIG_JSON_B64" as const, status: "updated" as const },
+    ],
+    skippedSecretNames: overrides.skippedSecretNames ?? [],
+    fingerprint: overrides.fingerprint ?? "fp",
+    permission: {
+      scope: "remote-secret-write" as const,
+      label: "Write harness repo Actions secrets",
+    },
+  };
+}
+
+describe("cloud secrets apply evidence", () => {
+  it("builds evidence with config-state fingerprint and config secret write flag", () => {
+    const summary = completeLocalSummary();
+    const applyResult = automaticApplyResult();
+
+    const evidence = buildCloudSecretsApplyEvidence({
+      applyResult,
+      setupSummary: summary,
+      controlPlaneContext: completeControlPlaneContext(),
+    });
+
+    expect(evidence.path).toBe("automatic");
+    expect(evidence.applyFingerprint).toBe("fp");
+    expect(evidence.harnessConfigJsonB64Written).toBe(true);
+    expect(evidence.configStateFingerprint).toBe(
+      computeCloudSecretsConfigStateFingerprint({
+        setupSummary: summary,
+        controlPlaneContext: completeControlPlaneContext(),
+      }),
+    );
+  });
+
+  it("detects when HARNESS_CONFIG_JSON_B64 was written", () => {
+    expect(
+      harnessConfigJsonB64WasWritten(
+        automaticApplyResult({
+          writtenSecrets: [{ name: "HARNESS_CONFIG_JSON_B64", status: "created" }],
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      harnessConfigJsonB64WasWritten(
+        automaticApplyResult({
+          writtenSecrets: [{ name: "LINEAR_API_KEY", status: "updated" }],
+          skippedSecretNames: ["HARNESS_CONFIG_JSON_B64"],
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("resolves stale linear config only when evidence matches current fingerprint", () => {
+    const summary = completeLocalSummary();
+    const controlPlaneContext = staleLinearControlPlaneContext();
+    const fingerprint = computeCloudSecretsConfigStateFingerprint({
+      setupSummary: summary,
+      controlPlaneContext,
+    });
+    const evidence = buildCloudSecretsApplyEvidence({
+      applyResult: automaticApplyResult(),
+      setupSummary: summary,
+      controlPlaneContext,
+    });
+
+    expect(
+      isCloudSecretsStaleLinearConfigResolved({
+        evidence,
+        currentConfigStateFingerprint: fingerprint,
+      }),
+    ).toBe(true);
+    expect(
+      isCloudSecretsStaleLinearConfigResolved({
+        evidence,
+        currentConfigStateFingerprint: "stale-fingerprint",
+      }),
+    ).toBe(false);
+  });
+
+  it("filters cloud-secrets-stale-linear-config using matching evidence", () => {
+    const summary = completeLocalSummary();
+    const controlPlaneContext = staleLinearControlPlaneContext();
+    const blockers = collectCloudSecretsBlockers(
+      summary,
+      allSecretsPresentRemoteSummary(),
+      undefined,
+      undefined,
+      controlPlaneContext,
+    ).blockers;
+    const fingerprint = computeCloudSecretsConfigStateFingerprint({
+      setupSummary: summary,
+      controlPlaneContext,
+    });
+    const evidence = buildCloudSecretsApplyEvidence({
+      applyResult: automaticApplyResult(),
+      setupSummary: summary,
+      controlPlaneContext,
+    });
+
+    const filtered = filterResolvedCloudSecretsBlockers({
+      blockers,
+      evidence,
+      currentConfigStateFingerprint: fingerprint,
+    });
+
+    expect(
+      blockers.some(
+        (blocker) => blocker.id === "cloud-secrets-stale-linear-config",
+      ),
+    ).toBe(true);
+    expect(
+      filtered.some(
+        (blocker) => blocker.id === "cloud-secrets-stale-linear-config",
+      ),
+    ).toBe(false);
+  });
+});
+
 describe("deriveStep6ContinueEligibility", () => {
   it("allows Continue when all five conditions pass", () => {
     const summary = completeLocalSummary();
@@ -632,20 +769,13 @@ describe("deriveStep6ContinueEligibility", () => {
       localReadinessComplete: readiness.localReadinessComplete,
       staleSmokeDiagnostics: remoteSummary.staleSmokeDiagnostics,
       controlPlaneContext: completeControlPlaneContext(),
-      verifiedPath: "automatic",
       previewStaleCleared: true,
-      applyResult: {
-        actionId: "apply-harness-secrets",
-        harnessDispatchRepo: "owner/harness",
-        writtenSecrets: [
-          { name: "HARNESS_CONFIG_JSON_B64", status: "updated" },
-        ],
-        skippedSecretNames: [],
-        fingerprint: "fp",
-        permission: {
-          scope: "remote-secret-write",
-          label: "Write harness repo Actions secrets",
-        },
+      uiState: {
+        cloudSecretsApplyEvidence: buildCloudSecretsApplyEvidence({
+          applyResult: automaticApplyResult(),
+          setupSummary: summary,
+          controlPlaneContext: completeControlPlaneContext(),
+        }),
       },
     });
 
@@ -670,7 +800,6 @@ describe("deriveStep6ContinueEligibility", () => {
       setupSummary: summary,
       localReadinessComplete: readiness.localReadinessComplete,
       staleSmokeDiagnostics: remoteSummary.staleSmokeDiagnostics,
-      verifiedPath: "manual",
       previewStaleCleared: true,
     });
 
@@ -694,7 +823,6 @@ describe("deriveStep6ContinueEligibility", () => {
       setupSummary: summary,
       localReadinessComplete: readiness.localReadinessComplete,
       staleSmokeDiagnostics: remoteSummary.staleSmokeDiagnostics,
-      verifiedPath: "manual",
       previewStaleCleared: true,
     });
 
@@ -725,7 +853,6 @@ describe("deriveStep6ContinueEligibility", () => {
       setupSummary: summary,
       localReadinessComplete: readiness.localReadinessComplete,
       staleSmokeDiagnostics: remoteSummary.staleSmokeDiagnostics,
-      verifiedPath: "manual",
       previewStaleCleared: true,
     });
 
@@ -752,7 +879,6 @@ describe("deriveStep6ContinueEligibility", () => {
       setupSummary: summary,
       localReadinessComplete: readiness.localReadinessComplete,
       staleSmokeDiagnostics: remoteSummary.staleSmokeDiagnostics,
-      verifiedPath: "manual",
       previewStaleCleared: true,
     });
 
@@ -775,7 +901,6 @@ describe("deriveStep6ContinueEligibility", () => {
       localReadinessComplete: readiness.localReadinessComplete,
       uiState: { remoteSecretPreviewStale: true },
       staleSmokeDiagnostics: remoteSummary.staleSmokeDiagnostics,
-      verifiedPath: "automatic",
       previewStaleCleared: false,
     });
     const cleared = deriveStep6ContinueEligibility({
@@ -784,7 +909,6 @@ describe("deriveStep6ContinueEligibility", () => {
       localReadinessComplete: readiness.localReadinessComplete,
       uiState: { remoteSecretPreviewStale: true },
       staleSmokeDiagnostics: remoteSummary.staleSmokeDiagnostics,
-      verifiedPath: "automatic",
       previewStaleCleared: true,
     });
 
@@ -813,26 +937,24 @@ describe("deriveStep6ContinueEligibility", () => {
 
     expect(readiness.localReadinessComplete).toBe(true);
 
+    const staleContext = staleLinearControlPlaneContext();
     const eligibility = deriveStep6ContinueEligibility({
       summary: remoteSummary,
       setupSummary: summary,
       localReadinessComplete: readiness.localReadinessComplete,
       staleSmokeDiagnostics: remoteSummary.staleSmokeDiagnostics,
-      controlPlaneContext: staleLinearControlPlaneContext(),
-      verifiedPath: "automatic",
+      controlPlaneContext: staleContext,
       previewStaleCleared: true,
-      applyResult: {
-        actionId: "apply-harness-secrets",
-        harnessDispatchRepo: "owner/harness",
-        writtenSecrets: [
-          { name: "HARNESS_CONFIG_JSON_B64", status: "created" },
-        ],
-        skippedSecretNames: [],
-        fingerprint: "fp",
-        permission: {
-          scope: "remote-secret-write",
-          label: "Write harness repo Actions secrets",
-        },
+      uiState: {
+        cloudSecretsApplyEvidence: buildCloudSecretsApplyEvidence({
+          applyResult: automaticApplyResult({
+            writtenSecrets: [
+              { name: "HARNESS_CONFIG_JSON_B64", status: "created" },
+            ],
+          }),
+          setupSummary: summary,
+          controlPlaneContext: staleContext,
+        }),
       },
     });
 
@@ -851,24 +973,23 @@ describe("deriveStep6ContinueEligibility", () => {
       controlPlaneContext: completeControlPlaneContext(),
     });
 
+    const staleContext = staleLinearControlPlaneContext();
     const eligibility = deriveStep6ContinueEligibility({
       summary: remoteSummary,
       setupSummary: summary,
       localReadinessComplete: readiness.localReadinessComplete,
       staleSmokeDiagnostics: remoteSummary.staleSmokeDiagnostics,
-      controlPlaneContext: staleLinearControlPlaneContext(),
-      verifiedPath: "automatic",
+      controlPlaneContext: staleContext,
       previewStaleCleared: true,
-      applyResult: {
-        actionId: "apply-harness-secrets",
-        harnessDispatchRepo: "owner/harness",
-        writtenSecrets: [{ name: "LINEAR_API_KEY", status: "updated" }],
-        skippedSecretNames: ["HARNESS_CONFIG_JSON_B64"],
-        fingerprint: "fp",
-        permission: {
-          scope: "remote-secret-write",
-          label: "Write harness repo Actions secrets",
-        },
+      uiState: {
+        cloudSecretsApplyEvidence: buildCloudSecretsApplyEvidence({
+          applyResult: automaticApplyResult({
+            writtenSecrets: [{ name: "LINEAR_API_KEY", status: "updated" }],
+            skippedSecretNames: ["HARNESS_CONFIG_JSON_B64"],
+          }),
+          setupSummary: summary,
+          controlPlaneContext: staleContext,
+        }),
       },
     });
 

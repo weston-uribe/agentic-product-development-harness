@@ -70,7 +70,9 @@ describe("M6 configure GUI boundaries", () => {
       expect(source).not.toMatch(pattern);
     }
     expect(source).toContain("prohibitedActionsNote");
-    expect(source).toContain("No live harness phase is available in M6");
+    expect(source).toContain("Setup complete");
+    expect(source).toContain('title="Setup complete"');
+    expect(source).not.toContain("Blocked for first run");
     expect(source).toContain('useState<ConfigureMode>("guided")');
     expect(source).toContain("GuidedLocalReadinessCard");
     expect(source).toContain("GuidedCloudSecretsCard");
@@ -92,10 +94,8 @@ describe("M6 configure GUI boundaries", () => {
     expect(source).toContain("onUiStateChange={handleRemoteUiStateChange}");
     expect(source).toContain("onLocalUiStateChange={handleLocalUiStateChange}");
     expect(source).toContain("onRemoteUiStateChange={handleRemoteUiStateChange}");
-    expect(source).toContain("current.localPreviewStale === state.localPreviewStale");
-    expect(source).toContain(
-      "current.remoteSecretPreviewStale === state.remoteSecretPreviewStale",
-    );
+    expect(source).toContain("cloudSecretsApplyEvidence");
+    expect(source).toContain("remoteSecretPreviewStale");
     expect(source).not.toMatch(
       /onLocalUiStateChange=\{\(state\) =>\s*\n?\s*setUiState/,
     );
@@ -487,7 +487,7 @@ describe("M6 configure GUI boundaries", () => {
     expect(experienceSource).toContain("<GuidedCloudSecretsCard");
     expect(experienceSource).toContain("<GuidedTargetWorkflowCard");
     expect(cloudSecretsSource).toContain(
-      "Step 6 of ${GUIDED_SETUP_STEP_COUNT} · Connect cloud secrets",
+      'Step 6 of ${GUIDED_SETUP_STEP_COUNT} ${"\\u00b7"} Connect cloud secrets',
     );
     expect(targetWorkflowSource).toContain(
       "Step 7 of ${GUIDED_SETUP_STEP_COUNT} · Install target repo workflow",
