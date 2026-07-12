@@ -29,6 +29,11 @@ import {
   type GuidedDisplayStepId,
   type GuidedLocalSetupStep,
 } from "@/lib/guided-setup";
+import {
+  syncLinearSummaryFromEnvPresence,
+  syncRemoteSummaryFromEnvPresence,
+  syncVercelSummaryFromEnvPresence,
+} from "@harness/setup/sync-downstream-summaries";
 import type { RemoteTargetWorkflowApplyResult } from "@harness/setup/remote-actions";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/custom/status-badge";
@@ -330,13 +335,20 @@ export function ConfigureExperience({
 
   const handleSummaryUpdated = useCallback((nextSummary: SetupGuiViewModel) => {
     setSummary(nextSummary);
-    setLinearSummary((current) => ({
+    setLinearSummary((current) =>
+      syncLinearSummaryFromEnvPresence(current, nextSummary.envKeyPresence),
+    );
+    setVercelSummary((current) =>
+      syncVercelSummaryFromEnvPresence(current, nextSummary.envKeyPresence),
+    );
+    setRemoteSummary((current) =>
+      syncRemoteSummaryFromEnvPresence(current, nextSummary.envKeyPresence),
+    );
+    setUiState((current) => ({
       ...current,
-      linearApiKeyConfigured: nextSummary.envKeyPresence.LINEAR_API_KEY,
-    }));
-    setVercelSummary((current) => ({
-      ...current,
-      linearApiKeyConfigured: nextSummary.envKeyPresence.LINEAR_API_KEY,
+      linearPreviewStale: true,
+      vercelPreviewStale: true,
+      remoteSecretPreviewStale: true,
     }));
   }, []);
 
