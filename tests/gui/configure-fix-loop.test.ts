@@ -209,6 +209,17 @@ describe("configure GUI fix loop", () => {
       "utf8",
     );
 
+    expect(source).toContain("Setup type");
+    expect(source).toContain('type="radio"');
+    expect(source).toContain('setupType === "automatic"');
+    expect(source).toContain('setupType === "manual"');
+    expect(source).toContain("deriveStep6ContinueEligibility");
+    expect(source).toContain("Step6BlockerPanel");
+    expect(source).not.toContain("<dt className=\"text-muted-foreground\">Harness repo</dt>");
+    expect(source).not.toContain("<dt className=\"text-muted-foreground\">GitHub access</dt>");
+    expect(source).not.toContain(
+      "<dt className=\"text-muted-foreground\">Required secrets</dt>",
+    );
     expect(source).toContain("Automatic setup");
     expect(source).toContain("Manual setup");
     expect(source).not.toMatch(
@@ -225,6 +236,9 @@ describe("configure GUI fix loop", () => {
     expect(source).toContain("Continue to target workflow");
     expect(source).toContain("verifiedAutomaticSuccess");
     expect(source).toContain("verifiedManualSuccess");
+    expect(source).toContain("previewStaleCleared");
+    expect(source).toContain("remoteSecretPreviewStale: false");
+    expect(source).not.toContain("readiness.cloudSecretsBlockersCleared");
     expect(source).toContain("/api/setup/manual-harness-secret-values");
     expect(source).toContain("Copy value");
     expect(source).toContain("Hide values");

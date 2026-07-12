@@ -496,6 +496,9 @@ describe("M6 configure GUI boundaries", () => {
     expect(targetWorkflowSource).not.toContain("RemoteSecretForm");
     expect(cloudSecretsSource).not.toContain("apply harness secrets");
     expect(cloudSecretsSource).toContain("Manual setup");
+    expect(cloudSecretsSource).toContain("deriveStep6ContinueEligibility");
+    expect(cloudSecretsSource).toContain("setupSummary");
+    expect(experienceSource).toContain("setupSummary={summary}");
     expect(cloudSecretsSource).toContain("/api/setup/remote-summary");
     expect(cloudSecretsSource).not.toContain("localStorage");
     expect(cloudSecretsSource).not.toContain("sessionStorage");

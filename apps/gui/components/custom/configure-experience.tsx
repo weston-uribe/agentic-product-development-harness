@@ -435,6 +435,9 @@ export function ConfigureExperience({
         return (
           <GuidedCloudSecretsCard
             readiness={readiness}
+            setupSummary={summary}
+            controlPlaneContext={controlPlaneContext}
+            remoteSecretPreviewStale={uiState.remoteSecretPreviewStale}
             initialSummary={remoteSummary}
             onSummaryUpdated={setRemoteSummary}
             onUiStateChange={handleRemoteUiStateChange}

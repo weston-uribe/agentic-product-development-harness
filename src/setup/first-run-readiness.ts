@@ -1,8 +1,10 @@
 import type { SetupGuiViewModel } from "./gui-view-model.js";
 import type { RemoteSetupSummary } from "./remote-setup-summary.js";
 import {
+  evaluateHarnessSecretPresence,
   HARNESS_ACTIONS_SECRET_NAMES,
   type HarnessActionsSecretName,
+  type RemoteHarnessSecretApplyResult,
 } from "./remote-actions.js";
 import type { StaleSmokeDiagnostics } from "./stale-smoke-repo.js";
 import {
@@ -96,6 +98,7 @@ export interface FirstRunReadiness {
   readyForFirstRun: boolean;
   localReadinessBlockersCleared: boolean;
   localReadinessReviewed: boolean;
+  localReadinessComplete: boolean;
   cloudSecretsBlockersCleared: boolean;
   cloudSecretsReviewed: boolean;
   nonBlockingWarnings: ReadinessBlocker[];
@@ -422,6 +425,121 @@ export function collectCloudSecretsBlockers(
   return {
     blockers: blockers.sort((left, right) => left.priority - right.priority),
     warnings: warnings.sort((left, right) => left.priority - right.priority),
+  };
+}
+
+export function step6PostApplyVerificationReady(
+  summary: RemoteSetupSummary,
+): boolean {
+  const presence = evaluateHarnessSecretPresence(summary.harnessSecretStatuses);
+  return (
+    summary.harnessDispatchRepoResolved &&
+    summary.harnessRepoAccess !== "denied" &&
+    presence.allPresent
+  );
+}
+
+function harnessConfigJsonB64WasWritten(
+  applyResult?: RemoteHarnessSecretApplyResult,
+): boolean {
+  if (!applyResult) {
+    return false;
+  }
+  return applyResult.writtenSecrets.some(
+    (entry) =>
+      entry.name === "HARNESS_CONFIG_JSON_B64" &&
+      (entry.status === "created" || entry.status === "updated"),
+  );
+}
+
+export interface DeriveStep6ContinueEligibilityInput {
+  summary: RemoteSetupSummary;
+  setupSummary: SetupGuiViewModel;
+  localReadinessComplete: boolean;
+  uiState?: FirstRunReadinessUiState;
+  staleSmokeDiagnostics: StaleSmokeDiagnostics;
+  controlPlaneContext?: ControlPlaneReadinessContext;
+  applyResult?: RemoteHarnessSecretApplyResult;
+  verifiedPath: "automatic" | "manual";
+  /** When true, remote-secret-preview-stale is treated as cleared. */
+  previewStaleCleared?: boolean;
+}
+
+export interface Step6ContinueEligibility {
+  canContinue: boolean;
+  postApplyVerificationReady: boolean;
+  blockers: ReadinessBlocker[];
+}
+
+function resolveStep6HardBlockers(
+  blockers: ReadinessBlocker[],
+  input: {
+    postApplyVerificationReady: boolean;
+    verifiedPath: "automatic" | "manual";
+    applyResult?: RemoteHarnessSecretApplyResult;
+    previewStaleCleared: boolean;
+  },
+): ReadinessBlocker[] {
+  return blockers.filter((blocker) => {
+    if (blocker.id === "remote-secret-preview-stale") {
+      if (input.previewStaleCleared && input.postApplyVerificationReady) {
+        return false;
+      }
+      return true;
+    }
+    if (blocker.id === "cloud-secrets-stale-linear-config") {
+      if (
+        input.verifiedPath === "automatic" &&
+        input.postApplyVerificationReady &&
+        harnessConfigJsonB64WasWritten(input.applyResult)
+      ) {
+        return false;
+      }
+      return true;
+    }
+    return true;
+  });
+}
+
+export function deriveStep6ContinueEligibility(
+  input: DeriveStep6ContinueEligibilityInput,
+): Step6ContinueEligibility {
+  const postApplyVerificationReady = step6PostApplyVerificationReady(
+    input.summary,
+  );
+  const previewStaleCleared = input.previewStaleCleared ?? false;
+
+  const effectiveUiState: FirstRunReadinessUiState = {
+    ...input.uiState,
+    remoteSecretPreviewStale: previewStaleCleared
+      ? false
+      : input.uiState?.remoteSecretPreviewStale,
+  };
+
+  const cloudSecrets = collectCloudSecretsBlockers(
+    input.setupSummary,
+    input.summary,
+    effectiveUiState,
+    input.staleSmokeDiagnostics,
+    input.controlPlaneContext,
+  );
+
+  const remainingBlockers = resolveStep6HardBlockers(cloudSecrets.blockers, {
+    postApplyVerificationReady,
+    verifiedPath: input.verifiedPath,
+    applyResult: input.applyResult,
+    previewStaleCleared,
+  });
+
+  const canContinue =
+    postApplyVerificationReady &&
+    input.localReadinessComplete &&
+    remainingBlockers.length === 0;
+
+  return {
+    canContinue,
+    postApplyVerificationReady,
+    blockers: remainingBlockers,
   };
 }
 
@@ -962,6 +1080,7 @@ export function deriveFirstRunReadiness(input: {
     readyForFirstRun,
     localReadinessBlockersCleared,
     localReadinessReviewed,
+    localReadinessComplete,
     cloudSecretsBlockersCleared,
     cloudSecretsReviewed,
     nonBlockingWarnings,

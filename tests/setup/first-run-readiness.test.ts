@@ -6,6 +6,7 @@ import {
   collectTargetWorkflowBlockers,
   collectRemoteSetupBlockers,
   deriveFirstRunReadiness,
+  deriveStep6ContinueEligibility,
   projectMissingStepsFromReadiness,
 } from "../../src/setup/first-run-readiness.js";
 import type { SetupGuiViewModel } from "../../src/setup/gui-view-model.js";
@@ -182,6 +183,39 @@ function completeControlPlaneContext(): ControlPlaneReadinessContext {
       },
     },
     linearTeamKeyFromConfig: "ENG",
+  };
+}
+
+function allSecretsPresentRemoteSummary(
+  overrides: Partial<RemoteSetupSummary> = {},
+): RemoteSetupSummary {
+  return baseRemoteSummary({
+    githubTokenConfigured: true,
+    harnessRepoAccess: "available",
+    harnessSecretStatuses: HARNESS_ACTIONS_SECRET_NAMES.map((name) => ({
+      name,
+      status: "present" as const,
+    })),
+    ...overrides,
+  });
+}
+
+function staleLinearControlPlaneContext(): ControlPlaneReadinessContext {
+  return {
+    state: {
+      version: 1,
+      linear: {
+        teamMode: "existing",
+        teamId: "team-1",
+        teamKey: "ENG",
+        teamName: "Engineering",
+        projectMode: "existing",
+        projectId: "proj-1",
+        projectName: "Harness",
+        statusCoverageComplete: true,
+      },
+    },
+    linearTeamKeyFromConfig: "OPS",
   };
 }
 
@@ -579,5 +613,270 @@ describe("first-run-readiness", () => {
     expect(readiness.highestPriorityBlocker?.action).toContain(
       "Confirm this is the repo you intend to use",
     );
+  });
+});
+
+describe("deriveStep6ContinueEligibility", () => {
+  it("allows Continue when all five conditions pass", () => {
+    const summary = completeLocalSummary();
+    const remoteSummary = allSecretsPresentRemoteSummary();
+    const readiness = deriveReadiness({
+      summary,
+      remoteSummary,
+      uiState: { localReadinessReviewed: true },
+    });
+
+    const eligibility = deriveStep6ContinueEligibility({
+      summary: remoteSummary,
+      setupSummary: summary,
+      localReadinessComplete: readiness.localReadinessComplete,
+      staleSmokeDiagnostics: remoteSummary.staleSmokeDiagnostics,
+      controlPlaneContext: completeControlPlaneContext(),
+      verifiedPath: "automatic",
+      previewStaleCleared: true,
+      applyResult: {
+        actionId: "apply-harness-secrets",
+        harnessDispatchRepo: "owner/harness",
+        writtenSecrets: [
+          { name: "HARNESS_CONFIG_JSON_B64", status: "updated" },
+        ],
+        skippedSecretNames: [],
+        fingerprint: "fp",
+        permission: {
+          scope: "remote-secret-write",
+          label: "Write harness repo Actions secrets",
+        },
+      },
+    });
+
+    expect(eligibility.canContinue).toBe(true);
+    expect(eligibility.postApplyVerificationReady).toBe(true);
+    expect(eligibility.blockers).toHaveLength(0);
+  });
+
+  it("blocks Continue when harness dispatch repo is unresolved", () => {
+    const summary = completeLocalSummary();
+    const remoteSummary = allSecretsPresentRemoteSummary({
+      harnessDispatchRepoResolved: false,
+    });
+    const readiness = deriveReadiness({
+      summary,
+      remoteSummary,
+      uiState: { localReadinessReviewed: true },
+    });
+
+    const eligibility = deriveStep6ContinueEligibility({
+      summary: remoteSummary,
+      setupSummary: summary,
+      localReadinessComplete: readiness.localReadinessComplete,
+      staleSmokeDiagnostics: remoteSummary.staleSmokeDiagnostics,
+      verifiedPath: "manual",
+      previewStaleCleared: true,
+    });
+
+    expect(eligibility.canContinue).toBe(false);
+    expect(eligibility.postApplyVerificationReady).toBe(false);
+  });
+
+  it("blocks Continue when GitHub repo access is denied", () => {
+    const summary = completeLocalSummary();
+    const remoteSummary = allSecretsPresentRemoteSummary({
+      harnessRepoAccess: "denied",
+    });
+    const readiness = deriveReadiness({
+      summary,
+      remoteSummary,
+      uiState: { localReadinessReviewed: true },
+    });
+
+    const eligibility = deriveStep6ContinueEligibility({
+      summary: remoteSummary,
+      setupSummary: summary,
+      localReadinessComplete: readiness.localReadinessComplete,
+      staleSmokeDiagnostics: remoteSummary.staleSmokeDiagnostics,
+      verifiedPath: "manual",
+      previewStaleCleared: true,
+    });
+
+    expect(eligibility.canContinue).toBe(false);
+    expect(
+      eligibility.blockers.some(
+        (blocker) => blocker.id === "harness-repo-access-denied",
+      ),
+    ).toBe(true);
+  });
+
+  it("blocks Continue when required secrets are missing", () => {
+    const summary = completeLocalSummary();
+    const remoteSummary = allSecretsPresentRemoteSummary({
+      harnessSecretStatuses: HARNESS_ACTIONS_SECRET_NAMES.map((name) => ({
+        name,
+        status: name === "LINEAR_API_KEY" ? ("missing" as const) : ("present" as const),
+      })),
+    });
+    const readiness = deriveReadiness({
+      summary,
+      remoteSummary,
+      uiState: { localReadinessReviewed: true },
+    });
+
+    const eligibility = deriveStep6ContinueEligibility({
+      summary: remoteSummary,
+      setupSummary: summary,
+      localReadinessComplete: readiness.localReadinessComplete,
+      staleSmokeDiagnostics: remoteSummary.staleSmokeDiagnostics,
+      verifiedPath: "manual",
+      previewStaleCleared: true,
+    });
+
+    expect(eligibility.canContinue).toBe(false);
+    expect(eligibility.postApplyVerificationReady).toBe(false);
+    expect(
+      eligibility.blockers.some((blocker) =>
+        blocker.id.startsWith("missing-harness-secret-"),
+      ),
+    ).toBe(true);
+  });
+
+  it("blocks Continue when local readiness is incomplete", () => {
+    const summary = completeLocalSummary();
+    const remoteSummary = allSecretsPresentRemoteSummary();
+    const readiness = deriveReadiness({
+      summary,
+      remoteSummary,
+      uiState: { localReadinessReviewed: false },
+    });
+
+    const eligibility = deriveStep6ContinueEligibility({
+      summary: remoteSummary,
+      setupSummary: summary,
+      localReadinessComplete: readiness.localReadinessComplete,
+      staleSmokeDiagnostics: remoteSummary.staleSmokeDiagnostics,
+      verifiedPath: "manual",
+      previewStaleCleared: true,
+    });
+
+    expect(eligibility.canContinue).toBe(false);
+    expect(readiness.localReadinessComplete).toBe(false);
+  });
+
+  it("clears remote-secret-preview-stale when previewStaleCleared is true", () => {
+    const summary = completeLocalSummary();
+    const remoteSummary = allSecretsPresentRemoteSummary();
+    const readiness = deriveReadiness({
+      summary,
+      remoteSummary,
+      uiState: { localReadinessReviewed: true, remoteSecretPreviewStale: true },
+    });
+
+    const blocked = deriveStep6ContinueEligibility({
+      summary: remoteSummary,
+      setupSummary: summary,
+      localReadinessComplete: readiness.localReadinessComplete,
+      uiState: { remoteSecretPreviewStale: true },
+      staleSmokeDiagnostics: remoteSummary.staleSmokeDiagnostics,
+      verifiedPath: "automatic",
+      previewStaleCleared: false,
+    });
+    const cleared = deriveStep6ContinueEligibility({
+      summary: remoteSummary,
+      setupSummary: summary,
+      localReadinessComplete: readiness.localReadinessComplete,
+      uiState: { remoteSecretPreviewStale: true },
+      staleSmokeDiagnostics: remoteSummary.staleSmokeDiagnostics,
+      verifiedPath: "automatic",
+      previewStaleCleared: true,
+    });
+
+    expect(
+      blocked.blockers.some(
+        (blocker) => blocker.id === "remote-secret-preview-stale",
+      ),
+    ).toBe(true);
+    expect(cleared.canContinue).toBe(true);
+    expect(
+      cleared.blockers.some(
+        (blocker) => blocker.id === "remote-secret-preview-stale",
+      ),
+    ).toBe(false);
+  });
+
+  it("resolves cloud-secrets-stale-linear-config when HARNESS_CONFIG_JSON_B64 was written", () => {
+    const summary = completeLocalSummary();
+    const remoteSummary = allSecretsPresentRemoteSummary();
+    const readiness = deriveReadiness({
+      summary,
+      remoteSummary,
+      uiState: { localReadinessReviewed: true },
+      controlPlaneContext: completeControlPlaneContext(),
+    });
+
+    expect(readiness.localReadinessComplete).toBe(true);
+
+    const eligibility = deriveStep6ContinueEligibility({
+      summary: remoteSummary,
+      setupSummary: summary,
+      localReadinessComplete: readiness.localReadinessComplete,
+      staleSmokeDiagnostics: remoteSummary.staleSmokeDiagnostics,
+      controlPlaneContext: staleLinearControlPlaneContext(),
+      verifiedPath: "automatic",
+      previewStaleCleared: true,
+      applyResult: {
+        actionId: "apply-harness-secrets",
+        harnessDispatchRepo: "owner/harness",
+        writtenSecrets: [
+          { name: "HARNESS_CONFIG_JSON_B64", status: "created" },
+        ],
+        skippedSecretNames: [],
+        fingerprint: "fp",
+        permission: {
+          scope: "remote-secret-write",
+          label: "Write harness repo Actions secrets",
+        },
+      },
+    });
+
+    expect(eligibility.canContinue).toBe(true);
+    expect(eligibility.postApplyVerificationReady).toBe(true);
+    expect(eligibility.blockers).toHaveLength(0);
+  });
+
+  it("keeps cloud-secrets-stale-linear-config when config secret was not written", () => {
+    const summary = completeLocalSummary();
+    const remoteSummary = allSecretsPresentRemoteSummary();
+    const readiness = deriveReadiness({
+      summary,
+      remoteSummary,
+      uiState: { localReadinessReviewed: true },
+      controlPlaneContext: completeControlPlaneContext(),
+    });
+
+    const eligibility = deriveStep6ContinueEligibility({
+      summary: remoteSummary,
+      setupSummary: summary,
+      localReadinessComplete: readiness.localReadinessComplete,
+      staleSmokeDiagnostics: remoteSummary.staleSmokeDiagnostics,
+      controlPlaneContext: staleLinearControlPlaneContext(),
+      verifiedPath: "automatic",
+      previewStaleCleared: true,
+      applyResult: {
+        actionId: "apply-harness-secrets",
+        harnessDispatchRepo: "owner/harness",
+        writtenSecrets: [{ name: "LINEAR_API_KEY", status: "updated" }],
+        skippedSecretNames: ["HARNESS_CONFIG_JSON_B64"],
+        fingerprint: "fp",
+        permission: {
+          scope: "remote-secret-write",
+          label: "Write harness repo Actions secrets",
+        },
+      },
+    });
+
+    expect(eligibility.canContinue).toBe(false);
+    expect(
+      eligibility.blockers.some(
+        (blocker) => blocker.id === "cloud-secrets-stale-linear-config",
+      ),
+    ).toBe(true);
   });
 });
