@@ -516,7 +516,7 @@ export function GuidedCloudSecretsCard({
               onClick={() => void refreshSummary()}
               disabled={loading !== null}
             >
-              {loading === "refresh" ? "Refreshing…" : "Refresh"}
+              {loading === "refresh" ? "Refreshingâ€¦" : "Refresh"}
             </Button>
           </>
         ) : (
@@ -597,7 +597,7 @@ export function GuidedCloudSecretsCard({
                     }
                     variant={verifiedAutomaticSuccess ? "outline" : "default"}
                   >
-                    {loading === "apply" ? "Writing secrets…" : applyLabel}
+                    {loading === "apply" ? "Writing secretsâ€¦" : applyLabel}
                   </Button>
                 </div>
 
@@ -661,7 +661,7 @@ export function GuidedCloudSecretsCard({
                     }
                   >
                     {loading === "manual-values"
-                      ? "Generating manual copy values…"
+                      ? "Generating manual copy valuesâ€¦"
                       : "Generate manual copy values"}
                   </Button>
                   {manualValues ? (
@@ -750,7 +750,7 @@ export function GuidedCloudSecretsCard({
                     disabled={loading !== null}
                   >
                     {loading === "manual-verify"
-                      ? "Verifying manual setup…"
+                      ? "Verifying manual setupâ€¦"
                       : "Verify manual setup"}
                   </Button>
                 </div>
