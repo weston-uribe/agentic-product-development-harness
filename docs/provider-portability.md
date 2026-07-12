@@ -104,11 +104,12 @@ Harness skills are portable workflow contracts stored canonically at
 locations (`.cursor/skills`, `.claude/skills`, ChatGPT project files, future
 Codex adapters) are export or adaptation targets — not canonical sources.
 
-Implemented canonical skills: `issue-intake`, `code-health-audit`, `planner`, and
-`implementation` at [`.agents/skills/<skill-name>/SKILL.md`](../.agents/skills/).
-Remaining audit skills, skill registry, package manager, skill manifests,
-runner-skill prompt integration, and provider/client adapters are **not
-implemented** — see [`docs/skills/skill-architecture.md`](skills/skill-architecture.md).
+Implemented canonical skills: `issue-intake`, `code-health-audit`,
+`architecture-evolution-audit`, `security-audit`, `planner`, and `implementation`
+at [`.agents/skills/<skill-name>/SKILL.md`](../.agents/skills/). `performance-cost-audit`,
+skill registry, package manager, skill manifests, runner-skill prompt integration,
+and provider/client adapters are **not implemented** — see
+[`docs/skills/skill-architecture.md`](skills/skill-architecture.md).
 SDK runner prompts in [`src/prompts/`](../src/prompts/) remain runner
 implementation details, not canonical skills.
 

@@ -14,7 +14,7 @@ Convert approved product intent, Linear issues, product requests, or audit repor
 
 - A Linear issue is in **Ready for Planning** and needs a durable plan before build
 - An approved product request needs implementation-ready planning
-- A `code-health-audit`, `architecture-evolution-audit`, or future audit report needs remediation planning
+- A `code-health-audit`, `architecture-evolution-audit`, `security-audit`, or future audit report needs remediation planning
 - Work is too large for one reviewable PR and needs ordered PR slices
 - The operator wants a planner-consumable plan without implementation changes
 
@@ -50,7 +50,7 @@ Do not duplicate audit or implementation responsibilities.
 ## Planner modes
 
 - **feature-planning** — Use for approved product intent or Linear issues that need a plan before build. Output one implementation plan if the work is PR-sized; otherwise apply PR slicing and output multiple ordered slices.
-- **audit-remediation-planning** — Use for `code-health-audit`, `architecture-evolution-audit`, or future audit reports. Convert findings into prioritized remediation slices without doing the fixes.
+- **audit-remediation-planning** — Use for `code-health-audit`, `architecture-evolution-audit`, `security-audit`, or future audit reports. Convert findings into prioritized remediation slices without doing the fixes.
 
 If no mode is specified:
 
@@ -95,7 +95,7 @@ Ask for or infer:
 
 ## Audit-remediation planning rules
 
-- Consume audit findings by stable ID (`CH-001`, `AE-001`, etc.) from `code-health-audit`, `architecture-evolution-audit`, or future audit skills
+- Consume audit findings by stable ID (`CH-001`, `AE-001`, `SEC-001`, etc.) from `code-health-audit`, `architecture-evolution-audit`, `security-audit`, or future audit skills
 - Prioritize **Critical** (if emitted), then **High**, then **Medium**
 - Usually **exclude Low and Info** unless the operator explicitly asks or they are bundled into a nearby higher-priority slice with minimal additional scope
 - Convert findings into remediation goals and acceptance criteria, not implementation instructions
@@ -225,5 +225,6 @@ The planner does **not** create implementation branches or PRs. The implemented 
 - Implementation plan template: [`templates/implementation-plan.md`](../../../templates/implementation-plan.md)
 - Code health audit skill: [`.agents/skills/code-health-audit/SKILL.md`](../code-health-audit/SKILL.md)
 - Architecture evolution audit skill: [`.agents/skills/architecture-evolution-audit/SKILL.md`](../architecture-evolution-audit/SKILL.md)
+- Security audit skill: [`.agents/skills/security-audit/SKILL.md`](../security-audit/SKILL.md)
 - Linear automation state machine: [`docs/architecture/linear-automation-state-machine.md`](../../../docs/architecture/linear-automation-state-machine.md)
 - Agent guide: [`AGENTS.md`](../../../AGENTS.md)
