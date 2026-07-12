@@ -1,6 +1,6 @@
 # Skill architecture
 
-**Status:** Implemented — architecture artifact and canonical path only. One skill (`issue-intake`) is implemented after this document lands.
+**Status:** Implemented — architecture artifact and canonical path. Operator-invoked skills: `issue-intake` and `code-health-audit` are implemented.
 
 This document defines the harness skill system. It does **not** create the full skill set.
 
@@ -81,12 +81,12 @@ Used directly by the operator in an agent client (Cursor, future clients). The o
 | Skill | Purpose |
 |-------|---------|
 | `issue-intake` | Turn a fuzzy product idea into a harness-compatible Linear issue |
+| `code-health-audit` | Report-only inspection of code health |
 
 **Planned architecture concepts only** (not implemented):
 
 | Skill | Purpose |
 |-------|---------|
-| `code-health-audit` | Report-only inspection of code health |
 | `architecture-evolution-audit` | Report-only architecture review |
 | `security-audit` | Report-only security inspection |
 | `performance-cost-audit` | Report-only performance and cost inspection |
@@ -126,7 +126,7 @@ Audit skills are **report-only**. They inspect and produce findings. They do not
 | Planner | Convert findings into remediation plans and reviewable PR slices |
 | Implementation agent | Make scoped code changes |
 
-The first audit skill to design later is `code-health-audit`.
+The first implemented audit skill is `code-health-audit`. Additional audit skills remain planned.
 
 ## What is not a skill (for now)
 
@@ -143,7 +143,7 @@ SDK runner prompts in [`src/prompts/`](../src/prompts/) are **implementation det
 
 | Layer | Location | Status |
 |-------|----------|--------|
-| Canonical skills | `.agents/skills/<skill-name>/SKILL.md` | `issue-intake` implemented |
+| Canonical skills | `.agents/skills/<skill-name>/SKILL.md` | `issue-intake`, `code-health-audit` implemented |
 | Runner prompts | `src/prompts/*.md` | Implemented for SDK phases |
 | Client adapters | `.cursor/skills`, etc. | Manual install/export only |
 
@@ -156,9 +156,9 @@ After this document and the accompanying migration:
 | Item | Status |
 |------|--------|
 | `issue-intake` | **Implemented** at [`.agents/skills/issue-intake/SKILL.md`](../../.agents/skills/issue-intake/SKILL.md) |
+| `code-health-audit` | **Implemented** at [`.agents/skills/code-health-audit/SKILL.md`](../../.agents/skills/code-health-audit/SKILL.md) |
 | `planner` | Planned architecture concept only |
 | `implementation` | Planned architecture concept only |
-| `code-health-audit` | Planned architecture concept only |
 | `architecture-evolution-audit` | Planned architecture concept only |
 | `security-audit` | Planned architecture concept only |
 | `performance-cost-audit` | Planned architecture concept only |
