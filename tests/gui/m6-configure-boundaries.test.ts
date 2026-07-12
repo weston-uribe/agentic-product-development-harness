@@ -396,7 +396,13 @@ describe("M6 configure GUI boundaries", () => {
     );
     expect(experienceSource).toContain("/api/setup/linear-summary");
     expect(experienceSource).toContain(
-      "linearApiKeyConfigured: nextSummary.envKeyPresence.LINEAR_API_KEY",
+      "syncLinearSummaryFromEnvPresence(current, nextSummary.envKeyPresence)",
+    );
+    expect(experienceSource).toContain(
+      "syncVercelSummaryFromEnvPresence(current, nextSummary.envKeyPresence)",
+    );
+    expect(experienceSource).toContain(
+      "syncRemoteSummaryFromEnvPresence(current, nextSummary.envKeyPresence)",
     );
   });
 
