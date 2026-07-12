@@ -60,7 +60,7 @@ The architecture is modular by subsystem, but it is **not provider-agnostic**. S
 | Agent provider | Cursor Cloud Agents only (implemented) |
 | Linear / status gates | Required — automation respects allowlisted statuses |
 | GitHub review requirement (solo repo) | **0 approvals** — PR + required checks only |
-| Canonical harness skills | Implemented — `issue-intake`, `code-health-audit`, `planner`, `implementation` (see [`docs/skills/skill-architecture.md`](docs/skills/skill-architecture.md)) |
+| Canonical harness skills | Implemented — `issue-intake`, `code-health-audit`, `architecture-evolution-audit`, `security-audit`, `planner`, `implementation` (see [`docs/skills/skill-architecture.md`](docs/skills/skill-architecture.md)) |
 
 ## Auto-run flow
 
@@ -85,7 +85,7 @@ Each step has a template in [`templates/`](templates/). Status changes on allowl
 - SDK harness runners for planning, implementation, handoff, revision, merge, and production sync — see [`ROADMAP.md`](ROADMAP.md)
 - Event-driven auto-runner — [`api/linear-webhook.ts`](api/linear-webhook.ts), [`.github/workflows/harness-auto-runner.yml`](.github/workflows/harness-auto-runner.yml)
 - ChatGPT intake prompt — [`prompts/issue-intake-chatgpt.md`](prompts/issue-intake-chatgpt.md)
-- Canonical harness skills — [`issue-intake`](.agents/skills/issue-intake/), [`code-health-audit`](.agents/skills/code-health-audit/), [`planner`](.agents/skills/planner/), [`implementation`](.agents/skills/implementation/) under [`.agents/skills/`](.agents/skills/)
+- Canonical harness skills — [`issue-intake`](.agents/skills/issue-intake/), [`code-health-audit`](.agents/skills/code-health-audit/), [`architecture-evolution-audit`](.agents/skills/architecture-evolution-audit/), [`security-audit`](.agents/skills/security-audit/), [`planner`](.agents/skills/planner/), [`implementation`](.agents/skills/implementation/) under [`.agents/skills/`](.agents/skills/)
 - Cursor Cloud Agents as the single implemented agent provider
 - Templates, evals, examples, architecture docs
 
@@ -100,7 +100,7 @@ This repo does **not** claim provider agnosticism, or support for Claude Code, C
 
 ## What is planned
 
-See [`ROADMAP.md`](ROADMAP.md) for deferred work: additional audit skills, skill registry/package manager, runner-skill integration, automated eval contract, and future portability.
+See [`ROADMAP.md`](ROADMAP.md) for deferred work: `performance-cost-audit`, skill registry/package manager, runner-skill integration, automated eval contract, and future portability.
 
 ## Target repos
 
@@ -130,7 +130,7 @@ See [`docs/target-repo-branch-setup.md`](docs/target-repo-branch-setup.md) for i
 
 Git tags and GitHub releases are operator-controlled milestones — see [`docs/releases/release-process.md`](docs/releases/release-process.md). They are not created from doc PRs.
 
-Four canonical skills are implemented under [`.agents/skills/`](.agents/skills/): `issue-intake`, `code-health-audit`, `planner`, and `implementation`. Issue intake is also available via [`prompts/issue-intake-chatgpt.md`](prompts/issue-intake-chatgpt.md) (ChatGPT). Remaining audit skills, registry/package manager, manifests, provider adapters, and runner-skill integration are planned or not implemented — see [`docs/skills/skill-architecture.md`](docs/skills/skill-architecture.md).
+Six canonical skills are implemented under [`.agents/skills/`](.agents/skills/): operator-invoked `issue-intake`, `code-health-audit`, `architecture-evolution-audit`, and `security-audit`; runner/agent phase `planner` and `implementation`. Issue intake is also available via [`prompts/issue-intake-chatgpt.md`](prompts/issue-intake-chatgpt.md) (ChatGPT). `performance-cost-audit`, skill registry/package manager, manifests, provider adapters, and runner-skill integration remain planned or not implemented — see [`docs/skills/skill-architecture.md`](docs/skills/skill-architecture.md).
 
 ## Getting started
 
