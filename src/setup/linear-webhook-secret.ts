@@ -13,15 +13,121 @@ export type LinearWebhookSecretMode =
   | "existing-unverified"
   | "manual-copy";
 
+export type LinearWebhookCandidateSource =
+  | "operator"
+  | "reused-readable"
+  | "generated"
+  | "unreadable";
+
+export type LinearWebhookMutatePolicy = "setup" | "verify-only";
+
 export interface LinearWebhookSecretPlan {
   mode: LinearWebhookSecretMode;
   secret?: string;
+  matchingWebhook?: LinearWebhookSummary;
+  manualSteps: string[];
+  willGenerateOnApply?: boolean;
+}
+
+export interface LinearWebhookCandidateResolution {
+  secret?: string;
+  source: LinearWebhookCandidateSource;
   matchingWebhook?: LinearWebhookSummary;
   manualSteps: string[];
 }
 
 export function generateLinearWebhookSecret(): string {
   return randomBytes(32).toString("hex");
+}
+
+function normalizeWebhookUrl(url: string): string {
+  return url.trim().replace(/\/$/, "");
+}
+
+export function findMatchingLinearWebhook(input: {
+  webhooks: LinearWebhookSummary[];
+  webhookUrl: string;
+  linearTeamId?: string;
+}): LinearWebhookSummary | undefined {
+  const normalizedTarget = normalizeWebhookUrl(input.webhookUrl);
+  return input.webhooks.find((webhook) => {
+    const normalized = normalizeWebhookUrl(webhook.url);
+    const teamMatches = input.linearTeamId
+      ? webhook.teamId === input.linearTeamId
+      : true;
+    return (
+      teamMatches &&
+      normalized === normalizedTarget &&
+      webhook.enabled &&
+      webhook.resourceTypes.includes("Issue")
+    );
+  });
+}
+
+export async function resolveLinearWebhookCandidateSecret(input: {
+  linearApiKey?: string;
+  webhookUrl: string;
+  linearTeamId?: string;
+  operatorSecret?: string;
+}): Promise<LinearWebhookCandidateResolution> {
+  const operatorSecret = input.operatorSecret?.trim();
+  if (operatorSecret) {
+    return {
+      secret: operatorSecret,
+      source: "operator",
+      manualSteps: [],
+    };
+  }
+
+  if (!input.linearApiKey?.trim()) {
+    return {
+      source: "generated",
+      manualSteps: [
+        "Add LINEAR_API_KEY in Step 1 before automated Linear webhook setup can run.",
+        "A webhook signing secret will be generated during apply and shown once if manual copy is required.",
+      ],
+    };
+  }
+
+  const client = createLinearSetupClient(input.linearApiKey);
+  const webhooks = await listLinearWebhooks(client);
+  const matchingWebhook = findMatchingLinearWebhook({
+    webhooks,
+    webhookUrl: input.webhookUrl,
+    linearTeamId: input.linearTeamId,
+  });
+
+  if (matchingWebhook) {
+    const knownSecret = matchingWebhook.secret?.trim();
+    if (knownSecret) {
+      return {
+        secret: knownSecret,
+        source: "reused-readable",
+        matchingWebhook: { ...matchingWebhook, secret: undefined },
+        manualSteps: [
+          "A matching Linear Issue webhook exists. Apply will reuse its known signing secret for verification.",
+        ],
+      };
+    }
+
+    return {
+      source: "unreadable",
+      matchingWebhook: { ...matchingWebhook, secret: undefined },
+      manualSteps: [
+        "A matching Linear Issue webhook exists, but its signing secret cannot be read from the Linear API.",
+        "Update the Linear webhook signing secret manually to match Vercel LINEAR_WEBHOOK_SECRET, then retry verification.",
+        "Apply will not rotate the webhook repeatedly while the secret remains unreadable.",
+      ],
+    };
+  }
+
+  return {
+    secret: generateLinearWebhookSecret(),
+    source: "generated",
+    manualSteps: [
+      "Apply will create a Linear Issue webhook and write the signing secret to Vercel.",
+    ],
+  };
 }
 
 export async function planLinearWebhookSecret(input: {
@@ -46,13 +152,14 @@ export async function planLinearWebhookSecret(input: {
   });
 
   if (readiness.matchingWebhook) {
-  const knownSecret = readiness.matchingWebhook.secret?.trim();
+    const knownSecret = readiness.matchingWebhook.secret?.trim();
     if (knownSecret) {
       return {
         mode: "automated",
         matchingWebhook: readiness.matchingWebhook,
+        willGenerateOnApply: false,
         manualSteps: [
-          "A matching Linear Issue webhook already exists. Apply will rotate its signing secret to match the Vercel bridge secret.",
+          "A matching Linear Issue webhook already exists. Apply will reuse its known signing secret for verification.",
         ],
       };
     }
@@ -60,15 +167,17 @@ export async function planLinearWebhookSecret(input: {
     return {
       mode: "existing-unverified",
       matchingWebhook: readiness.matchingWebhook,
+      willGenerateOnApply: true,
       manualSteps: [
         "A matching Linear Issue webhook already exists, but its signing secret cannot be recovered.",
-        "Apply will attempt to rotate the existing webhook secret automatically. If that fails, copy the generated secret into Linear manually.",
+        "Apply will attempt to rotate the existing webhook secret automatically once. If that fails, copy the generated secret into Linear manually.",
       ],
     };
   }
 
   return {
     mode: "automated",
+    willGenerateOnApply: true,
     manualSteps: [
       "Apply will create a Linear Issue webhook and write the signing secret to Vercel.",
     ],
@@ -80,26 +189,20 @@ export async function ensureLinearIssueWebhook(input: {
   webhookUrl: string;
   linearTeamId?: string;
   secret: string;
+  mutatePolicy?: LinearWebhookMutatePolicy;
 }): Promise<{
   webhook?: LinearWebhookSummary;
   secret: string;
   mode: LinearWebhookSecretMode;
   manualSteps: string[];
 }> {
+  const mutatePolicy = input.mutatePolicy ?? "setup";
   const client = createLinearSetupClient(input.linearApiKey);
   const webhooks = await listLinearWebhooks(client);
-  const normalizedTarget = input.webhookUrl.trim().replace(/\/$/, "");
-  const existing = webhooks.find((webhook) => {
-    const normalized = webhook.url.trim().replace(/\/$/, "");
-    const teamMatches = input.linearTeamId
-      ? webhook.teamId === input.linearTeamId
-      : true;
-    return (
-      teamMatches &&
-      normalized === normalizedTarget &&
-      webhook.enabled &&
-      webhook.resourceTypes.includes("Issue")
-    );
+  const existing = findMatchingLinearWebhook({
+    webhooks,
+    webhookUrl: input.webhookUrl,
+    linearTeamId: input.linearTeamId,
   });
 
   if (existing) {
@@ -110,6 +213,27 @@ export async function ensureLinearIssueWebhook(input: {
         secret: input.secret,
         mode: "automated",
         manualSteps: [],
+      };
+    }
+
+    if (mutatePolicy === "verify-only") {
+      if (knownSecret) {
+        return {
+          webhook: { ...existing, secret: undefined },
+          secret: knownSecret,
+          mode: "automated",
+          manualSteps: [],
+        };
+      }
+
+      return {
+        webhook: { ...existing, secret: undefined },
+        secret: input.secret,
+        mode: "existing-unverified",
+        manualSteps: [
+          "Matching Linear webhook exists, but its signing secret cannot be read from the Linear API.",
+          "Update the Linear webhook signing secret manually to match Vercel LINEAR_WEBHOOK_SECRET, then retry verification.",
+        ],
       };
     }
 
@@ -136,6 +260,17 @@ export async function ensureLinearIssueWebhook(input: {
         ],
       };
     }
+  }
+
+  if (mutatePolicy === "verify-only") {
+    return {
+      secret: input.secret,
+      mode: "manual-copy",
+      manualSteps: [
+        `Create a Linear Issue webhook pointing at ${input.webhookUrl}.`,
+        "Retry verification after the webhook exists and its signing secret matches Vercel.",
+      ],
+    };
   }
 
   try {

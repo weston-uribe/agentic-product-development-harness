@@ -14,6 +14,7 @@ export async function POST(request: Request) {
       confirmed: boolean;
       fingerprint: string;
       manualComplete?: boolean;
+      verifyOnly?: boolean;
     };
     const result = await applyVercelBridgeRemote(body);
     return NextResponse.json(result);

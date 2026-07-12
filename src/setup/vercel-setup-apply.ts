@@ -1,10 +1,13 @@
 import {
   updateControlPlaneSetupState,
+  readControlPlaneSetupState,
 } from "./control-plane-setup-state.js";
 import type { VercelBridgeSelection } from "./control-plane-types.js";
 import {
   ensureLinearIssueWebhook,
   generateLinearWebhookSecret,
+  resolveLinearWebhookCandidateSecret,
+  type LinearWebhookCandidateSource,
   type LinearWebhookSecretMode,
 } from "./linear-webhook-secret.js";
 import { summarizeLinearWebhookReadiness } from "./linear-setup-plan.js";
@@ -76,6 +79,8 @@ export interface VercelBridgeApplyResult {
   signedProbeVerified: boolean;
   signedProbeReason?: string;
   deploymentRedeployRequired: boolean;
+  verificationRetry?: boolean;
+  candidateSecretSource?: LinearWebhookCandidateSource;
   verified: boolean;
   fingerprint: string;
   permission: typeof SETUP_PERMISSIONS.remoteSecretWrite;
@@ -211,6 +216,7 @@ export async function applyVercelBridgeSetup(input: {
   confirmed: boolean;
   fingerprint: string;
   manualComplete?: boolean;
+  verifyOnly?: boolean;
   cwd?: string;
 }): Promise<VercelBridgeApplyResult> {
   assertRemoteSetupConfirmed(input.confirmed);
@@ -303,22 +309,63 @@ export async function applyVercelBridgeSetup(input: {
     };
   }
 
-  const generatedLinearWebhookSecret =
-    normalized.envInput?.LINEAR_WEBHOOK_SECRET?.trim() ??
-    generateLinearWebhookSecret();
+  const priorState = await readControlPlaneSetupState(input.cwd);
+  const isVerificationRetry =
+    input.verifyOnly === true ||
+    Boolean(
+      priorState?.vercel?.deploymentRedeployRequired &&
+        priorState.vercel.projectId === preview.selectedProject.id &&
+        priorState.vercel.webhookUrl === preview.webhookUrl &&
+        priorState.vercel.appliedFingerprint === preview.fingerprint,
+    );
+
+  const candidateResolution = await resolveLinearWebhookCandidateSecret({
+    linearApiKey: normalized.linearApiKey,
+    webhookUrl: preview.webhookUrl,
+    linearTeamId: normalized.linearTeamId,
+    operatorSecret: normalized.envInput?.LINEAR_WEBHOOK_SECRET,
+  });
+
+  let candidateWebhookSecret = candidateResolution.secret;
+  if (!candidateWebhookSecret?.trim() && candidateResolution.source === "generated") {
+    candidateWebhookSecret = generateLinearWebhookSecret();
+  }
+  if (
+    candidateResolution.source === "unreadable" &&
+    !isVerificationRetry &&
+    !candidateWebhookSecret?.trim()
+  ) {
+    candidateWebhookSecret = generateLinearWebhookSecret();
+  }
 
   let linearWebhookSetup: VercelBridgeLinearWebhookSetupResult = {
     mode: "manual-copy",
-    manualSteps: [],
+    manualSteps: candidateResolution.manualSteps,
     manualCopySecret: undefined,
   };
 
-  if (normalized.linearApiKey?.trim()) {
+  if (
+    candidateResolution.source === "unreadable" &&
+    isVerificationRetry
+  ) {
+    linearWebhookSetup = {
+      mode: "existing-unverified",
+      manualSteps: candidateResolution.manualSteps,
+      manualCopySecret: undefined,
+    };
+  } else if (!candidateWebhookSecret?.trim()) {
+    linearWebhookSetup = {
+      mode: "manual-copy",
+      manualSteps: candidateResolution.manualSteps,
+      manualCopySecret: undefined,
+    };
+  } else if (normalized.linearApiKey?.trim()) {
     const ensured = await ensureLinearIssueWebhook({
       linearApiKey: normalized.linearApiKey,
       webhookUrl: preview.webhookUrl,
       linearTeamId: normalized.linearTeamId,
-      secret: generatedLinearWebhookSecret,
+      secret: candidateWebhookSecret,
+      mutatePolicy: isVerificationRetry ? "verify-only" : "setup",
     });
     linearWebhookSetup = {
       mode: ensured.mode,
@@ -326,6 +373,7 @@ export async function applyVercelBridgeSetup(input: {
       manualCopySecret:
         ensured.mode === "automated" ? undefined : ensured.secret,
     };
+    candidateWebhookSecret = ensured.secret;
   } else {
     linearWebhookSetup = {
       mode: "manual-copy",
@@ -333,7 +381,7 @@ export async function applyVercelBridgeSetup(input: {
         "Add LINEAR_API_KEY in Step 1 before automated Linear webhook setup can run.",
         "Copy the generated webhook secret into Linear when prompted.",
       ],
-      manualCopySecret: generatedLinearWebhookSecret,
+      manualCopySecret: candidateWebhookSecret,
     };
   }
 
@@ -343,7 +391,9 @@ export async function applyVercelBridgeSetup(input: {
       normalized.envInput?.GITHUB_DISPATCH_TOKEN ??
       normalized.derivedGithubDispatchToken,
   });
-  knownSecrets.push(generatedLinearWebhookSecret);
+  if (candidateWebhookSecret?.trim()) {
+    knownSecrets.push(candidateWebhookSecret);
+  }
   if (normalized.envInput?.GITHUB_DISPATCH_TOKEN) {
     knownSecrets.push(normalized.envInput.GITHUB_DISPATCH_TOKEN);
   }
@@ -357,6 +407,14 @@ export async function applyVercelBridgeSetup(input: {
     resolvedTeam.teamId,
   );
   const existingByKey = new Map(existingEnv.map((env) => [env.key, env]));
+  const vercelHasWebhookSecret = existingByKey.has("LINEAR_WEBHOOK_SECRET");
+  const shouldWriteWebhookSecret =
+    !isVerificationRetry &&
+    Boolean(candidateWebhookSecret?.trim()) &&
+    (candidateResolution.source === "generated" ||
+      candidateResolution.source === "operator" ||
+      candidateResolution.source === "unreadable" ||
+      (candidateResolution.source === "reused-readable" && !vercelHasWebhookSecret));
 
   const writtenEnvKeys: string[] = [];
   const skippedEnvKeys: string[] = [];
@@ -367,12 +425,17 @@ export async function applyVercelBridgeSetup(input: {
       continue;
     }
 
+    if (entry.key === "LINEAR_WEBHOOK_SECRET" && !shouldWriteWebhookSecret) {
+      skippedEnvKeys.push(entry.key);
+      continue;
+    }
+
     const value = resolveVercelBridgeEnvValue({
       key: entry.key,
       envInput: normalized.envInput,
       derivedHarnessTeamKey: normalized.derivedHarnessTeamKey,
       derivedGithubDispatchToken: normalized.derivedGithubDispatchToken,
-      generatedLinearWebhookSecret,
+      generatedLinearWebhookSecret: candidateWebhookSecret,
     });
 
     if (!value?.trim()) {
@@ -399,15 +462,16 @@ export async function applyVercelBridgeSetup(input: {
   }
 
   if (
-    !normalized.envInput?.LINEAR_WEBHOOK_SECRET?.trim() &&
-    !writtenEnvKeys.includes("LINEAR_WEBHOOK_SECRET")
+    shouldWriteWebhookSecret &&
+    !writtenEnvKeys.includes("LINEAR_WEBHOOK_SECRET") &&
+    candidateWebhookSecret?.trim()
   ) {
     const existing = existingByKey.get("LINEAR_WEBHOOK_SECRET");
     await upsertVercelProjectEnvVar(normalized.vercelToken, {
       projectId: preview.selectedProject.id,
       teamId: resolvedTeam.teamId,
       key: "LINEAR_WEBHOOK_SECRET",
-      value: generatedLinearWebhookSecret,
+      value: candidateWebhookSecret,
       existingEnv: existing,
     });
     writtenEnvKeys.push("LINEAR_WEBHOOK_SECRET");
@@ -439,14 +503,21 @@ export async function applyVercelBridgeSetup(input: {
     webhookUrl: preview.webhookUrl,
     envWritePlan: preview.envWritePlan,
     candidateSecretToken: tokenizeCandidateWebhookSecret(
-      generatedLinearWebhookSecret,
+      candidateWebhookSecret,
     ),
   });
 
-  const signedProbe = await runSignedWebhookProbe({
-    webhookUrl: preview.webhookUrl,
-    secret: generatedLinearWebhookSecret,
-  });
+  const signedProbe = candidateWebhookSecret?.trim()
+    ? await runSignedWebhookProbe({
+        webhookUrl: preview.webhookUrl,
+        secret: candidateWebhookSecret,
+      })
+    : {
+        passed: false,
+        result: "error" as const,
+        reason: "missing_candidate_secret",
+        probedAt: new Date().toISOString(),
+      };
   const signedProbeVerified = signedProbe.passed;
   const deploymentRedeployRequired =
     writtenEnvKeys.length > 0 && !signedProbeVerified;
@@ -512,6 +583,8 @@ export async function applyVercelBridgeSetup(input: {
     signedProbeVerified,
     signedProbeReason: signedProbe.reason,
     deploymentRedeployRequired,
+    verificationRetry: isVerificationRetry,
+    candidateSecretSource: candidateResolution.source,
     verified,
     fingerprint: preview.fingerprint,
     permission: VERCEL_SETUP_ACTIONS.apply.permission,

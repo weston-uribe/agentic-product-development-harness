@@ -22,6 +22,7 @@ import {
   ensureLinearIssueWebhook,
   generateLinearWebhookSecret,
   planLinearWebhookSecret,
+  resolveLinearWebhookCandidateSecret,
 } from "../../src/setup/linear-webhook-secret.js";
 
 describe("linear-webhook-secret", () => {
@@ -70,6 +71,7 @@ describe("linear-webhook-secret", () => {
 
     expect(plan.mode).toBe("existing-unverified");
     expect(plan.secret).toBeUndefined();
+    expect(plan.willGenerateOnApply).toBe(true);
     expect(plan.manualSteps.join(" ")).toMatch(/rotate/i);
   });
 
@@ -143,5 +145,54 @@ describe("linear-webhook-secret", () => {
     expect(updateLinearIssueWebhook).toHaveBeenCalled();
     expect(createLinearIssueWebhook).not.toHaveBeenCalled();
     expect(result.mode).toBe("automated");
+  });
+
+  it("does not rotate an existing webhook during verify-only retry", async () => {
+    vi.mocked(listLinearWebhooks).mockResolvedValue([
+      {
+        id: "wh-1",
+        url: "https://example.vercel.app/api/linear-webhook",
+        enabled: true,
+        resourceTypes: ["Issue"],
+        teamId: "team-1",
+        secret: "known-secret",
+      },
+    ]);
+
+    const result = await ensureLinearIssueWebhook({
+      linearApiKey: "lin_api_test",
+      webhookUrl: "https://example.vercel.app/api/linear-webhook",
+      linearTeamId: "team-1",
+      secret: "known-secret",
+      mutatePolicy: "verify-only",
+    });
+
+    expect(updateLinearIssueWebhook).not.toHaveBeenCalled();
+    expect(createLinearIssueWebhook).not.toHaveBeenCalled();
+    expect(result.mode).toBe("automated");
+    expect(result.secret).toBe("known-secret");
+  });
+
+  it("reuses a readable matching webhook secret instead of generating a new one", async () => {
+    vi.mocked(listLinearWebhooks).mockResolvedValue([
+      {
+        id: "wh-1",
+        url: "https://example.vercel.app/api/linear-webhook",
+        enabled: true,
+        resourceTypes: ["Issue"],
+        teamId: "team-1",
+        secret: "readable-secret",
+      },
+    ]);
+
+    const result = await resolveLinearWebhookCandidateSecret({
+      linearApiKey: "lin_api_test",
+      webhookUrl: "https://example.vercel.app/api/linear-webhook",
+      linearTeamId: "team-1",
+    });
+
+    expect(result.source).toBe("reused-readable");
+    expect(result.secret).toBe("readable-secret");
+    expect(result.matchingWebhook?.secret).toBeUndefined();
   });
 });
