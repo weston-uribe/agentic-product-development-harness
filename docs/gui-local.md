@@ -32,6 +32,26 @@ This is the operator-facing convention for M6 Configure GUI testing. `localhost`
 
 Do **not** delete source files, `.env`, `.env.local`, `.harness/config.local.json`, backups, or secrets.
 
+## GitHub Codespaces
+
+Keep the dev server running in one terminal (do not Ctrl+C it). In another terminal, verify:
+
+```bash
+curl -I http://127.0.0.1:3000/settings/configure
+```
+
+That should return `HTTP/1.1 200 OK`.
+
+Start the GUI for port forwarding:
+
+```bash
+npm run harness:configure -- --host 0.0.0.0 --port 3000
+```
+
+Open the app from the **Ports** panel (globe icon on port **3000**), not by guessing the URL. Set port visibility to **Public** if the forwarded link fails. Append `/settings/configure` if needed.
+
+Next.js 15 blocks unknown dev origins by default. This repo allows `*.app.github.dev` in `apps/gui/next.config.ts` (`allowedDevOrigins`). Restart the dev server after changing that file.
+
 ## Quick start (auto port fallback)
 
 ```bash
