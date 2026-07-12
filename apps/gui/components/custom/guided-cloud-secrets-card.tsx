@@ -14,8 +14,10 @@ import type { RemoteSetupSummary } from "@harness/setup/remote-setup-summary";
 import type { SetupGuiViewModel } from "@/lib/setup-server";
 import type { ControlPlaneReadinessContext } from "@harness/setup/control-plane-types";
 import {
+  buildCloudSecretsApplyEvidence,
   deriveStep6ContinueEligibility,
   step6PostApplyVerificationReady,
+  type CloudSecretsApplyEvidence,
   type FirstRunReadiness,
   type ReadinessBlocker,
 } from "@harness/setup/first-run-readiness";
@@ -38,9 +40,13 @@ interface GuidedCloudSecretsCardProps {
   setupSummary: SetupGuiViewModel;
   controlPlaneContext?: ControlPlaneReadinessContext;
   remoteSecretPreviewStale?: boolean;
+  cloudSecretsApplyEvidence?: CloudSecretsApplyEvidence;
   initialSummary: RemoteSetupSummary;
   onSummaryUpdated?: (summary: RemoteSetupSummary) => void;
-  onUiStateChange?: (state: { remoteSecretPreviewStale: boolean }) => void;
+  onUiStateChange?: (state: {
+    remoteSecretPreviewStale?: boolean;
+    cloudSecretsApplyEvidence?: CloudSecretsApplyEvidence;
+  }) => void;
   onContinue: () => void;
   blockedByUpstream?: boolean;
 }
@@ -82,6 +88,7 @@ export function GuidedCloudSecretsCard({
   setupSummary,
   controlPlaneContext,
   remoteSecretPreviewStale = false,
+  cloudSecretsApplyEvidence,
   initialSummary,
   onSummaryUpdated,
   onUiStateChange,
@@ -174,13 +181,14 @@ export function GuidedCloudSecretsCard({
     (nextType: CloudSecretsSetupType) => {
       setSetupType(nextType);
       setPreviewStaleCleared(false);
+      onUiStateChange?.({ cloudSecretsApplyEvidence: undefined });
       if (nextType === "automatic") {
         clearManualPathState();
       } else {
         clearAutomaticPathState();
       }
     },
-    [clearAutomaticPathState, clearManualPathState],
+    [clearAutomaticPathState, clearManualPathState, onUiStateChange],
   );
 
   const clearManualValues = useCallback(() => {
@@ -191,16 +199,29 @@ export function GuidedCloudSecretsCard({
   }, []);
 
   const markVerifiedSuccess = useCallback(
-    (path: CloudSecretsSetupType) => {
+    (
+      path: CloudSecretsSetupType,
+      nextApplyResult?: RemoteHarnessSecretApplyResult,
+    ) => {
       setPreviewStaleCleared(true);
       onUiStateChange?.({ remoteSecretPreviewStale: false });
       if (path === "automatic") {
         setVerifiedAutomaticSuccess(true);
+        if (nextApplyResult) {
+          onUiStateChange?.({
+            remoteSecretPreviewStale: false,
+            cloudSecretsApplyEvidence: buildCloudSecretsApplyEvidence({
+              applyResult: nextApplyResult,
+              setupSummary,
+              controlPlaneContext,
+            }),
+          });
+        }
       } else {
         setVerifiedManualSuccess(true);
       }
     },
-    [onUiStateChange],
+    [controlPlaneContext, onUiStateChange, setupSummary],
   );
 
   const refreshSummary = useCallback(async () => {
@@ -314,7 +335,7 @@ export function GuidedCloudSecretsCard({
       setDisclosureOpen(false);
 
       if (step6PostApplyVerificationReady(nextSummary)) {
-        markVerifiedSuccess("automatic");
+        markVerifiedSuccess("automatic", nextApplyResult);
       } else {
         setError(
           `Write request completed, but verification failed: ${cloudSecretVerificationMessage(nextSummary)}. Refresh or retry.`,
@@ -407,22 +428,18 @@ export function GuidedCloudSecretsCard({
     }
   };
 
-  const verifiedPath: "automatic" | "manual" = verifiedAutomaticSuccess
-    ? "automatic"
-    : "manual";
-
   const eligibility = useMemo(
     () =>
       deriveStep6ContinueEligibility({
         summary,
         setupSummary,
         localReadinessComplete: readiness.localReadinessComplete,
-        uiState: { remoteSecretPreviewStale },
+        uiState: {
+          remoteSecretPreviewStale,
+          cloudSecretsApplyEvidence,
+        },
         staleSmokeDiagnostics: readiness.staleSmokeDiagnostics,
         controlPlaneContext,
-        applyResult:
-          verifiedAutomaticSuccess && applyResult ? applyResult : undefined,
-        verifiedPath,
         previewStaleCleared,
       }),
     [
@@ -431,10 +448,8 @@ export function GuidedCloudSecretsCard({
       readiness.localReadinessComplete,
       readiness.staleSmokeDiagnostics,
       remoteSecretPreviewStale,
+      cloudSecretsApplyEvidence,
       controlPlaneContext,
-      verifiedAutomaticSuccess,
-      applyResult,
-      verifiedPath,
       previewStaleCleared,
     ],
   );
@@ -486,7 +501,7 @@ export function GuidedCloudSecretsCard({
 
   return (
     <SectionCard
-      title={`Step 6 of ${GUIDED_SETUP_STEP_COUNT} · Connect cloud secrets`}
+      title={`Step 6 of ${GUIDED_SETUP_STEP_COUNT} ${"\u00b7"} Connect cloud secrets`}
       description="Your local setup is ready. Choose automatic GitHub Actions secret setup or manual setup in GitHub, then verify before continuing."
     >
       <div className={SPACING.stackSm}>

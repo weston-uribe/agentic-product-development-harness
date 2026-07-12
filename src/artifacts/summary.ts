@@ -4,6 +4,7 @@ import type { ParsedIssue } from "../types/parsed-issue.js";
 import type { ResolvedTarget } from "../resolver/target-repo.js";
 import type { CursorCancelOutcome } from "../agents/types.js";
 import { getSummaryPath } from "./paths.js";
+import { detectExecutionEnvironment } from "../runner/execution-environment.js";
 
 export interface RunSummaryExtras {
   cursorCleanup?: CursorCancelOutcome | null;
@@ -29,9 +30,11 @@ export async function writeRunSummary(
   resolved: ResolvedTarget | null,
   extras: RunSummaryExtras = {},
 ): Promise<void> {
+  const executionEnvironment = detectExecutionEnvironment();
   const lines = [
     "# Harness run summary",
     "",
+    `- **Execution environment:** ${executionEnvironment.marker}`,
     `- **Run ID:** ${manifest.runId}`,
     `- **Issue:** ${manifest.issueKey}`,
     `- **Milestone:** ${manifest.milestone}`,
