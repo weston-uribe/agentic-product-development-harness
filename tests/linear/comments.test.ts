@@ -34,6 +34,8 @@ describe("linear comments", () => {
     expect(footer).toContain(
       "target_repo: https://github.com/owner/example-target-app",
     );
+    expect(footer).toContain("execution_environment:");
+    expect(footer).toContain("execution_environment_marker:");
   });
 
   it("wraps planning body with harness comment format and hidden metadata", () => {

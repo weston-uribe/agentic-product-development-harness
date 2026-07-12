@@ -15,6 +15,7 @@ import type { ResolvedTarget } from "../resolver/target-repo.js";
 import { assertBaseBranchExists } from "../github/base-branch.js";
 import { GitHubClient } from "../github/client.js";
 import { inferPhaseFromStatus } from "./phase-infer.js";
+import { logExecutionEnvironmentMarker } from "./execution-environment.js";
 import { loadIssueFixture } from "./fixture.js";
 import type { ErrorClassification, RunPhase } from "../types/run.js";
 import type { ParsedIssue } from "../types/parsed-issue.js";
@@ -87,9 +88,19 @@ export async function runPreflight(
     await events.init();
     await mkdir(runDirectory, { recursive: true });
 
+    const executionEnvironment = logExecutionEnvironmentMarker();
+
     await events.log("run_started", "info", {
       issueKey: options.issueKey,
       milestone: MILESTONE,
+      executionEnvironment: executionEnvironment.kind,
+      executionEnvironmentMarker: executionEnvironment.marker,
+      hostname: executionEnvironment.hostname,
+      codespaceName: executionEnvironment.codespaceName,
+      githubRunId: executionEnvironment.githubRunId,
+      githubWorkflow: executionEnvironment.githubWorkflow,
+      gitBranch: executionEnvironment.gitBranch,
+      gitSha: executionEnvironment.gitSha,
     });
     await events.log("config_loaded", "info", {
       configSource: loaded.source.label,

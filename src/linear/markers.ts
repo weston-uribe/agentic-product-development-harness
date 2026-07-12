@@ -32,6 +32,14 @@ export interface HarnessMarkers {
   dependencyClosureFiles?: string;
   touchedFiles?: string;
   repairCycleId?: string;
+  executionEnvironment?: string;
+  executionEnvironmentMarker?: string;
+  hostname?: string;
+  codespaceName?: string;
+  githubRunId?: string;
+  githubWorkflow?: string;
+  gitBranch?: string;
+  gitSha?: string;
 }
 
 const HARNESS_HTML_METADATA_PATTERN = /<!--\s*([\s\S]*?)\s*-->/g;
@@ -166,6 +174,30 @@ function parseHarnessMarkerLines(block: string): HarnessMarkers {
         break;
       case "repair_cycle_id":
         markers.repairCycleId = value;
+        break;
+      case "execution_environment":
+        markers.executionEnvironment = value;
+        break;
+      case "execution_environment_marker":
+        markers.executionEnvironmentMarker = value;
+        break;
+      case "hostname":
+        markers.hostname = value;
+        break;
+      case "codespace_name":
+        markers.codespaceName = value;
+        break;
+      case "github_run_id":
+        markers.githubRunId = value;
+        break;
+      case "github_workflow":
+        markers.githubWorkflow = value;
+        break;
+      case "git_branch":
+        markers.gitBranch = value;
+        break;
+      case "git_sha":
+        markers.gitSha = value;
         break;
       default:
         if (trimmed.startsWith("harness-orchestrator")) {
