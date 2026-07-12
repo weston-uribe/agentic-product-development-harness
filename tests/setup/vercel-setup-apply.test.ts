@@ -36,10 +36,15 @@ vi.mock("../../src/setup/vercel-setup-client.js", async (importOriginal) => {
   };
 });
 
+vi.mock("../../src/setup/vercel-webhook-probe.js", () => ({
+  runSignedWebhookProbe: vi.fn(),
+}));
+
 vi.mock("../../src/setup/control-plane-setup-state.js", () => ({
   updateControlPlaneSetupState: vi.fn(),
 }));
 
+import { runSignedWebhookProbe } from "../../src/setup/vercel-webhook-probe.js";
 import { updateControlPlaneSetupState } from "../../src/setup/control-plane-setup-state.js";
 import { summarizeLinearWebhookReadiness } from "../../src/setup/linear-setup-plan.js";
 import {
@@ -110,6 +115,7 @@ describe("vercel-setup-apply", () => {
     tempRoot = await mkdtemp(path.join(tmpdir(), "vercel-setup-apply-"));
     await mkdir(path.join(tempRoot, ".harness"), { recursive: true });
 
+    vi.clearAllMocks();
     vi.mocked(generateLinearWebhookSecret).mockReturnValue("generated-webhook-secret");
     vi.mocked(ensureLinearIssueWebhook).mockResolvedValue({
       mode: "automated",
@@ -159,6 +165,14 @@ describe("vercel-setup-apply", () => {
     });
     vi.mocked(updateControlPlaneSetupState).mockResolvedValue(undefined);
     vi.mocked(upsertVercelProjectEnvVar).mockResolvedValue(undefined);
+    vi.mocked(runSignedWebhookProbe).mockResolvedValue({
+      passed: true,
+      result: "accepted_ignored",
+      reason: "ignored_event",
+      probedAt: new Date().toISOString(),
+      webhookHost: "harness-gui.vercel.app",
+      webhookPath: "/api/linear-webhook",
+    });
   });
 
   afterEach(async () => {
@@ -220,6 +234,7 @@ describe("vercel-setup-apply", () => {
       tempRoot,
     );
     expect(result.verified).toBe(true);
+    expect(result.signedProbeVerified).toBe(true);
     expect(result.status).toBe("applied");
     expect(result.project?.outcome).toBe("reused");
     expect(result.writtenEnvKeys).toEqual([
@@ -258,6 +273,7 @@ describe("vercel-setup-apply", () => {
     expect(result.linearWebhookSetup.mode).toBe("manual-copy");
     expect(result.linearWebhookSetup.manualCopySecret).toBe("manual-copy-secret");
     expect(result.verified).toBe(false);
+    expect(result.signedProbeVerified).toBe(true);
     expect(result.status).toBe("applied");
   });
 
@@ -294,6 +310,7 @@ describe("vercel-setup-apply", () => {
     expect(upsertVercelProjectEnvVar).not.toHaveBeenCalled();
     expect(updateControlPlaneSetupState).not.toHaveBeenCalled();
     expect(result.verified).toBe(false);
+    expect(result.signedProbeVerified).toBe(false);
   });
 
   it("does not mark existing-unverified webhook setup as verified", async () => {
@@ -333,5 +350,85 @@ describe("vercel-setup-apply", () => {
 
     expect(result.linearWebhookSetup.mode).toBe("existing-unverified");
     expect(result.verified).toBe(false);
+    expect(result.signedProbeVerified).toBe(true);
+  });
+
+  it("updates existing Vercel LINEAR_WEBHOOK_SECRET and fails probe when stale value is preserved", async () => {
+    vi.mocked(previewVercelBridgeSetup).mockResolvedValue({
+      ...previewResult,
+      envWritePlan: [
+        {
+          key: "LINEAR_WEBHOOK_SECRET",
+          action: "skip",
+          source: "preserve-existing",
+        },
+        {
+          key: "GITHUB_DISPATCH_TOKEN",
+          action: "update",
+          source: "derived",
+        },
+        {
+          key: "HARNESS_TEAM_KEY",
+          action: "create",
+          source: "derived",
+        },
+      ],
+    });
+    vi.mocked(runSignedWebhookProbe).mockResolvedValue({
+      passed: false,
+      result: "auth_failed",
+      reason: "invalid_signature",
+      probedAt: new Date().toISOString(),
+    });
+
+    const result = await applyVercelBridgeSetup({
+      plan: {
+        vercelToken: "vercel-token",
+        projectId: "proj-1",
+        linearApiKey: "lin_api_test",
+        derivedHarnessTeamKey: "WES",
+        derivedGithubDispatchToken: "ghp_saved",
+      },
+      confirmed: true,
+      fingerprint: "preview-fingerprint",
+      cwd: tempRoot,
+    });
+
+    expect(upsertVercelProjectEnvVar).toHaveBeenCalledWith(
+      "vercel-token",
+      expect.objectContaining({
+        key: "LINEAR_WEBHOOK_SECRET",
+        value: "generated-webhook-secret",
+      }),
+    );
+    expect(result.signedProbeVerified).toBe(false);
+    expect(result.verified).toBe(false);
+    expect(result.deploymentRedeployRequired).toBe(true);
+  });
+
+  it("does not allow manualComplete to override a failed signed probe", async () => {
+    vi.mocked(runSignedWebhookProbe).mockResolvedValue({
+      passed: false,
+      result: "auth_failed",
+      reason: "invalid_signature",
+      probedAt: new Date().toISOString(),
+    });
+
+    const result = await applyVercelBridgeSetup({
+      plan: {
+        vercelToken: "vercel-token",
+        projectId: "proj-1",
+        linearApiKey: "lin_api_test",
+        derivedHarnessTeamKey: "WES",
+        derivedGithubDispatchToken: "ghp_saved",
+      },
+      confirmed: true,
+      fingerprint: "preview-fingerprint",
+      manualComplete: true,
+      cwd: tempRoot,
+    });
+
+    expect(result.verified).toBe(false);
+    expect(result.signedProbeVerified).toBe(false);
   });
 });

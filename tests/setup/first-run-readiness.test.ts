@@ -185,6 +185,8 @@ function completeControlPlaneContext(): ControlPlaneReadinessContext {
           HARNESS_TEAM_KEY: "present",
         },
         linearWebhookVerified: true,
+        signedProbeVerified: true,
+        deploymentRedeployRequired: false,
       },
     },
     linearTeamKeyFromConfig: "ENG",

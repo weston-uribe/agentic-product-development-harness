@@ -32,6 +32,8 @@ export interface VercelBridgeReadiness {
   endpointReachable: boolean;
   requiredEnvPresence: Record<VercelBridgeEnvVarName, "present" | "missing">;
   linearWebhookVerified: boolean;
+  signedProbeVerified: boolean;
+  deploymentRedeployRequired: boolean;
   manualComplete: boolean;
   ready: boolean;
   blockers: string[];
@@ -46,6 +48,8 @@ export function deriveVercelBridgeReadiness(input: {
     Record<VercelBridgeEnvVarName, "present" | "missing">
   >;
   linearWebhookVerified?: boolean;
+  signedProbeVerified?: boolean;
+  deploymentRedeployRequired?: boolean;
   manualComplete?: boolean;
 }): VercelBridgeReadiness {
   const requiredEnvPresence = {
@@ -78,14 +82,25 @@ export function deriveVercelBridgeReadiness(input: {
       "Verify the Linear Issue webhook points at the Vercel bridge URL.",
     );
   }
+  if (!input.signedProbeVerified) {
+    blockers.push(
+      "Signed webhook delivery verification has not passed against production.",
+    );
+  }
+  if (input.deploymentRedeployRequired) {
+    blockers.push(
+      "Redeploy Vercel production after env var changes, then retry signed verification.",
+    );
+  }
 
   const ready =
-    input.manualComplete === true ||
-    (blockers.length === 0 &&
-      Boolean(input.projectId) &&
-      Boolean(input.productionUrl) &&
-      Boolean(input.endpointReachable) &&
-      input.linearWebhookVerified === true);
+    blockers.length === 0 &&
+    Boolean(input.projectId) &&
+    Boolean(input.productionUrl) &&
+    Boolean(input.endpointReachable) &&
+    input.linearWebhookVerified === true &&
+    input.signedProbeVerified === true &&
+    input.deploymentRedeployRequired !== true;
 
   return {
     projectSelected: Boolean(input.projectId),
@@ -94,6 +109,8 @@ export function deriveVercelBridgeReadiness(input: {
     endpointReachable: Boolean(input.endpointReachable),
     requiredEnvPresence,
     linearWebhookVerified: Boolean(input.linearWebhookVerified),
+    signedProbeVerified: Boolean(input.signedProbeVerified),
+    deploymentRedeployRequired: Boolean(input.deploymentRedeployRequired),
     manualComplete: Boolean(input.manualComplete),
     ready,
     blockers,

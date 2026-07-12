@@ -8,12 +8,14 @@ vi.mock("../../src/setup/linear-setup-client.js", () => ({
   createLinearSetupClient: vi.fn(),
   listLinearWebhooks: vi.fn(),
   createLinearIssueWebhook: vi.fn(),
+  updateLinearIssueWebhook: vi.fn(),
 }));
 
 import {
   createLinearIssueWebhook,
   createLinearSetupClient,
   listLinearWebhooks,
+  updateLinearIssueWebhook,
 } from "../../src/setup/linear-setup-client.js";
 import { summarizeLinearWebhookReadiness } from "../../src/setup/linear-setup-plan.js";
 import {
@@ -24,6 +26,7 @@ import {
 
 describe("linear-webhook-secret", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     vi.mocked(createLinearSetupClient).mockReturnValue({} as never);
     vi.mocked(listLinearWebhooks).mockResolvedValue([]);
     vi.mocked(summarizeLinearWebhookReadiness).mockResolvedValue({
@@ -38,13 +41,13 @@ describe("linear-webhook-secret", () => {
     expect(generateLinearWebhookSecret()).not.toBe(secret);
   });
 
-  it("plans manual-copy when Linear API key is missing", async () => {
+  it("plans manual-copy when Linear API key is missing without preview secret", async () => {
     const plan = await planLinearWebhookSecret({
       webhookUrl: "https://example.vercel.app/api/linear-webhook",
     });
 
     expect(plan.mode).toBe("manual-copy");
-    expect(plan.secret).toMatch(/^[0-9a-f]{64}$/);
+    expect(plan.secret).toBeUndefined();
     expect(plan.manualSteps.join(" ")).toMatch(/LINEAR_API_KEY/i);
   });
 
@@ -67,7 +70,7 @@ describe("linear-webhook-secret", () => {
 
     expect(plan.mode).toBe("existing-unverified");
     expect(plan.secret).toBeUndefined();
-    expect(plan.manualSteps.join(" ")).toMatch(/cannot be recovered/i);
+    expect(plan.manualSteps.join(" ")).toMatch(/rotate/i);
   });
 
   it("creates a Linear webhook when none exists and returns automated mode", async () => {
@@ -110,5 +113,35 @@ describe("linear-webhook-secret", () => {
     expect(result.mode).toBe("manual-copy");
     expect(result.secret).toBe("local-generated-secret");
     expect(result.manualSteps.join(" ")).toMatch(/Create a Linear Issue webhook/i);
+  });
+
+  it("rotates an existing webhook via updateWebhook instead of creating a duplicate", async () => {
+    vi.mocked(listLinearWebhooks).mockResolvedValue([
+      {
+        id: "wh-1",
+        url: "https://example.vercel.app/api/linear-webhook",
+        enabled: true,
+        resourceTypes: ["Issue"],
+        teamId: "team-1",
+      },
+    ]);
+    vi.mocked(updateLinearIssueWebhook).mockResolvedValue({
+      id: "wh-1",
+      url: "https://example.vercel.app/api/linear-webhook",
+      enabled: true,
+      resourceTypes: ["Issue"],
+      teamId: "team-1",
+    });
+
+    const result = await ensureLinearIssueWebhook({
+      linearApiKey: "lin_api_test",
+      webhookUrl: "https://example.vercel.app/api/linear-webhook",
+      linearTeamId: "team-1",
+      secret: "candidate-secret",
+    });
+
+    expect(updateLinearIssueWebhook).toHaveBeenCalled();
+    expect(createLinearIssueWebhook).not.toHaveBeenCalled();
+    expect(result.mode).toBe("automated");
   });
 });

@@ -27,6 +27,8 @@ export async function buildVercelSetupSummary(
     endpointReachable: vercel?.endpointReachable,
     requiredEnvPresence: vercel?.envVarPresence,
     linearWebhookVerified: vercel?.linearWebhookVerified,
+    signedProbeVerified: vercel?.signedProbeVerified,
+    deploymentRedeployRequired: vercel?.deploymentRedeployRequired,
     manualComplete: vercel?.manualComplete,
   });
 

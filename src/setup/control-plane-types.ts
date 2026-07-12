@@ -12,6 +12,21 @@ export interface LinearWorkspaceSelection {
   manualComplete?: boolean;
 }
 
+export interface VercelSignedProbeEvidence {
+  passed: boolean;
+  statusCode?: number;
+  result:
+    | "accepted_ignored"
+    | "auth_failed"
+    | "unreachable"
+    | "protection_redirect"
+    | "error";
+  reason?: string;
+  probedAt: string;
+  webhookHost?: string;
+  webhookPath?: string;
+}
+
 export interface VercelBridgeSelection {
   teamId?: string;
   teamName?: string;
@@ -22,6 +37,10 @@ export interface VercelBridgeSelection {
   endpointReachable: boolean;
   envVarPresence: Record<string, "present" | "missing" | "unknown">;
   linearWebhookVerified: boolean;
+  signedProbeVerified?: boolean;
+  signedProbe?: VercelSignedProbeEvidence;
+  verificationFingerprint?: string;
+  deploymentRedeployRequired?: boolean;
   appliedFingerprint?: string;
   appliedAt?: string;
   manualComplete?: boolean;

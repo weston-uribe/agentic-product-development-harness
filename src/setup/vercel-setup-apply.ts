@@ -29,8 +29,11 @@ import {
   type VercelProjectSummary,
 } from "./vercel-setup-client.js";
 import {
-  REQUIRED_VERCEL_BRIDGE_ENV_VARS,
-} from "./vercel-bridge-readiness.js";
+  buildVercelBridgeVerificationFingerprint,
+  tokenizeCandidateWebhookSecret,
+} from "./vercel-bridge-verification.js";
+import { runSignedWebhookProbe } from "./vercel-webhook-probe.js";
+import { REQUIRED_VERCEL_BRIDGE_ENV_VARS } from "./vercel-bridge-readiness.js";
 import {
   VERCEL_SETUP_ACTIONS,
   buildDeploymentRequiredDetail,
@@ -70,6 +73,9 @@ export interface VercelBridgeApplyResult {
   skippedEnvKeys: string[];
   linearWebhookSetup: VercelBridgeLinearWebhookSetupResult;
   deploymentRequired?: VercelBridgeDeploymentRequired;
+  signedProbeVerified: boolean;
+  signedProbeReason?: string;
+  deploymentRedeployRequired: boolean;
   verified: boolean;
   fingerprint: string;
   permission: typeof SETUP_PERMISSIONS.remoteSecretWrite;
@@ -290,6 +296,8 @@ export async function applyVercelBridgeSetup(input: {
         projectJustCreated,
       },
       verified: false,
+      signedProbeVerified: false,
+      deploymentRedeployRequired: false,
       fingerprint: preview.fingerprint,
       permission: VERCEL_SETUP_ACTIONS.apply.permission,
     };
@@ -390,6 +398,21 @@ export async function applyVercelBridgeSetup(input: {
     writtenEnvKeys.push(entry.key);
   }
 
+  if (
+    !normalized.envInput?.LINEAR_WEBHOOK_SECRET?.trim() &&
+    !writtenEnvKeys.includes("LINEAR_WEBHOOK_SECRET")
+  ) {
+    const existing = existingByKey.get("LINEAR_WEBHOOK_SECRET");
+    await upsertVercelProjectEnvVar(normalized.vercelToken, {
+      projectId: preview.selectedProject.id,
+      teamId: resolvedTeam.teamId,
+      key: "LINEAR_WEBHOOK_SECRET",
+      value: generatedLinearWebhookSecret,
+      existingEnv: existing,
+    });
+    writtenEnvKeys.push("LINEAR_WEBHOOK_SECRET");
+  }
+
   const postWriteEnv = await listVercelProjectEnvVars(
     normalized.vercelToken,
     preview.selectedProject.id,
@@ -397,7 +420,7 @@ export async function applyVercelBridgeSetup(input: {
   );
   const requiredEnvPresence = summarizeRequiredEnvPresence(postWriteEnv);
 
-  let linearWebhookVerified = preview.linearWebhookVerified;
+  let linearWebhookVerified = false;
   if (normalized.linearApiKey?.trim()) {
     const webhookSummary = await summarizeLinearWebhookReadiness({
       linearApiKey: normalized.linearApiKey,
@@ -407,17 +430,35 @@ export async function applyVercelBridgeSetup(input: {
     linearWebhookVerified =
       linearWebhookSetup.mode === "automated" &&
       Boolean(webhookSummary.matchingWebhook);
-    if (linearWebhookSetup.mode === "existing-unverified") {
-      linearWebhookVerified = false;
-    }
   }
+
+  const verificationFingerprint = buildVercelBridgeVerificationFingerprint({
+    projectId: preview.selectedProject.id,
+    linearTeamId: normalized.linearTeamId,
+    productionUrl: preview.productionUrl,
+    webhookUrl: preview.webhookUrl,
+    envWritePlan: preview.envWritePlan,
+    candidateSecretToken: tokenizeCandidateWebhookSecret(
+      generatedLinearWebhookSecret,
+    ),
+  });
+
+  const signedProbe = await runSignedWebhookProbe({
+    webhookUrl: preview.webhookUrl,
+    secret: generatedLinearWebhookSecret,
+  });
+  const signedProbeVerified = signedProbe.passed;
+  const deploymentRedeployRequired =
+    writtenEnvKeys.length > 0 && !signedProbeVerified;
 
   const verified =
     REQUIRED_VERCEL_BRIDGE_ENV_VARS.every(
       (key) => requiredEnvPresence[key] === "present",
     ) &&
-    (input.manualComplete === true ||
-      (linearWebhookSetup.mode === "automated" && linearWebhookVerified));
+    preview.endpointReachable &&
+    linearWebhookVerified &&
+    signedProbeVerified &&
+    !deploymentRedeployRequired;
 
   const selection: VercelBridgeSelection = {
     teamId: resolvedTeam.teamId,
@@ -429,6 +470,10 @@ export async function applyVercelBridgeSetup(input: {
     endpointReachable: preview.endpointReachable,
     envVarPresence: requiredEnvPresence,
     linearWebhookVerified,
+    signedProbeVerified,
+    signedProbe,
+    verificationFingerprint,
+    deploymentRedeployRequired,
     appliedFingerprint: preview.fingerprint,
     appliedAt: new Date().toISOString(),
     manualComplete: input.manualComplete,
@@ -444,6 +489,7 @@ export async function applyVercelBridgeSetup(input: {
       mode: linearWebhookSetup.mode,
       manualSteps: linearWebhookSetup.manualSteps,
     },
+    signedProbeVerified,
     verified,
   };
   const serialized = JSON.stringify(resultPayload);
@@ -463,6 +509,9 @@ export async function applyVercelBridgeSetup(input: {
     writtenEnvKeys,
     skippedEnvKeys,
     linearWebhookSetup,
+    signedProbeVerified,
+    signedProbeReason: signedProbe.reason,
+    deploymentRedeployRequired,
     verified,
     fingerprint: preview.fingerprint,
     permission: VERCEL_SETUP_ACTIONS.apply.permission,
