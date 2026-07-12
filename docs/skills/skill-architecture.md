@@ -1,6 +1,6 @@
 # Skill architecture
 
-**Status:** Implemented — architecture artifact and canonical path. Operator-invoked skills: `issue-intake` and `code-health-audit` are implemented. Runner/agent phase skill: `planner` is implemented.
+**Status:** Implemented — architecture artifact and canonical path. Operator-invoked skills: `issue-intake` and `code-health-audit` are implemented. Runner/agent phase skills: `planner` and `implementation` are implemented.
 
 This document defines the harness skill system. It does **not** create the full skill set.
 
@@ -100,11 +100,6 @@ Reusable contracts used by harness phases or cloud agents when triggered by Line
 | Skill | Trigger context | Purpose |
 |-------|-----------------|---------|
 | `planner` | Ready for Planning | Produce durable plan comments and route to build |
-
-**Planned architecture concepts only** (not implemented):
-
-| Skill | Trigger context | Purpose |
-|-------|-----------------|---------|
 | `implementation` | Ready for Build, Needs Revision, integration repair | Scoped code changes on a feature branch |
 
 #### Planner modes (implemented)
@@ -116,7 +111,7 @@ Reusable contracts used by harness phases or cloud agents when triggered by Line
 
 - PR slicing — applied inside feature planning or audit-remediation planning when work is too large for one reviewable PR; not a standalone mode
 
-#### Implementation modes (planned)
+#### Implementation modes (implemented)
 
 - Initial build
 - Revision (same agent, same branch — preserves context continuity)
@@ -151,11 +146,11 @@ SDK runner prompts in [`src/prompts/`](../src/prompts/) are **implementation det
 
 | Layer | Location | Status |
 |-------|----------|--------|
-| Canonical skills | `.agents/skills/<skill-name>/SKILL.md` | `issue-intake`, `code-health-audit`, `planner` implemented |
+| Canonical skills | `.agents/skills/<skill-name>/SKILL.md` | `issue-intake`, `code-health-audit`, `planner`, `implementation` implemented |
 | Runner prompts | `src/prompts/*.md` | Implemented for SDK phases |
 | Client adapters | `.cursor/skills`, etc. | Manual install/export only |
 
-Future runner/agent phase skills (`implementation`) may absorb or reference runner prompt contracts, but that migration is not part of this architecture artifact.
+Runner prompt contracts may be absorbed or referenced by canonical skills over time, but that migration is not part of this architecture artifact.
 
 ## Current implemented state
 
@@ -166,7 +161,7 @@ After this document and the accompanying migration:
 | `issue-intake` | **Implemented** at [`.agents/skills/issue-intake/SKILL.md`](../../.agents/skills/issue-intake/SKILL.md) |
 | `code-health-audit` | **Implemented** at [`.agents/skills/code-health-audit/SKILL.md`](../../.agents/skills/code-health-audit/SKILL.md) |
 | `planner` | **Implemented** at [`.agents/skills/planner/SKILL.md`](../../.agents/skills/planner/SKILL.md) |
-| `implementation` | Planned architecture concept only |
+| `implementation` | **Implemented** at [`.agents/skills/implementation/SKILL.md`](../../.agents/skills/implementation/SKILL.md) |
 | `architecture-evolution-audit` | Planned architecture concept only |
 | `security-audit` | Planned architecture concept only |
 | `performance-cost-audit` | Planned architecture concept only |
