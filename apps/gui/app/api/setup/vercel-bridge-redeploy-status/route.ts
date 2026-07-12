@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { pollVercelBridgeRedeployRemote } from "@/lib/setup-server";
-import type { VercelBridgePlanInput } from "@harness/setup/vercel-setup-apply";
 
 export const dynamic = "force-dynamic";
 
@@ -8,12 +7,10 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json()) as {
       actionId?: string;
-      plan: Omit<VercelBridgePlanInput, "vercelToken" | "linearApiKey"> & {
-        vercelToken?: string;
-        linearApiKey?: string;
-      };
     };
-    const result = await pollVercelBridgeRedeployRemote(body);
+    const result = await pollVercelBridgeRedeployRemote({
+      actionId: body.actionId,
+    });
     return NextResponse.json(result);
   } catch (error) {
     const message =

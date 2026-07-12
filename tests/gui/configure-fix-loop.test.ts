@@ -90,6 +90,7 @@ describe("configure GUI fix loop", () => {
     expect(source).toContain("setupPending");
     expect(source).toContain("pollActionId");
     expect(source).toContain("/api/setup/vercel-bridge-redeploy-status");
+    expect(source).toContain('body: JSON.stringify({\n          actionId: pollActionId,\n        })');
     expect(source).toContain("readSetupJsonResponse");
     expect(source).toContain("Waiting for production redeploy");
     expect(source).toContain("redeployPollingActive");

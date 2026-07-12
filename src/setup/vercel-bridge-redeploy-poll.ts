@@ -3,12 +3,15 @@ import {
   updateControlPlaneSetupState,
 } from "./control-plane-setup-state.js";
 import type {
+  ControlPlaneSetupState,
   VercelBridgeRedeployVerification,
   VercelBridgeRedeployVerificationStatus,
   VercelBridgeSelection,
 } from "./control-plane-types.js";
+import { assessGitHubDispatchTokenEligibility } from "./github-dispatch-token.js";
 import { inspectProductionRedeployStatus } from "./vercel-production-redeploy.js";
 import { SETUP_PERMISSIONS } from "./permission-model.js";
+import { loadSecretFromEnvLocal } from "./service-verification.js";
 import {
   applyVercelBridgeSetup,
   type VercelBridgeApplyResult,
@@ -16,6 +19,99 @@ import {
   type VercelBridgePlanInput,
   type VercelBridgeSetupBlocked,
 } from "./vercel-setup-apply.js";
+import {
+  normalizeVercelBridgePlanInput,
+  previewVercelBridgeSetup,
+} from "./vercel-setup-plan.js";
+
+function buildPersistedContextMismatchBlocked(): VercelBridgeSetupBlocked {
+  return {
+    message:
+      "Persisted Step 3 setup context no longer matches the in-progress redeploy verification.",
+    nextSteps: [
+      "Use Apply Vercel Settings again to regenerate preview and restart verification.",
+      "If the problem persists, confirm team and project selections match the original apply.",
+    ],
+  };
+}
+
+function buildMissingPollCredentialsBlocked(missing: string): VercelBridgeSetupBlocked {
+  return {
+    message: `Cannot resume redeploy verification because ${missing} is missing from saved setup.`,
+    nextSteps: [
+      "Return to Step 1 and save the required token in .env.local.",
+      "Then use Apply Vercel Settings again to restart verification.",
+    ],
+  };
+}
+
+export async function buildPollVerifyPlanFromPersistedState(input: {
+  cwd?: string;
+  state: ControlPlaneSetupState;
+  pending: VercelBridgeRedeployVerification;
+}): Promise<
+  | { ok: true; plan: VercelBridgePlanInput; vercelToken: string }
+  | { ok: false; setupBlocked: VercelBridgeSetupBlocked }
+> {
+  const vercel = input.state.vercel;
+  if (!vercel) {
+    return {
+      ok: false,
+      setupBlocked: buildMissingPollCredentialsBlocked("saved Vercel selection"),
+    };
+  }
+
+  const vercelToken = (await loadSecretFromEnvLocal({ cwd: input.cwd, key: "VERCEL_TOKEN" })) ?? "";
+  if (!vercelToken.trim()) {
+    return {
+      ok: false,
+      setupBlocked: buildMissingPollCredentialsBlocked("VERCEL_TOKEN"),
+    };
+  }
+
+  const linearApiKey = await loadSecretFromEnvLocal({ cwd: input.cwd, key: "LINEAR_API_KEY" });
+  const githubToken = await loadSecretFromEnvLocal({ cwd: input.cwd, key: "GITHUB_TOKEN" });
+  const dispatchEligibility = await assessGitHubDispatchTokenEligibility({
+    githubToken,
+    cwd: input.cwd,
+  });
+
+  const teamId = input.pending.teamId ?? vercel.teamId;
+  const projectId = input.pending.projectId;
+  const projectName = input.pending.projectName;
+
+  const plan = normalizeVercelBridgePlanInput({
+    vercelToken,
+    linearApiKey,
+    teamId,
+    projectId,
+    projectName,
+    team: {
+      mode: "existing",
+      teamId: teamId ?? "",
+    },
+    project: {
+      mode: "existing",
+      projectId,
+      projectName,
+    },
+    linearTeamId: input.state.linear?.teamId,
+    derivedHarnessTeamKey: input.state.linear?.teamKey,
+    derivedGithubDispatchToken:
+      dispatchEligibility.eligible && githubToken ? githubToken : undefined,
+    willGenerateLinearWebhookSecret: true,
+  });
+
+  const preview = await previewVercelBridgeSetup(plan);
+  if (preview.fingerprint !== input.pending.fingerprint) {
+    return {
+      ok: false,
+      setupBlocked: buildPersistedContextMismatchBlocked(),
+    };
+  }
+
+  return { ok: true, plan, vercelToken };
+}
 
 const verifyClaimInFlight = new Set<string>();
 
@@ -181,8 +277,8 @@ function buildApplyResultFromState(input: {
     status: "applied",
     projectId: input.vercel.projectId,
     projectName: input.vercel.projectName,
-    writtenEnvKeys: [],
-    skippedEnvKeys: [],
+    writtenEnvKeys: input.pending?.writtenEnvKeys ?? [],
+    skippedEnvKeys: input.pending?.skippedEnvKeys ?? [],
     linearWebhookSetup: retryApply?.linearWebhookSetup ?? {
       mode: "automated",
       manualSteps: [],
@@ -288,7 +384,6 @@ async function finalizePendingState(input: {
 
 export async function pollVercelBridgeRedeployVerification(input: {
   actionId?: string;
-  plan: VercelBridgePlanInput;
   cwd?: string;
 }): Promise<VercelBridgeApplyResult> {
   const state = await readControlPlaneSetupState(input.cwd);
@@ -320,8 +415,42 @@ export async function pollVercelBridgeRedeployVerification(input: {
     throw new Error("Pending Vercel redeploy verification is missing deployment id.");
   }
 
+  const persistedPlan = await buildPollVerifyPlanFromPersistedState({
+    cwd: input.cwd,
+    state: state!,
+    pending,
+  });
+
+  if (!persistedPlan.ok) {
+    const terminalPending: VercelBridgeRedeployVerification = {
+      ...pending,
+      status: "verify_failed",
+      updatedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      message: persistedPlan.setupBlocked.message,
+      blockedMessage: persistedPlan.setupBlocked.message,
+      blockedNextSteps: persistedPlan.setupBlocked.nextSteps,
+    };
+
+    await updateControlPlaneSetupState(
+      {
+        vercel: {
+          ...vercel,
+          redeployVerification: terminalPending,
+        },
+      },
+      input.cwd,
+    );
+
+    return buildApplyResultFromState({
+      vercel: { ...vercel, redeployVerification: terminalPending },
+      pending: terminalPending,
+      setupBlocked: persistedPlan.setupBlocked,
+    });
+  }
+
   const inspectResult = await inspectProductionRedeployStatus({
-    vercelToken: input.plan.vercelToken,
+    vercelToken: persistedPlan.vercelToken,
     newDeploymentId: pending.newDeploymentId,
     teamId: pending.teamId,
     sourceDeploymentId: pending.sourceDeploymentId,
@@ -409,7 +538,7 @@ export async function pollVercelBridgeRedeployVerification(input: {
   }
 
   const retryResult = await applyVercelBridgeSetup({
-    plan: input.plan,
+    plan: persistedPlan.plan,
     confirmed: true,
     fingerprint: pending.fingerprint,
     verifyOnly: true,

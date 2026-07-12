@@ -359,7 +359,6 @@ export function GuidedVercelBridgeCard({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           actionId: pollActionId,
-          plan: buildPlanPayload(),
         }),
       });
       const data = await readSetupJsonResponse<{
@@ -388,7 +387,7 @@ export function GuidedVercelBridgeCard({
     } finally {
       setLoading(null);
     }
-  }, [applyVercelBridgeResponse, buildPlanPayload, pollActionId]);
+  }, [applyVercelBridgeResponse, pollActionId]);
 
   useEffect(() => {
     if (!setupPending || !pollActionId) {
