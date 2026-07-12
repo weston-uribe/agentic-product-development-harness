@@ -315,11 +315,27 @@ export async function listVercelProjectEnvVars(
   }));
 }
 
+export function isVercelDeploymentReady(
+  deployment: Pick<VercelDeploymentSummary, "state" | "readyState">,
+): boolean {
+  return deployment.readyState === "READY" || deployment.state === "READY";
+}
+
 export async function listVercelProductionDeployments(
   token: string,
   projectId: string,
   teamId?: string,
+  options?: { state?: string; limit?: number },
 ): Promise<VercelDeploymentSummary[]> {
+  const limit = options?.limit ?? 5;
+  const params = new URLSearchParams({
+    projectId,
+    target: "production",
+    limit: String(limit),
+  });
+  if (options?.state?.trim()) {
+    params.set("state", options.state.trim());
+  }
   const data = await vercelFetch<{
     deployments: Array<{
       uid: string;
@@ -327,7 +343,7 @@ export async function listVercelProductionDeployments(
       state: string;
       readyState?: string;
     }>;
-  }>(token, `/v6/deployments?projectId=${projectId}&target=production&limit=5`, {
+  }>(token, `/v6/deployments?${params.toString()}`, {
     teamId,
   });
   return (data.deployments ?? []).map((deployment) => ({
@@ -336,6 +352,57 @@ export async function listVercelProductionDeployments(
     state: deployment.state,
     readyState: deployment.readyState,
   }));
+}
+
+export async function getVercelDeployment(
+  token: string,
+  deploymentId: string,
+  teamId?: string,
+): Promise<VercelDeploymentSummary> {
+  const data = await vercelFetch<{
+    uid?: string;
+    id?: string;
+    url: string;
+    state: string;
+    readyState?: string;
+  }>(token, `/v13/deployments/${deploymentId}`, { teamId });
+  return {
+    id: data.uid ?? data.id ?? deploymentId,
+    url: data.url,
+    state: data.state,
+    readyState: data.readyState,
+  };
+}
+
+export async function triggerVercelProductionRedeploy(
+  token: string,
+  input: {
+    projectName: string;
+    sourceDeploymentId: string;
+    teamId?: string;
+  },
+): Promise<VercelDeploymentSummary> {
+  const data = await vercelFetch<{
+    uid?: string;
+    id?: string;
+    url: string;
+    state: string;
+    readyState?: string;
+  }>(token, "/v13/deployments", {
+    method: "POST",
+    teamId: input.teamId,
+    body: JSON.stringify({
+      name: input.projectName.trim(),
+      deploymentId: input.sourceDeploymentId,
+      target: "production",
+    }),
+  });
+  return {
+    id: data.uid ?? data.id ?? input.sourceDeploymentId,
+    url: data.url,
+    state: data.state,
+    readyState: data.readyState,
+  };
 }
 
 export async function upsertVercelProjectEnvVar(
