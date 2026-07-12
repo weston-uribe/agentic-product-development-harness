@@ -27,6 +27,36 @@ export interface VercelSignedProbeEvidence {
   webhookPath?: string;
 }
 
+export type VercelBridgeRedeployVerificationStatus =
+  | "triggered"
+  | "building"
+  | "ready"
+  | "failed"
+  | "timeout"
+  | "no_source_deployment"
+  | "verify_failed"
+  | "verified";
+
+export interface VercelBridgeRedeployVerification {
+  actionId: string;
+  projectId: string;
+  projectName: string;
+  teamId?: string;
+  webhookUrl: string;
+  fingerprint: string;
+  sourceDeploymentId?: string;
+  newDeploymentId?: string;
+  status: VercelBridgeRedeployVerificationStatus;
+  startedAt: string;
+  updatedAt: string;
+  deadlineAt: string;
+  verifyAttempted: boolean;
+  completedAt?: string;
+  message?: string;
+  blockedMessage?: string;
+  blockedNextSteps?: string[];
+}
+
 export interface VercelBridgeSelection {
   teamId?: string;
   teamName?: string;
@@ -44,6 +74,7 @@ export interface VercelBridgeSelection {
   appliedFingerprint?: string;
   appliedAt?: string;
   manualComplete?: boolean;
+  redeployVerification?: VercelBridgeRedeployVerification;
 }
 
 export interface ControlPlaneSetupState {

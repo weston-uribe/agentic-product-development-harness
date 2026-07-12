@@ -87,6 +87,11 @@ describe("configure GUI fix loop", () => {
     expect(source).toContain('productionRedeployStatus === "ready"');
     expect(source).toContain("apply.setupBlocked");
     expect(source).toContain("shouldShowRetryVerification(applyResult)");
+    expect(source).toContain("setupPending");
+    expect(source).toContain("pollActionId");
+    expect(source).toContain("/api/setup/vercel-bridge-redeploy-status");
+    expect(source).toContain("readSetupJsonResponse");
+    expect(source).toContain("Waiting for production redeploy");
   });
 
   it("Step 3 confirmation uses Vercel bridge copy", () => {

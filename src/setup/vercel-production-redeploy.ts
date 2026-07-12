@@ -70,11 +70,127 @@ export async function findLatestReadyProductionDeploymentId(input: {
   return readyDeployment?.id;
 }
 
-function isDeploymentFailed(
+export function isDeploymentFailed(
   deployment: Pick<VercelDeploymentSummary, "state" | "readyState">,
 ): boolean {
   const state = deployment.readyState ?? deployment.state;
   return state === "ERROR" || state === "CANCELED";
+}
+
+export async function triggerProductionRedeployOnce(input: {
+  vercelToken: string;
+  projectId: string;
+  projectName: string;
+  teamId?: string;
+  sourceDeploymentId?: string;
+  listDeployments?: typeof listVercelProductionDeployments;
+  triggerRedeploy?: typeof triggerVercelProductionRedeploy;
+}): Promise<ProductionRedeployResult> {
+  const listDeployments =
+    input.listDeployments ?? listVercelProductionDeployments;
+  const triggerRedeploy = input.triggerRedeploy ?? triggerVercelProductionRedeploy;
+
+  const sourceDeploymentId =
+    input.sourceDeploymentId?.trim() ??
+    (await findLatestReadyProductionDeploymentId({
+      vercelToken: input.vercelToken,
+      projectId: input.projectId,
+      teamId: input.teamId,
+      listDeployments,
+    }));
+
+  if (!sourceDeploymentId) {
+    return {
+      status: "no_source_deployment",
+      message:
+        "No READY production deployment was found to redeploy. Deploy the project in Vercel before applying settings.",
+    };
+  }
+
+  try {
+    const triggered = await triggerRedeploy(input.vercelToken, {
+      projectName: input.projectName,
+      sourceDeploymentId,
+      teamId: input.teamId,
+    });
+
+    return {
+      status: "triggered",
+      sourceDeploymentId,
+      newDeploymentId: triggered.id,
+      state: triggered.state,
+      readyState: triggered.readyState,
+      message: "Production redeploy triggered. Waiting for Vercel deployment READY.",
+    };
+  } catch (error) {
+    return {
+      status: "failed",
+      sourceDeploymentId,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Vercel production redeploy request failed.",
+    };
+  }
+}
+
+export async function inspectProductionRedeployStatus(input: {
+  vercelToken: string;
+  newDeploymentId: string;
+  teamId?: string;
+  sourceDeploymentId?: string;
+  deadlineAt: string;
+  getDeployment?: typeof getVercelDeployment;
+}): Promise<ProductionRedeployResult> {
+  const getDeployment = input.getDeployment ?? getVercelDeployment;
+  const deployment = await getDeployment(
+    input.vercelToken,
+    input.newDeploymentId,
+    input.teamId,
+  );
+
+  if (isVercelDeploymentReady(deployment)) {
+    return {
+      status: "ready",
+      sourceDeploymentId: input.sourceDeploymentId,
+      newDeploymentId: input.newDeploymentId,
+      state: deployment.state,
+      readyState: deployment.readyState,
+      message: "Production redeploy completed and deployment is READY.",
+    };
+  }
+
+  if (isDeploymentFailed(deployment)) {
+    return {
+      status: "failed",
+      sourceDeploymentId: input.sourceDeploymentId,
+      newDeploymentId: input.newDeploymentId,
+      state: deployment.state,
+      readyState: deployment.readyState,
+      message: `Production redeploy failed with state ${deployment.readyState ?? deployment.state}.`,
+    };
+  }
+
+  if (Date.now() > Date.parse(input.deadlineAt)) {
+    return {
+      status: "timeout",
+      sourceDeploymentId: input.sourceDeploymentId,
+      newDeploymentId: input.newDeploymentId,
+      state: deployment.state,
+      readyState: deployment.readyState,
+      message:
+        "Production redeploy did not reach READY before the timeout. Retry verification after Vercel finishes building.",
+    };
+  }
+
+  return {
+    status: "building",
+    sourceDeploymentId: input.sourceDeploymentId,
+    newDeploymentId: input.newDeploymentId,
+    state: deployment.state,
+    readyState: deployment.readyState,
+    message: "Waiting for Vercel deployment READY…",
+  };
 }
 
 export async function triggerAndWaitForProductionRedeploy(input: {
