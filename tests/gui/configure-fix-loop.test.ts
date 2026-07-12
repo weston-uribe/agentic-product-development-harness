@@ -86,12 +86,40 @@ describe("configure GUI fix loop", () => {
     expect(source).toContain("shouldShowRetryVerification");
     expect(source).toContain('productionRedeployStatus === "ready"');
     expect(source).toContain("apply.setupBlocked");
-    expect(source).toContain("shouldShowRetryVerification(applyResult)");
+    expect(source).toContain("shouldShowRetryVerification(applyResult, redeployPollingActive)");
     expect(source).toContain("setupPending");
     expect(source).toContain("pollActionId");
     expect(source).toContain("/api/setup/vercel-bridge-redeploy-status");
     expect(source).toContain("readSetupJsonResponse");
     expect(source).toContain("Waiting for production redeploy");
+    expect(source).toContain("redeployPollingActive");
+    expect(source).toContain("controlsLocked");
+    expect(source).toContain("REDEPLOY_POLLING_LOCK_MESSAGE");
+    expect(source).toContain("canInvalidatePreviewDuringPolling");
+    expect(source).toMatch(/disabled=\{controlsLocked/);
+    expect(source).toMatch(/if \(redeployPollingActive\) \{\s*return;\s*\}/);
+    expect(source).toMatch(/handlePreview[\s\S]*if \(redeployPollingActive\)/);
+    expect(source).toMatch(/handleApply[\s\S]*if \(redeployPollingActive && !options\?\.verifyOnly\)/);
+    expect(source).toMatch(
+      /shouldShowRetryVerification\(applyResult, redeployPollingActive\)/,
+    );
+  });
+
+  it("Step 3 locks controls during pending redeploy polling", () => {
+    const source = readFileSync(
+      path.join(
+        repoRoot,
+        "apps/gui/components/custom/guided-vercel-bridge-card.tsx",
+      ),
+      "utf8",
+    );
+
+    expect(source).toContain("isRedeployPollingActive");
+    expect(source).toContain("invalidatePreview(");
+    expect(source).toContain("if (!canInvalidatePreviewDuringPolling(redeployPollingActive, options))");
+    expect(source).not.toMatch(
+      /onConfirmedChange=\{setConfirmed\}/,
+    );
   });
 
   it("Step 3 confirmation uses Vercel bridge copy", () => {
