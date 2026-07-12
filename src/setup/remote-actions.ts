@@ -11,6 +11,39 @@ export const HARNESS_ACTIONS_SECRET_NAMES = [
 export type HarnessActionsSecretName =
   (typeof HARNESS_ACTIONS_SECRET_NAMES)[number];
 
+export const MANUAL_HARNESS_DISPATCH_REPO_PLACEHOLDER =
+  "<harness-dispatch-repo>";
+
+export function evaluateHarnessSecretPresence(
+  statuses: HarnessSecretStatusEntry[],
+): {
+  allPresent: boolean;
+  missing: HarnessActionsSecretName[];
+  unknown: HarnessActionsSecretName[];
+} {
+  const statusByName = new Map(statuses.map((entry) => [entry.name, entry.status]));
+  const missing: HarnessActionsSecretName[] = [];
+  const unknown: HarnessActionsSecretName[] = [];
+
+  for (const name of HARNESS_ACTIONS_SECRET_NAMES) {
+    const status = statusByName.get(name);
+    if (status === "present") {
+      continue;
+    }
+    if (status === "unknown") {
+      unknown.push(name);
+      continue;
+    }
+    missing.push(name);
+  }
+
+  return {
+    allPresent: missing.length === 0 && unknown.length === 0,
+    missing,
+    unknown,
+  };
+}
+
 export const TARGET_WORKFLOW_PATH =
   ".github/workflows/trigger-harness-production-sync.yml";
 
@@ -126,6 +159,11 @@ export interface RemoteHarnessSecretApplyResult {
   skippedSecretNames: HarnessActionsSecretName[];
   fingerprint: string;
   permission: SetupPermission;
+}
+
+export interface RemoteHarnessSecretManualCopyValues {
+  values: Partial<Record<HarnessActionsSecretName, string>>;
+  missing: HarnessActionsSecretName[];
 }
 
 export interface RemoteTargetWorkflowApplyResult {

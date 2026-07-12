@@ -6,11 +6,13 @@ import {
 } from "./harness-dispatch-repo.js";
 import type { GitHubRemoteSetupProvider } from "./github-remote-provider.js";
 import { previewTargetWorkflowSetup } from "./target-workflow-setup.js";
-import type {
-  HarnessSecretStatusEntry,
-  RemoteAccessStatus,
-  RemoteWorkflowStatus,
+import {
+  type HarnessSecretStatusEntry,
+  type RemoteAccessStatus,
+  type RemoteWorkflowStatus,
 } from "./remote-actions.js";
+
+export { evaluateHarnessSecretPresence } from "./remote-actions.js";
 import { previewHarnessSecretSetup } from "./harness-secret-setup.js";
 import { loadGithubTokenFromEnvLocal } from "./setup-github-auth.js";
 import {

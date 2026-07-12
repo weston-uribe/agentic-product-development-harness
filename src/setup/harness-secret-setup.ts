@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { parseGitHubRepoUrl } from "../github/base-branch.js";
+import { readExistingEnvFile } from "./env-merge.js";
 import {
   formatHarnessDispatchRepo,
   resolveHarnessDispatchRepo,
@@ -10,6 +11,7 @@ import { generateGitHubSecretInstructions } from "./generated-instructions.js";
 import {
   HARNESS_ACTIONS_SECRET_NAMES,
   REMOTE_SETUP_ACTIONS,
+  type HarnessActionsSecretName,
   type HarnessSecretStatusEntry,
   type HarnessSecretWritePlanEntry,
   type RemoteAccessStatus,
@@ -227,4 +229,49 @@ export function targetRepoSlugFromUrl(targetRepo: string): string | null {
     return null;
   }
   return `${parsed.owner}/${parsed.repo}`;
+}
+
+export interface ManualHarnessSecretCopyValues {
+  values: Partial<Record<HarnessActionsSecretName, string>>;
+  missing: HarnessActionsSecretName[];
+}
+
+export async function buildManualHarnessSecretCopyValues(options?: {
+  cwd?: string;
+}): Promise<ManualHarnessSecretCopyValues> {
+  const cwd = options?.cwd;
+  const paths = resolveLocalFilePaths(cwd);
+  const existingEnv = await readExistingEnvFile(paths);
+  const values: Partial<Record<HarnessActionsSecretName, string>> = {};
+  const missing: HarnessActionsSecretName[] = [];
+
+  try {
+    const { bytes } = await readValidatedConfigLocalBytes(cwd);
+    values.HARNESS_CONFIG_JSON_B64 = generateHarnessConfigJsonB64(bytes);
+  } catch {
+    missing.push("HARNESS_CONFIG_JSON_B64");
+  }
+
+  const linearApiKey = existingEnv?.values.LINEAR_API_KEY?.trim();
+  if (linearApiKey) {
+    values.LINEAR_API_KEY = linearApiKey;
+  } else {
+    missing.push("LINEAR_API_KEY");
+  }
+
+  const cursorApiKey = existingEnv?.values.CURSOR_API_KEY?.trim();
+  if (cursorApiKey) {
+    values.CURSOR_API_KEY = cursorApiKey;
+  } else {
+    missing.push("CURSOR_API_KEY");
+  }
+
+  const githubToken = existingEnv?.values.GITHUB_TOKEN?.trim();
+  if (githubToken) {
+    values.HARNESS_GITHUB_TOKEN = githubToken;
+  } else {
+    missing.push("HARNESS_GITHUB_TOKEN");
+  }
+
+  return { values, missing };
 }

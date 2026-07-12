@@ -167,8 +167,9 @@ export function ConfigureExperience({
     return {
       harnessConfigPath: formDefaults.env.harnessConfigPath,
       githubDispatchRepository: shouldResetDispatch
-        ? suggested
-        : formDefaults.env.githubDispatchRepository,
+        ? suggested ?? ""
+        : formDefaults.env.githubDispatchRepository || suggested || "",
+      savedHarnessDispatchRepository: formDefaults.env.githubDispatchRepository,
       suggestedHarnessDispatchRepo: suggested,
       secretPresence: {
         LINEAR_API_KEY: summary.envKeyPresence.LINEAR_API_KEY,

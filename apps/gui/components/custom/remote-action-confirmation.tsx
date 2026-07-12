@@ -43,6 +43,7 @@ const COPY: Record<
       title: "Confirm cloud secrets write",
       bullets: [
         "This writes encrypted GitHub Actions secrets to the harness repo.",
+        "Preflight runs automatically before apply when you skip preview.",
         "It does not run the harness, create branches, open PRs, or change your target app.",
         "Secret values are never shown in previews, results, or errors.",
       ],

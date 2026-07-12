@@ -30,6 +30,9 @@ import { createLiveGitHubRemoteSetupProvider } from "@harness/setup/github-remot
 import type { GitHubRemoteSetupProvider } from "@harness/setup/github-remote-provider";
 import type { HarnessSecretOperatorInput } from "@harness/setup/harness-secret-setup";
 import {
+  buildManualHarnessSecretCopyValues,
+} from "@harness/setup/harness-secret-setup";
+import {
   applyRemoteHarnessSecrets,
   applyRemoteTargetWorkflow,
   previewRemoteHarnessSecrets,
@@ -78,6 +81,7 @@ import {
 } from "@harness/setup/vercel-bridge-options";
 import type {
   RemoteHarnessSecretApplyResult,
+  RemoteHarnessSecretManualCopyValues,
   RemoteHarnessSecretPreview,
   RemoteTargetWorkflowApplyResult,
   RemoteTargetWorkflowPreview,
@@ -444,6 +448,72 @@ export async function applyVercelBridgeRemote(options: {
   return { apply, summary };
 }
 
+export async function verifyHarnessRepoAccessRemote(options: {
+  harnessDispatchRepo: string;
+  githubToken?: string;
+}): Promise<{
+  status: "connected" | "failed" | "unknown";
+  repoSlug: string;
+  message: string;
+  limitation?: string;
+}> {
+  const cwd = resolveCwd();
+  const repoSlug = parseGitHubRepoSlug(options.harnessDispatchRepo.trim());
+  if (!repoSlug) {
+    return {
+      status: "failed",
+      repoSlug: options.harnessDispatchRepo.trim(),
+      message: "Enter a valid GitHub repo slug or URL (owner/repo).",
+    };
+  }
+
+  const token =
+    options.githubToken?.trim() ||
+    (await loadGithubTokenFromEnvLocal({ cwd }));
+  if (!token) {
+    return {
+      status: "failed",
+      repoSlug,
+      message:
+        "GITHUB_TOKEN is required to verify harness repo access. Add it in Step 1 first.",
+    };
+  }
+
+  const provider = createLiveGitHubRemoteSetupProvider(token);
+  const access = await provider.checkHarnessRepoAccess(repoSlug);
+  if (access === "available") {
+    return {
+      status: "connected",
+      repoSlug,
+      message: `Connected to ${repoSlug}.`,
+      limitation:
+        "This check confirms GitHub access only. Saving still happens when you create or update local setup files.",
+    };
+  }
+  if (access === "denied") {
+    return {
+      status: "failed",
+      repoSlug,
+      message: `GitHub denied access to ${repoSlug}.`,
+      limitation:
+        "Confirm this is the harness repo you intend to use and that your GitHub token has admin or maintain access.",
+    };
+  }
+
+  return {
+    status: "unknown",
+    repoSlug,
+    message: `Harness repo access for ${repoSlug} could not be verified yet.`,
+    limitation: "Retry after saving GITHUB_TOKEN in Step 1.",
+  };
+}
+
+export async function loadManualHarnessSecretCopyValues(): Promise<
+  import("@harness/setup/remote-actions").RemoteHarnessSecretManualCopyValues
+> {
+  return buildManualHarnessSecretCopyValues({ cwd: resolveCwd() });
+}
+
 export async function previewConnectServicesRemote(
   env: LocalEnvFormInput,
 ): Promise<Awaited<ReturnType<typeof previewConnectServicesEnv>>> {
@@ -473,6 +543,7 @@ export type {
   RemoteSetupSummary,
   RemoteHarnessSecretPreview,
   RemoteHarnessSecretApplyResult,
+  RemoteHarnessSecretManualCopyValues,
   RemoteTargetWorkflowPreview,
   RemoteTargetWorkflowApplyResult,
   FirstRunReadiness,
