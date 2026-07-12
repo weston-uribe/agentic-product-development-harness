@@ -32,7 +32,7 @@ Conduct a practical, evidence-backed code-health review of a repository or scope
 - Modify files, create branches, commit, open PRs, or create remediation plans
 - Perform implementation fixes
 - Convert findings into sprint sequencing beyond planner-consumable grouping
-- Audit security vulnerabilities, performance/cost, product/design quality, or broad architecture evolution except to mark them out of scope and route to the appropriate audit skill (`architecture-evolution-audit` for architecture evolution; future `security-audit` or `performance-cost-audit` for those categories)
+- Audit security vulnerabilities, performance/cost, product/design quality, or broad architecture evolution except to mark them out of scope and route to the appropriate audit skill (`architecture-evolution-audit` for architecture evolution; `security-audit` or `performance-cost-audit` for those categories)
 
 ## Relationship to other roles
 
