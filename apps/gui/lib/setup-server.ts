@@ -431,6 +431,7 @@ export async function applyVercelBridgeRemote(options: {
   confirmed: boolean;
   fingerprint: string;
   manualComplete?: boolean;
+  verifyOnly?: boolean;
 }): Promise<{
   apply: VercelBridgeApplyResult;
   summary: Awaited<ReturnType<typeof buildVercelSetupSummary>>;
@@ -442,6 +443,7 @@ export async function applyVercelBridgeRemote(options: {
     confirmed: options.confirmed,
     fingerprint: options.fingerprint,
     manualComplete: options.manualComplete,
+    verifyOnly: options.verifyOnly,
     cwd,
   });
   const summary = await buildVercelSetupSummary(cwd);

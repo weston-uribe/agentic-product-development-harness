@@ -164,6 +164,38 @@ describe("vercel-setup-plan", () => {
     expect(preview.webhookUrl).toBeUndefined();
   });
 
+  it("plans generated webhook secret as update when Vercel already has LINEAR_WEBHOOK_SECRET", async () => {
+    vi.mocked(listVercelProjectEnvVars).mockResolvedValue([
+      {
+        id: "env-linear",
+        key: "LINEAR_WEBHOOK_SECRET",
+        type: "sensitive",
+        target: ["production"],
+      },
+    ]);
+
+    const preview = await previewVercelBridgeSetup({
+      vercelToken: "vercel-token",
+      projectId: "proj-1",
+      derivedHarnessTeamKey: "WES",
+      derivedGithubDispatchToken: "ghp_saved",
+      willGenerateLinearWebhookSecret: true,
+      linearApiKey: "lin_api_test",
+    });
+
+    expect(preview.envWritePlan).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "LINEAR_WEBHOOK_SECRET",
+          action: "update",
+          source: "generated",
+        }),
+      ]),
+    );
+    expect(preview.linearWebhookVerified).toBe(false);
+    expect(preview.signedProbeVerified).toBe(false);
+  });
+
   it("does not treat existing-unverified webhook mode as verified", async () => {
     vi.mocked(summarizeLinearWebhookReadiness).mockResolvedValue({
       matchingWebhook: {

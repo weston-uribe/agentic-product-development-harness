@@ -103,6 +103,9 @@ export interface VercelBridgePreview {
   envWritePlan: VercelEnvWritePlanEntry[];
   requiredEnvPresence: Record<VercelBridgeEnvVarName, "present" | "missing">;
   linearWebhookVerified: boolean;
+  signedProbeVerified?: boolean;
+  deploymentRedeployRequired?: boolean;
+  signedProbeReason?: string;
   linearWebhookSecretMode?: "automated" | "existing-unverified" | "manual-copy";
   githubDispatchSource?: "saved-github-token" | "operator-input" | "missing";
   readiness: ReturnType<typeof deriveVercelBridgeReadiness>;
@@ -477,16 +480,6 @@ export async function previewVercelBridgeSetup(
   );
   const existingEnvByKey = new Map(envVars.map((env) => [env.key, env]));
   const requiredEnvPresence = summarizeRequiredEnvPresence(envVars);
-  const willGenerateLinearWebhookSecret =
-    normalized.willGenerateLinearWebhookSecret ??
-    !normalized.envInput?.LINEAR_WEBHOOK_SECRET?.trim();
-  const envWritePlan = buildEnvWritePlan({
-    existingEnvByKey,
-    envInput: normalized.envInput,
-    derivedHarnessTeamKey: normalized.derivedHarnessTeamKey,
-    derivedGithubDispatchToken: normalized.derivedGithubDispatchToken,
-    willGenerateLinearWebhookSecret,
-  });
 
   let linearWebhookVerified = false;
   let linearWebhookSecretMode:
@@ -494,6 +487,7 @@ export async function previewVercelBridgeSetup(
     | "existing-unverified"
     | "manual-copy"
     | undefined;
+  let secretPlan: Awaited<ReturnType<typeof planLinearWebhookSecret>> | undefined;
   const manualSteps: string[] = [];
   if (normalized.team?.mode === "create" && !teamIdForProjects) {
     manualSteps.push(
@@ -506,14 +500,13 @@ export async function previewVercelBridgeSetup(
       webhookUrl,
       teamId: normalized.linearTeamId,
     });
-    const secretPlan = await planLinearWebhookSecret({
+    secretPlan = await planLinearWebhookSecret({
       linearApiKey: normalized.linearApiKey,
       webhookUrl,
       linearTeamId: normalized.linearTeamId,
     });
     linearWebhookSecretMode = secretPlan.mode;
-    linearWebhookVerified =
-      secretPlan.mode === "automated" && Boolean(webhookSummary.matchingWebhook);
+    linearWebhookVerified = false;
     if (secretPlan.mode === "existing-unverified") {
       linearWebhookVerified = false;
     }
@@ -532,6 +525,18 @@ export async function previewVercelBridgeSetup(
     linearWebhookSecretMode = "manual-copy";
   }
 
+  const willGenerateLinearWebhookSecret =
+    normalized.willGenerateLinearWebhookSecret ??
+    (secretPlan?.willGenerateOnApply ??
+      !normalized.envInput?.LINEAR_WEBHOOK_SECRET?.trim());
+  const envWritePlan = buildEnvWritePlan({
+    existingEnvByKey,
+    envInput: normalized.envInput,
+    derivedHarnessTeamKey: normalized.derivedHarnessTeamKey,
+    derivedGithubDispatchToken: normalized.derivedGithubDispatchToken,
+    willGenerateLinearWebhookSecret,
+  });
+
   const githubDispatchSource = normalized.envInput?.GITHUB_DISPATCH_TOKEN?.trim()
     ? "operator-input"
     : normalized.derivedGithubDispatchToken?.trim()
@@ -545,6 +550,8 @@ export async function previewVercelBridgeSetup(
     endpointReachable: endpoint.reachable,
     requiredEnvPresence,
     linearWebhookVerified,
+    signedProbeVerified: false,
+    deploymentRedeployRequired: false,
   });
 
   const fingerprint = hashPreview({
@@ -590,6 +597,8 @@ export async function previewVercelBridgeSetup(
     envWritePlan,
     requiredEnvPresence,
     linearWebhookVerified,
+    signedProbeVerified: false,
+    deploymentRedeployRequired: false,
     linearWebhookSecretMode,
     githubDispatchSource,
     readiness,

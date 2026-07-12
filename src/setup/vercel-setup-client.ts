@@ -432,10 +432,39 @@ export async function upsertVercelProjectEnvVar(
 
 export async function checkWebhookEndpointReachable(
   webhookUrl: string,
-): Promise<{ reachable: boolean; statusCode?: number }> {
+): Promise<{ reachable: boolean; statusCode?: number; reason?: string }> {
   try {
-    const response = await fetch(webhookUrl, { method: "GET" });
-    return { reachable: response.status < 500, statusCode: response.status };
+    const response = await fetch(webhookUrl, { method: "GET", redirect: "manual" });
+    const location = response.headers.get("location") ?? "";
+    if (
+      (response.status === 302 ||
+        response.status === 307 ||
+        response.status === 308) &&
+      /vercel\.com\/sso-api/i.test(location)
+    ) {
+      return {
+        reachable: false,
+        statusCode: response.status,
+        reason: "protection_redirect",
+      };
+    }
+    if (response.status === 405) {
+      return { reachable: true, statusCode: response.status };
+    }
+    if (
+      response.status === 404 ||
+      response.status === 401 ||
+      response.status === 403
+    ) {
+      return { reachable: false, statusCode: response.status };
+    }
+    if (response.status >= 500) {
+      return { reachable: false, statusCode: response.status };
+    }
+    if (response.status >= 200 && response.status < 400) {
+      return { reachable: true, statusCode: response.status };
+    }
+    return { reachable: false, statusCode: response.status };
   } catch {
     return { reachable: false };
   }

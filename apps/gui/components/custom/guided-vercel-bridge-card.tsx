@@ -246,14 +246,16 @@ export function GuidedVercelBridgeCard({
     }
   }, [invalidatePreview, runPreview]);
 
-  const handleApply = async () => {
-    if (!confirmed) {
+  const handleApply = async (options?: { verifyOnly?: boolean }) => {
+    if (!confirmed && !options?.verifyOnly) {
       return;
     }
 
     setLoading("apply");
     setError(null);
-    invalidatePreview();
+    if (!options?.verifyOnly) {
+      invalidatePreview();
+    }
     try {
       const currentPreview =
         previewIsCurrent && preview ? preview : await runPreview();
@@ -268,6 +270,7 @@ export function GuidedVercelBridgeCard({
           plan: buildPlanPayload(),
           confirmed: true,
           fingerprint: currentPreview.fingerprint,
+          verifyOnly: options?.verifyOnly === true,
         }),
       });
       const data = await response.json();
@@ -314,15 +317,13 @@ export function GuidedVercelBridgeCard({
         (projectMode === "existing" ? Boolean(projectId) : Boolean(projectName));
 
   const canContinue =
-    verifiedSuccess ||
-    readiness.steps.find((step) => step.id === "vercel-bridge")?.status ===
-      "complete" ||
+    (verifiedSuccess && applyResult?.signedProbeVerified === true) ||
     summary.readiness.ready;
 
   return (
     <SectionCard
       title={`Step 3 of ${GUIDED_SETUP_STEP_COUNT} · Configure Vercel settings`}
-      description="Choose the Vercel team and project this setup should use for automation and preview checks."
+      description="Choose the Vercel team and project this setup should use for automation and preview checks. Env var presence alone is not enough; the bridge must pass signed delivery verification against production."
     >
       <div className={SPACING.stackSm}>
         {!summary.vercelTokenConfigured ? (
@@ -495,6 +496,15 @@ export function GuidedVercelBridgeCard({
                   Linear webhook secret mode:{" "}
                   {preview.linearWebhookSecretMode ?? "unknown"}
                 </p>
+                <p className="text-muted-foreground">
+                  Preview does not run signed verification. Apply writes the
+                  webhook secret and runs a signed production probe after env
+                  setup.
+                </p>
+                <p>
+                  Signed probe verified:{" "}
+                  {preview.signedProbeVerified ? "yes" : "no (runs on apply)"}
+                </p>
                 {preview.deploymentStatus !== "ready" ? (
                   <p className="text-amber-700 dark:text-amber-400">
                     Deployment status: {preview.deploymentStatus}
@@ -542,6 +552,17 @@ export function GuidedVercelBridgeCard({
                 >
                   {loading === "apply" ? "Applying…" : "Apply Vercel Settings"}
                 </Button>
+                {applyResult?.deploymentRedeployRequired &&
+                !applyResult.signedProbeVerified ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void handleApply({ verifyOnly: true })}
+                    disabled={loading !== null || !formComplete}
+                  >
+                    {loading === "apply" ? "Verifying…" : "Retry verification"}
+                  </Button>
+                ) : null}
               </div>
             ) : null}
 
@@ -552,7 +573,7 @@ export function GuidedVercelBridgeCard({
                 message={
                   applyResult.status === "deployment-required"
                     ? `${applyResult.deploymentRequired?.message ?? "Deployment required."} ${applyResult.deploymentRequired?.nextSteps.join(" ") ?? ""}`
-                    : `Vercel team: ${applyResult.team?.outcome ?? "unchanged"} ${applyResult.team?.name ?? ""}. Vercel project: ${applyResult.project?.outcome ?? "unchanged"} ${applyResult.project?.name ?? applyResult.projectName}. Env vars written: ${applyResult.writtenEnvKeys.join(", ") || "none"}. Linear webhook setup: ${applyResult.linearWebhookSetup.mode}.`
+                    : `Vercel team: ${applyResult.team?.outcome ?? "unchanged"} ${applyResult.team?.name ?? ""}. Vercel project: ${applyResult.project?.outcome ?? "unchanged"} ${applyResult.project?.name ?? applyResult.projectName}. Env vars written: ${applyResult.writtenEnvKeys.join(", ") || "none"}. Linear webhook setup: ${applyResult.linearWebhookSetup.mode}. Signed probe: ${applyResult.signedProbeVerified ? "passed" : "failed"}${applyResult.signedProbeReason ? ` (${applyResult.signedProbeReason})` : ""}.${applyResult.deploymentRedeployRequired ? " Redeploy production in Vercel, then use Retry verification (this will not rotate secrets or rewrite env vars)." : ""}`
                 }
               />
             ) : null}
@@ -561,8 +582,9 @@ export function GuidedVercelBridgeCard({
               <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm space-y-2">
                 <p className="font-medium">Manual Linear webhook secret (one-time)</p>
                 <p className="text-muted-foreground">
-                  Copy this secret into the Linear webhook signing secret field. It
-                  will not be shown again after you leave this step.
+                  Copy this secret into the Linear webhook signing secret field.
+                  Manual acknowledgement does not verify the bridge; signed
+                  delivery verification must pass after you apply again.
                 </p>
                 <Input readOnly value={manualCopySecret} />
                 <label className="flex items-center gap-2">

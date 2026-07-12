@@ -118,6 +118,7 @@ export async function listLinearWebhooks(
     enabled: webhook.enabled ?? false,
     resourceTypes: webhook.resourceTypes ?? [],
     teamId: webhook.teamId ?? undefined,
+    secret: webhook.secret ?? undefined,
   }));
 }
 
@@ -225,6 +226,43 @@ export async function createLinearIssueWebhook(
     teamId: webhook.teamId ?? input.teamId,
     secret,
   };
+}
+
+export async function updateLinearIssueWebhook(
+  client: LinearClient,
+  input: {
+    webhookId: string;
+    url: string;
+    secret: string;
+    label?: string;
+  },
+): Promise<LinearWebhookSummary> {
+  const payload = await client.updateWebhook(input.webhookId, {
+    url: input.url,
+    label: input.label ?? "Harness webhook bridge",
+    resourceTypes: ["Issue"],
+    secret: input.secret,
+    enabled: true,
+  });
+  const webhook = await payload.webhook;
+  if (!webhook) {
+    throw new Error("Linear webhook update did not return a webhook");
+  }
+  return {
+    id: webhook.id,
+    url: webhook.url ?? input.url,
+    enabled: webhook.enabled ?? true,
+    resourceTypes: webhook.resourceTypes ?? ["Issue"],
+    teamId: webhook.teamId ?? undefined,
+    secret: webhook.secret ?? input.secret,
+  };
+}
+
+export async function deleteLinearWebhook(
+  client: LinearClient,
+  webhookId: string,
+): Promise<void> {
+  await client.deleteWebhook(webhookId);
 }
 
 export function getLinearSetupCapabilities(): LinearSetupCapabilities {

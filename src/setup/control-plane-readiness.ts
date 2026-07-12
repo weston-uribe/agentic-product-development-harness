@@ -125,14 +125,14 @@ export function collectVercelBridgeBlockers(
       priority: 160,
     });
   } else {
-    if (!vercel.endpointReachable && !vercel.manualComplete) {
+    if (!vercel.endpointReachable) {
       pushBlocker(blockers, {
         id: "vercel-endpoint-unreachable",
         stepId: "vercel-bridge",
         message:
           "Blocked: Vercel /api/linear-webhook endpoint is not reachable yet.",
         action:
-          "Next: Deploy the bridge project or confirm manual webhook readiness.",
+          "Next: Deploy the bridge project and confirm the public webhook route is reachable.",
         priority: 161,
         tone: "error",
       });
@@ -151,7 +151,7 @@ export function collectVercelBridgeBlockers(
       }
     }
 
-    if (!vercel.linearWebhookVerified && !vercel.manualComplete) {
+    if (!vercel.linearWebhookVerified) {
       pushBlocker(blockers, {
         id: "linear-webhook-unverified",
         stepId: "vercel-bridge",
@@ -160,6 +160,31 @@ export function collectVercelBridgeBlockers(
         action:
           "Next: Create or verify the Linear webhook, then refresh bridge readiness.",
         priority: 163,
+        tone: "error",
+      });
+    }
+
+    if (!vercel.signedProbeVerified) {
+      pushBlocker(blockers, {
+        id: "signed-probe-unverified",
+        stepId: "vercel-bridge",
+        message:
+          "Blocked: Signed webhook delivery verification has not passed against production.",
+        action:
+          "Next: Apply Vercel bridge settings and wait for signed probe verification to pass.",
+        priority: 164,
+        tone: "error",
+      });
+    }
+
+    if (vercel.deploymentRedeployRequired) {
+      pushBlocker(blockers, {
+        id: "vercel-redeploy-required",
+        stepId: "vercel-bridge",
+        message:
+          "Blocked: Vercel production must be redeployed after env var changes before signed verification can pass.",
+        action: "Next: Redeploy production, then retry Vercel bridge apply.",
+        priority: 165,
         tone: "error",
       });
     }
@@ -179,7 +204,7 @@ export function collectVercelBridgeBlockers(
         message:
           "Blocked: Vercel HARNESS_TEAM_KEY may be stale after Linear team changes.",
         action: "Next: Re-apply Vercel bridge setup with the current team key.",
-        priority: 164,
+        priority: 166,
         tone: "error",
       });
     }
@@ -192,7 +217,7 @@ export function collectVercelBridgeBlockers(
       message: "Blocked: Vercel bridge preview is out of date.",
       action:
         "Next: Regenerate the Vercel bridge preview, then confirm and apply.",
-      priority: 165,
+      priority: 167,
       tone: "error",
     });
   }
