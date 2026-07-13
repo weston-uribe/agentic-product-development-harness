@@ -540,7 +540,11 @@ async function resolveProvisioningProvider(): Promise<
 }
 
 export async function loadHarnessRepoProvisioningSummaryRemote(): Promise<HarnessRepoProvisioningSummary> {
-  return loadHarnessRepoProvisioningSummary({ cwd: resolveCwd() });
+  const provider = await resolveProvisioningProvider();
+  return loadHarnessRepoProvisioningSummary({
+    cwd: resolveCwd(),
+    provider,
+  });
 }
 
 export async function previewHarnessRepoProvisioningRemote(options?: {
@@ -552,6 +556,8 @@ export async function previewHarnessRepoProvisioningRemote(options?: {
       state: "token-unavailable",
       fingerprint: JSON.stringify({ action: "preview", tokenUnavailable: true }),
       operationId: options?.operationId ?? randomUUID(),
+      creationPreviewFingerprint: null,
+      resumedFromPending: false,
       harnessDispatchRepo: null,
       authenticatedLogin: null,
       templateOwner: "weston-uribe",

@@ -38,6 +38,30 @@ export type HarnessManagedRepoMarkerValidationResult =
   | { ok: true; marker: HarnessManagedRepoMarker }
   | { ok: false; reason: string };
 
+function readRequiredString(
+  record: Record<string, unknown>,
+  key: string,
+  label: string,
+): { ok: true; value: string } | { ok: false; reason: string } {
+  const value = record[key];
+  if (typeof value !== "string" || !value.trim()) {
+    return { ok: false, reason: `Managed marker is missing ${label}.` };
+  }
+  return { ok: true, value: value.trim() };
+}
+
+function readRequiredNumber(
+  record: Record<string, unknown>,
+  key: string,
+  label: string,
+): { ok: true; value: number } | { ok: false; reason: string } {
+  const value = record[key];
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return { ok: false, reason: `Managed marker is missing ${label}.` };
+  }
+  return { ok: true, value };
+}
+
 export function parseHarnessManagedRepoMarkerJson(
   raw: string,
 ): HarnessManagedRepoMarkerValidationResult {
@@ -77,16 +101,26 @@ export function parseHarnessManagedRepoMarkerJson(
       reason: `Unexpected managedBy value ${String(record.managedBy)}.`,
     };
   }
-  if (typeof record.repository !== "string" || !record.repository.includes("/")) {
+
+  const repository = readRequiredString(record, "repository", "a valid repository slug");
+  if (!repository.ok) {
+    return { ok: false, reason: repository.reason };
+  }
+  if (!repository.value.includes("/")) {
     return {
       ok: false,
       reason: "Managed marker is missing a valid repository slug.",
     };
   }
-  if (record.markerVersion !== HARNESS_MARKER_VERSION) {
+
+  const markerVersion = readRequiredNumber(record, "markerVersion", "markerVersion");
+  if (!markerVersion.ok) {
+    return { ok: false, reason: markerVersion.reason };
+  }
+  if (markerVersion.value !== HARNESS_MARKER_VERSION) {
     return {
       ok: false,
-      reason: `Unsupported managed marker version ${String(record.markerVersion)}.`,
+      reason: `Unsupported managed marker version ${String(markerVersion.value)}.`,
     };
   }
 
@@ -99,32 +133,85 @@ export function parseHarnessManagedRepoMarkerJson(
   }
 
   const template = createdFromTemplate as Record<string, unknown>;
-  if (template.templateIdentity !== HARNESS_TEMPLATE_IDENTITY) {
+  const templateRepository = readRequiredString(
+    template,
+    "templateRepository",
+    "createdFromTemplate.templateRepository",
+  );
+  if (!templateRepository.ok) {
+    return { ok: false, reason: templateRepository.reason };
+  }
+  if (templateRepository.value !== HARNESS_TEMPLATE_SLUG) {
     return {
       ok: false,
-      reason: `Unexpected template identity ${String(template.templateIdentity)}.`,
+      reason: `Unexpected template repository ${templateRepository.value}.`,
     };
   }
-  if (template.compatibilityVersion !== HARNESS_COMPATIBILITY_VERSION) {
+  const defaultBranch = readRequiredString(
+    template,
+    "defaultBranch",
+    "createdFromTemplate.defaultBranch",
+  );
+  if (!defaultBranch.ok) {
+    return { ok: false, reason: defaultBranch.reason };
+  }
+  const templateIdentity = readRequiredString(
+    template,
+    "templateIdentity",
+    "createdFromTemplate.templateIdentity",
+  );
+  if (!templateIdentity.ok) {
+    return { ok: false, reason: templateIdentity.reason };
+  }
+  if (templateIdentity.value !== HARNESS_TEMPLATE_IDENTITY) {
     return {
       ok: false,
-      reason: `Incompatible managed marker compatibility version ${String(template.compatibilityVersion)}.`,
+      reason: `Unexpected template identity ${templateIdentity.value}.`,
     };
   }
-  if (
-    typeof template.templateContentId !== "string" ||
-    !template.templateContentId.trim()
-  ) {
+  const templateVersion = readRequiredNumber(
+    template,
+    "templateVersion",
+    "createdFromTemplate.templateVersion",
+  );
+  if (!templateVersion.ok) {
+    return { ok: false, reason: templateVersion.reason };
+  }
+  if (templateVersion.value !== HARNESS_MARKER_VERSION) {
     return {
       ok: false,
-      reason: "Managed marker is missing templateContentId.",
+      reason: `Unsupported template version ${String(templateVersion.value)}.`,
     };
   }
-  if (typeof template.sourceHeadSha !== "string" || !template.sourceHeadSha.trim()) {
+  const compatibilityVersion = readRequiredNumber(
+    template,
+    "compatibilityVersion",
+    "createdFromTemplate.compatibilityVersion",
+  );
+  if (!compatibilityVersion.ok) {
+    return { ok: false, reason: compatibilityVersion.reason };
+  }
+  if (compatibilityVersion.value !== HARNESS_COMPATIBILITY_VERSION) {
     return {
       ok: false,
-      reason: "Managed marker is missing sourceHeadSha.",
+      reason: `Incompatible managed marker compatibility version ${String(compatibilityVersion.value)}.`,
     };
+  }
+  const templateContentId = readRequiredString(
+    template,
+    "templateContentId",
+    "createdFromTemplate.templateContentId",
+  );
+  if (!templateContentId.ok) {
+    return { ok: false, reason: templateContentId.reason };
+  }
+  const sourceHeadSha = readRequiredString(
+    template,
+    "sourceHeadSha",
+    "createdFromTemplate.sourceHeadSha",
+  );
+  if (!sourceHeadSha.ok) {
+    return { ok: false, reason: sourceHeadSha.reason };
   }
 
   return {
@@ -134,8 +221,8 @@ export function parseHarnessManagedRepoMarkerJson(
       product: HARNESS_PRODUCT,
       role: HARNESS_WORKSPACE_ROLE,
       managedBy: "p-dev",
-      repository: record.repository,
-      markerVersion: HARNESS_MARKER_VERSION,
+      repository: repository.value,
+      markerVersion: markerVersion.value,
       operationId:
         typeof record.operationId === "string" ? record.operationId : undefined,
       createdByGithubUserId:
@@ -147,25 +234,55 @@ export function parseHarnessManagedRepoMarkerJson(
       pDevVersion:
         typeof record.pDevVersion === "string" ? record.pDevVersion : undefined,
       createdFromTemplate: {
-        templateRepository:
-          typeof template.templateRepository === "string"
-            ? template.templateRepository
-            : HARNESS_TEMPLATE_SLUG,
-        defaultBranch:
-          typeof template.defaultBranch === "string"
-            ? template.defaultBranch
-            : "main",
-        templateIdentity: HARNESS_TEMPLATE_IDENTITY,
-        templateVersion:
-          typeof template.templateVersion === "number"
-            ? template.templateVersion
-            : HARNESS_MARKER_VERSION,
-        compatibilityVersion: HARNESS_COMPATIBILITY_VERSION,
-        templateContentId: template.templateContentId.trim(),
-        sourceHeadSha: template.sourceHeadSha.trim(),
+        templateRepository: templateRepository.value,
+        defaultBranch: defaultBranch.value,
+        templateIdentity: templateIdentity.value,
+        templateVersion: templateVersion.value,
+        compatibilityVersion: compatibilityVersion.value,
+        templateContentId: templateContentId.value,
+        sourceHeadSha: sourceHeadSha.value,
       },
     },
   };
+}
+
+export function validateManagedMarkerForReconnect(
+  marker: HarnessManagedRepoMarker,
+  repoSlug: string,
+): { ok: true } | { ok: false; reason: string } {
+  if (marker.repository !== repoSlug) {
+    return {
+      ok: false,
+      reason: `Managed marker repository mismatch for ${repoSlug}.`,
+    };
+  }
+  if (marker.createdFromTemplate.templateRepository !== HARNESS_TEMPLATE_SLUG) {
+    return {
+      ok: false,
+      reason: `Managed marker template repository must be ${HARNESS_TEMPLATE_SLUG}.`,
+    };
+  }
+  if (marker.createdFromTemplate.templateIdentity !== HARNESS_TEMPLATE_IDENTITY) {
+    return {
+      ok: false,
+      reason: `Unexpected managed marker template identity ${marker.createdFromTemplate.templateIdentity}.`,
+    };
+  }
+  if (marker.createdFromTemplate.templateVersion !== HARNESS_MARKER_VERSION) {
+    return {
+      ok: false,
+      reason: `Unsupported managed marker template version ${marker.createdFromTemplate.templateVersion}.`,
+    };
+  }
+  if (
+    marker.createdFromTemplate.compatibilityVersion !== HARNESS_COMPATIBILITY_VERSION
+  ) {
+    return {
+      ok: false,
+      reason: `Incompatible managed marker compatibility version ${marker.createdFromTemplate.compatibilityVersion}.`,
+    };
+  }
+  return { ok: true };
 }
 
 export function buildHarnessManagedRepoMarker(input: {
@@ -201,24 +318,6 @@ export function buildHarnessManagedRepoMarker(input: {
   };
 }
 
-export function markerValidForReconnect(
-  existing: HarnessManagedRepoMarker,
-  expected: {
-    repository: string;
-    templateContentId: string;
-    sourceHeadSha: string;
-  },
-): boolean {
-  return (
-    existing.repository === expected.repository &&
-    existing.createdFromTemplate.templateContentId ===
-      expected.templateContentId &&
-    existing.createdFromTemplate.sourceHeadSha === expected.sourceHeadSha &&
-    existing.createdFromTemplate.compatibilityVersion ===
-      HARNESS_COMPATIBILITY_VERSION
-  );
-}
-
 export function markersAreEquivalentForOperation(
   existing: HarnessManagedRepoMarker,
   expected: HarnessManagedRepoMarker,
@@ -235,4 +334,11 @@ export function markersAreEquivalentForOperation(
     existing.createdFromTemplate.sourceHeadSha ===
       expected.createdFromTemplate.sourceHeadSha
   );
+}
+
+export function markerValidForExistingWorkspace(
+  existing: HarnessManagedRepoMarker,
+  repoSlug: string,
+): boolean {
+  return validateManagedMarkerForReconnect(existing, repoSlug).ok;
 }

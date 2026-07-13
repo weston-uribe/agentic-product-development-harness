@@ -146,7 +146,10 @@ export function ConfigureWorkflow({
   }>({ state: "unchecked" });
   const [autoProvisionedHarnessRepo, setAutoProvisionedHarnessRepo] = useState<
     string | null
-  >(initialEnv.savedHarnessDispatchRepository?.trim() || null);
+  >(null);
+  const [serverValidatedHarnessRepo, setServerValidatedHarnessRepo] = useState<
+    string | null
+  >(null);
   const [provisioningHarnessRepo, setProvisioningHarnessRepo] = useState(false);
   const [provisioningMessage, setProvisioningMessage] = useState<string | null>(
     null,
@@ -296,18 +299,66 @@ export function ConfigureWorkflow({
 
   const harnessRepoReady =
     effectiveHarnessDispatchRepo.length > 0 &&
-    (autoProvisionedHarnessRepo === effectiveHarnessDispatchRepo ||
+    (serverValidatedHarnessRepo === effectiveHarnessDispatchRepo ||
       (harnessRepoVerification.state === "connected" &&
         harnessRepoVerification.verifiedRepo === effectiveHarnessDispatchRepo &&
-        harnessRepoVerification.verifiedGithubTokenFingerprint ===
-          (activeGithubToken?.fingerprint ?? undefined)));
+        (!activeGithubToken?.fingerprint ||
+          harnessRepoVerification.verifiedGithubTokenFingerprint ===
+            activeGithubToken.fingerprint)));
 
   useEffect(() => {
-    if (autoProvisionedHarnessRepo) {
+    if (mode !== "guided" || guidedStep !== "choose-target-repos") {
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch("/api/setup/harness-provisioning-summary");
+        const data = await response.json();
+        if (!response.ok || cancelled) {
+          return;
+        }
+
+        if (data.verifiedSavedRepo && data.harnessDispatchRepo) {
+          setServerValidatedHarnessRepo(data.harnessDispatchRepo);
+          setEnvValues((current) => ({
+            ...current,
+            githubDispatchRepository: data.harnessDispatchRepo,
+          }));
+          if (data.connectedAutomatically) {
+            setAutoProvisionedHarnessRepo(data.harnessDispatchRepo);
+          }
+          setHarnessRepoVerification({
+            state: "connected",
+            verifiedRepo: data.harnessDispatchRepo,
+            message: data.message,
+          });
+        } else {
+          setServerValidatedHarnessRepo(null);
+        }
+      } catch {
+        if (!cancelled) {
+          setServerValidatedHarnessRepo(null);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [guidedStep, mode]);
+
+  useEffect(() => {
+    if (serverValidatedHarnessRepo || autoProvisionedHarnessRepo) {
       return;
     }
     setHarnessRepoVerification({ state: "unchecked" });
-  }, [activeGithubToken?.fingerprint, autoProvisionedHarnessRepo]);
+  }, [
+    activeGithubToken?.fingerprint,
+    autoProvisionedHarnessRepo,
+    serverValidatedHarnessRepo,
+  ]);
 
   const continueWithHarnessProvisioning = useCallback(async () => {
     setProvisioningHarnessRepo(true);
@@ -351,6 +402,10 @@ export function ConfigureWorkflow({
       }
 
       if (applyData.apply.state !== "verified-and-persisted") {
+        if (applyData.apply.recoverable) {
+          setProvisioningError(applyData.apply.message);
+          return;
+        }
         throw new Error(
           applyData.apply.message ?? "Harness workspace provisioning did not complete.",
         );
@@ -1007,6 +1062,7 @@ export function ConfigureWorkflow({
                 }}
                 harnessConnectedAutomatically={
                   autoProvisionedHarnessRepo === effectiveHarnessDispatchRepo &&
+                  serverValidatedHarnessRepo === effectiveHarnessDispatchRepo &&
                   Boolean(effectiveHarnessDispatchRepo)
                 }
                 guidedRepos={guidedRepoRows}

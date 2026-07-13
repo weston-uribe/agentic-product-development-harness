@@ -303,6 +303,8 @@ export interface MockGitHubHarnessProvisioningProviderState {
   >;
   createRepositoryFromTemplateResult?: CreateRepositoryFromTemplateResult;
   createRepositoryFromTemplateError?: Error;
+  deferDestinationTemplateIdentity?: boolean;
+  writeRepositoryFileError?: Error | null;
   fileWrites?: Array<RepositoryFileWriteInput & { commitSha: string }>;
 }
 
@@ -414,6 +416,9 @@ export class MockGitHubHarnessProvisioningProvider
         defaultBranch: "main",
       };
     const key = result.fullName;
+    const templateSource =
+      this.repositories[`${input.templateOwner}/${input.templateRepo}`]
+        ?.templateIdentityContent ?? null;
     this.repositories[key] = {
       owner: input.owner,
       repo: input.name,
@@ -422,19 +427,34 @@ export class MockGitHubHarnessProvisioningProvider
       isTemplate: false,
       defaultBranch: result.defaultBranch,
       permissions: { admin: true, maintain: true, push: true },
-      templateIdentityContent:
-        this.repositories[`${input.templateOwner}/${input.templateRepo}`]
-          ?.templateIdentityContent ?? null,
+      templateIdentityContent: this.state.deferDestinationTemplateIdentity
+        ? null
+        : templateSource,
       managedMarkerContent: null,
       branchHeadSha: "generatedheadsha",
     };
     return result;
   }
 
+  revealDestinationTemplateIdentity(
+    slug: string,
+    templateIdentityContent: string,
+  ): void {
+    const entry = this.repositories[slug];
+    if (entry) {
+      entry.templateIdentityContent = templateIdentityContent;
+    }
+  }
+
   async writeRepositoryFile(
     input: RepositoryFileWriteInput,
   ): Promise<{ commitSha: string }> {
     this.calls.push({ method: "writeRepositoryFile", args: [input] });
+    if (this.state.writeRepositoryFileError) {
+      const error = this.state.writeRepositoryFileError;
+      this.state.writeRepositoryFileError = null;
+      throw error;
+    }
     const key = `${input.owner}/${input.repo}`;
     const entry = this.repositories[key];
     if (entry && input.path.endsWith("p-dev-managed-repo.json")) {
