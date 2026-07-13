@@ -329,6 +329,7 @@ describe("vercel-bridge-redeploy-poll", () => {
         teamId: "team-1",
         projectId: "proj-1",
         projectName: "harness-gui",
+        preferredProductionDeploymentId: "dpl-new-1",
         linearTeamId: "linear-team-1",
         derivedHarnessTeamKey: "WES",
         derivedGithubDispatchToken: "ghp_saved",
@@ -492,6 +493,53 @@ describe("vercel-bridge-redeploy-poll", () => {
     ]);
 
     expect(ensureLinearIssueWebhook).toHaveBeenCalledTimes(1);
+  });
+
+  it("reconciles stale stored webhook URL after READY using canonical production target", async () => {
+    storedState.vercel = {
+      ...baseVercelState,
+      productionUrl:
+        "https://agentic-product-development-harness-apseun4qi-kinterra-team-url.vercel.app",
+      webhookUrl:
+        "https://agentic-product-development-harness-apseun4qi-kinterra-team-url.vercel.app/api/linear-webhook",
+      redeployVerification: { ...pendingVerification },
+    };
+    vi.mocked(previewVercelBridgeSetup).mockResolvedValue({
+      ...previewResult,
+      productionUrl: "https://harness-gui.vercel.app",
+      webhookUrl: "https://harness-gui.vercel.app/api/linear-webhook",
+      productionUrlSource: "stable_alias",
+      canonicalDeploymentId: "dpl-new-1",
+    });
+    vi.mocked(inspectProductionRedeployStatus).mockResolvedValue({
+      status: "ready",
+      sourceDeploymentId: "dpl-source-1",
+      newDeploymentId: "dpl-new-1",
+      message: "Production redeploy completed and deployment is READY.",
+    });
+
+    const result = await pollVercelBridgeRedeployVerification({
+      actionId: "vercel-redeploy-test",
+      cwd: tempRoot,
+    });
+
+    expect(ensureLinearIssueWebhook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        webhookUrl: "https://harness-gui.vercel.app/api/linear-webhook",
+        mutatePolicy: "verify-only",
+      }),
+    );
+    expect(runSignedWebhookProbe).toHaveBeenCalledWith(
+      expect.objectContaining({
+        webhookUrl: "https://harness-gui.vercel.app/api/linear-webhook",
+      }),
+    );
+    expect(storedState.vercel.productionUrl).toBe("https://harness-gui.vercel.app");
+    expect(storedState.vercel.webhookUrl).toBe(
+      "https://harness-gui.vercel.app/api/linear-webhook",
+    );
+    expect(result.verified).toBe(true);
+    expect(JSON.stringify(result)).not.toContain("generated-webhook-secret");
   });
 
   it("buildPollVerifyPlanFromPersistedState never exposes secret values in poll results", async () => {

@@ -31,6 +31,7 @@ vi.mock("../../src/setup/vercel-setup-client.js", async (importOriginal) => {
     ...actual,
     listVercelProductionDeployments: vi.fn(),
     getVercelDeployment: vi.fn(),
+    resolveCanonicalProductionTarget: vi.fn(),
   };
 });
 
@@ -51,6 +52,7 @@ import { buildVercelBridgeDiagnosticReport } from "../../src/setup/vercel-bridge
 import {
   getVercelDeployment,
   listVercelProductionDeployments,
+  resolveCanonicalProductionTarget,
 } from "../../src/setup/vercel-setup-client.js";
 import {
   previewVercelBridgeSetup,
@@ -131,12 +133,24 @@ describe("vercel-bridge-diagnostics", () => {
       repository: "weston-uribe/agentic-product-development-harness",
     });
     vi.mocked(previewVercelBridgeSetup).mockResolvedValue(previewResult);
+    vi.mocked(resolveCanonicalProductionTarget).mockResolvedValue({
+      productionUrl: "https://harness-gui.vercel.app",
+      webhookUrl: "https://harness-gui.vercel.app/api/linear-webhook",
+      deploymentId: "dpl-latest",
+      deploymentUrl:
+        "agentic-product-development-harness-da4vir36l-kinterra-team-url.vercel.app",
+      source: "stable_alias",
+      stableAlias: "harness-gui.vercel.app",
+      readyState: "READY",
+      state: "READY",
+    });
     vi.mocked(listVercelProductionDeployments).mockResolvedValue([
       {
         id: "dpl-latest",
-        url: "harness-gui.vercel.app",
+        url: "agentic-product-development-harness-da4vir36l-kinterra-team-url.vercel.app",
         state: "READY",
         readyState: "READY",
+        aliases: ["harness-gui.vercel.app"],
       },
     ]);
     vi.mocked(getVercelDeployment).mockResolvedValue({
@@ -327,6 +341,54 @@ describe("vercel-bridge-diagnostics", () => {
     expect(serialized).not.toContain("generated-webhook-secret-value");
     expect(serialized).not.toContain("linear-signature");
     expect(serialized).not.toContain("harness-setup-probe");
+  });
+
+  it("reports webhook target drift between stored and canonical production URLs", async () => {
+    const report = await buildVercelBridgeDiagnosticReport({ cwd: tempRoot });
+
+    expect(report.webhookTargetDrift?.storedWebhookUrl).toBe(
+      "https://harness-gui.vercel.app/api/linear-webhook",
+    );
+    expect(report.webhookTargetDrift?.canonicalProductionWebhookUrl).toBe(
+      "https://harness-gui.vercel.app/api/linear-webhook",
+    );
+    expect(report.webhookTargetDrift?.latestProductionWebhookUrl).toBe(
+      "https://agentic-product-development-harness-da4vir36l-kinterra-team-url.vercel.app/api/linear-webhook",
+    );
+    expect(report.webhookTargetDrift?.canonicalSource).toBe("stable_alias");
+    expect(report.webhookTargetDrift?.driftDetected).toBe(false);
+  });
+
+  it("detects webhook target drift when stored URL is stale", async () => {
+    vi.mocked(readControlPlaneSetupState).mockResolvedValue({
+      version: 1,
+      vercel: {
+        teamId: "team-1",
+        projectId: "proj-1",
+        projectName: "harness-gui",
+        productionUrl:
+          "https://agentic-product-development-harness-apseun4qi-kinterra-team-url.vercel.app",
+        webhookUrl:
+          "https://agentic-product-development-harness-apseun4qi-kinterra-team-url.vercel.app/api/linear-webhook",
+        endpointReachable: true,
+        envVarPresence: {
+          LINEAR_WEBHOOK_SECRET: "present",
+          GITHUB_DISPATCH_TOKEN: "present",
+          HARNESS_TEAM_KEY: "present",
+        },
+        linearWebhookVerified: true,
+        signedProbeVerified: false,
+        deploymentRedeployRequired: true,
+        appliedFingerprint: "preview-fingerprint",
+      },
+    });
+
+    const report = await buildVercelBridgeDiagnosticReport({ cwd: tempRoot });
+
+    expect(report.webhookTargetDrift?.driftDetected).toBe(true);
+    expect(report.webhookTargetDrift?.canonicalProductionWebhookUrl).toBe(
+      "https://harness-gui.vercel.app/api/linear-webhook",
+    );
   });
 
   it("includes deployment and linear webhook metadata", async () => {

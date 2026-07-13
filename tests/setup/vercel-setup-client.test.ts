@@ -8,6 +8,8 @@ import {
   buildExistingEnvVarPatchBody,
   createVercelTeam,
   getDefaultEnvVarType,
+  isDeploymentSpecificVercelHost,
+  selectStableProductionHost,
   upsertVercelProjectEnvVar,
   VercelEnvVarTypeError,
   VercelTeamBillingError,
@@ -177,6 +179,93 @@ describe("vercel-setup-client env var upsert", () => {
     }
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === "PATCH")).toBe(
       true,
+    );
+  });
+});
+
+describe("canonical production URL resolution", () => {
+  it("detects deployment-specific vercel.app hosts", () => {
+    expect(
+      isDeploymentSpecificVercelHost(
+        "agentic-product-development-harness-apseun4qi-kinterra-team-url.vercel.app",
+      ),
+    ).toBe(true);
+    expect(isDeploymentSpecificVercelHost("harness-gui.vercel.app")).toBe(false);
+    expect(isDeploymentSpecificVercelHost("www.example.com")).toBe(false);
+  });
+
+  it("prefers stable production alias over deployment-specific READY URL", () => {
+    const selected = selectStableProductionHost({
+      deploymentUrl: "agentic-product-development-harness-da4vir36l-kinterra-team-url.vercel.app",
+      aliases: [
+        "harness-gui.vercel.app",
+        "agentic-product-development-harness-da4vir36l-kinterra-team-url.vercel.app",
+      ],
+    });
+
+    expect(selected.source).toBe("stable_alias");
+    expect(selected.host).toBe("harness-gui.vercel.app");
+  });
+
+  it("falls back to latest READY deployment URL when no stable alias exists", () => {
+    const selected = selectStableProductionHost({
+      deploymentUrl: "agentic-product-development-harness-da4vir36l-kinterra-team-url.vercel.app",
+      aliases: [
+        "agentic-product-development-harness-da4vir36l-kinterra-team-url.vercel.app",
+      ],
+    });
+
+    expect(selected.source).toBe("latest_ready_deployment");
+    expect(selected.host).toBe(
+      "agentic-product-development-harness-da4vir36l-kinterra-team-url.vercel.app",
+    );
+  });
+
+  it("resolves canonical production target from deployment aliases", async () => {
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          deployments: [
+            {
+              uid: "dpl-ready",
+              url: "agentic-product-development-harness-da4vir36l-kinterra-team-url.vercel.app",
+              state: "READY",
+              readyState: "READY",
+              alias: ["harness-gui.vercel.app"],
+            },
+          ],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          uid: "dpl-ready",
+          url: "agentic-product-development-harness-da4vir36l-kinterra-team-url.vercel.app",
+          state: "READY",
+          readyState: "READY",
+          alias: ["harness-gui.vercel.app"],
+        }),
+      });
+
+    const { resolveCanonicalProductionTarget } = await import(
+      "../../src/setup/vercel-setup-client.js"
+    );
+    const target = await resolveCanonicalProductionTarget({
+      vercelToken: "vercel-token",
+      projectId: "proj-1",
+      teamId: "team-1",
+    });
+
+    expect(target?.source).toBe("stable_alias");
+    expect(target?.productionUrl).toBe("https://harness-gui.vercel.app");
+    expect(target?.webhookUrl).toBe(
+      "https://harness-gui.vercel.app/api/linear-webhook",
+    );
+    expect(target?.deploymentUrl).toBe(
+      "agentic-product-development-harness-da4vir36l-kinterra-team-url.vercel.app",
     );
   });
 });

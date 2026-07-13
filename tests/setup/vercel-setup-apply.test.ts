@@ -774,6 +774,92 @@ describe("vercel-setup-apply", () => {
     expect(result.signedProbeVerified).toBe(true);
   });
 
+  it("reconciles stale deployment-specific URLs on verification retry without secret rotation", async () => {
+    vi.mocked(previewVercelBridgeSetup).mockResolvedValue({
+      ...previewResult,
+      productionUrl: "https://harness-gui.vercel.app",
+      webhookUrl: "https://harness-gui.vercel.app/api/linear-webhook",
+      productionUrlSource: "stable_alias",
+      canonicalDeploymentId: "dpl-new-1",
+    });
+    vi.mocked(readControlPlaneSetupState).mockResolvedValue({
+      version: 1,
+      vercel: {
+        projectId: "proj-1",
+        projectName: "harness-gui",
+        productionUrl:
+          "https://agentic-product-development-harness-apseun4qi-kinterra-team-url.vercel.app",
+        webhookUrl:
+          "https://agentic-product-development-harness-apseun4qi-kinterra-team-url.vercel.app/api/linear-webhook",
+        endpointReachable: true,
+        envVarPresence: {
+          LINEAR_WEBHOOK_SECRET: "present",
+          GITHUB_DISPATCH_TOKEN: "present",
+          HARNESS_TEAM_KEY: "present",
+        },
+        linearWebhookVerified: true,
+        deploymentRedeployRequired: true,
+        appliedFingerprint: "preview-fingerprint",
+      },
+    });
+    vi.mocked(resolveLinearWebhookCandidateSecret).mockResolvedValue({
+      secret: "stable-webhook-secret",
+      source: "reused-readable",
+      manualSteps: [],
+    });
+    vi.mocked(runSignedWebhookProbe).mockResolvedValue({
+      passed: true,
+      result: "accepted_ignored",
+      reason: "ignored_event",
+      probedAt: new Date().toISOString(),
+      webhookHost: "harness-gui.vercel.app",
+      webhookPath: "/api/linear-webhook",
+    });
+
+    const result = await applyVercelBridgeSetup({
+      plan: {
+        vercelToken: "vercel-token",
+        projectId: "proj-1",
+        linearApiKey: "lin_api_test",
+        derivedHarnessTeamKey: "WES",
+        derivedGithubDispatchToken: "ghp_saved",
+      },
+      confirmed: true,
+      fingerprint: "preview-fingerprint",
+      verifyOnly: true,
+      cwd: tempRoot,
+    });
+
+    expect(ensureLinearIssueWebhook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        webhookUrl: "https://harness-gui.vercel.app/api/linear-webhook",
+        mutatePolicy: "verify-only",
+      }),
+    );
+    expect(runSignedWebhookProbe).toHaveBeenCalledWith(
+      expect.objectContaining({
+        webhookUrl: "https://harness-gui.vercel.app/api/linear-webhook",
+      }),
+    );
+    expect(upsertVercelProjectEnvVar).not.toHaveBeenCalledWith(
+      "vercel-token",
+      expect.objectContaining({ key: "LINEAR_WEBHOOK_SECRET" }),
+    );
+    expect(generateLinearWebhookSecret).not.toHaveBeenCalled();
+    expect(updateControlPlaneSetupState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        vercel: expect.objectContaining({
+          productionUrl: "https://harness-gui.vercel.app",
+          webhookUrl: "https://harness-gui.vercel.app/api/linear-webhook",
+        }),
+      }),
+      tempRoot,
+    );
+    expect(result.verificationRetry).toBe(true);
+    expect(result.verified).toBe(true);
+    expect(JSON.stringify(result)).not.toContain("stable-webhook-secret");
+  });
+
   it("reuses saved .env.local webhook secret on normal apply without regenerating or overwriting", async () => {
     const paths = resolveLocalFilePaths(tempRoot);
     await writeFile(

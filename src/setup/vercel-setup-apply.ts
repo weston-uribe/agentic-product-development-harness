@@ -624,7 +624,6 @@ export async function applyVercelBridgeSetup(input: {
       !activePendingRedeploy &&
         priorState?.vercel?.deploymentRedeployRequired &&
         priorState.vercel.projectId === preview.selectedProject.id &&
-        priorState.vercel.webhookUrl === preview.webhookUrl &&
         priorState.vercel.appliedFingerprint === preview.fingerprint,
     );
 

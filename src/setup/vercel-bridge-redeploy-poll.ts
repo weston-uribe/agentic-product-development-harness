@@ -96,6 +96,7 @@ export async function buildPollVerifyPlanInputFromPersistedState(input: {
     teamId,
     projectId,
     projectName,
+    preferredProductionDeploymentId: input.pending.newDeploymentId,
     team: {
       mode: "existing",
       teamId: teamId ?? "",
@@ -673,6 +674,7 @@ export async function pollVercelBridgeRedeployVerification(input: {
       signedProbeStatusCode: retryResult.signedProbe?.statusCode,
       fingerprint: claimed.fingerprint,
     });
+    const latestAfterApply = await readControlPlaneSetupState(input.cwd);
     await finalizePendingState({
       cwd: input.cwd,
       pending: claimed,
@@ -680,6 +682,8 @@ export async function pollVercelBridgeRedeployVerification(input: {
       message: "Signed webhook verification passed after production redeploy.",
       clearPending: true,
       vercelPatch: {
+        productionUrl: latestAfterApply?.vercel?.productionUrl,
+        webhookUrl: latestAfterApply?.vercel?.webhookUrl,
         signedProbeVerified: true,
         signedProbe: retryResult.signedProbe,
         deploymentRedeployRequired: false,
@@ -714,6 +718,7 @@ export async function pollVercelBridgeRedeployVerification(input: {
     fingerprint: claimed.fingerprint,
   });
 
+  const latestAfterApply = await readControlPlaneSetupState(input.cwd);
   await finalizePendingState({
     cwd: input.cwd,
     pending: claimed,
@@ -721,6 +726,8 @@ export async function pollVercelBridgeRedeployVerification(input: {
     message: setupBlocked.message,
     setupBlocked,
     vercelPatch: {
+      productionUrl: latestAfterApply?.vercel?.productionUrl,
+      webhookUrl: latestAfterApply?.vercel?.webhookUrl,
       signedProbeVerified: false,
       signedProbe: retryResult.signedProbe,
       deploymentRedeployRequired: true,

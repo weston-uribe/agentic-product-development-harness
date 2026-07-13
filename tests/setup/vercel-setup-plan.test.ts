@@ -7,7 +7,7 @@ vi.mock("../../src/setup/vercel-setup-client.js", async (importOriginal) => {
     ...actual,
     buildWebhookUrl: vi.fn((url: string) => `https://${url}/api/linear-webhook`),
     checkWebhookEndpointReachable: vi.fn(),
-    listVercelProductionDeployments: vi.fn(),
+    resolveCanonicalProductionTarget: vi.fn(),
     listVercelProjectEnvVars: vi.fn(),
     listVercelProjects: vi.fn(),
     listVercelTeams: vi.fn(),
@@ -26,7 +26,7 @@ vi.mock("../../src/setup/linear-webhook-secret.js", () => ({
 import { summarizeLinearWebhookReadiness } from "../../src/setup/linear-setup-plan.js";
 import { planLinearWebhookSecret } from "../../src/setup/linear-webhook-secret.js";
 import {
-  listVercelProductionDeployments,
+  resolveCanonicalProductionTarget,
   listVercelProjectEnvVars,
   listVercelProjects,
   listVercelTeams,
@@ -44,14 +44,16 @@ describe("vercel-setup-plan", () => {
     vi.mocked(listVercelProjects).mockResolvedValue([
       { id: "proj-1", name: "harness-gui", accountId: "acct-1" },
     ]);
-    vi.mocked(listVercelProductionDeployments).mockResolvedValue([
-      {
-        id: "dep-1",
-        url: "harness-gui.vercel.app",
-        readyState: "READY",
-        state: "READY",
-      },
-    ]);
+    vi.mocked(resolveCanonicalProductionTarget).mockResolvedValue({
+      productionUrl: "https://harness-gui.vercel.app",
+      webhookUrl: "https://harness-gui.vercel.app/api/linear-webhook",
+      deploymentId: "dep-1",
+      deploymentUrl: "harness-gui.vercel.app",
+      source: "stable_alias",
+      stableAlias: "harness-gui.vercel.app",
+      readyState: "READY",
+      state: "READY",
+    });
     vi.mocked(checkWebhookEndpointReachable).mockResolvedValue({
       reachable: true,
       statusCode: 405,
@@ -150,7 +152,7 @@ describe("vercel-setup-plan", () => {
   });
 
   it("reports missing deployment for existing projects without production URL", async () => {
-    vi.mocked(listVercelProductionDeployments).mockResolvedValue([]);
+    vi.mocked(resolveCanonicalProductionTarget).mockResolvedValue(undefined);
 
     const preview = await previewVercelBridgeSetup({
       vercelToken: "vercel-token",
@@ -220,5 +222,40 @@ describe("vercel-setup-plan", () => {
 
     expect(preview.linearWebhookSecretMode).toBe("existing-unverified");
     expect(preview.linearWebhookVerified).toBe(false);
+  });
+
+  it("prefers stable production alias when both alias and deployment-specific URL are available", async () => {
+    vi.mocked(resolveCanonicalProductionTarget).mockResolvedValue({
+      productionUrl: "https://harness-gui.vercel.app",
+      webhookUrl: "https://harness-gui.vercel.app/api/linear-webhook",
+      deploymentId: "dpl-new",
+      deploymentUrl:
+        "agentic-product-development-harness-da4vir36l-kinterra-team-url.vercel.app",
+      source: "stable_alias",
+      stableAlias: "harness-gui.vercel.app",
+      readyState: "READY",
+      state: "READY",
+    });
+
+    const preview = await previewVercelBridgeSetup({
+      vercelToken: "vercel-token",
+      projectId: "proj-1",
+      preferredProductionDeploymentId: "dpl-new",
+      derivedHarnessTeamKey: "WES",
+      derivedGithubDispatchToken: "ghp_saved",
+      linearApiKey: "lin_api_test",
+    });
+
+    expect(resolveCanonicalProductionTarget).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "proj-1",
+        preferredDeploymentId: "dpl-new",
+      }),
+    );
+    expect(preview.productionUrl).toBe("https://harness-gui.vercel.app");
+    expect(preview.webhookUrl).toBe(
+      "https://harness-gui.vercel.app/api/linear-webhook",
+    );
+    expect(preview.productionUrlSource).toBe("stable_alias");
   });
 });
