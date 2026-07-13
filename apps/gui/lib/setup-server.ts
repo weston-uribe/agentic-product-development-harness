@@ -42,8 +42,12 @@ import {
   type HarnessRepoProvisioningPreview,
   type HarnessRepoProvisioningSummary,
 } from "@harness/setup/harness-repo-provisioning";
-import type { GitHubRemoteSetupProvider } from "@harness/setup/github-remote-provider";
-import type { GitHubHarnessProvisioningProvider } from "@harness/setup/github-remote-provider";
+import {
+  MockGitHubRemoteSetupProvider,
+  type GitHubRemoteSetupProvider,
+  type GitHubHarnessProvisioningProvider,
+} from "@harness/setup/github-remote-provider";
+import { GitHubClient } from "@harness/github/client";
 import type { HarnessSecretOperatorInput } from "@harness/setup/harness-secret-setup";
 import {
   buildManualHarnessSecretCopyValues,
@@ -60,6 +64,11 @@ import {
   buildRemoteSetupSummary,
   type RemoteSetupSummary,
 } from "@harness/setup/remote-setup-summary";
+import { finalizeTargetWorkflowRemote } from "@harness/setup/target-workflow-finalization";
+import type {
+  TargetWorkflowFinalizeInput,
+  TargetWorkflowFinalizationResult,
+} from "@harness/setup/target-workflow-finalization-types";
 import { collectRemoteSecretInputs } from "@harness/setup/redact-secrets";
 import {
   loadGithubTokenFromEnvLocal,
@@ -350,7 +359,9 @@ export async function applyTargetWorkflowRemote(options: {
 }): Promise<{
   apply: RemoteTargetWorkflowApplyResult;
   summary: RemoteSetupSummary;
+  finalization?: TargetWorkflowFinalizationResult;
 }> {
+  const provider = await resolveRemoteProvider();
   const apply = await applyRemoteTargetWorkflow({
     cwd: resolveCwd(),
     repoConfigId: options.payload.repoConfigId,
@@ -359,10 +370,84 @@ export async function applyTargetWorkflowRemote(options: {
     manualHarnessDispatchRepo: options.payload.manualHarnessDispatchRepo,
     confirmed: options.confirmed,
     fingerprint: options.fingerprint,
-    provider: await resolveRemoteProvider(),
+    provider,
+  });
+
+  let finalization: TargetWorkflowFinalizationResult | undefined;
+  if (
+    provider &&
+    apply.outcome !== "already-installed" &&
+    (apply.outcome === "pr-created" ||
+      apply.outcome === "pr-updated" ||
+      apply.outcome === "branch-updated")
+  ) {
+    finalization = await runTargetWorkflowFinalization({
+      provider,
+      input: {
+        repoConfigId: options.payload.repoConfigId,
+        targetRepo: options.payload.targetRepo,
+        productionBranch: options.payload.productionBranch,
+        manualHarnessDispatchRepo: options.payload.manualHarnessDispatchRepo,
+        prUrl: apply.prUrl,
+        branchName: apply.branchName,
+      },
+    });
+  }
+
+  const summary = await loadRemoteSetupSummary();
+  return { apply, summary, finalization };
+}
+
+export async function finalizeTargetWorkflowRemoteAction(
+  payload: RemoteTargetWorkflowFormPayload & {
+    prUrl?: string;
+    branchName?: string;
+  },
+): Promise<{
+  finalization: TargetWorkflowFinalizationResult;
+  summary: RemoteSetupSummary;
+}> {
+  const provider = await resolveRemoteProvider();
+  if (!provider) {
+    throw new Error("GitHub token is required for target workflow finalization");
+  }
+
+  const finalization = await runTargetWorkflowFinalization({
+    provider,
+    input: {
+      repoConfigId: payload.repoConfigId,
+      targetRepo: payload.targetRepo,
+      productionBranch: payload.productionBranch,
+      manualHarnessDispatchRepo: payload.manualHarnessDispatchRepo,
+      prUrl: payload.prUrl,
+      branchName: payload.branchName,
+    },
   });
   const summary = await loadRemoteSetupSummary();
-  return { apply, summary };
+  return { finalization, summary };
+}
+
+async function runTargetWorkflowFinalization(options: {
+  provider: GitHubRemoteSetupProvider;
+  input: TargetWorkflowFinalizeInput;
+}): Promise<TargetWorkflowFinalizationResult> {
+  if (options.provider instanceof MockGitHubRemoteSetupProvider) {
+    return options.provider.advanceTargetWorkflowFinalization(options.input);
+  }
+
+  const cwd = resolveCwd();
+  const token = await loadGithubTokenFromEnvLocal({ cwd });
+  if (!hasGithubTokenConfigured(token)) {
+    throw new Error("GitHub token is required for target workflow finalization");
+  }
+
+  const client = new GitHubClient({ token: token! });
+  return finalizeTargetWorkflowRemote({
+    cwd,
+    input: options.input,
+    provider: options.provider,
+    client,
+  });
 }
 
 async function loadLinearApiKey(cwd: string): Promise<string | undefined> {

@@ -38,6 +38,7 @@ import {
   syncVercelSummaryFromEnvPresence,
 } from "@harness/setup/sync-downstream-summaries";
 import type { RemoteTargetWorkflowApplyResult } from "@harness/setup/remote-actions";
+import type { TargetWorkflowFinalizationResult } from "@harness/setup/target-workflow-finalization-types";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/custom/status-badge";
 import { ReadinessBanner } from "@/components/custom/readiness-banner";
@@ -130,6 +131,9 @@ export function ConfigureExperience({
     );
   const [workflowInstallPendingByRepo, setWorkflowInstallPendingByRepo] =
     useState<Record<string, RemoteTargetWorkflowApplyResult>>({});
+  const [workflowFinalizationByRepo, setWorkflowFinalizationByRepo] = useState<
+    Record<string, TargetWorkflowFinalizationResult>
+  >({});
   const [workflowAwaitingMerge, setWorkflowAwaitingMerge] = useState(false);
   const previousReadinessStepRef = useRef<FirstRunStepId | null>(null);
 
@@ -377,6 +381,7 @@ export function ConfigureExperience({
   const handleGuidedWorkflowSetupComplete = useCallback(() => {
     setWorkflowAwaitingMerge(false);
     setWorkflowInstallPendingByRepo({});
+    setWorkflowFinalizationByRepo({});
   }, []);
 
   const handleGuidedLocalApplySuccess = useCallback(() => {
@@ -540,7 +545,9 @@ export function ConfigureExperience({
             onWorkflowSetupComplete={handleGuidedWorkflowSetupComplete}
             onWorkflowAwaitingMergeChange={setWorkflowAwaitingMerge}
             pendingInstallByRepo={workflowInstallPendingByRepo}
+            finalizationByRepo={workflowFinalizationByRepo}
             onPendingInstallChange={setWorkflowInstallPendingByRepo}
+            onFinalizationChange={setWorkflowFinalizationByRepo}
             blockedByUpstream={readiness.remoteSetupBlockedByUpstream}
           />
         );
@@ -553,8 +560,8 @@ export function ConfigureExperience({
             <div className={SPACING.stackSm}>
               <StatusBadge label="Setup complete" variant="success" />
               <p className="text-sm text-muted-foreground">
-                Your harness setup is ready. If you just merged a workflow
-                install PR, that merge is what made the target workflow ready.
+                Your harness setup is ready. The target workflow install finished
+                automatically when production verification succeeded.
                 A later milestone can add a safe first-issue dry run or no-op
                 harness validation.
               </p>
@@ -579,7 +586,7 @@ export function ConfigureExperience({
   const guidedStatusBadgeLabel = readiness.readyForFirstRun
     ? "Setup complete"
     : workflowAwaitingMerge
-      ? "Waiting for workflow PR merge"
+      ? "Finalizing workflow install"
       : "Setup in progress";
 
   return (

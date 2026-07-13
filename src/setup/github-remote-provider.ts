@@ -6,6 +6,18 @@ import type {
 } from "./remote-actions.js";
 import { HARNESS_ACTIONS_SECRET_NAMES } from "./remote-actions.js";
 import type { GitHubTokenType } from "./github-workflow-permissions.js";
+import type {
+  TargetWorkflowFinalizeInput,
+  TargetWorkflowFinalizationResult,
+} from "./target-workflow-finalization-types.js";
+import {
+  advanceMockTargetWorkflowFinalization,
+  type MockWorkflowFinalizationScenario,
+} from "./mock-target-workflow-finalization.js";
+import { previewTargetWorkflowSetup } from "./target-workflow-setup.js";
+import {
+  type HarnessDispatchRepoResolution,
+} from "./harness-dispatch-repo.js";
 
 export interface GitHubRepositoryMetadata {
   repositoryId: number;
@@ -158,6 +170,8 @@ export interface MockGitHubRemoteSetupProviderState {
   existingOpenPrUrl?: string;
   writeHarnessSecretsResult?: HarnessSecretWriteResultEntry[];
   applyTargetWorkflowResult?: TargetWorkflowApplyResult;
+  finalizationScenario?: MockWorkflowFinalizationScenario;
+  harnessDispatchRepo?: HarnessDispatchRepoResolution;
 }
 
 export class MockGitHubRemoteSetupProvider implements GitHubRemoteSetupProvider {
@@ -167,8 +181,48 @@ export class MockGitHubRemoteSetupProvider implements GitHubRemoteSetupProvider 
     secretName: string;
     encryptedValue: string;
   }> = [];
+  private mutableWorkflowContent: string | null | undefined;
 
-  constructor(private readonly state: MockGitHubRemoteSetupProviderState = {}) {}
+  constructor(private readonly state: MockGitHubRemoteSetupProviderState = {}) {
+    this.mutableWorkflowContent = state.existingWorkflowContent;
+  }
+
+  advanceTargetWorkflowFinalization(
+    input: TargetWorkflowFinalizeInput,
+  ): TargetWorkflowFinalizationResult {
+    this.calls.push({
+      method: "advanceTargetWorkflowFinalization",
+      args: [input],
+    });
+
+    const harnessDispatchRepo =
+      this.state.harnessDispatchRepo ??
+      ({
+        resolved: true,
+        repo: "owner/harness-repo",
+        source: "explicit-config",
+      } satisfies HarnessDispatchRepoResolution);
+    const preview = previewTargetWorkflowSetup({
+      repoConfigId: input.repoConfigId,
+      targetRepo: input.targetRepo,
+      productionBranch: input.productionBranch,
+      harnessDispatchRepo,
+    });
+
+    return advanceMockTargetWorkflowFinalization({
+      finalizeInput: input,
+      intendedWorkflowContent: preview.workflowContent,
+      existingWorkflowContent: this.mutableWorkflowContent,
+      scenario: this.state.finalizationScenario,
+      onProductionWorkflowUpdate: (content) => {
+        this.mutableWorkflowContent = content;
+      },
+    });
+  }
+
+  setExistingWorkflowContent(content: string | null): void {
+    this.mutableWorkflowContent = content;
+  }
 
   async checkHarnessRepoAccess(
     harnessDispatchRepo: string,
@@ -209,7 +263,7 @@ export class MockGitHubRemoteSetupProvider implements GitHubRemoteSetupProvider 
       args: [input],
     });
 
-    const existing = this.state.existingWorkflowContent;
+    const existing = this.mutableWorkflowContent ?? this.state.existingWorkflowContent;
     let workflowStatus: RemoteWorkflowStatus = "unknown";
     if (existing === null || existing === undefined) {
       workflowStatus = "missing";

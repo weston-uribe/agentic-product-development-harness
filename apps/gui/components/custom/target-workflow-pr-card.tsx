@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import type { TargetWorkflowFinalizationResult } from "@harness/setup/target-workflow-finalization-types";
 import type {
   RemoteTargetWorkflowApplyResult,
   RemoteTargetWorkflowPreview,
@@ -16,7 +17,10 @@ import { SetupApplyResult } from "@/components/custom/setup-apply-result";
 interface TargetWorkflowPrCardProps {
   repo: RemoteSetupRepoSummary;
   onApplied: () => void;
-  onGuidedApplySuccess?: (result: RemoteTargetWorkflowApplyResult) => void;
+  onGuidedApplySuccess?: (
+    result: RemoteTargetWorkflowApplyResult,
+    finalization?: TargetWorkflowFinalizationResult,
+  ) => void;
   blockedByUpstream?: boolean;
   variant?: "advanced" | "guided";
 }
@@ -134,11 +138,14 @@ export function TargetWorkflowPrCard({
         throw new Error(data.error ?? "Apply failed");
       }
       const apply = data.apply as RemoteTargetWorkflowApplyResult;
+      const finalization = data.finalization as
+        | TargetWorkflowFinalizationResult
+        | undefined;
       setPreview(null);
       setPreviewKey(null);
       setConfirmed(false);
       if (variant === "guided") {
-        onGuidedApplySuccess?.(apply);
+        onGuidedApplySuccess?.(apply, finalization);
       } else {
         setApplyResult(apply);
       }

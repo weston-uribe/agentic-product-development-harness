@@ -378,6 +378,7 @@ export class GitHubClient {
     options: {
       mergeMethod: "squash" | "merge" | "rebase";
       commitTitle?: string;
+      expectedHeadSha?: string;
     },
   ): Promise<{ sha: string; merged: boolean; message?: string }> {
     return this.request<{ sha: string; merged: boolean; message?: string }>(
@@ -387,6 +388,7 @@ export class GitHubClient {
         body: {
           merge_method: options.mergeMethod,
           ...(options.commitTitle ? { commit_title: options.commitTitle } : {}),
+          ...(options.expectedHeadSha ? { sha: options.expectedHeadSha } : {}),
         },
       },
     );

@@ -1,62 +1,99 @@
 "use client";
 
-import type { RemoteTargetWorkflowApplyResult } from "@harness/setup/remote-actions";
+import type { TargetWorkflowFinalizationResult } from "@harness/setup/target-workflow-finalization-types";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/custom/status-badge";
 
-interface WorkflowInstallPendingPanelProps {
-  applyResult: RemoteTargetWorkflowApplyResult;
-  onRefresh: () => void;
-  refreshing?: boolean;
+interface WorkflowInstallProgressPanelProps {
+  finalization: TargetWorkflowFinalizationResult;
+  onRetry?: () => void;
+  retrying?: boolean;
 }
 
-export function WorkflowInstallPendingPanel({
-  applyResult,
-  onRefresh,
-  refreshing = false,
-}: WorkflowInstallPendingPanelProps) {
-  const prCreated =
-    applyResult.outcome === "pr-created" || applyResult.outcome === "pr-updated";
+function lifecycleLabel(lifecycle: TargetWorkflowFinalizationResult["lifecycle"]): string {
+  switch (lifecycle) {
+    case "preparing":
+      return "Creating workflow install";
+    case "pr-created":
+    case "pr-updated":
+      return "Workflow install PR ready";
+    case "waiting-for-checks":
+      return "Waiting for checks";
+    case "updating-branch":
+      return "Updating install branch";
+    case "merging":
+      return "Merging automatically";
+    case "verifying":
+      return "Verifying workflow";
+    case "complete":
+      return "Workflow installed";
+    case "blocked":
+      return "Workflow install blocked";
+    default:
+      return "Finalizing workflow install";
+  }
+}
+
+function lifecycleVariant(
+  lifecycle: TargetWorkflowFinalizationResult["lifecycle"],
+): "success" | "warning" | "destructive" | "secondary" {
+  if (lifecycle === "complete") {
+    return "success";
+  }
+  if (lifecycle === "blocked") {
+    return "destructive";
+  }
+  if (lifecycle === "waiting-for-checks" || lifecycle === "verifying") {
+    return "warning";
+  }
+  return "secondary";
+}
+
+export function WorkflowInstallProgressPanel({
+  finalization,
+  onRetry,
+  retrying = false,
+}: WorkflowInstallProgressPanelProps) {
+  const blocked = finalization.lifecycle === "blocked";
+  const complete = finalization.lifecycle === "complete";
 
   return (
     <div className="rounded-md border border-border bg-muted/20 p-4 space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <StatusBadge
-          label={
-            prCreated ? "Workflow install PR created" : "Workflow install updated"
-          }
-          variant="success"
+          label={lifecycleLabel(finalization.lifecycle)}
+          variant={lifecycleVariant(finalization.lifecycle)}
         />
       </div>
-      <p className="text-sm text-muted-foreground">
-        {prCreated
-          ? "The workflow install PR was created. Review and merge it in GitHub before production automation can run."
-          : "The install branch was updated. Open the workflow install PR in GitHub if one exists, merge it when ready, then return here."}
-      </p>
-      <p className="text-sm text-muted-foreground">
-        Merge the PR in GitHub, then return here and refresh status.
-      </p>
-      <div className="flex flex-wrap gap-2">
-        {applyResult.prUrl ? (
-          <Button asChild>
-            <a
-              href={applyResult.prUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Open workflow install PR
-            </a>
-          </Button>
-        ) : null}
-        <Button
-          type="button"
-          variant="outline"
-          onClick={onRefresh}
-          disabled={refreshing}
-        >
-          {refreshing ? "Refreshing…" : "Refresh status"}
-        </Button>
-      </div>
+      <p className="text-sm text-muted-foreground">{finalization.message}</p>
+
+      {blocked ? (
+        <div className="flex flex-wrap gap-2">
+          {finalization.canRetry && onRetry ? (
+            <Button type="button" onClick={onRetry} disabled={retrying}>
+              {retrying ? "Retrying…" : "Retry finalization"}
+            </Button>
+          ) : null}
+          {finalization.requiresGitHubIntervention && finalization.prUrl ? (
+            <Button asChild variant="outline">
+              <a
+                href={finalization.prUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Open GitHub details
+              </a>
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {!blocked && !complete && finalization.prUrl ? (
+        <details className="text-xs text-muted-foreground">
+          <summary className="cursor-pointer">Advanced details</summary>
+          <p className="mt-2 break-all">Install PR: {finalization.prUrl}</p>
+        </details>
+      ) : null}
     </div>
   );
 }
