@@ -25,7 +25,7 @@ function validMarker(overrides: Record<string, unknown> = {}) {
     operationId: "op-1",
     createdByGithubUserId: 1,
     createdByLogin: "test-user",
-    pDevVersion: "0.0.0",
+    pDevVersion: "0.3.0",
   });
   return { ...marker, ...overrides };
 }

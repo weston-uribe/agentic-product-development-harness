@@ -1,26 +1,59 @@
 # Agentic Product Development Harness
 
-**Current release: v0.2.0** (GitHub source release — see [`docs/releases/v0.2.0.md`](docs/releases/v0.2.0.md))
+**Current release: v0.3.0** — guided onboarding and distribution release
+
+## Use the product
+
+**Easiest start for product managers:**
+
+```bash
+npx --yes p-dev@0.3.0
+```
+
+- Requires **Node.js 22+**
+- Starts a local guided **Configure GUI**
+- Creates or reconnects a private operator harness workspace
+- **macOS validated** for packaged launch; use `--no-open` on other platforms
+- Early-stage — not production SaaS
+
+Full guide: [`docs/p-dev.md`](docs/p-dev.md)
+
+## Develop the harness
+
+Contributors and maintainers clone the source repository:
+
+```bash
+git clone https://github.com/weston-uribe/agentic-product-development-harness.git
+cd agentic-product-development-harness
+npm ci && npm run build
+npm run harness:configure
+```
+
+See [`docs/getting-started.md`](docs/getting-started.md).
 
 ## TL;DR
 
-This repo is a Cursor-first orchestration harness for turning structured Linear issues into GitHub PRs through a controlled AI-assisted workflow.
+Cursor-first orchestration harness for turning structured Linear issues into GitHub PRs through a controlled AI-assisted workflow.
 
-It supports:
+| Layer | Status |
+|-------|--------|
+| Product install | `p-dev@0.3.0` on npm (public) |
+| Agent provider | Cursor Cloud Agents only |
+| Product system | Linear |
+| SCM / PR | GitHub |
+| Cloud runner | GitHub Actions |
+| Preview / bridge | Vercel (when configured) |
+| Canonical skills | Six implemented under `.agents/skills/` |
 
-- Linear as the product/control system
-- GitHub as the repo and PR system
-- GitHub Actions as the runner
-- Cursor Cloud Agents as the only implemented agent provider
-- Vercel as the webhook bridge and preview source when configured
-
-It is not provider-agnostic, not an npm package, and not a plug-and-play product. V0.2.0 is a source release of the working harness, security baseline, and operator docs.
+It is **not** provider-agnostic and **not** a production SaaS.
 
 ## Quick links
 
 | Topic | Doc |
 |-------|-----|
-| Getting started | [`docs/getting-started.md`](docs/getting-started.md) |
+| **p-dev install guide** | [`docs/p-dev.md`](docs/p-dev.md) |
+| Getting started (source) | [`docs/getting-started.md`](docs/getting-started.md) |
+| Release contract (v0.3.0) | [`docs/releases/v0.3.0.md`](docs/releases/v0.3.0.md) |
 | Release contract (v0.2.0) | [`docs/releases/v0.2.0.md`](docs/releases/v0.2.0.md) |
 | Security baseline | [`docs/security.md`](docs/security.md) |
 | Provider portability | [`docs/provider-portability.md`](docs/provider-portability.md) |
@@ -37,111 +70,38 @@ AI-assisted development makes it easy to generate code quickly. It does not, by 
 
 ## What this is
 
-The harness coordinates a product-development loop:
-
 ```text
 Linear issue → planning/build/review phases → GitHub PR → Linear/status gate → merge or revision
 ```
 
-The goal is not to remove human judgment. The goal is to make AI-assisted development traceable: intent, execution, validation, and review all leave durable artifacts.
-
-SDK runners handle planning through merge and production sync. Linear status changes can trigger cloud runs automatically. A ChatGPT intake prompt helps PMs draft harness-compatible issues without copying repo templates.
-
-The architecture is modular by subsystem, but it is **not provider-agnostic**. See [configuration and portability posture](#configuration-and-portability-posture) below.
+SDK runners handle planning through merge and production sync. Linear status changes can trigger cloud runs automatically. `p-dev` provides guided onboarding without cloning this repository.
 
 ## Current capability
 
 | Layer | Status |
 |-------|--------|
-| Issue intake | ChatGPT copy-paste prompt + Cursor skill + validate-issue CLI |
+| Product onboarding | `p-dev` guided Configure GUI (implemented) |
+| Issue intake | ChatGPT prompt + Cursor skill + validate-issue CLI |
 | Planning / implementation / handoff / revision / merge | SDK runners (implemented) |
-| Production sync | SDK runner + optional `production_promoted` dispatch (implemented) |
+| Production sync | SDK runner + optional dispatch (implemented) |
 | Auto-run from Linear status | Webhook bridge + GitHub Actions (implemented) |
-| Agent provider | Cursor Cloud Agents only (implemented) |
-| Linear / status gates | Required — automation respects allowlisted statuses |
-| GitHub review requirement (solo repo) | **0 approvals** — PR + required checks only |
-| Canonical harness skills | Implemented — `issue-intake`, `code-health-audit`, `architecture-evolution-audit`, `security-audit`, `planner`, `implementation` (see [`docs/skills/skill-architecture.md`](docs/skills/skill-architecture.md)) |
-
-## Auto-run flow
-
-```text
-Linear status → Ready for Planning / Ready for Build / PR Open / Needs Revision / Ready to Merge
-  → Vercel webhook → GitHub Actions → harness run --phase auto
-```
-
-Setup: [`docs/linear-watcher-setup.md`](docs/linear-watcher-setup.md) — Security baseline: [`docs/security.md`](docs/security.md)
-
-## Workflow
-
-```text
-Structured issue → optional plan → Cursor execution → GitHub PR
-  → handoff / preview → PM review → revision or Ready to Merge → merge / sync
-```
-
-Each step has a template in [`templates/`](templates/). Status changes on allowlisted Linear statuses trigger harness phases automatically. **Linear/status gates** remain at review and merge. GitHub required review is disabled (0 approvals) in solo-maintainer mode — see [`docs/security.md`](docs/security.md).
-
-## What exists today
-
-- SDK harness runners for planning, implementation, handoff, revision, merge, and production sync — see [`ROADMAP.md`](ROADMAP.md)
-- Event-driven auto-runner — [`api/linear-webhook.ts`](api/linear-webhook.ts), [`.github/workflows/harness-auto-runner.yml`](.github/workflows/harness-auto-runner.yml)
-- ChatGPT intake prompt — [`prompts/issue-intake-chatgpt.md`](prompts/issue-intake-chatgpt.md)
-- Canonical harness skills — [`issue-intake`](.agents/skills/issue-intake/), [`code-health-audit`](.agents/skills/code-health-audit/), [`architecture-evolution-audit`](.agents/skills/architecture-evolution-audit/), [`security-audit`](.agents/skills/security-audit/), [`planner`](.agents/skills/planner/), [`implementation`](.agents/skills/implementation/) under [`.agents/skills/`](.agents/skills/)
-- Cursor Cloud Agents as the single implemented agent provider
-- Templates, evals, examples, architecture docs
+| Canonical harness skills | `issue-intake`, `code-health-audit`, `architecture-evolution-audit`, `security-audit`, `planner`, `implementation` |
 
 ## Configuration and portability posture
 
-V0.2 is **Cursor-first** and **not provider-agnostic yet**. Cursor is the only implemented agent execution provider, Linear and GitHub are explicit assumptions, GitHub Actions is the cloud runner, and Vercel is the only implemented preview provider when preview capture is enabled. Config exposes an `agentProvider` shape with `id: "cursor"` only; `defaultModel` remains for backward compatibility.
-
-- What is configurable, fixed, and intentionally not claimed: [`docs/provider-portability.md`](docs/provider-portability.md)
-- Why the agent provider is not a simple model/env-var swap: [`docs/decisions/0004-agent-provider-boundary.md`](docs/decisions/0004-agent-provider-boundary.md)
-
-This repo does **not** claim provider agnosticism, or support for Claude Code, Codex, local VS Code agents, GitLab, or Bitbucket.
+V0.3 is **Cursor-first** and **not provider-agnostic**. See [`docs/provider-portability.md`](docs/provider-portability.md).
 
 ## What is planned
 
 See [`ROADMAP.md`](ROADMAP.md) for deferred work: `performance-cost-audit`, skill registry/package manager, runner-skill integration, automated eval contract, and future portability.
 
-## Target repos
-
-The harness is configured per target repo in `harness.config.json`.
-
-A target repo defines:
-
-- GitHub repo URL
-- Linear project/team mapping
-- integration branch
-- production branch
-- validation commands
-- optional preview and production URLs
-
-V0.2.0 assumes GitHub target repos. It does not ship a universal target-repo template.
-
-See [`docs/target-repo-branch-setup.md`](docs/target-repo-branch-setup.md) for integration-branch and production-sync setup.
-
 ## What this repo does not claim
 
 - Autonomous shipping without Linear/status gates
-- Production-grade robustness or portability
-- Provider agnosticism (Cursor is the only implemented agent provider)
-- Lead agent skill, skill registry/package manager, runner-skill integration, or provider/client skill adapters
-- npm package publication
-- Polling-based Linear watcher
-
-Git tags and GitHub releases are operator-controlled milestones — see [`docs/releases/release-process.md`](docs/releases/release-process.md). They are not created from doc PRs.
-
-Six canonical skills are implemented under [`.agents/skills/`](.agents/skills/): operator-invoked `issue-intake`, `code-health-audit`, `architecture-evolution-audit`, and `security-audit`; runner/agent phase `planner` and `implementation`. Issue intake is also available via [`prompts/issue-intake-chatgpt.md`](prompts/issue-intake-chatgpt.md) (ChatGPT). `performance-cost-audit`, skill registry/package manager, manifests, provider adapters, and runner-skill integration remain planned or not implemented — see [`docs/skills/skill-architecture.md`](docs/skills/skill-architecture.md).
-
-## Getting started
-
-See [`docs/getting-started.md`](docs/getting-started.md) for the full operator guide. Quick path:
-
-1. Read [`ARCHITECTURE.md`](ARCHITECTURE.md) for the modular component model
-2. Read [`AGENTS.md`](AGENTS.md) if you are an AI agent working in this repo
-3. **PM intake:** copy [`prompts/issue-intake-chatgpt.md`](prompts/issue-intake-chatgpt.md) into ChatGPT — or use [`.agents/skills/issue-intake/SKILL.md`](.agents/skills/issue-intake/SKILL.md) in Cursor
-4. Validate: `npm run harness:validate-issue -- --file draft.md --intended-phase planning`
-5. Dry-run: `npm run harness:run -- --issue WES-XX --dry-run`
-6. **Auto-run setup:** [`docs/linear-watcher-setup.md`](docs/linear-watcher-setup.md)
+- Production-grade robustness or SaaS maturity
+- Provider agnosticism
+- Full isolated npm-installed issue lifecycle (setup validated; issue run not yet)
+- Generic auto-merge for arbitrary product PRs
 
 ## License
 

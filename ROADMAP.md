@@ -6,24 +6,35 @@ For shipped history, see [CHANGELOG.md](CHANGELOG.md).
 
 ## Now
 
-- Harden the v0.2.0 public source release
-- Keep documentation honest and target-repo examples generic
+- Harden post-v0.3.0 operator experience from real `p-dev` installs
+- Validate a full issue lifecycle from an isolated npm-installed workspace
+- Improve cross-platform packaged launch policy beyond macOS browser auto-open
 - Continue validating the Linear → GitHub → Cursor workflow on real but private target repos
 
 ## Next
 
-- Make target-repo onboarding easier with a clearer sample config and setup checklist
-- Improve validation/reporting so review readiness is easier to assess
-- Add stronger CI/security defaults for target repos
-- Reduce setup friction for solo operators
+- Skill registry/package manager and manifests
+- Runner-skill prompt integration (`src/prompts/*.md` remain runner implementation details today)
+- `performance-cost-audit` skill
+- Automated eval/check runners where manual rubrics are currently used
+- Stronger CI/security defaults for target repos
 
 ## Later
 
 - Add additional agent providers after proving a second adapter end to end
-- Explore npm package distribution if the API stabilizes
-- Add automated eval/check runners where manual rubrics are currently used
 - Support more preview/deployment providers
 - Improve multi-repo and team workflows
+- Automatic upgrade/synchronization of already-created private harness workspaces
+
+## Shipped in v0.3.0
+
+- Seven-step guided Configure GUI with confirmation-gated local and remote setup
+- Codespaces-compatible source development path
+- Six canonical harness skills under `.agents/skills/`
+- Public `p-dev@0.3.0` npm package with durable operator workspace
+- Public template provisioning via `weston-uribe/p-dev-harness-template`
+- Automated Vercel bridge configuration and signed webhook verification
+- Guarded Step 7 workflow install PR finalization for system-owned setup PRs
 
 ## Not planned for v0.x
 

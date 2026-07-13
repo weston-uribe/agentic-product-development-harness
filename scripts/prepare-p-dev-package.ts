@@ -109,7 +109,13 @@ import "../dist/p-dev/main.js";
     path.join(packageDir, "templates", ".harness", "config.example.json"),
   );
 
-  console.log("Prepared unpublished p-dev package at packages/p-dev");
+  console.log("Copying MIT license for npm publication…");
+  await copyIfExists(
+    path.join(repoRoot, "LICENSE"),
+    path.join(packageDir, "LICENSE"),
+  );
+
+  console.log(`Prepared p-dev package at packages/p-dev`);
 }
 
 main().catch((error: unknown) => {

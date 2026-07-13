@@ -29,7 +29,7 @@ describe("p-dev launch", () => {
     await mkdir(guiDir, { recursive: true });
     await writeFile(
       path.join(packageRoot, "package.json"),
-      JSON.stringify({ name: "p-dev", version: "0.0.0" }),
+      JSON.stringify({ name: "p-dev", version: "0.3.0" }),
       "utf8",
     );
     await writeFile(
@@ -104,7 +104,7 @@ describe("p-dev launch", () => {
     expect(spawnOptions.cwd).toBe(path.join(packageRoot, "gui"));
     expect(spawnOptions.env.HARNESS_REPO_ROOT).toBe(workspaceDir);
     expect(spawnOptions.env.P_DEV_HOME).toBe(workspaceDir);
-    expect(spawnOptions.env.P_DEV_PACKAGE_VERSION).toBe("0.0.0");
+    expect(spawnOptions.env.P_DEV_PACKAGE_VERSION).toBe("0.3.0");
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 });

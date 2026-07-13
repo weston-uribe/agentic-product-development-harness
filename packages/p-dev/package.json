@@ -1,9 +1,9 @@
 {
   "name": "p-dev",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.3.0",
   "type": "module",
-  "description": "Unpublished packaging spike for launching the Product Development Harness Configure GUI via npx.",
+  "description": "Launch the Product Development Harness guided Configure GUI without cloning the source repository.",
+  "license": "MIT",
   "bin": {
     "p-dev": "./bin/p-dev.js"
   },
@@ -15,8 +15,30 @@
     "dist",
     "gui",
     "templates",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
+  "keywords": [
+    "product-development",
+    "harness",
+    "linear",
+    "github",
+    "cursor",
+    "configure",
+    "onboarding"
+  ],
+  "homepage": "https://github.com/weston-uribe/agentic-product-development-harness/tree/main/packages/p-dev",
+  "bugs": {
+    "url": "https://github.com/weston-uribe/agentic-product-development-harness/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/weston-uribe/agentic-product-development-harness.git",
+    "directory": "packages/p-dev"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
     "@cursor/sdk": "^1.0.23",
     "@linear/sdk": "^40.0.0",

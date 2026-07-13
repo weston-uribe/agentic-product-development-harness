@@ -4,7 +4,7 @@ Instructions for AI agents working in **agentic-product-development-harness**. R
 
 ## What this repo is
 
-v0.2.0 harness repo: SDK runners (M1–M8), templates, eval contracts, and event-driven Linear auto-run. Read this before making changes.
+v0.3.0 harness repo: SDK runners (M1–M8), templates, eval contracts, event-driven Linear auto-run, guided Configure GUI, and public `p-dev` npm package. Read this before making changes.
 
 The harness has **M1–M8 SDK runners and tooling** (planning through merge, issue intake validation, and event-driven auto-run via Linear webhook + GitHub Actions).
 
@@ -26,7 +26,7 @@ Status changes on allowlisted Linear statuses trigger cloud harness runs automat
 
 6. **Report validation clearly.** State what was checked, what passed, what was not run, and what requires human review.
 
-7. **Never touch other local repos unless explicitly instructed.** Target repos (e.g. `example-target-app`) are separate workspaces. This repo defines the harness; it does not modify target apps, kinterra, or other codebases by default.
+7. **Never touch other local repos unless explicitly instructed.** Target repos (e.g. `example-target-app`) and the external template repo (`weston-uribe/p-dev-harness-template`) are separate workspaces. Modify the template only during approved template-sync release work.
 
 ## Cursor model policy
 
@@ -83,9 +83,10 @@ These are distinct artifacts. Do not conflate them in docs or reports.
 | **Commit** | A saved change in git history | After completing a scoped unit of work |
 | **PR** | A reviewable proposal to merge a branch | When code is ready for human review |
 | **Tag** | A named pointer to a specific commit | When marking a version milestone |
-| **Release** | A published, externally useful milestone (often tied to a tag) | Only when the milestone is externally useful **and** explicitly approved |
+| **Release** | A published, externally useful milestone (often tied to a tag) | When the milestone is externally useful **and** explicitly approved |
+| **npm package** | Public `p-dev@X.Y.Z` CLI distribution | When `p-dev` publication is explicitly approved for that version |
 
-**Never create releases or tags** unless the milestone is externally useful and explicitly approved by the human operator. Do **not** create the `v0.2.0` tag or GitHub release from a release-doc PR — follow [`docs/releases/release-process.md`](docs/releases/release-process.md) after merge. Internal harness improvements and spike work do not need releases.
+**Never create releases or tags** unless the milestone is externally useful and explicitly approved by the human operator. Do **not** create tags, npm publications, or GitHub releases from a release-doc PR — follow [`docs/releases/release-process.md`](docs/releases/release-process.md) after merge. Internal harness improvements that are not externally useful do not need releases.
 
 ## Before acting
 
@@ -108,7 +109,8 @@ These are distinct artifacts. Do not conflate them in docs or reports.
 ## File map
 
 ```text
-README.md           → Public overview and v0.2.0 source-release positioning
+README.md           → Public overview and v0.3.0 release positioning
+docs/p-dev.md       → Canonical p-dev end-user guide
 ROADMAP.md          → Phased delivery plan
 docs/releases/      → Release contract and tag/release process
 ARCHITECTURE.md     → Modular component model
@@ -126,4 +128,4 @@ examples/           → Example runs
 
 ## Tone
 
-Write for hiring managers and technical reviewers: clear, honest, structured. Early-stage is a feature—do not dress v0.2 up as production-grade.
+Write for hiring managers and technical reviewers: clear, honest, structured. Early-stage is a feature—do not dress v0.3 up as production-grade SaaS.

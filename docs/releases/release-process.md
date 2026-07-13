@@ -1,101 +1,236 @@
 # Release process
 
-Operator guide for creating git tags and GitHub releases for this harness repo.
+Operator guide for harness releases: GitHub source release plus public npm package `p-dev`.
 
-**This is a GitHub source release process.** The repo is `private: true` and is not published to npm. `package.json` version is a source-release marker only.
-
-**Related:** [`v0.2.0.md`](v0.2.0.md) (release contract), [`CHANGELOG.md`](../../CHANGELOG.md)
+**Related:** [`v0.3.0.md`](v0.3.0.md) (current release contract), [`v0.2.0.md`](v0.2.0.md) (historical), [`CHANGELOG.md`](../../CHANGELOG.md), [`docs/p-dev.md`](../p-dev.md)
 
 ## Summary
 
-The release process is intentionally separate from the release-doc PR.
+The release process has distinct phases:
 
-First, merge the release documentation and version bump to `main`. Then verify the merge commit, create an annotated tag, push the tag, and create the GitHub release from the curated release notes.
+1. **Release-preparation PR** — versions, docs, tests, release contract (no tag/npm/release mutations)
+2. **Template synchronization** — curated sync to `weston-uribe/p-dev-harness-template`
+3. **Exact tarball validation** — build and smoke-test `p-dev-0.3.0.tgz` at `RELEASE_SHA`
+4. **npm publication** — publish the exact validated tarball
+5. **Annotated git tag** — primary `v0.3.0` at `RELEASE_SHA`
+6. **GitHub release** — curated notes from `docs/releases/v0.3.0.md`
+7. **Post-release finalization PR** — record immutable tag/npm/template evidence
 
----
-
-## When to tag
-
-Only **after**:
-
-1. The release-doc PR (changelog, release contract, truth-audit docs, version bump) merges to `main`
-2. Required checks are green on the merge commit: `test`, `Analyze (javascript-typescript)`
-
-Do **not** create tags or GitHub releases inside the release-doc PR.
+Do **not** push directly to `main`, force-push, overwrite tags, or republish npm versions.
 
 ---
 
-## V0.2.0 — exact commands
+## Phase 1 — Release-preparation PR
 
-Run from a clean local clone with push access:
+Merge to `main`:
+
+- Version bumps (`0.3.0` root, `p-dev@0.3.0`)
+- `CHANGELOG.md`, `docs/releases/v0.3.0.md`, truth-audit docs
+- Package publication metadata and tests
+- Validation on the PR branch
+
+**Do not run during the release-prep PR:**
+
+- `git tag`, `git push` (tags)
+- `npm publish`
+- `gh release create`
+- Live remote setup mutations
+
+---
+
+## Phase 2 — Template synchronization
+
+After primary release-prep PR merges:
+
+1. Record `RELEASE_SHA` (merge commit on `main`)
+2. In `weston-uribe/p-dev-harness-template`, branch `release/v0.3.0-template`
+3. Sync curated content from `RELEASE_SHA` (no secrets, local state, or tarballs)
+4. Update `.harness/p-dev-template.json`:
+   - `source.repository` = `weston-uribe/agentic-product-development-harness`
+   - `source.release` = `v0.3.0`
+   - `source.packageVersion` = `0.3.0`
+   - `templateContentId` deterministic from `RELEASE_SHA` + curated generation
+5. Merge template PR; record `TEMPLATE_SHA`
+6. Push annotated template tag if absent:
 
 ```bash
-git checkout main
-git pull --ff-only origin main
-git fetch --tags origin
-git rev-parse -q --verify refs/tags/v0.2.0 && echo "Tag exists; stop" && exit 1 || true
+git tag -a v0.3.0 TEMPLATE_SHA -m "p-dev harness template v0.3.0"
+git push origin v0.3.0
+```
+
+---
+
+## Phase 3 — npm preflight
+
+Before publication:
+
+```bash
+npm config get registry
+npm whoami --registry=https://registry.npmjs.org/
+npm view p-dev --registry=https://registry.npmjs.org/ --json
+npm view p-dev@0.3.0 --registry=https://registry.npmjs.org/ --json
+```
+
+**Stop** if:
+
+- Not authenticated or not authorized to publish
+- `p-dev@0.3.0` already exists
+- Package name is owned by someone else
+
+Never print tokens, OTPs, or secrets.
+
+---
+
+## Phase 4 — Exact tarball and validation
+
+At `RELEASE_SHA` in a clean working tree:
+
+```bash
+git checkout RELEASE_SHA
 npm ci
 npm run build
 npm test
 npm run test:webhook
-git tag -a v0.2.0 -m "v0.2.0"
-git push origin v0.2.0
-gh release create v0.2.0 --title "v0.2.0" --notes-file docs/releases/v0.2.0.md --latest
+npm run package:p-dev:pack
+npm run package:p-dev:inspect
 ```
 
-After publishing the GitHub release, open a small follow-up PR that changes the **Tag status** in [`v0.2.0.md`](v0.2.0.md) from **Not yet tagged** to **Tagged**.
+Record tarball bytes, SHA-1, SHA-256, manifest, unpacked size, file count.
+
+Tarball smoke:
+
+```bash
+TARBALL="packages/p-dev/p-dev-0.3.0.tgz"
+WORKDIR=$(mktemp -d)
+export P_DEV_HOME="$WORKDIR/workspace"
+cd "$WORKDIR"
+npx --yes "file:/absolute/path/to/$TARBALL" --no-open
+# verify /settings/configure HTTP 200, stop, relaunch with same P_DEV_HOME
+```
+
+Dry-run publish:
+
+```bash
+npm publish packages/p-dev/p-dev-0.3.0.tgz --dry-run --access public --registry=https://registry.npmjs.org/
+```
+
+---
+
+## Phase 5 — npm publication
+
+Publish the **exact already-tested tarball** (do not rebuild between smoke and publish):
+
+```bash
+npm publish packages/p-dev/p-dev-0.3.0.tgz --access public --registry=https://registry.npmjs.org/
+```
+
+If npm requests OTP, enter it interactively. **Never** place OTP or token in files, commands reported in PRs, or logs.
+
+Verify:
+
+```bash
+npm view p-dev@0.3.0 name version dist-tags.latest dist.shasum dist.integrity engines bin repository license
+```
+
+Registry smoke from fresh directory:
+
+```bash
+WORKDIR=$(mktemp -d)
+export P_DEV_HOME="$WORKDIR/workspace"
+cd "$WORKDIR"
+npx --yes p-dev@0.3.0 --no-open
+```
+
+---
+
+## Phase 6 — Primary tag and GitHub release
+
+**After** npm publication verification:
+
+```bash
+git tag -a v0.3.0 RELEASE_SHA -m "v0.3.0"
+git rev-parse v0.3.0^{}   # must equal RELEASE_SHA
+git push origin v0.3.0
+```
+
+Verify remote tag resolves to `RELEASE_SHA`.
+
+Create GitHub release:
+
+```bash
+gh release create v0.3.0 \
+  --title "v0.3.0 — Guided setup, canonical skills, and p-dev" \
+  --notes-file docs/releases/v0.3.0.md \
+  --latest
+```
+
+- Do **not** use `--generate-notes` as primary body
+- Do **not** mark prerelease unless an actual blocker requires it
+- Do **not** overwrite an existing tag (`git tag -f`, `git push --force`)
+
+If npm succeeds but GitHub release fails: **do not republish**. Recover tag/release against the same `RELEASE_SHA`.
+
+---
+
+## Phase 7 — Post-release finalization PR
+
+Branch `docs/finalize-v0.3.0-release`:
+
+- Update `docs/releases/v0.3.0.md` with tagged/published status, URLs, SHAs, registry shasum/integrity, tarball metadata, template SHA, registry smoke result, timestamp
+- Do **not** change released package contents or version
+
+Merge after checks pass.
+
+---
+
+## V0.3.0 — exact commands (reference)
+
+```bash
+# After release-prep PR merge
+RELEASE_SHA=$(git rev-parse origin/main)
+git checkout main && git pull --ff-only origin main
+
+# Validate at release commit
+git checkout "$RELEASE_SHA"
+npm ci && npm run build && npm test && npm run test:webhook
+npm run package:p-dev:pack && npm run package:p-dev:inspect
+
+# npm preflight + publish (interactive OTP if required)
+npm whoami --registry=https://registry.npmjs.org/
+npm view p-dev@0.3.0 --registry=https://registry.npmjs.org/
+npm publish packages/p-dev/p-dev-0.3.0.tgz --access public --registry=https://registry.npmjs.org/
+
+# Tag and release
+git tag -a v0.3.0 "$RELEASE_SHA" -m "v0.3.0"
+git push origin v0.3.0
+gh release create v0.3.0 \
+  --title "v0.3.0 — Guided setup, canonical skills, and p-dev" \
+  --notes-file docs/releases/v0.3.0.md \
+  --latest
+```
+
+---
+
+## V0.2.0 — historical commands
+
+V0.2.0 was source-release only (no npm). See [`v0.2.0.md`](v0.2.0.md) for the historical contract.
 
 ---
 
 ## Operator notes
 
-### Tag existence preflight
+### Root repo vs npm package
 
-Before `git tag`:
+| Artifact | `private` | Published |
+|----------|-----------|-----------|
+| Root `agentic-product-development-harness` | `true` | GitHub source release only |
+| `packages/p-dev` (`p-dev`) | no | Public npm |
 
-```bash
-git fetch --tags origin
-git rev-parse -q --verify refs/tags/v0.2.0
-```
-
-If the tag already exists, **stop and inspect**. Do not overwrite or force-update the tag (`git tag -f`, `git push --force`).
-
-### Release notes
-
-- **Do not** use `--generate-notes` as the primary release notes — the release contract in [`v0.2.0.md`](v0.2.0.md) is curated.
-- You may derive a shorter summary for the GitHub release body, but the contract doc is the canonical source.
-
-### Prerelease
-
-- **Do not** pass `--prerelease` unless explicitly decided that V0.2.0 is not stable enough for a latest release.
-
-### Annotated tag vs `gh release create`
-
-- Prefer creating an **explicit annotated tag first** (`git tag -a`).
-- If you run `gh release create` without an existing tag, the GitHub CLI may create a lightweight tag automatically — avoid that path.
-
-### Draft releases / immutability
-
-If the repository has release immutability enabled, draft releases can be useful before publishing. Do not add this complexity unless repo settings require it.
-
----
-
-## What not to run during the release-doc PR
+### What not to run during release-doc PRs
 
 - `git tag`, `git push` (tags)
+- `npm publish`
 - `gh release create`
-- `workflow_dispatch`, `repository_dispatch`
-- Live `harness:run` or harness phases against production issues
+- Live `harness:run` against production issues
 - Linear writes
-- GitHub settings / ruleset / allowlist changes
-- Secret inspection, printing, rotation, or changes
-
----
-
-## Future releases
-
-For releases after V0.2.0:
-
-1. Update `CHANGELOG.md` and create `docs/releases/vX.Y.Z.md`
-2. Bump `package.json` / `package-lock.json` version in a release-doc PR
-3. Merge, verify checks, run the same preflight + validation + tag + `gh release create` pattern with the new version
+- Secret inspection, printing, or rotation in reports

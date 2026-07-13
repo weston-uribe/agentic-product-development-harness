@@ -1,7 +1,7 @@
 export const DEFAULT_ORCHESTRATOR_MARKER = "harness-orchestrator-v1";
 export const DEFAULT_LOG_DIRECTORY = "runs";
 /** Written to manifest.milestone; tracks harness release-prep phase, not M-number docs. */
-export const RELEASE_PHASE = "v0.2-prep";
+export const RELEASE_PHASE = "v0.3-prep";
 /** @deprecated Use RELEASE_PHASE. Kept for existing imports. */
 export const MILESTONE = RELEASE_PHASE;
 // Standard/basic Composer 2.5. Intentionally NOT the Fast variant

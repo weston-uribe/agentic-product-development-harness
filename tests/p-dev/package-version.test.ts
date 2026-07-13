@@ -31,7 +31,7 @@ describe("p-dev package version resolution", () => {
   it("reads the source harness package version outside packaged runtime", () => {
     const version = resolveHarnessPackageVersion();
     expect(version).toBe(readHarnessPackageVersion());
-    expect(version).toBe("0.2.0");
+    expect(version).toBe("0.3.0");
   });
 
   it("requires packaged runtime version context", () => {
@@ -43,8 +43,8 @@ describe("p-dev package version resolution", () => {
 
   it("reports the launcher-provided packaged version", () => {
     process.env.P_DEV_RUNTIME_MODE = "packaged";
-    process.env[P_DEV_PACKAGE_VERSION_ENV] = "0.0.0";
-    expect(resolveHarnessPackageVersion()).toBe("0.0.0");
+    process.env[P_DEV_PACKAGE_VERSION_ENV] = "0.3.0";
+    expect(resolveHarnessPackageVersion()).toBe("0.3.0");
   });
 
   it("rejects malformed packaged version values", () => {
