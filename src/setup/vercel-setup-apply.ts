@@ -50,12 +50,15 @@ import { REQUIRED_VERCEL_BRIDGE_ENV_VARS } from "./vercel-bridge-readiness.js";
 import {
   VERCEL_SETUP_ACTIONS,
   buildDeploymentRequiredDetail,
+  buildVercelBridgePreviewFingerprintInput,
   normalizeVercelBridgePlanInput,
   previewVercelBridgeSetup,
   resolveVercelBridgeEnvValue,
   type VercelBridgePlanInput,
   type VercelBridgePreview,
 } from "./vercel-setup-plan.js";
+import type { VercelBridgePreviewFingerprintInputs } from "./control-plane-types.js";
+import { logVercelBridgeEvent } from "./vercel-bridge-structured-log.js";
 
 export interface VercelBridgeLinearWebhookSetupResult {
   mode: LinearWebhookSecretMode;
@@ -288,6 +291,7 @@ async function maybeOrchestrateAutoRedeploy(input: {
   teamId?: string;
   webhookUrl: string;
   fingerprint: string;
+  fingerprintInputs?: VercelBridgePreviewFingerprintInputs;
   priorSelection: VercelBridgeSelection;
 }): Promise<VercelBridgeApplyResult> {
   const orchestrationSteps: VercelBridgeOrchestrationStep[] = [
@@ -407,6 +411,30 @@ async function maybeOrchestrateAutoRedeploy(input: {
         "Redeploying production so new env vars take effect…",
     });
 
+    const setupBlocked =
+      redeployResult.status === "no_source_deployment"
+        ? buildSetupBlockedForMissingDeployment()
+        : {
+            message: buildManualRedeployRecoveryMessage(
+              redeployResult.status,
+              redeployResult.message,
+            ),
+            nextSteps: [
+              "Redeploy production in Vercel manually if needed.",
+              "Use Retry verification without rewriting env vars or rotating secrets.",
+            ],
+          };
+
+    logVercelBridgeEvent({
+      phase: "blocked",
+      actionId: VERCEL_SETUP_ACTIONS.apply.id,
+      pollStatus: redeployResult.status,
+      projectId: input.projectId,
+      fingerprint: input.fingerprint,
+      setupBlockedMessage: setupBlocked.message,
+      setupBlockedNextSteps: setupBlocked.nextSteps,
+    });
+
     return {
       ...input.baseResult,
       envVarsWritten,
@@ -414,19 +442,7 @@ async function maybeOrchestrateAutoRedeploy(input: {
       signedProbe: signedProbeInitialResult,
       productionRedeployTriggered: false,
       productionRedeployStatus: redeployResult.status,
-      setupBlocked:
-        redeployResult.status === "no_source_deployment"
-          ? buildSetupBlockedForMissingDeployment()
-          : {
-              message: buildManualRedeployRecoveryMessage(
-                redeployResult.status,
-                redeployResult.message,
-              ),
-              nextSteps: [
-                "Redeploy production in Vercel manually if needed.",
-                "Use Retry verification without rewriting env vars or rotating secrets.",
-              ],
-            },
+      setupBlocked,
       orchestrationSteps,
     };
   }
@@ -437,6 +453,7 @@ async function maybeOrchestrateAutoRedeploy(input: {
     teamId: input.teamId,
     webhookUrl: input.webhookUrl,
     fingerprint: input.fingerprint,
+    fingerprintInputs: input.fingerprintInputs,
     candidateSecretSource: input.baseResult.candidateSecretSource,
     sourceDeploymentId: redeployResult.sourceDeploymentId,
     newDeploymentId: redeployResult.newDeploymentId,
@@ -454,6 +471,17 @@ async function maybeOrchestrateAutoRedeploy(input: {
     },
     input.applyInput.cwd,
   );
+
+  logVercelBridgeEvent({
+    phase: "redeploy_trigger",
+    actionId: pendingVerification.actionId,
+    pollStatus: "triggered",
+    projectId: input.projectId,
+    projectName: input.projectName,
+    teamId: input.teamId,
+    fingerprint: input.fingerprint,
+    candidateSecretSource: input.baseResult.candidateSecretSource,
+  });
 
   orchestrationSteps.push({
     phase: "redeploying_production",
@@ -489,6 +517,15 @@ export async function applyVercelBridgeSetup(input: {
   );
 
   const normalized = normalizeVercelBridgePlanInput(input.plan);
+  logVercelBridgeEvent({
+    phase: "apply_start",
+    actionId: VERCEL_SETUP_ACTIONS.apply.id,
+    verifyOnly: input.verifyOnly === true,
+    fingerprint: input.fingerprint,
+    projectId: normalized.projectId,
+    projectName: normalized.projectName,
+    teamId: normalized.teamId,
+  });
   const initialPreview = await previewVercelBridgeSetup(normalized);
   assertRemoteSetupFingerprint(input.fingerprint, initialPreview.fingerprint);
   if (initialPreview.validationError) {
@@ -811,6 +848,29 @@ export async function applyVercelBridgeSetup(input: {
   const deploymentRedeployRequired =
     writtenEnvKeys.length > 0 && !signedProbeVerified;
 
+  logVercelBridgeEvent({
+    phase: "signed_probe",
+    actionId: VERCEL_SETUP_ACTIONS.apply.id,
+    verifyOnly: input.verifyOnly === true,
+    projectId: preview.selectedProject.id,
+    projectName: preview.selectedProject.name,
+    teamId: resolvedTeam.teamId,
+    fingerprint: preview.fingerprint,
+    candidateSecretSource: candidateResolution.source,
+    hasLocalWebhookSecret: Boolean(
+      normalized.verificationLinearWebhookSecret?.trim() ||
+        normalized.envInput?.LINEAR_WEBHOOK_SECRET?.trim(),
+    ),
+    envWritePlan: preview.envWritePlan.map((entry) => ({
+      key: entry.key,
+      action: entry.action,
+      source: entry.source,
+    })),
+    signedProbeResult: signedProbe.result,
+    signedProbeReason: signedProbe.reason,
+    signedProbeStatusCode: signedProbe.statusCode,
+  });
+
   const verified =
     REQUIRED_VERCEL_BRIDGE_ENV_VARS.every(
       (key) => requiredEnvPresence[key] === "present",
@@ -889,8 +949,32 @@ export async function applyVercelBridgeSetup(input: {
     !deploymentRedeployRequired ||
     baseResult.verified
   ) {
+    logVercelBridgeEvent({
+      phase: "apply_complete",
+      actionId: VERCEL_SETUP_ACTIONS.apply.id,
+      verifyOnly: input.verifyOnly === true,
+      projectId: preview.selectedProject.id,
+      projectName: preview.selectedProject.name,
+      teamId: resolvedTeam.teamId,
+      fingerprint: preview.fingerprint,
+      signedProbeResult: signedProbe.result,
+      signedProbeReason: signedProbe.reason,
+      pollStatus: baseResult.verified ? "verified" : undefined,
+    });
     return baseResult;
   }
+
+  logVercelBridgeEvent({
+    phase: "redeploy_trigger",
+    actionId: VERCEL_SETUP_ACTIONS.apply.id,
+    projectId: preview.selectedProject.id,
+    projectName: preview.selectedProject.name,
+    teamId: resolvedTeam.teamId,
+    fingerprint: preview.fingerprint,
+    candidateSecretSource: candidateResolution.source,
+    signedProbeResult: signedProbe.result,
+    signedProbeReason: signedProbe.reason,
+  });
 
   return maybeOrchestrateAutoRedeploy({
     applyInput: input,
@@ -902,6 +986,24 @@ export async function applyVercelBridgeSetup(input: {
     teamId: resolvedTeam.teamId,
     webhookUrl: preview.webhookUrl ?? "",
     fingerprint: preview.fingerprint,
+    fingerprintInputs: buildVercelBridgePreviewFingerprintInput({
+      teamId: resolvedTeam.teamId,
+      teamMode: planForApply.team?.mode,
+      teamSlug: planForApply.team?.teamSlug,
+      projectId: preview.selectedProject.id,
+      projectMode: planForApply.project?.mode,
+      projectName: planForApply.project?.projectName,
+      envWritePlan: preview.envWritePlan,
+      willGenerateLinearWebhookSecret:
+        planForApply.willGenerateLinearWebhookSecret ??
+        !planForApply.envInput?.LINEAR_WEBHOOK_SECRET?.trim(),
+      linearWebhookSecretFromEnv: planForApply.envInput?.LINEAR_WEBHOOK_SECRET,
+      githubDispatchTokenFromEnv: planForApply.envInput?.GITHUB_DISPATCH_TOKEN,
+      derivedGithubDispatchToken: planForApply.derivedGithubDispatchToken,
+      harnessTeamKey: planForApply.envInput?.HARNESS_TEAM_KEY,
+      derivedHarnessTeamKey: planForApply.derivedHarnessTeamKey,
+      vercelToken: normalized.vercelToken,
+    }),
     priorSelection: selection,
   });
 }

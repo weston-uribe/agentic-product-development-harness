@@ -23,6 +23,7 @@ import {
   normalizeVercelBridgePlanInput,
   previewVercelBridgeSetup,
 } from "./vercel-setup-plan.js";
+import { logVercelBridgeEvent } from "./vercel-bridge-structured-log.js";
 
 function buildPersistedContextMismatchBlocked(): VercelBridgeSetupBlocked {
   return {
@@ -45,7 +46,7 @@ function buildMissingPollCredentialsBlocked(missing: string): VercelBridgeSetupB
   };
 }
 
-export async function buildPollVerifyPlanFromPersistedState(input: {
+export async function buildPollVerifyPlanInputFromPersistedState(input: {
   cwd?: string;
   state: ControlPlaneSetupState;
   pending: VercelBridgeRedeployVerification;
@@ -115,15 +116,70 @@ export async function buildPollVerifyPlanFromPersistedState(input: {
     preserveGeneratedWebhookSecretFingerprint: preserveGeneratedFingerprint,
   });
 
-  const preview = await previewVercelBridgeSetup(plan);
+  return { ok: true, plan, vercelToken };
+}
+
+export async function reconstructPollVerifyPreviewForDiagnostics(input: {
+  cwd?: string;
+  state: ControlPlaneSetupState;
+  pending: VercelBridgeRedeployVerification;
+}): Promise<
+  | {
+      ok: true;
+      plan: VercelBridgePlanInput;
+      vercelToken: string;
+      preview: Awaited<ReturnType<typeof previewVercelBridgeSetup>>;
+      fingerprintMatch: boolean;
+    }
+  | { ok: false; setupBlocked: VercelBridgeSetupBlocked }
+> {
+  const built = await buildPollVerifyPlanInputFromPersistedState(input);
+  if (!built.ok) {
+    return built;
+  }
+
+  const preview = await previewVercelBridgeSetup(built.plan);
+  return {
+    ok: true,
+    plan: built.plan,
+    vercelToken: built.vercelToken,
+    preview,
+    fingerprintMatch: preview.fingerprint === input.pending.fingerprint,
+  };
+}
+
+export async function buildPollVerifyPlanFromPersistedState(input: {
+  cwd?: string;
+  state: ControlPlaneSetupState;
+  pending: VercelBridgeRedeployVerification;
+}): Promise<
+  | { ok: true; plan: VercelBridgePlanInput; vercelToken: string }
+  | { ok: false; setupBlocked: VercelBridgeSetupBlocked }
+> {
+  const built = await buildPollVerifyPlanInputFromPersistedState(input);
+  if (!built.ok) {
+    return built;
+  }
+
+  const preview = await previewVercelBridgeSetup(built.plan);
   if (preview.fingerprint !== input.pending.fingerprint) {
+    logVercelBridgeEvent({
+      phase: "poll_reconstruct",
+      actionId: input.pending.actionId,
+      expectedFingerprint: input.pending.fingerprint,
+      reconstructedFingerprint: preview.fingerprint,
+      fingerprintMatch: false,
+      projectId: input.pending.projectId,
+      projectName: input.pending.projectName,
+      teamId: input.pending.teamId,
+    });
     return {
       ok: false,
       setupBlocked: buildPersistedContextMismatchBlocked(),
     };
   }
 
-  return { ok: true, plan, vercelToken };
+  return { ok: true, plan: built.plan, vercelToken: built.vercelToken };
 }
 
 const verifyClaimInFlight = new Set<string>();
@@ -412,6 +468,17 @@ export async function pollVercelBridgeRedeployVerification(input: {
   }
 
   if (TERMINAL_REDEPLOY_STATUSES.has(pending.status)) {
+    logVercelBridgeEvent({
+      phase: "poll",
+      actionId: pending.actionId,
+      pollStatus: pending.status,
+      verifyAttempted: pending.verifyAttempted,
+      projectId: pending.projectId,
+      projectName: pending.projectName,
+      teamId: pending.teamId,
+      fingerprint: pending.fingerprint,
+      setupBlockedMessage: pending.blockedMessage,
+    });
     return buildApplyResultFromState({
       vercel,
       pending,
@@ -435,6 +502,15 @@ export async function pollVercelBridgeRedeployVerification(input: {
   });
 
   if (!persistedPlan.ok) {
+    logVercelBridgeEvent({
+      phase: "blocked",
+      actionId: pending.actionId,
+      pollStatus: "verify_failed",
+      setupBlockedMessage: persistedPlan.setupBlocked.message,
+      setupBlockedNextSteps: persistedPlan.setupBlocked.nextSteps,
+      projectId: pending.projectId,
+      fingerprint: pending.fingerprint,
+    });
     const terminalPending: VercelBridgeRedeployVerification = {
       ...pending,
       status: "verify_failed",
@@ -482,6 +558,16 @@ export async function pollVercelBridgeRedeployVerification(input: {
       ],
     };
 
+    logVercelBridgeEvent({
+      phase: "blocked",
+      actionId: pending.actionId,
+      pollStatus: inspectResult.status,
+      setupBlockedMessage: setupBlocked.message,
+      setupBlockedNextSteps: setupBlocked.nextSteps,
+      projectId: pending.projectId,
+      fingerprint: pending.fingerprint,
+    });
+
     const terminalPending: VercelBridgeRedeployVerification = {
       ...pending,
       status: inspectResult.status,
@@ -510,6 +596,14 @@ export async function pollVercelBridgeRedeployVerification(input: {
   }
 
   if (inspectResult.status === "building" || inspectResult.status === "triggered") {
+    logVercelBridgeEvent({
+      phase: "poll",
+      actionId: pending.actionId,
+      pollStatus: inspectResult.status,
+      verifyAttempted: pending.verifyAttempted,
+      projectId: pending.projectId,
+      fingerprint: pending.fingerprint,
+    });
     const buildingPending: VercelBridgeRedeployVerification = {
       ...pending,
       status: "building",
@@ -550,6 +644,17 @@ export async function pollVercelBridgeRedeployVerification(input: {
     });
   }
 
+  logVercelBridgeEvent({
+    phase: "verify_retry",
+    actionId: claimed.actionId,
+    pollStatus: "ready",
+    verifyAttempted: true,
+    verifyOnly: true,
+    projectId: claimed.projectId,
+    fingerprint: claimed.fingerprint,
+    candidateSecretSource: claimed.candidateSecretSource,
+  });
+
   const retryResult = await applyVercelBridgeSetup({
     plan: persistedPlan.plan,
     confirmed: true,
@@ -559,6 +664,15 @@ export async function pollVercelBridgeRedeployVerification(input: {
   });
 
   if (retryResult.signedProbeVerified && retryResult.verified) {
+    logVercelBridgeEvent({
+      phase: "signed_probe",
+      actionId: claimed.actionId,
+      pollStatus: "verified",
+      signedProbeResult: retryResult.signedProbe?.result,
+      signedProbeReason: retryResult.signedProbeReason,
+      signedProbeStatusCode: retryResult.signedProbe?.statusCode,
+      fingerprint: claimed.fingerprint,
+    });
     await finalizePendingState({
       cwd: input.cwd,
       pending: claimed,
@@ -586,6 +700,18 @@ export async function pollVercelBridgeRedeployVerification(input: {
 
   const setupBlocked = buildSetupBlockedForPostRedeployVerificationFailure({
     retryReason: retryResult.signedProbeReason,
+  });
+
+  logVercelBridgeEvent({
+    phase: "blocked",
+    actionId: claimed.actionId,
+    pollStatus: "verify_failed",
+    signedProbeResult: retryResult.signedProbe?.result,
+    signedProbeReason: retryResult.signedProbeReason,
+    signedProbeStatusCode: retryResult.signedProbe?.statusCode,
+    setupBlockedMessage: setupBlocked.message,
+    setupBlockedNextSteps: setupBlocked.nextSteps,
+    fingerprint: claimed.fingerprint,
   });
 
   await finalizePendingState({

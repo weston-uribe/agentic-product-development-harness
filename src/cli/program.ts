@@ -10,6 +10,7 @@ import { runValidateIssue } from "./commands/validate-issue.js";
 import { runSyncProductionCommand } from "./commands/sync-production.js";
 import { runResolveRouteCommand } from "./commands/resolve-route.js";
 import { runRedactOutputCommand } from "./commands/redact-output.js";
+import { runDiagnoseVercelBridgeCommand } from "./commands/diagnose-vercel-bridge.js";
 import { runOperatorInit } from "./commands/operator-init.js";
 
 export function createProgram(): Command {
@@ -162,6 +163,23 @@ export function createProgram(): Command {
     .description("Read stdin and write redacted JSON or text to stdout")
     .action(async () => {
       const exitCode = await runRedactOutputCommand();
+      process.exitCode = exitCode;
+    });
+
+  program
+    .command("diagnose-vercel-bridge")
+    .description(
+      "Print a redacted JSON diagnostic report for Configure Step 3 Vercel bridge verification",
+    )
+    .option(
+      "--live-probe",
+      "Send a fresh signed webhook probe (default is read-only diagnostics only)",
+      false,
+    )
+    .action(async (opts: { liveProbe?: boolean }) => {
+      const exitCode = await runDiagnoseVercelBridgeCommand({
+        liveProbe: opts.liveProbe === true,
+      });
       process.exitCode = exitCode;
     });
 
