@@ -37,14 +37,14 @@ export interface HarnessSecretOperatorInput {
   };
 }
 
-function resolveCredentialInputSource(
-  payloadValue: string | undefined,
-  envValue: string | undefined,
-): CredentialInputSource {
-  if (payloadValue?.trim()) {
+function resolveCredentialInputSource(input: {
+  explicitReplacement: boolean;
+  envPresent: boolean;
+}): CredentialInputSource {
+  if (input.explicitReplacement) {
     return "payload";
   }
-  if (envValue?.trim()) {
+  if (input.envPresent) {
     return "enriched-local";
   }
   return "absent";
@@ -96,6 +96,26 @@ function operatorCredentialValue(
     return input?.githubToken;
   }
   return undefined;
+}
+
+function credentialAvailable(
+  input: HarnessSecretOperatorInput | undefined,
+  name: HarnessActionsSecretName,
+): boolean {
+  const sources = input?.credentialInputSources;
+  if (sources) {
+    if (name === "LINEAR_API_KEY") {
+      return sources.linearApiKey !== "absent";
+    }
+    if (name === "CURSOR_API_KEY") {
+      return sources.cursorApiKey !== "absent";
+    }
+    if (name === "HARNESS_GITHUB_TOKEN") {
+      return sources.harnessGithubToken !== "absent";
+    }
+  }
+
+  return Boolean(operatorCredentialValue(input, name)?.trim());
 }
 
 export interface HarnessSecretSetupOptions {
@@ -152,7 +172,7 @@ export function buildHarnessSecretWritePlan(input: {
     }
 
     const remotePresent = statusByName.get(name) === "present";
-    const operatorValue = operatorCredentialValue(input.operatorInput, name);
+    const hasOperatorCredential = credentialAvailable(input.operatorInput, name);
     const explicitReplacement = isExplicitCredentialReplacement(
       input.operatorInput,
       name,
@@ -167,7 +187,7 @@ export function buildHarnessSecretWritePlan(input: {
       continue;
     }
 
-    if (operatorValue?.trim()) {
+    if (hasOperatorCredential) {
       plan.push({
         name,
         action: remotePresent ? "update" : "create",
@@ -356,18 +376,24 @@ export async function resolveHarnessSecretOperatorInput(options: {
         ? explicitCredentialReplacements
         : undefined,
     credentialInputSources: {
-      linearApiKey: resolveCredentialInputSource(
-        options.payload.linearApiKey,
-        existingEnv?.values.LINEAR_API_KEY,
-      ),
-      cursorApiKey: resolveCredentialInputSource(
-        options.payload.cursorApiKey,
-        existingEnv?.values.CURSOR_API_KEY,
-      ),
-      harnessGithubToken: resolveCredentialInputSource(
-        options.payload.harnessGithubToken,
-        existingEnv?.values.GITHUB_TOKEN,
-      ),
+      linearApiKey: resolveCredentialInputSource({
+        explicitReplacement: explicitCredentialReplacements.includes(
+          "LINEAR_API_KEY",
+        ),
+        envPresent: existingEnv?.presence.LINEAR_API_KEY ?? false,
+      }),
+      cursorApiKey: resolveCredentialInputSource({
+        explicitReplacement: explicitCredentialReplacements.includes(
+          "CURSOR_API_KEY",
+        ),
+        envPresent: existingEnv?.presence.CURSOR_API_KEY ?? false,
+      }),
+      harnessGithubToken: resolveCredentialInputSource({
+        explicitReplacement: explicitCredentialReplacements.includes(
+          "HARNESS_GITHUB_TOKEN",
+        ),
+        envPresent: existingEnv?.presence.GITHUB_TOKEN ?? false,
+      }),
     },
   };
 }

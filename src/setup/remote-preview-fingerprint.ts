@@ -6,17 +6,6 @@ function hashValue(value: string): string {
   return createHash("sha256").update(value).digest("hex").slice(0, 16);
 }
 
-function secretChangeToken(value: string): string {
-  if (!value) {
-    return "";
-  }
-  let checksum = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    checksum = (checksum + value.charCodeAt(index)) % 1_000_000_007;
-  }
-  return `${value.length}:${checksum}`;
-}
-
 export type CredentialInputSource = "absent" | "payload" | "enriched-local";
 
 export interface HarnessCredentialFingerprintContext {
@@ -94,8 +83,4 @@ export function computeTargetWorkflowFingerprint(
     productionBranchSha: input.productionBranchSha ?? "",
   };
   return hashValue(JSON.stringify(normalized));
-}
-
-export function tokenizeSecretInput(value?: string): string {
-  return secretChangeToken(value?.trim() ?? "");
 }
