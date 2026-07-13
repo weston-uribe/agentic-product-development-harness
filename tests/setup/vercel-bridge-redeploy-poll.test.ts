@@ -119,6 +119,7 @@ const pendingVerification = {
   teamId: "team-1",
   webhookUrl: "https://harness-gui.vercel.app/api/linear-webhook",
   fingerprint: "preview-fingerprint",
+  candidateSecretSource: "generated" as const,
   sourceDeploymentId: "dpl-source-1",
   newDeploymentId: "dpl-new-1",
   status: "triggered" as const,
@@ -196,6 +197,9 @@ describe("vercel-bridge-redeploy-poll", () => {
       if (key === "GITHUB_TOKEN") {
         return "ghp_saved";
       }
+      if (key === "LINEAR_WEBHOOK_SECRET") {
+        return "generated-webhook-secret";
+      }
       return undefined;
     });
     vi.mocked(assessGitHubDispatchTokenEligibility).mockResolvedValue({
@@ -205,13 +209,12 @@ describe("vercel-bridge-redeploy-poll", () => {
     });
     vi.mocked(readControlPlaneSetupState).mockImplementation(async () => storedState);
     vi.mocked(resolveLinearWebhookCandidateSecret).mockResolvedValue({
-      secret: "stable-webhook-secret",
-      source: "reused-readable",
+      source: "generated",
       manualSteps: [],
     });
-    vi.mocked(ensureLinearIssueWebhook).mockResolvedValue({
+    vi.mocked(ensureLinearIssueWebhook).mockImplementation(async (input) => ({
       mode: "automated",
-      secret: "stable-webhook-secret",
+      secret: input.secret,
       manualSteps: [],
       webhook: {
         id: "wh-1",
@@ -219,7 +222,7 @@ describe("vercel-bridge-redeploy-poll", () => {
         enabled: true,
         resourceTypes: ["Issue"],
       },
-    });
+    }));
     vi.mocked(previewVercelBridgeSetup).mockResolvedValue(previewResult);
     vi.mocked(listVercelTeams).mockResolvedValue([
       { id: "team-1", name: "Acme", slug: "acme" },
@@ -329,6 +332,9 @@ describe("vercel-bridge-redeploy-poll", () => {
         linearTeamId: "linear-team-1",
         derivedHarnessTeamKey: "WES",
         derivedGithubDispatchToken: "ghp_saved",
+        willGenerateLinearWebhookSecret: true,
+        verificationLinearWebhookSecret: "generated-webhook-secret",
+        preserveGeneratedWebhookSecretFingerprint: true,
       }),
     );
     expect(ensureLinearIssueWebhook).toHaveBeenCalledWith(
@@ -374,7 +380,7 @@ describe("vercel-bridge-redeploy-poll", () => {
     expect(ensureLinearIssueWebhook).toHaveBeenCalledWith(
       expect.objectContaining({
         mutatePolicy: "verify-only",
-        secret: "stable-webhook-secret",
+        secret: "generated-webhook-secret",
       }),
     );
     expect(result.verified).toBe(true);
@@ -391,7 +397,30 @@ describe("vercel-bridge-redeploy-poll", () => {
       tempRoot,
     );
     expect(JSON.stringify(result)).not.toContain("stable-webhook-secret");
+    expect(JSON.stringify(result)).not.toContain("generated-webhook-secret");
     expect(JSON.stringify(result)).not.toContain("ghp_saved");
+  });
+
+  it("uses saved generated webhook secret for poll verify without changing preview fingerprint semantics", async () => {
+    vi.mocked(inspectProductionRedeployStatus).mockResolvedValue({
+      status: "ready",
+      sourceDeploymentId: "dpl-source-1",
+      newDeploymentId: "dpl-new-1",
+      message: "Production redeploy completed and deployment is READY.",
+    });
+
+    await pollVercelBridgeRedeployVerification({
+      actionId: "vercel-redeploy-test",
+      cwd: tempRoot,
+    });
+
+    const previewPlan = vi.mocked(previewVercelBridgeSetup).mock.calls.at(-1)?.[0];
+    expect(previewPlan?.envInput?.LINEAR_WEBHOOK_SECRET).toBeUndefined();
+    expect(previewPlan?.willGenerateLinearWebhookSecret).toBe(true);
+    expect(previewPlan?.preserveGeneratedWebhookSecretFingerprint).toBe(true);
+    expect(previewPlan?.verificationLinearWebhookSecret).toBe(
+      "generated-webhook-secret",
+    );
   });
 
   it("returns setupBlocked when post-redeploy verifyOnly retry still fails", async () => {
@@ -479,5 +508,6 @@ describe("vercel-bridge-redeploy-poll", () => {
     expect(serialized).not.toContain("lin_api_test");
     expect(serialized).not.toContain("vercel-token");
     expect(serialized).not.toContain("stable-webhook-secret");
+    expect(serialized).not.toContain("generated-webhook-secret");
   });
 });

@@ -45,6 +45,7 @@ import {
   type ProductionRedeployStatus,
 } from "./vercel-production-redeploy.js";
 import { createPendingRedeployVerification } from "./vercel-bridge-redeploy-state.js";
+import { persistGeneratedLinearWebhookSecret } from "./linear-webhook-env-local.js";
 import { REQUIRED_VERCEL_BRIDGE_ENV_VARS } from "./vercel-bridge-readiness.js";
 import {
   VERCEL_SETUP_ACTIONS,
@@ -436,6 +437,7 @@ async function maybeOrchestrateAutoRedeploy(input: {
     teamId: input.teamId,
     webhookUrl: input.webhookUrl,
     fingerprint: input.fingerprint,
+    candidateSecretSource: input.baseResult.candidateSecretSource,
     sourceDeploymentId: redeployResult.sourceDeploymentId,
     newDeploymentId: redeployResult.newDeploymentId,
     message: redeployResult.message,
@@ -596,8 +598,16 @@ export async function applyVercelBridgeSetup(input: {
     operatorSecret: normalized.envInput?.LINEAR_WEBHOOK_SECRET,
   });
 
+  const savedVerificationSecret = normalized.verificationLinearWebhookSecret?.trim();
+  const useSavedVerificationSecret = Boolean(
+    savedVerificationSecret &&
+      (isVerificationRetry || normalized.preserveGeneratedWebhookSecretFingerprint),
+  );
+
   let candidateWebhookSecret = candidateResolution.secret;
-  if (!candidateWebhookSecret?.trim() && candidateResolution.source === "generated") {
+  if (useSavedVerificationSecret) {
+    candidateWebhookSecret = savedVerificationSecret;
+  } else if (!candidateWebhookSecret?.trim() && candidateResolution.source === "generated") {
     candidateWebhookSecret = generateLinearWebhookSecret();
   }
   if (
@@ -606,6 +616,19 @@ export async function applyVercelBridgeSetup(input: {
     !candidateWebhookSecret?.trim()
   ) {
     candidateWebhookSecret = generateLinearWebhookSecret();
+  }
+
+  if (
+    !isVerificationRetry &&
+    candidateWebhookSecret?.trim() &&
+    !useSavedVerificationSecret &&
+    (candidateResolution.source === "generated" ||
+      candidateResolution.source === "unreadable")
+  ) {
+    await persistGeneratedLinearWebhookSecret({
+      cwd: input.cwd,
+      secret: candidateWebhookSecret,
+    });
   }
 
   let linearWebhookSetup: VercelBridgeLinearWebhookSetupResult = {
@@ -643,7 +666,9 @@ export async function applyVercelBridgeSetup(input: {
       manualCopySecret:
         ensured.mode === "automated" ? undefined : ensured.secret,
     };
-    candidateWebhookSecret = ensured.secret;
+    if (!useSavedVerificationSecret) {
+      candidateWebhookSecret = ensured.secret;
+    }
   } else {
     linearWebhookSetup = {
       mode: "manual-copy",

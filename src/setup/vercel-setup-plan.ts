@@ -70,6 +70,10 @@ export interface VercelBridgePlanInput {
   derivedHarnessTeamKey?: string;
   derivedGithubDispatchToken?: string;
   willGenerateLinearWebhookSecret?: boolean;
+  /** Raw secret for verify/retry paths only; does not affect preview fingerprinting. */
+  verificationLinearWebhookSecret?: string;
+  /** Keep generated-secret preview semantics ("generate-on-apply") while verifying. */
+  preserveGeneratedWebhookSecretFingerprint?: boolean;
 }
 
 export interface VercelEnvWritePlanEntry {

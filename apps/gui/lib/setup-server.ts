@@ -315,6 +315,14 @@ async function enrichVercelBridgePlan(
     githubToken,
     cwd,
   });
+  const savedWebhookSecret = await loadSecretFromEnvLocal({
+    cwd,
+    key: "LINEAR_WEBHOOK_SECRET",
+  });
+  const hasOperatorWebhookSecret = Boolean(plan.envInput?.LINEAR_WEBHOOK_SECRET?.trim());
+  const hasSavedLocalWebhookSecret = Boolean(savedWebhookSecret?.trim());
+  const reuseSavedLocalWebhookSecret =
+    !hasOperatorWebhookSecret && hasSavedLocalWebhookSecret;
 
   return {
     ...plan,
@@ -327,9 +335,13 @@ async function enrichVercelBridgePlan(
       plan.envInput?.GITHUB_DISPATCH_TOKEN?.trim() || !dispatchEligibility.eligible
         ? undefined
         : githubToken,
-    willGenerateLinearWebhookSecret:
-      plan.willGenerateLinearWebhookSecret ??
-      !plan.envInput?.LINEAR_WEBHOOK_SECRET?.trim(),
+    willGenerateLinearWebhookSecret: reuseSavedLocalWebhookSecret
+      ? true
+      : (plan.willGenerateLinearWebhookSecret ?? !hasOperatorWebhookSecret),
+    verificationLinearWebhookSecret:
+      plan.verificationLinearWebhookSecret ?? savedWebhookSecret,
+    preserveGeneratedWebhookSecretFingerprint:
+      plan.preserveGeneratedWebhookSecretFingerprint ?? reuseSavedLocalWebhookSecret,
   };
 }
 

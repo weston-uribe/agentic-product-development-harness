@@ -438,7 +438,8 @@ export async function loadSecretFromEnvLocal(options: {
     | "LINEAR_API_KEY"
     | "CURSOR_API_KEY"
     | "GITHUB_TOKEN"
-    | "VERCEL_TOKEN";
+    | "VERCEL_TOKEN"
+    | "LINEAR_WEBHOOK_SECRET";
 }): Promise<string | undefined> {
   const paths = resolveLocalFilePaths(options.cwd);
   const existingEnv = await readExistingEnvFile(paths);
