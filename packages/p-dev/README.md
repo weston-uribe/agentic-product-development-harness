@@ -17,7 +17,7 @@ From the repository root after `npm run package:p-dev:pack`:
 ```bash
 TMPDIR=$(mktemp -d)
 export P_DEV_HOME="$TMPDIR/workspace"
-npx --yes /absolute/path/to/packages/p-dev/p-dev-0.0.0.tgz --no-open
+npx --yes "file:/absolute/path/to/packages/p-dev/p-dev-0.0.0.tgz" --no-open
 ```
 
 Then verify `http://localhost:3000/settings/configure` (or the printed port) responds successfully.
