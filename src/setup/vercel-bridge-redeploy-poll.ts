@@ -80,6 +80,14 @@ export async function buildPollVerifyPlanFromPersistedState(input: {
   const projectId = input.pending.projectId;
   const projectName = input.pending.projectName;
 
+  const savedWebhookSecret = await loadSecretFromEnvLocal({
+    cwd: input.cwd,
+    key: "LINEAR_WEBHOOK_SECRET",
+  });
+  const preserveGeneratedFingerprint =
+    input.pending.candidateSecretSource === "generated" ||
+    input.pending.candidateSecretSource === "unreadable";
+
   const plan = normalizeVercelBridgePlanInput({
     vercelToken,
     linearApiKey,
@@ -99,7 +107,11 @@ export async function buildPollVerifyPlanFromPersistedState(input: {
     derivedHarnessTeamKey: input.state.linear?.teamKey,
     derivedGithubDispatchToken:
       dispatchEligibility.eligible && githubToken ? githubToken : undefined,
-    willGenerateLinearWebhookSecret: true,
+    willGenerateLinearWebhookSecret: preserveGeneratedFingerprint
+      ? true
+      : !savedWebhookSecret?.trim(),
+    verificationLinearWebhookSecret: savedWebhookSecret,
+    preserveGeneratedWebhookSecretFingerprint: preserveGeneratedFingerprint,
   });
 
   const preview = await previewVercelBridgeSetup(plan);

@@ -306,6 +306,7 @@ async function enrichVercelBridgePlan(
     vercelToken?: string;
     linearApiKey?: string;
   },
+  options?: { verifyOnly?: boolean },
 ): Promise<VercelBridgePlanInput> {
   const vercelToken = plan.vercelToken ?? (await loadVercelToken(cwd)) ?? "";
   const linearApiKey = plan.linearApiKey ?? (await loadLinearApiKey(cwd));
@@ -315,6 +316,17 @@ async function enrichVercelBridgePlan(
     githubToken,
     cwd,
   });
+  const savedWebhookSecret = await loadSecretFromEnvLocal({
+    cwd,
+    key: "LINEAR_WEBHOOK_SECRET",
+  });
+  const pendingSource = controlPlane?.vercel?.redeployVerification?.candidateSecretSource;
+  const preserveGeneratedFingerprint =
+    options?.verifyOnly === true &&
+    !plan.envInput?.LINEAR_WEBHOOK_SECRET?.trim() &&
+    (pendingSource === "generated" ||
+      pendingSource === "unreadable" ||
+      Boolean(savedWebhookSecret?.trim()));
 
   return {
     ...plan,
@@ -327,9 +339,14 @@ async function enrichVercelBridgePlan(
       plan.envInput?.GITHUB_DISPATCH_TOKEN?.trim() || !dispatchEligibility.eligible
         ? undefined
         : githubToken,
-    willGenerateLinearWebhookSecret:
-      plan.willGenerateLinearWebhookSecret ??
-      !plan.envInput?.LINEAR_WEBHOOK_SECRET?.trim(),
+    willGenerateLinearWebhookSecret: preserveGeneratedFingerprint
+      ? true
+      : (plan.willGenerateLinearWebhookSecret ??
+        !plan.envInput?.LINEAR_WEBHOOK_SECRET?.trim()),
+    verificationLinearWebhookSecret:
+      plan.verificationLinearWebhookSecret ?? savedWebhookSecret,
+    preserveGeneratedWebhookSecretFingerprint:
+      plan.preserveGeneratedWebhookSecretFingerprint ?? preserveGeneratedFingerprint,
   };
 }
 
@@ -438,7 +455,9 @@ export async function applyVercelBridgeRemote(options: {
   summary: Awaited<ReturnType<typeof buildVercelSetupSummary>>;
 }> {
   const cwd = resolveCwd();
-  const plan = await enrichVercelBridgePlan(cwd, options.plan);
+  const plan = await enrichVercelBridgePlan(cwd, options.plan, {
+    verifyOnly: options.verifyOnly,
+  });
   const apply = await applyVercelBridgeSetup({
     plan,
     confirmed: options.confirmed,

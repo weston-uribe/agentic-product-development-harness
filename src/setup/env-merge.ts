@@ -79,6 +79,8 @@ export function parseEnvFileContent(content: string): ParsedEnvFile {
       if (value.length > 0) {
         presence[key as keyof EnvKeyPresence] = true;
       }
+    } else if (key === "LINEAR_WEBHOOK_SECRET") {
+      values[key] = value;
     }
   }
 

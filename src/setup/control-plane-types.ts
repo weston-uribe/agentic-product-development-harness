@@ -37,6 +37,12 @@ export type VercelBridgeRedeployVerificationStatus =
   | "verify_failed"
   | "verified";
 
+export type VercelBridgeCandidateSecretSource =
+  | "operator"
+  | "reused-readable"
+  | "generated"
+  | "unreadable";
+
 export interface VercelBridgeRedeployVerification {
   actionId: string;
   projectId: string;
@@ -44,6 +50,7 @@ export interface VercelBridgeRedeployVerification {
   teamId?: string;
   webhookUrl: string;
   fingerprint: string;
+  candidateSecretSource?: VercelBridgeCandidateSecretSource;
   sourceDeploymentId?: string;
   newDeploymentId?: string;
   status: VercelBridgeRedeployVerificationStatus;
