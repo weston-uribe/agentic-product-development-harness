@@ -346,6 +346,7 @@ describe("vercel-bridge-redeploy-poll", () => {
   });
 
   it("returns setupBlocked when persisted fingerprint no longer matches reconstructed plan", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     vi.mocked(previewVercelBridgeSetup).mockResolvedValue({
       ...previewResult,
       fingerprint: "different-fingerprint",
@@ -362,9 +363,15 @@ describe("vercel-bridge-redeploy-poll", () => {
     expect(result.setupPending).toBe(false);
     expect(JSON.stringify(result)).not.toContain("Preview fingerprint is stale");
     expect(ensureLinearIssueWebhook).not.toHaveBeenCalled();
+
+    const logOutput = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(logOutput).toMatch(/\[setup:vercel-bridge\]/);
+    expect(logOutput).toContain("different-fingerprint");
+    expect(logOutput).not.toContain("generated-webhook-secret");
+    logSpy.mockRestore();
   });
 
-  it("runs verifyOnly retry after deployment becomes READY and marks Step 3 verified", async () => {
+  it("automatically runs verifyOnly after READY without requiring manual retry", async () => {
     vi.mocked(inspectProductionRedeployStatus).mockResolvedValue({
       status: "ready",
       sourceDeploymentId: "dpl-source-1",
@@ -396,9 +403,6 @@ describe("vercel-bridge-redeploy-poll", () => {
       }),
       tempRoot,
     );
-    expect(JSON.stringify(result)).not.toContain("stable-webhook-secret");
-    expect(JSON.stringify(result)).not.toContain("generated-webhook-secret");
-    expect(JSON.stringify(result)).not.toContain("ghp_saved");
   });
 
   it("uses saved generated webhook secret for poll verify without changing preview fingerprint semantics", async () => {

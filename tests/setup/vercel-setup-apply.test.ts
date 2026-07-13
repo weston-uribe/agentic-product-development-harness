@@ -473,6 +473,7 @@ describe("vercel-setup-apply", () => {
   });
 
   it("returns pending redeploy state quickly when stale signature probe requires auto-redeploy", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     vi.mocked(runSignedWebhookProbe).mockResolvedValue({
       passed: false,
       result: "auth_failed",
@@ -512,6 +513,10 @@ describe("vercel-setup-apply", () => {
             sourceDeploymentId: "dpl-source-1",
             verifyAttempted: false,
             fingerprint: "preview-fingerprint",
+            fingerprintInputs: expect.objectContaining({
+              projectId: "proj-1",
+              linearWebhookSecretToken: "generate-on-apply",
+            }),
             candidateSecretSource: "generated",
           }),
         }),
@@ -531,6 +536,13 @@ describe("vercel-setup-apply", () => {
     expect(JSON.stringify(persistedState)).not.toContain("generated-webhook-secret");
     expect(JSON.stringify(result)).not.toContain("generated-webhook-secret");
     expect(JSON.stringify(result)).not.toContain("ghp_saved");
+
+    const logOutput = logSpy.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(logOutput).toMatch(/\[setup:vercel-bridge\]/);
+    expect(logOutput).not.toContain("generated-webhook-secret");
+    expect(logOutput).not.toContain("ghp_saved");
+    expect(logOutput).not.toContain("lin_api_test");
+    logSpy.mockRestore();
   });
 
   it("uses saved .env.local webhook secret on generated verifyOnly retry without manual-copy", async () => {

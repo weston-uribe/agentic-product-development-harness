@@ -43,6 +43,28 @@ export type VercelBridgeCandidateSecretSource =
   | "generated"
   | "unreadable";
 
+/** Non-secret/tokenized inputs used to compute the preview fingerprint hash. */
+export interface VercelBridgePreviewFingerprintInputs {
+  actionId: string;
+  teamId?: string;
+  teamMode?: string;
+  teamSlug?: string;
+  projectId: string;
+  projectMode?: string;
+  projectName?: string;
+  envWritePlan: Array<{
+    key: string;
+    action: string;
+    source: string;
+    existingType?: string;
+    desiredType?: string;
+  }>;
+  linearWebhookSecretToken: string;
+  githubDispatchTokenToken: string;
+  harnessTeamKey: string;
+  vercelTokenToken: string;
+}
+
 export interface VercelBridgeRedeployVerification {
   actionId: string;
   projectId: string;
@@ -50,6 +72,7 @@ export interface VercelBridgeRedeployVerification {
   teamId?: string;
   webhookUrl: string;
   fingerprint: string;
+  fingerprintInputs?: VercelBridgePreviewFingerprintInputs;
   candidateSecretSource?: VercelBridgeCandidateSecretSource;
   sourceDeploymentId?: string;
   newDeploymentId?: string;

@@ -126,6 +126,74 @@ function hashPreview(input: unknown): string {
     .slice(0, 16);
 }
 
+export function buildVercelBridgePreviewFingerprintInput(input: {
+  teamId?: string;
+  teamMode?: string;
+  teamSlug?: string;
+  projectId: string;
+  projectMode?: string;
+  projectName?: string;
+  envWritePlan: VercelEnvWritePlanEntry[];
+  willGenerateLinearWebhookSecret: boolean;
+  linearWebhookSecretFromEnv?: string;
+  githubDispatchTokenFromEnv?: string;
+  derivedGithubDispatchToken?: string;
+  harnessTeamKey?: string;
+  derivedHarnessTeamKey?: string;
+  vercelToken: string;
+}): import("./control-plane-types.js").VercelBridgePreviewFingerprintInputs {
+  return {
+    actionId: VERCEL_SETUP_ACTIONS.preview.id,
+    teamId: input.teamId,
+    teamMode: input.teamMode,
+    teamSlug: input.teamSlug,
+    projectId: input.projectId,
+    projectMode: input.projectMode,
+    projectName: input.projectName,
+    envWritePlan: input.envWritePlan.map((entry) => ({
+      key: entry.key,
+      action: entry.action,
+      source: entry.source,
+      existingType: entry.existingType,
+      desiredType: entry.desiredType,
+    })),
+    linearWebhookSecretToken: input.willGenerateLinearWebhookSecret
+      ? "generate-on-apply"
+      : tokenizeSecretInput(input.linearWebhookSecretFromEnv),
+    githubDispatchTokenToken: tokenizeSecretInput(
+      input.githubDispatchTokenFromEnv ?? input.derivedGithubDispatchToken,
+    ),
+    harnessTeamKey: input.harnessTeamKey ?? input.derivedHarnessTeamKey ?? "",
+    vercelTokenToken: tokenizeSecretInput(input.vercelToken),
+  };
+}
+
+export function hashVercelBridgePreviewFingerprint(
+  input: import("./control-plane-types.js").VercelBridgePreviewFingerprintInputs,
+): string {
+  return hashPreview(input);
+}
+
+export function diffVercelBridgePreviewFingerprintInputs(
+  original: import("./control-plane-types.js").VercelBridgePreviewFingerprintInputs,
+  reconstructed: import("./control-plane-types.js").VercelBridgePreviewFingerprintInputs,
+): string[] {
+  const differingKeys: string[] = [];
+  const keys = new Set([
+    ...Object.keys(original),
+    ...Object.keys(reconstructed),
+  ] as Array<keyof typeof original>);
+
+  for (const key of keys) {
+    const left = original[key];
+    const right = reconstructed[key];
+    if (JSON.stringify(left) !== JSON.stringify(right)) {
+      differingKeys.push(String(key));
+    }
+  }
+  return differingKeys;
+}
+
 export function buildDeploymentRequiredDetail(input: {
   projectName: string;
   projectJustCreated: boolean;
@@ -558,34 +626,23 @@ export async function previewVercelBridgeSetup(
     deploymentRedeployRequired: false,
   });
 
-  const fingerprint = hashPreview({
-    actionId: VERCEL_SETUP_ACTIONS.preview.id,
+  const fingerprintInputs = buildVercelBridgePreviewFingerprintInput({
     teamId: teamIdForProjects,
     teamMode: normalized.team?.mode,
     teamSlug: normalized.team?.teamSlug,
     projectId: selectedProject.id,
     projectMode: normalized.project?.mode,
     projectName: normalized.project?.projectName,
-    envWritePlan: envWritePlan.map((entry) => ({
-      key: entry.key,
-      action: entry.action,
-      source: entry.source,
-      existingType: entry.existingType,
-      desiredType: entry.desiredType,
-    })),
-    linearWebhookSecretToken: willGenerateLinearWebhookSecret
-      ? "generate-on-apply"
-      : tokenizeSecretInput(normalized.envInput?.LINEAR_WEBHOOK_SECRET),
-    githubDispatchTokenToken: tokenizeSecretInput(
-      normalized.envInput?.GITHUB_DISPATCH_TOKEN ??
-        normalized.derivedGithubDispatchToken,
-    ),
-    harnessTeamKey:
-      normalized.envInput?.HARNESS_TEAM_KEY ??
-      normalized.derivedHarnessTeamKey ??
-      "",
-    vercelTokenToken: tokenizeSecretInput(normalized.vercelToken),
+    envWritePlan,
+    willGenerateLinearWebhookSecret,
+    linearWebhookSecretFromEnv: normalized.envInput?.LINEAR_WEBHOOK_SECRET,
+    githubDispatchTokenFromEnv: normalized.envInput?.GITHUB_DISPATCH_TOKEN,
+    derivedGithubDispatchToken: normalized.derivedGithubDispatchToken,
+    harnessTeamKey: normalized.envInput?.HARNESS_TEAM_KEY,
+    derivedHarnessTeamKey: normalized.derivedHarnessTeamKey,
+    vercelToken: normalized.vercelToken,
   });
+  const fingerprint = hashVercelBridgePreviewFingerprint(fingerprintInputs);
 
   return {
     actionId: VERCEL_SETUP_ACTIONS.preview.id,

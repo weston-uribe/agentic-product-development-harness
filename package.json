@@ -13,6 +13,7 @@
     "harness:configure": "tsx src/gui/start-gui.ts --route /settings/configure",
     "harness:configure:stable": "tsx src/gui/start-configure-stable.ts",
     "harness:doctor": "tsx src/index.ts doctor",
+    "harness:diagnose:vercel-bridge": "tsx src/index.ts diagnose-vercel-bridge",
     "harness:run": "tsx src/index.ts run",
     "harness:inspect": "tsx src/index.ts inspect",
     "harness:validate-issue": "tsx src/index.ts validate-issue",

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type {
   VercelBridgeCandidateSecretSource,
+  VercelBridgePreviewFingerprintInputs,
   VercelBridgeRedeployVerification,
 } from "./control-plane-types.js";
 import { DEFAULT_REDEPLOY_TIMEOUT_MS } from "./vercel-production-redeploy.js";
@@ -11,6 +12,7 @@ export function createPendingRedeployVerification(input: {
   teamId?: string;
   webhookUrl: string;
   fingerprint: string;
+  fingerprintInputs?: VercelBridgePreviewFingerprintInputs;
   candidateSecretSource?: VercelBridgeCandidateSecretSource;
   sourceDeploymentId?: string;
   newDeploymentId: string;
@@ -26,6 +28,7 @@ export function createPendingRedeployVerification(input: {
     teamId: input.teamId,
     webhookUrl: input.webhookUrl,
     fingerprint: input.fingerprint,
+    fingerprintInputs: input.fingerprintInputs,
     candidateSecretSource: input.candidateSecretSource,
     sourceDeploymentId: input.sourceDeploymentId,
     newDeploymentId: input.newDeploymentId,
