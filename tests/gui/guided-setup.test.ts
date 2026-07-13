@@ -6,6 +6,7 @@ import {
   getPreviousGuidedDisplayStep,
   GUIDED_DISPLAY_STEP_AFTER_CONNECT_SERVICES,
   GUIDED_DISPLAY_STEP_AFTER_LOCAL_APPLY,
+  GUIDED_DISPLAY_STEP_AFTER_LOCAL_READINESS,
   GUIDED_DISPLAY_STEP_AFTER_WORKFLOW_READY,
   GUIDED_DISPLAY_STEP_AFTER_CLOUD_SECRETS,
   GUIDED_SETUP_STEP_COUNT,
@@ -169,6 +170,7 @@ describe("guided-setup navigation", () => {
   it("advances guided display after connect services and local apply", () => {
     expect(GUIDED_DISPLAY_STEP_AFTER_CONNECT_SERVICES).toBe("linear-workspace");
     expect(GUIDED_DISPLAY_STEP_AFTER_LOCAL_APPLY).toBe("local-readiness");
+    expect(GUIDED_DISPLAY_STEP_AFTER_LOCAL_READINESS).toBe("cloud-secrets");
     expect(GUIDED_DISPLAY_STEP_AFTER_CLOUD_SECRETS).toBe("target-workflow");
     expect(GUIDED_DISPLAY_STEP_AFTER_WORKFLOW_READY).toBe("ready-for-first-run");
   });

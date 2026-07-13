@@ -295,6 +295,67 @@ describe("configure GUI fix loop", () => {
     expect(manualRouteSource).not.toMatch(/console\.(log|info|debug|warn|error)/);
   });
 
+  it("Step 5 Continue advances to Step 6 cloud secrets UI", () => {
+    const localReadinessSource = readFileSync(
+      path.join(
+        repoRoot,
+        "apps/gui/components/custom/guided-local-readiness-card.tsx",
+      ),
+      "utf8",
+    );
+    const experienceSource = readFileSync(
+      path.join(
+        repoRoot,
+        "apps/gui/components/custom/configure-experience.tsx",
+      ),
+      "utf8",
+    );
+    const cloudSecretsSource = readFileSync(
+      path.join(
+        repoRoot,
+        "apps/gui/components/custom/guided-cloud-secrets-card.tsx",
+      ),
+      "utf8",
+    );
+
+    // before: local readiness passed shows Continue
+    expect(localReadinessSource).toContain("canContinue");
+    expect(localReadinessSource).toContain("allPassed");
+    expect(localReadinessSource).toMatch(
+      /\{canContinue \?[\s\S]*Continue to cloud secrets/,
+    );
+    expect(localReadinessSource).toContain("!readiness.localReadinessReviewed");
+
+    // action: clicking Continue calls the parent handler
+    expect(localReadinessSource).toContain("onClick={onContinue}");
+    expect(experienceSource).toContain("handleLocalReadinessReviewed");
+    expect(experienceSource).toContain(
+      "onContinue={handleLocalReadinessReviewed}",
+    );
+
+    // after: handler advances guided display to Step 6
+    expect(experienceSource).toContain("GUIDED_DISPLAY_STEP_AFTER_LOCAL_READINESS");
+    const continueHandler = experienceSource.match(
+      /const handleLocalReadinessReviewed = useCallback\([\s\S]*?\n  \);/,
+    )?.[0];
+    expect(continueHandler).toBeDefined();
+    expect(continueHandler).toContain("localReadinessReviewed: true");
+    expect(continueHandler).toContain(
+      "setDisplayedGuidedStep(GUIDED_DISPLAY_STEP_AFTER_LOCAL_READINESS)",
+    );
+    expect(experienceSource).toMatch(
+      /case "cloud-secrets":[\s\S]*GuidedCloudSecretsCard/,
+    );
+    expect(cloudSecretsSource).toContain(
+      `Step 6 of \${GUIDED_SETUP_STEP_COUNT}`,
+    );
+
+    // Continue must not trigger remote writes or harness phases
+    expect(continueHandler).not.toContain("fetch(");
+    expect(continueHandler).not.toContain("dispatch");
+    expect(continueHandler).not.toMatch(/apply-harness-secrets|delete/i);
+  });
+
   it("Step 6 Continue advances to Step 7 target workflow UI", () => {
     const cloudSecretsSource = readFileSync(
       path.join(
