@@ -16,6 +16,11 @@ const FAKE_SECRETS = {
   linearApiKey: "sentinel-linear-secret-value",
   cursorApiKey: "sentinel-cursor-secret-value",
   githubToken: "sentinel-github-secret-value",
+  credentialInputSources: {
+    linearApiKey: "payload" as const,
+    cursorApiKey: "payload" as const,
+    harnessGithubToken: "payload" as const,
+  },
 };
 
 describe("remote-apply-actions", () => {

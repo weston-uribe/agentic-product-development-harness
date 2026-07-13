@@ -18,7 +18,8 @@ import {
 } from "./remote-actions.js";
 import {
   computeHarnessSecretFingerprint,
-  tokenizeSecretInput,
+  type CredentialInputSource,
+  type HarnessCredentialFingerprintContext,
 } from "./remote-preview-fingerprint.js";
 import { getLocalFileBaseline } from "./env-merge.js";
 import { resolveLocalFilePaths } from "./setup-state.js";
@@ -29,6 +30,47 @@ export interface HarnessSecretOperatorInput {
   githubToken?: string;
   /** Credential secrets listed here were explicitly submitted for replacement. */
   explicitCredentialReplacements?: HarnessActionsSecretName[];
+  credentialInputSources?: {
+    linearApiKey: CredentialInputSource;
+    cursorApiKey: CredentialInputSource;
+    harnessGithubToken: CredentialInputSource;
+  };
+}
+
+function resolveCredentialInputSource(
+  payloadValue: string | undefined,
+  envValue: string | undefined,
+): CredentialInputSource {
+  if (payloadValue?.trim()) {
+    return "payload";
+  }
+  if (envValue?.trim()) {
+    return "enriched-local";
+  }
+  return "absent";
+}
+
+export async function resolveHarnessCredentialFingerprintContext(options: {
+  cwd?: string;
+  operatorInput?: HarnessSecretOperatorInput;
+}): Promise<HarnessCredentialFingerprintContext> {
+  const paths = resolveLocalFilePaths(options.cwd);
+  const envLocalCredentialBaseline = await getLocalFileBaseline(paths.envLocal);
+  const sources = options.operatorInput?.credentialInputSources ?? {
+    linearApiKey: "absent",
+    cursorApiKey: "absent",
+    harnessGithubToken: "absent",
+  };
+
+  return {
+    linearApiKey: sources.linearApiKey,
+    cursorApiKey: sources.cursorApiKey,
+    harnessGithubToken: sources.harnessGithubToken,
+    explicitCredentialReplacements: [
+      ...(options.operatorInput?.explicitCredentialReplacements ?? []),
+    ].sort(),
+    envLocalCredentialBaseline,
+  };
 }
 
 function isExplicitCredentialReplacement(
@@ -225,17 +267,16 @@ export async function previewHarnessSecretSetup(
     harnessRepo: harnessDispatchRepoSlug,
   }).steps;
 
+  const credentialInputContext = await resolveHarnessCredentialFingerprintContext(
+    options,
+  );
   const fingerprint = computeHarnessSecretFingerprint({
     actionId: REMOTE_SETUP_ACTIONS.previewHarnessSecrets.id,
     permissionScope: REMOTE_SETUP_ACTIONS.previewHarnessSecrets.permission.scope,
     harnessDispatchRepo: harnessDispatchRepoSlug,
     harnessDispatchRepoSource: context.harnessDispatchRepo.source,
     secretWritePlan: context.secretWritePlan,
-    linearApiKeyToken: tokenizeSecretInput(options.operatorInput?.linearApiKey),
-    cursorApiKeyToken: tokenizeSecretInput(options.operatorInput?.cursorApiKey),
-    harnessGithubTokenToken: tokenizeSecretInput(
-      options.operatorInput?.githubToken,
-    ),
+    credentialInputContext,
     configLocalHash: context.configLocalHash,
   });
 
@@ -314,6 +355,20 @@ export async function resolveHarnessSecretOperatorInput(options: {
       explicitCredentialReplacements.length > 0
         ? explicitCredentialReplacements
         : undefined,
+    credentialInputSources: {
+      linearApiKey: resolveCredentialInputSource(
+        options.payload.linearApiKey,
+        existingEnv?.values.LINEAR_API_KEY,
+      ),
+      cursorApiKey: resolveCredentialInputSource(
+        options.payload.cursorApiKey,
+        existingEnv?.values.CURSOR_API_KEY,
+      ),
+      harnessGithubToken: resolveCredentialInputSource(
+        options.payload.harnessGithubToken,
+        existingEnv?.values.GITHUB_TOKEN,
+      ),
+    },
   };
 }
 

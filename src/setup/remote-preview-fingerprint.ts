@@ -17,15 +17,23 @@ function secretChangeToken(value: string): string {
   return `${value.length}:${checksum}`;
 }
 
+export type CredentialInputSource = "absent" | "payload" | "enriched-local";
+
+export interface HarnessCredentialFingerprintContext {
+  linearApiKey: CredentialInputSource;
+  cursorApiKey: CredentialInputSource;
+  harnessGithubToken: CredentialInputSource;
+  explicitCredentialReplacements: string[];
+  envLocalCredentialBaseline: string;
+}
+
 export interface HarnessSecretFingerprintInput {
   actionId: string;
   permissionScope: SetupPermissionScope;
   harnessDispatchRepo: string;
   harnessDispatchRepoSource: string;
   secretWritePlan: HarnessSecretWritePlanEntry[];
-  linearApiKeyToken?: string;
-  cursorApiKeyToken?: string;
-  harnessGithubTokenToken?: string;
+  credentialInputContext: HarnessCredentialFingerprintContext;
   configLocalHash?: string;
 }
 
@@ -55,9 +63,16 @@ export function computeHarnessSecretFingerprint(
       action: entry.action,
       source: entry.source,
     })),
-    linearApiKeyToken: input.linearApiKeyToken ?? "",
-    cursorApiKeyToken: input.cursorApiKeyToken ?? "",
-    harnessGithubTokenToken: input.harnessGithubTokenToken ?? "",
+    credentialInputContext: {
+      linearApiKey: input.credentialInputContext.linearApiKey,
+      cursorApiKey: input.credentialInputContext.cursorApiKey,
+      harnessGithubToken: input.credentialInputContext.harnessGithubToken,
+      explicitCredentialReplacements: [
+        ...input.credentialInputContext.explicitCredentialReplacements,
+      ].sort(),
+      envLocalCredentialBaseline:
+        input.credentialInputContext.envLocalCredentialBaseline,
+    },
     configLocalHash: input.configLocalHash ?? "",
   };
   return hashValue(JSON.stringify(normalized));

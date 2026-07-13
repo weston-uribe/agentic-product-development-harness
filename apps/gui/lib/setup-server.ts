@@ -158,6 +158,7 @@ async function resolveEnrichedHarnessSecretOperatorInput(
     cursorApiKey: explicit.cursorApiKey?.trim() || enriched.cursorApiKey,
     githubToken: explicit.githubToken?.trim() || enriched.githubToken,
     explicitCredentialReplacements: explicit.explicitCredentialReplacements,
+    credentialInputSources: enriched.credentialInputSources,
   };
 }
 

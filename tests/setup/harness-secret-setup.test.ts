@@ -190,5 +190,66 @@ describe("harness-secret-setup", () => {
     expect(operatorInput.cursorApiKey).toBe("cur_saved");
     expect(operatorInput.githubToken).toBe("ghp_saved");
     expect(operatorInput.explicitCredentialReplacements).toBeUndefined();
+    expect(operatorInput.credentialInputSources).toEqual({
+      linearApiKey: "enriched-local",
+      cursorApiKey: "enriched-local",
+      harnessGithubToken: "enriched-local",
+    });
+  });
+
+  it("changes harness secret fingerprint when enriched local credentials change", async () => {
+    await writeFile(
+      path.join(tempRoot, ".env.local"),
+      "LINEAR_API_KEY=lin_saved\n",
+      "utf8",
+    );
+
+    const operatorInput = await resolveHarnessSecretOperatorInput({
+      cwd: tempRoot,
+      payload: {},
+    });
+    const first = await previewHarnessSecretSetup({
+      cwd: tempRoot,
+      operatorInput,
+      manualHarnessDispatchRepo: "owner/harness-repo",
+    });
+
+    await writeFile(
+      path.join(tempRoot, ".env.local"),
+      "LINEAR_API_KEY=lin_saved_rotated\n",
+      "utf8",
+    );
+    const rotatedInput = await resolveHarnessSecretOperatorInput({
+      cwd: tempRoot,
+      payload: {},
+    });
+    const second = await previewHarnessSecretSetup({
+      cwd: tempRoot,
+      operatorInput: rotatedInput,
+      manualHarnessDispatchRepo: "owner/harness-repo",
+    });
+
+    expect(first.fingerprint).not.toBe(second.fingerprint);
+    expect(JSON.stringify(first)).not.toContain("lin_saved");
+    expect(JSON.stringify(second)).not.toContain("lin_saved_rotated");
+  });
+
+  it("marks payload credentials separately from enriched-local sources", async () => {
+    await writeFile(
+      path.join(tempRoot, ".env.local"),
+      "LINEAR_API_KEY=lin_saved\n",
+      "utf8",
+    );
+
+    const operatorInput = await resolveHarnessSecretOperatorInput({
+      cwd: tempRoot,
+      payload: { linearApiKey: "lin_payload" },
+    });
+
+    expect(operatorInput.credentialInputSources?.linearApiKey).toBe("payload");
+    expect(operatorInput.credentialInputSources?.cursorApiKey).toBe("absent");
+    expect(operatorInput.explicitCredentialReplacements).toEqual([
+      "LINEAR_API_KEY",
+    ]);
   });
 });
