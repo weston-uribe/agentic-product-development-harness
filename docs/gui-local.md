@@ -4,7 +4,7 @@ Launch the Product Development Harness GUI for guided Settings / Configure setup
 
 **v0.3.0 paths:**
 
-- **Product managers (packaged):** `npx --yes p-dev@0.3.0` — see [`docs/p-dev.md`](p-dev.md)
+- **Product managers (packaged):** `npx --yes p-dev-harness@0.3.0` — see [`docs/p-dev.md`](p-dev.md)
 - **Contributors (source):** `npm run harness:configure` — this document
 
 The guided Configure flow has **seven steps** before the completion screen. See [`docs/gui-remote-setup.md`](gui-remote-setup.md) for remote setup and Step 7 workflow finalization.

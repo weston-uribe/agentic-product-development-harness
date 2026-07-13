@@ -24,11 +24,11 @@ describe("p-dev package manifest", () => {
       repository: { directory: string };
     };
 
-    expect(manifest.name).toBe("p-dev");
+    expect(manifest.name).toBe("p-dev-harness");
     expect(manifest.version).toBe("0.3.0");
     expect(manifest.private).toBeUndefined();
     expect(manifest.license).toBe("MIT");
-    expect(manifest.bin["p-dev"]).toBe("./bin/p-dev.js");
+    expect(manifest.bin["p-dev-harness"]).toBe("./bin/p-dev.js");
     expect(manifest.engines.node).toBe(">=22");
     expect(manifest.publishConfig.access).toBe("public");
     expect(manifest.repository.directory).toBe("packages/p-dev");

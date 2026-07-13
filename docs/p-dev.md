@@ -1,6 +1,8 @@
 # p-dev — Product Development Harness CLI
 
-**Canonical end-user guide** for the public `p-dev` npm package.
+**Canonical end-user guide** for the public `p-dev-harness` npm package.
+
+The operator product is still called **p-dev**. The npm package is published as **`p-dev-harness`** because the registry rejected `p-dev` as too similar to the existing [`pdev`](https://www.npmjs.com/package/pdev) package.
 
 `p-dev` launches the guided **Configure GUI** without cloning the harness source repository. It is the primary product-manager path for v0.3.0.
 
@@ -32,32 +34,32 @@ On non-macOS platforms, use `--no-open` and open the printed Configure URL manua
 Pinned release:
 
 ```bash
-npx --yes p-dev@0.3.0
+npx --yes p-dev-harness@0.3.0
 ```
 
 Latest channel:
 
 ```bash
-npx --yes p-dev
+npx --yes p-dev-harness
 ```
 
 Do not open a browser automatically:
 
 ```bash
-npx --yes p-dev@0.3.0 --no-open
+npx --yes p-dev-harness@0.3.0 --no-open
 ```
 
 Use a custom workspace directory:
 
 ```bash
-npx --yes p-dev@0.3.0 --workspace /path/to/workspace
+npx --yes p-dev-harness@0.3.0 --workspace /path/to/workspace
 ```
 
 Or set `P_DEV_HOME`:
 
 ```bash
 export P_DEV_HOME=/path/to/workspace
-npx --yes p-dev@0.3.0
+npx --yes p-dev-harness@0.3.0
 ```
 
 Default workspace when neither flag nor env is set: `~/.p-dev`.

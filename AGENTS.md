@@ -4,7 +4,7 @@ Instructions for AI agents working in **agentic-product-development-harness**. R
 
 ## What this repo is
 
-v0.3.0 harness repo: SDK runners (M1–M8), templates, eval contracts, event-driven Linear auto-run, guided Configure GUI, and public `p-dev` npm package. Read this before making changes.
+v0.3.0 harness repo: SDK runners (M1–M8), templates, eval contracts, event-driven Linear auto-run, guided Configure GUI, and public `p-dev-harness` npm package. Read this before making changes.
 
 The harness has **M1–M8 SDK runners and tooling** (planning through merge, issue intake validation, and event-driven auto-run via Linear webhook + GitHub Actions).
 
@@ -84,7 +84,7 @@ These are distinct artifacts. Do not conflate them in docs or reports.
 | **PR** | A reviewable proposal to merge a branch | When code is ready for human review |
 | **Tag** | A named pointer to a specific commit | When marking a version milestone |
 | **Release** | A published, externally useful milestone (often tied to a tag) | When the milestone is externally useful **and** explicitly approved |
-| **npm package** | Public `p-dev@X.Y.Z` CLI distribution | When `p-dev` publication is explicitly approved for that version |
+| **npm package** | Public `p-dev-harness@X.Y.Z` CLI distribution | When `p-dev-harness` publication is explicitly approved for that version |
 
 **Never create releases or tags** unless the milestone is externally useful and explicitly approved by the human operator. Do **not** create tags, npm publications, or GitHub releases from a release-doc PR — follow [`docs/releases/release-process.md`](docs/releases/release-process.md) after merge. Internal harness improvements that are not externally useful do not need releases.
 

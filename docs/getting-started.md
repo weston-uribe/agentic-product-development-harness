@@ -9,7 +9,7 @@ Operator guide for the Product Development Harness.
 ### Product managers — use p-dev (recommended)
 
 ```bash
-npx --yes p-dev@0.3.0
+npx --yes p-dev-harness@0.3.0
 ```
 
 - Node.js **22+** required

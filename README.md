@@ -7,7 +7,7 @@
 **Easiest start for product managers:**
 
 ```bash
-npx --yes p-dev@0.3.0
+npx --yes p-dev-harness@0.3.0
 ```
 
 - Requires **Node.js 22+**
@@ -37,7 +37,7 @@ Cursor-first orchestration harness for turning structured Linear issues into Git
 
 | Layer | Status |
 |-------|--------|
-| Product install | `p-dev@0.3.0` on npm (public) |
+| Product install | `p-dev-harness@0.3.0` on npm (public) |
 | Agent provider | Cursor Cloud Agents only |
 | Product system | Linear |
 | SCM / PR | GitHub |

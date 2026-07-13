@@ -1,25 +1,27 @@
-# p-dev
+# p-dev-harness
 
 Launch the **Product Development Harness** guided Configure GUI without cloning the source repository.
+
+Published on npm as **`p-dev-harness`** (registry rejected bare `p-dev` as too similar to `pdev`).
 
 ## Quick start
 
 **Node.js 22+** required. **macOS** is the validated packaged platform.
 
 ```bash
-npx --yes p-dev@0.3.0
+npx --yes p-dev-harness@0.3.0
 ```
 
 Without browser auto-open:
 
 ```bash
-npx --yes p-dev@0.3.0 --no-open
+npx --yes p-dev-harness@0.3.0 --no-open
 ```
 
 Custom workspace:
 
 ```bash
-npx --yes p-dev@0.3.0 --workspace ~/.p-dev
+npx --yes p-dev-harness@0.3.0 --workspace ~/.p-dev
 ```
 
 ## What it does

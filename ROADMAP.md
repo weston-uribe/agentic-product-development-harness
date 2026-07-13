@@ -31,7 +31,7 @@ For shipped history, see [CHANGELOG.md](CHANGELOG.md).
 - Seven-step guided Configure GUI with confirmation-gated local and remote setup
 - Codespaces-compatible source development path
 - Six canonical harness skills under `.agents/skills/`
-- Public `p-dev@0.3.0` npm package with durable operator workspace
+- Public `p-dev-harness@0.3.0` npm package with durable operator workspace
 - Public template provisioning via `weston-uribe/p-dev-harness-template`
 - Automated Vercel bridge configuration and signed webhook verification
 - Guarded Step 7 workflow install PR finalization for system-owned setup PRs

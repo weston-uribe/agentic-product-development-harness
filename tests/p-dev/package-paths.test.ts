@@ -15,7 +15,7 @@ describe("p-dev package paths", () => {
     tempRoot = await mkdtemp(path.join(tmpdir(), "p-dev-package-"));
     await writeFile(
       path.join(tempRoot, "package.json"),
-      JSON.stringify({ name: "p-dev" }),
+      JSON.stringify({ name: "p-dev-harness" }),
       "utf8",
     );
   });

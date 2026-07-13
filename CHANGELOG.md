@@ -2,20 +2,20 @@
 
 All notable changes to this harness repo are documented here.
 
-V0.3.0 is a **GitHub source release** plus a **public npm CLI package** (`p-dev@0.3.0`). The root repository remains `private: true`; the published package is `packages/p-dev`.
+V0.3.0 is a **GitHub source release** plus a **public npm CLI package** (`p-dev-harness@0.3.0`). The root repository remains `private: true`; the published package is `packages/p-dev`.
 
 ## Unreleased
 
 ## [0.3.0] — 2026-07-13
 
-V0.3.0 is the guided-onboarding and distribution release: seven-step Configure GUI, six canonical skills, and public `p-dev` npm package.
+V0.3.0 is the guided-onboarding and distribution release: seven-step Configure GUI, six canonical skills, and public `p-dev-harness` npm package.
 
-**Release type:** GitHub source release (annotated tag + curated release notes) plus public npm package `p-dev@0.3.0`.
+**Release type:** GitHub source release (annotated tag + curated release notes) plus public npm package `p-dev-harness@0.3.0`.
 
 ### Highlights
 
 - Guided seven-step Configure GUI repaired and automated end to end
-- Public `p-dev` package — launch without cloning the source repository
+- Public `p-dev-harness` package — launch without cloning the source repository
 - Six canonical harness skills under `.agents/skills/`
 - Public template provisioning for private `OWNER/p-dev-harness` workspaces
 - Automated Vercel bridge setup with redeploy polling and signed webhook verification
@@ -24,7 +24,7 @@ V0.3.0 is the guided-onboarding and distribution release: seven-step Configure G
 ### Added
 
 - Canonical end-user guide [`docs/p-dev.md`](docs/p-dev.md)
-- Public npm package `p-dev@0.3.0` with durable operator workspace (`~/.p-dev`, `P_DEV_HOME`, `--workspace`)
+- Public npm package `p-dev-harness@0.3.0` with durable operator workspace (`~/.p-dev`, `P_DEV_HOME`, `--workspace`)
 - Packaged harness workspace provisioning/reconnection from `weston-uribe/p-dev-harness-template`
 - Seven-step guided Configure GUI with confirmation-gated local and remote writes
 - Remote setup: Linear workspace/status configuration, Vercel bridge, cloud secrets, target workflow install
@@ -37,7 +37,7 @@ V0.3.0 is the guided-onboarding and distribution release: seven-step Configure G
 
 ### Changed
 
-- README leads product managers to `npx --yes p-dev@0.3.0`; source clone remains contributor path
+- README leads product managers to `npx --yes p-dev-harness@0.3.0`; source clone remains contributor path
 - `docs/getting-started.md` — p-dev primary, source clone for maintainers
 - `docs/npm-packaging-spike.md` — historical spike document linking to `docs/p-dev.md`
 - `packages/p-dev/README.md` — public npm package README
@@ -48,6 +48,7 @@ V0.3.0 is the guided-onboarding and distribution release: seven-step Configure G
 ### Fixed
 
 - Guided setup step order and navigation (seven stages before completion)
+- npm package published as `p-dev-harness` after registry rejected `p-dev` as too similar to `pdev`
 - Packaged workspace seeding without overwriting existing operator files
 - Durable repo ID / managed-marker recovery for provisioned harness workspaces
 - Server-authored evidence for cloud secret setup
