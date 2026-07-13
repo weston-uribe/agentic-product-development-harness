@@ -20,6 +20,7 @@ import {
   defaultGuidedDisplayStep,
   getPreviousGuidedDisplayStep,
   GUIDED_DISPLAY_STEP_AFTER_LOCAL_APPLY,
+  GUIDED_DISPLAY_STEP_AFTER_LOCAL_READINESS,
   GUIDED_DISPLAY_STEP_AFTER_WORKFLOW_READY,
   GUIDED_DISPLAY_STEP_AFTER_CONNECT_SERVICES,
   GUIDED_DISPLAY_STEP_AFTER_CLOUD_SECRETS,
@@ -323,6 +324,7 @@ export function ConfigureExperience({
       ...current,
       localReadinessReviewed: true,
     }));
+    setDisplayedGuidedStep(GUIDED_DISPLAY_STEP_AFTER_LOCAL_READINESS);
   }, []);
 
   const handleCloudSecretsReviewed = useCallback(() => {
