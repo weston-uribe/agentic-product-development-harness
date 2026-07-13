@@ -666,7 +666,9 @@ export async function applyVercelBridgeSetup(input: {
       manualCopySecret:
         ensured.mode === "automated" ? undefined : ensured.secret,
     };
-    candidateWebhookSecret = ensured.secret;
+    if (!useSavedVerificationSecret) {
+      candidateWebhookSecret = ensured.secret;
+    }
   } else {
     linearWebhookSetup = {
       mode: "manual-copy",

@@ -81,6 +81,7 @@ import {
   VERCEL_SETUP_ACTIONS,
 } from "../../src/setup/vercel-setup-plan.js";
 import { applyVercelBridgeSetup } from "../../src/setup/vercel-setup-apply.js";
+import * as linearWebhookEnvLocal from "../../src/setup/linear-webhook-env-local.js";
 import { resolveLocalFilePaths } from "../../src/setup/setup-state.js";
 import { parseEnvFileContent } from "../../src/setup/env-merge.js";
 import {
@@ -759,6 +760,68 @@ describe("vercel-setup-apply", () => {
     expect(result.deploymentRedeployRequired).toBe(false);
     expect(result.verified).toBe(true);
     expect(result.signedProbeVerified).toBe(true);
+  });
+
+  it("reuses saved .env.local webhook secret on normal apply without regenerating or overwriting", async () => {
+    const paths = resolveLocalFilePaths(tempRoot);
+    await writeFile(
+      paths.envLocal,
+      [
+        "LINEAR_API_KEY=lin_api_test",
+        "LINEAR_WEBHOOK_SECRET=saved-local-secret",
+      ].join("\n"),
+      "utf8",
+    );
+    vi.mocked(resolveLinearWebhookCandidateSecret).mockResolvedValue({
+      secret: "fresh-generated-secret",
+      source: "generated",
+      manualSteps: [],
+    });
+    const persistSpy = vi.spyOn(
+      linearWebhookEnvLocal,
+      "persistGeneratedLinearWebhookSecret",
+    );
+
+    const result = await applyVercelBridgeSetup({
+      plan: {
+        vercelToken: "vercel-token",
+        projectId: "proj-1",
+        linearApiKey: "lin_api_test",
+        derivedHarnessTeamKey: "WES",
+        derivedGithubDispatchToken: "ghp_saved",
+        willGenerateLinearWebhookSecret: true,
+        verificationLinearWebhookSecret: "saved-local-secret",
+        preserveGeneratedWebhookSecretFingerprint: true,
+      },
+      confirmed: true,
+      fingerprint: "preview-fingerprint",
+      cwd: tempRoot,
+    });
+
+    expect(generateLinearWebhookSecret).not.toHaveBeenCalled();
+    expect(persistSpy).not.toHaveBeenCalled();
+    expect(ensureLinearIssueWebhook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        secret: "saved-local-secret",
+        mutatePolicy: "setup",
+      }),
+    );
+    expect(upsertVercelProjectEnvVar).toHaveBeenCalledWith(
+      "vercel-token",
+      expect.objectContaining({
+        key: "LINEAR_WEBHOOK_SECRET",
+        value: "saved-local-secret",
+      }),
+    );
+    expect(result.linearWebhookSetup.mode).not.toBe("manual-copy");
+    expect(result.linearWebhookSetup.manualCopySecret).toBeUndefined();
+    expect(JSON.stringify(result)).not.toContain("saved-local-secret");
+    const persistedState = vi.mocked(updateControlPlaneSetupState).mock.calls.at(
+      -1,
+    )?.[0];
+    expect(JSON.stringify(persistedState)).not.toContain("saved-local-secret");
+
+    persistSpy.mockRestore();
   });
 
   it("does not trigger another redeploy when pending state already has newDeploymentId", async () => {

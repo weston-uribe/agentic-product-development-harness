@@ -306,7 +306,6 @@ async function enrichVercelBridgePlan(
     vercelToken?: string;
     linearApiKey?: string;
   },
-  options?: { verifyOnly?: boolean },
 ): Promise<VercelBridgePlanInput> {
   const vercelToken = plan.vercelToken ?? (await loadVercelToken(cwd)) ?? "";
   const linearApiKey = plan.linearApiKey ?? (await loadLinearApiKey(cwd));
@@ -320,13 +319,10 @@ async function enrichVercelBridgePlan(
     cwd,
     key: "LINEAR_WEBHOOK_SECRET",
   });
-  const pendingSource = controlPlane?.vercel?.redeployVerification?.candidateSecretSource;
-  const preserveGeneratedFingerprint =
-    options?.verifyOnly === true &&
-    !plan.envInput?.LINEAR_WEBHOOK_SECRET?.trim() &&
-    (pendingSource === "generated" ||
-      pendingSource === "unreadable" ||
-      Boolean(savedWebhookSecret?.trim()));
+  const hasOperatorWebhookSecret = Boolean(plan.envInput?.LINEAR_WEBHOOK_SECRET?.trim());
+  const hasSavedLocalWebhookSecret = Boolean(savedWebhookSecret?.trim());
+  const reuseSavedLocalWebhookSecret =
+    !hasOperatorWebhookSecret && hasSavedLocalWebhookSecret;
 
   return {
     ...plan,
@@ -339,14 +335,13 @@ async function enrichVercelBridgePlan(
       plan.envInput?.GITHUB_DISPATCH_TOKEN?.trim() || !dispatchEligibility.eligible
         ? undefined
         : githubToken,
-    willGenerateLinearWebhookSecret: preserveGeneratedFingerprint
+    willGenerateLinearWebhookSecret: reuseSavedLocalWebhookSecret
       ? true
-      : (plan.willGenerateLinearWebhookSecret ??
-        !plan.envInput?.LINEAR_WEBHOOK_SECRET?.trim()),
+      : (plan.willGenerateLinearWebhookSecret ?? !hasOperatorWebhookSecret),
     verificationLinearWebhookSecret:
       plan.verificationLinearWebhookSecret ?? savedWebhookSecret,
     preserveGeneratedWebhookSecretFingerprint:
-      plan.preserveGeneratedWebhookSecretFingerprint ?? preserveGeneratedFingerprint,
+      plan.preserveGeneratedWebhookSecretFingerprint ?? reuseSavedLocalWebhookSecret,
   };
 }
 
@@ -455,9 +450,7 @@ export async function applyVercelBridgeRemote(options: {
   summary: Awaited<ReturnType<typeof buildVercelSetupSummary>>;
 }> {
   const cwd = resolveCwd();
-  const plan = await enrichVercelBridgePlan(cwd, options.plan, {
-    verifyOnly: options.verifyOnly,
-  });
+  const plan = await enrichVercelBridgePlan(cwd, options.plan);
   const apply = await applyVercelBridgeSetup({
     plan,
     confirmed: options.confirmed,

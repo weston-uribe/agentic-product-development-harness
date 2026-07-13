@@ -86,7 +86,8 @@ export async function buildPollVerifyPlanFromPersistedState(input: {
   });
   const preserveGeneratedFingerprint =
     input.pending.candidateSecretSource === "generated" ||
-    input.pending.candidateSecretSource === "unreadable";
+    input.pending.candidateSecretSource === "unreadable" ||
+    Boolean(savedWebhookSecret?.trim());
 
   const plan = normalizeVercelBridgePlanInput({
     vercelToken,
