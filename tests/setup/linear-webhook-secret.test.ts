@@ -22,6 +22,7 @@ import {
   ensureLinearIssueWebhook,
   generateLinearWebhookSecret,
   planLinearWebhookSecret,
+  reconcileLinearWebhookUrlForVerification,
   resolveLinearWebhookCandidateSecret,
 } from "../../src/setup/linear-webhook-secret.js";
 
@@ -194,5 +195,62 @@ describe("linear-webhook-secret", () => {
     expect(result.source).toBe("reused-readable");
     expect(result.secret).toBe("readable-secret");
     expect(result.matchingWebhook?.secret).toBeUndefined();
+  });
+
+  it("reconciles a stale Linear webhook URL to the canonical URL without changing the secret", async () => {
+    vi.mocked(listLinearWebhooks).mockResolvedValue([
+      {
+        id: "wh-1",
+        url: "https://old-deployment.vercel.app/api/linear-webhook",
+        enabled: true,
+        resourceTypes: ["Issue"],
+        teamId: "team-1",
+      },
+    ]);
+    vi.mocked(updateLinearIssueWebhook).mockResolvedValue({
+      id: "wh-1",
+      url: "https://harness-gui.vercel.app/api/linear-webhook",
+      enabled: true,
+      resourceTypes: ["Issue"],
+      teamId: "team-1",
+    });
+
+    const result = await reconcileLinearWebhookUrlForVerification({
+      linearApiKey: "lin_api_test",
+      linearTeamId: "team-1",
+      previousWebhookUrl:
+        "https://old-deployment.vercel.app/api/linear-webhook",
+      canonicalWebhookUrl: "https://harness-gui.vercel.app/api/linear-webhook",
+      secret: "stable-webhook-secret",
+    });
+
+    expect(updateLinearIssueWebhook).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        webhookId: "wh-1",
+        url: "https://harness-gui.vercel.app/api/linear-webhook",
+        secret: "stable-webhook-secret",
+      }),
+    );
+    expect(result.reconciled).toBe(true);
+    expect(result.matchingPreviousWebhookFound).toBe(true);
+    expect(result.canonicalWebhookExists).toBe(false);
+  });
+
+  it("does not reconcile when no matching previous Linear webhook exists", async () => {
+    vi.mocked(listLinearWebhooks).mockResolvedValue([]);
+
+    const result = await reconcileLinearWebhookUrlForVerification({
+      linearApiKey: "lin_api_test",
+      previousWebhookUrl:
+        "https://old-deployment.vercel.app/api/linear-webhook",
+      canonicalWebhookUrl: "https://harness-gui.vercel.app/api/linear-webhook",
+      secret: "stable-webhook-secret",
+    });
+
+    expect(updateLinearIssueWebhook).not.toHaveBeenCalled();
+    expect(result.reconciled).toBe(false);
+    expect(result.matchingPreviousWebhookFound).toBe(false);
+    expect(result.manualSteps.join(" ")).toMatch(/No matching Linear Issue webhook/i);
   });
 });

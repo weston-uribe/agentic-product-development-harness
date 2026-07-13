@@ -12,6 +12,7 @@ export type VercelBridgeLogPhase =
   | "verify_claim"
   | "verify_retry"
   | "signed_probe"
+  | "linear_webhook_url_reconcile"
   | "blocked";
 
 export interface VercelBridgeStructuredLogEvent {
@@ -37,6 +38,11 @@ export interface VercelBridgeStructuredLogEvent {
   fingerprintMatch?: boolean;
   differingFingerprintKeys?: string[];
   message?: string;
+  webhookUrlDrift?: boolean;
+  reconciliationAttempted?: boolean;
+  reconciliationSucceeded?: boolean;
+  matchingPreviousWebhookFound?: boolean;
+  canonicalWebhookExists?: boolean;
 }
 
 function containsSecretLikeValue(value: string): boolean {

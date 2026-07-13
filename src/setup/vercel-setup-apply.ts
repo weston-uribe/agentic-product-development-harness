@@ -6,9 +6,11 @@ import type { VercelBridgeSelection } from "./control-plane-types.js";
 import {
   ensureLinearIssueWebhook,
   generateLinearWebhookSecret,
+  reconcileLinearWebhookUrlForVerification,
   resolveLinearWebhookCandidateSecret,
   type LinearWebhookCandidateSource,
   type LinearWebhookSecretMode,
+  type LinearWebhookUrlReconciliationResult,
 } from "./linear-webhook-secret.js";
 import { summarizeLinearWebhookReadiness } from "./linear-setup-plan.js";
 import {
@@ -624,9 +626,16 @@ export async function applyVercelBridgeSetup(input: {
       !activePendingRedeploy &&
         priorState?.vercel?.deploymentRedeployRequired &&
         priorState.vercel.projectId === preview.selectedProject.id &&
-        priorState.vercel.webhookUrl === preview.webhookUrl &&
         priorState.vercel.appliedFingerprint === preview.fingerprint,
     );
+  const persistedWebhookUrl = priorState?.vercel?.webhookUrl?.trim();
+  const canonicalWebhookUrl = preview.webhookUrl?.trim();
+  const hasWebhookUrlDrift = Boolean(
+    isVerificationRetry &&
+      persistedWebhookUrl &&
+      canonicalWebhookUrl &&
+      persistedWebhookUrl !== canonicalWebhookUrl,
+  );
 
   const candidateResolution = await resolveLinearWebhookCandidateSecret({
     linearApiKey: normalized.linearApiKey,
@@ -673,6 +682,35 @@ export async function applyVercelBridgeSetup(input: {
     manualSteps: candidateResolution.manualSteps,
     manualCopySecret: undefined,
   };
+  let webhookUrlReconciliation: LinearWebhookUrlReconciliationResult | undefined;
+
+  if (
+    hasWebhookUrlDrift &&
+    candidateWebhookSecret?.trim() &&
+    useSavedVerificationSecret &&
+    normalized.linearApiKey?.trim()
+  ) {
+    webhookUrlReconciliation = await reconcileLinearWebhookUrlForVerification({
+      linearApiKey: normalized.linearApiKey,
+      linearTeamId: normalized.linearTeamId,
+      previousWebhookUrl: persistedWebhookUrl!,
+      canonicalWebhookUrl: canonicalWebhookUrl!,
+      secret: candidateWebhookSecret,
+    });
+    logVercelBridgeEvent({
+      phase: "linear_webhook_url_reconcile",
+      actionId: VERCEL_SETUP_ACTIONS.apply.id,
+      verifyOnly: input.verifyOnly === true,
+      projectId: preview.selectedProject.id,
+      fingerprint: preview.fingerprint,
+      webhookUrlDrift: true,
+      reconciliationAttempted: webhookUrlReconciliation.attempted,
+      reconciliationSucceeded: webhookUrlReconciliation.reconciled,
+      matchingPreviousWebhookFound:
+        webhookUrlReconciliation.matchingPreviousWebhookFound,
+      canonicalWebhookExists: webhookUrlReconciliation.canonicalWebhookExists,
+    });
+  }
 
   if (
     candidateResolution.source === "unreadable" &&
@@ -681,6 +719,15 @@ export async function applyVercelBridgeSetup(input: {
     linearWebhookSetup = {
       mode: "existing-unverified",
       manualSteps: candidateResolution.manualSteps,
+      manualCopySecret: undefined,
+    };
+  } else if (
+    webhookUrlReconciliation?.attempted &&
+    !webhookUrlReconciliation.reconciled
+  ) {
+    linearWebhookSetup = {
+      mode: "existing-unverified",
+      manualSteps: webhookUrlReconciliation.manualSteps,
       manualCopySecret: undefined,
     };
   } else if (!candidateWebhookSecret?.trim()) {

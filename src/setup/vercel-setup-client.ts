@@ -43,6 +43,21 @@ export interface VercelDeploymentSummary {
   url: string;
   state: string;
   readyState?: string;
+  /** Production aliases assigned to this deployment (Vercel API `alias` field). */
+  aliases?: string[];
+}
+
+export type VercelProductionUrlSource = "stable_alias" | "latest_ready_deployment";
+
+export interface VercelProductionTarget {
+  productionUrl: string;
+  webhookUrl: string;
+  deploymentId: string;
+  deploymentUrl: string;
+  source: VercelProductionUrlSource;
+  stableAlias?: string;
+  readyState?: string;
+  state?: string;
 }
 
 export class VercelEnvVarTypeError extends Error {
@@ -321,6 +336,111 @@ export function isVercelDeploymentReady(
   return deployment.readyState === "READY" || deployment.state === "READY";
 }
 
+export function normalizeProductionHost(hostOrUrl: string): string {
+  return hostOrUrl.replace(/^https?:\/\//, "").replace(/\/$/, "").toLowerCase();
+}
+
+/**
+ * Vercel deployment-specific production hosts often look like
+ * `{project}-{hash}-{team}.vercel.app` and change on every production deploy.
+ */
+export function isDeploymentSpecificVercelHost(host: string): boolean {
+  const normalized = normalizeProductionHost(host);
+  return /^.+-[a-z0-9]{8,}-.+\.vercel\.app$/i.test(normalized);
+}
+
+export function selectStableProductionHost(input: {
+  deploymentUrl: string;
+  aliases?: string[];
+}): { host: string; source: VercelProductionUrlSource; stableAlias?: string } {
+  const deploymentHost = normalizeProductionHost(input.deploymentUrl);
+  const aliases = (input.aliases ?? [])
+    .map((alias) => normalizeProductionHost(alias))
+    .filter(Boolean);
+
+  const stableAliases = aliases.filter(
+    (alias) => alias !== deploymentHost && !isDeploymentSpecificVercelHost(alias),
+  );
+
+  if (stableAliases.length > 0) {
+    const customDomain = stableAliases.find((alias) => !alias.endsWith(".vercel.app"));
+    const chosen =
+      customDomain ?? [...stableAliases].sort((left, right) => left.length - right.length)[0]!;
+    return { host: chosen, source: "stable_alias", stableAlias: chosen };
+  }
+
+  const alternateAlias = aliases.find((alias) => alias !== deploymentHost);
+  if (alternateAlias) {
+    return {
+      host: alternateAlias,
+      source: "stable_alias",
+      stableAlias: alternateAlias,
+    };
+  }
+
+  return { host: deploymentHost, source: "latest_ready_deployment" };
+}
+
+export async function resolveCanonicalProductionTarget(input: {
+  vercelToken: string;
+  projectId: string;
+  teamId?: string;
+  preferredDeploymentId?: string;
+  listDeployments?: typeof listVercelProductionDeployments;
+  getDeployment?: typeof getVercelDeployment;
+}): Promise<VercelProductionTarget | undefined> {
+  const listDeployments =
+    input.listDeployments ?? listVercelProductionDeployments;
+  const getDeployment = input.getDeployment ?? getVercelDeployment;
+
+  let deployment: VercelDeploymentSummary | undefined;
+
+  if (input.preferredDeploymentId?.trim()) {
+    deployment = await getDeployment(
+      input.vercelToken,
+      input.preferredDeploymentId.trim(),
+      input.teamId,
+    );
+    if (!isVercelDeploymentReady(deployment)) {
+      return undefined;
+    }
+  } else {
+    const deployments = await listDeployments(
+      input.vercelToken,
+      input.projectId,
+      input.teamId,
+      { state: "READY", limit: 5 },
+    );
+    deployment = deployments.find((candidate) => isVercelDeploymentReady(candidate));
+    if (!deployment) {
+      return undefined;
+    }
+    if (!deployment.aliases?.length) {
+      deployment = await getDeployment(
+        input.vercelToken,
+        deployment.id,
+        input.teamId,
+      );
+    }
+  }
+
+  const selected = selectStableProductionHost({
+    deploymentUrl: deployment.url,
+    aliases: deployment.aliases,
+  });
+
+  return {
+    productionUrl: `https://${selected.host}`,
+    webhookUrl: buildWebhookUrl(selected.host),
+    deploymentId: deployment.id,
+    deploymentUrl: deployment.url,
+    source: selected.source,
+    stableAlias: selected.stableAlias,
+    readyState: deployment.readyState,
+    state: deployment.state,
+  };
+}
+
 export async function listVercelProductionDeployments(
   token: string,
   projectId: string,
@@ -342,6 +462,7 @@ export async function listVercelProductionDeployments(
       url: string;
       state: string;
       readyState?: string;
+      alias?: string[];
     }>;
   }>(token, `/v6/deployments?${params.toString()}`, {
     teamId,
@@ -351,6 +472,7 @@ export async function listVercelProductionDeployments(
     url: deployment.url,
     state: deployment.state,
     readyState: deployment.readyState,
+    aliases: deployment.alias ?? [],
   }));
 }
 
@@ -365,12 +487,14 @@ export async function getVercelDeployment(
     url: string;
     state: string;
     readyState?: string;
+    alias?: string[];
   }>(token, `/v13/deployments/${deploymentId}`, { teamId });
   return {
     id: data.uid ?? data.id ?? deploymentId,
     url: data.url,
     state: data.state,
     readyState: data.readyState,
+    aliases: data.alias ?? [],
   };
 }
 

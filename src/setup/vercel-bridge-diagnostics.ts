@@ -19,8 +19,11 @@ import {
   type VercelEnvWritePlanEntry,
 } from "./vercel-setup-plan.js";
 import {
+  buildWebhookUrl,
   getVercelDeployment,
+  isVercelDeploymentReady,
   listVercelProductionDeployments,
+  resolveCanonicalProductionTarget,
 } from "./vercel-setup-client.js";
 import { runSignedWebhookProbe } from "./vercel-webhook-probe.js";
 import { redactKnownSecretValues } from "./redact-secrets.js";
@@ -115,6 +118,16 @@ export interface VercelBridgeDiagnosticReport {
     resourceTypes?: string[];
     secretReadable: boolean;
     loadError?: string;
+  };
+  webhookTargetDrift?: {
+    storedWebhookUrl?: string;
+    latestProductionWebhookUrl?: string;
+    canonicalProductionWebhookUrl?: string;
+    driftDetected: boolean;
+    canonicalSource?: "stable_alias" | "latest_ready_deployment";
+    matchingPreviousLinearWebhookFound?: boolean;
+    canonicalLinearWebhookExists?: boolean;
+    reconciliationRecommended?: boolean;
   };
 }
 
@@ -317,37 +330,88 @@ export async function buildVercelBridgeDiagnosticReport(input: {
     };
   }
 
-  if (input.liveProbe === true && vercel?.webhookUrl && localWebhookSecret) {
-    const liveProbe = await runSignedWebhookProbe({
-      webhookUrl: vercel.webhookUrl,
-      secret: localWebhookSecret,
-    });
-    report.signedProbeDiagnostic.liveProbe = {
-      passed: liveProbe.passed,
-      result: liveProbe.result,
-      reason: liveProbe.reason,
-      statusCode: liveProbe.statusCode,
-      webhookHost: liveProbe.webhookHost,
-      webhookPath: liveProbe.webhookPath,
-    };
-  }
-
   if (vercelToken && vercel?.projectId) {
     try {
+      const canonicalTarget = await resolveCanonicalProductionTarget({
+        vercelToken,
+        projectId: vercel.projectId,
+        teamId: vercel.teamId,
+        preferredDeploymentId: pending?.newDeploymentId,
+      });
       const deployments = await listVercelProductionDeployments(
         vercelToken,
         vercel.projectId,
         vercel.teamId,
-        { limit: 5 },
+        { state: "READY", limit: 5 },
       );
-      const latest = deployments[0];
-      if (latest) {
+      const latestReady = deployments.find((deployment) =>
+        isVercelDeploymentReady(deployment),
+      );
+      const canonicalProductionWebhookUrl = canonicalTarget?.webhookUrl;
+      const storedWebhookUrl = vercel.webhookUrl?.trim() || undefined;
+
+      if (canonicalProductionWebhookUrl || latestReady) {
+        const driftDetected = Boolean(
+          storedWebhookUrl &&
+            canonicalProductionWebhookUrl &&
+            storedWebhookUrl !== canonicalProductionWebhookUrl,
+        );
+        report.webhookTargetDrift = {
+          storedWebhookUrl,
+          latestProductionWebhookUrl: latestReady
+            ? buildWebhookUrl(latestReady.url)
+            : undefined,
+          canonicalProductionWebhookUrl,
+          driftDetected,
+          canonicalSource: canonicalTarget?.source,
+        };
+
+        if (driftDetected && linearApiKey && canonicalProductionWebhookUrl) {
+          try {
+            const client = createLinearSetupClient(linearApiKey);
+            const webhooks = await listLinearWebhooks(client);
+            const previousLinearWebhook = storedWebhookUrl
+              ? findMatchingLinearWebhook({
+                  webhooks,
+                  webhookUrl: storedWebhookUrl,
+                  linearTeamId: state?.linear?.teamId,
+                })
+              : undefined;
+            const canonicalLinearWebhook = findMatchingLinearWebhook({
+              webhooks,
+              webhookUrl: canonicalProductionWebhookUrl,
+              linearTeamId: state?.linear?.teamId,
+            });
+            report.webhookTargetDrift = {
+              ...report.webhookTargetDrift,
+              matchingPreviousLinearWebhookFound: Boolean(previousLinearWebhook),
+              canonicalLinearWebhookExists: Boolean(canonicalLinearWebhook),
+              reconciliationRecommended: Boolean(
+                previousLinearWebhook && !canonicalLinearWebhook,
+              ),
+            };
+          } catch {
+            // Leave drift fields without Linear reconciliation metadata.
+          }
+        }
+      }
+
+      if (latestReady) {
         report.vercelProductionDeployment = {
           latestProduction: {
-            id: latest.id,
-            url: latest.url,
-            readyState: latest.readyState,
-            state: latest.state,
+            id: latestReady.id,
+            url: latestReady.url,
+            readyState: latestReady.readyState,
+            state: latestReady.state,
+          },
+        };
+      } else if (canonicalTarget) {
+        report.vercelProductionDeployment = {
+          latestProduction: {
+            id: canonicalTarget.deploymentId,
+            url: canonicalTarget.deploymentUrl,
+            readyState: canonicalTarget.readyState,
+            state: canonicalTarget.state ?? "READY",
           },
         };
       }
@@ -411,6 +475,27 @@ export async function buildVercelBridgeDiagnosticReport(input: {
       secretReadable: false,
       loadError: "LINEAR_API_KEY is missing; cannot inspect Linear webhooks.",
     };
+  }
+
+  if (input.liveProbe === true && localWebhookSecret) {
+    const probeWebhookUrl =
+      report.webhookTargetDrift?.canonicalProductionWebhookUrl ??
+      vercel?.webhookUrl;
+    if (probeWebhookUrl) {
+      report.signedProbeDiagnostic.webhookUrl = probeWebhookUrl;
+      const liveProbe = await runSignedWebhookProbe({
+        webhookUrl: probeWebhookUrl,
+        secret: localWebhookSecret,
+      });
+      report.signedProbeDiagnostic.liveProbe = {
+        passed: liveProbe.passed,
+        result: liveProbe.result,
+        reason: liveProbe.reason,
+        statusCode: liveProbe.statusCode,
+        webhookHost: liveProbe.webhookHost,
+        webhookPath: liveProbe.webhookPath,
+      };
+    }
   }
 
   // Final guard: never emit raw secret values in JSON output.

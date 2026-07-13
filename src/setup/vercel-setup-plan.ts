@@ -1,16 +1,16 @@
 import { createHash } from "node:crypto";
 import {
-  buildWebhookUrl,
   checkWebhookEndpointReachable,
   findExistingProjectByName,
   findExistingTeamBySlug,
   getDefaultEnvVarType,
-  listVercelProductionDeployments,
   listVercelProjectEnvVars,
   listVercelProjects,
   listVercelTeams,
+  resolveCanonicalProductionTarget,
   summarizeRequiredEnvPresence,
   type VercelEnvVarSummary,
+  type VercelProductionUrlSource,
 } from "./vercel-setup-client.js";
 import {
   DEFAULT_VERCEL_BRIDGE_ENV_DEFAULTS,
@@ -74,6 +74,8 @@ export interface VercelBridgePlanInput {
   verificationLinearWebhookSecret?: string;
   /** Keep generated-secret preview semantics ("generate-on-apply") while verifying. */
   preserveGeneratedWebhookSecretFingerprint?: boolean;
+  /** When set, resolve production URL from this READY deployment (post-redeploy verify). */
+  preferredProductionDeploymentId?: string;
 }
 
 export interface VercelEnvWritePlanEntry {
@@ -97,6 +99,8 @@ export interface VercelBridgePreview {
   selectedProject?: Awaited<ReturnType<typeof listVercelProjects>>[number];
   productionUrl?: string;
   webhookUrl?: string;
+  productionUrlSource?: VercelProductionUrlSource;
+  canonicalDeploymentId?: string;
   deploymentStatus: "ready" | "missing" | "project-will-be-created";
   deploymentRequired?: {
     message: string;
@@ -522,18 +526,14 @@ export async function previewVercelBridgeSetup(
     };
   }
 
-  const deployments = await listVercelProductionDeployments(
-    normalized.vercelToken,
-    selectedProject.id,
-    teamIdForProjects,
-  );
-  const productionDeployment = deployments.find(
-    (deployment) => deployment.readyState === "READY" || deployment.state === "READY",
-  );
-  const productionUrl = productionDeployment
-    ? `https://${productionDeployment.url}`
-    : undefined;
-  const webhookUrl = productionUrl ? buildWebhookUrl(productionDeployment!.url) : undefined;
+  const productionTarget = await resolveCanonicalProductionTarget({
+    vercelToken: normalized.vercelToken,
+    projectId: selectedProject.id,
+    teamId: teamIdForProjects,
+    preferredDeploymentId: normalized.preferredProductionDeploymentId,
+  });
+  const productionUrl = productionTarget?.productionUrl;
+  const webhookUrl = productionTarget?.webhookUrl;
   const deploymentStatus = webhookUrl ? "ready" : "missing";
   const deploymentRequired = webhookUrl
     ? undefined
@@ -651,6 +651,8 @@ export async function previewVercelBridgeSetup(
     selectedProject,
     productionUrl,
     webhookUrl,
+    productionUrlSource: productionTarget?.source,
+    canonicalDeploymentId: productionTarget?.deploymentId,
     deploymentStatus,
     deploymentRequired,
     endpointReachable: endpoint.reachable,

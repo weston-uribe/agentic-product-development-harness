@@ -15,6 +15,7 @@ vi.mock("../../src/setup/vercel-setup-plan.js", async (importOriginal) => {
 vi.mock("../../src/setup/linear-webhook-secret.js", () => ({
   ensureLinearIssueWebhook: vi.fn(),
   generateLinearWebhookSecret: vi.fn(),
+  reconcileLinearWebhookUrlForVerification: vi.fn(),
   resolveLinearWebhookCandidateSecret: vi.fn(),
 }));
 
@@ -67,6 +68,7 @@ import { summarizeLinearWebhookReadiness } from "../../src/setup/linear-setup-pl
 import {
   ensureLinearIssueWebhook,
   generateLinearWebhookSecret,
+  reconcileLinearWebhookUrlForVerification,
   resolveLinearWebhookCandidateSecret,
 } from "../../src/setup/linear-webhook-secret.js";
 import {
@@ -148,6 +150,13 @@ describe("vercel-setup-apply", () => {
       manualSteps: [],
     });
     vi.mocked(generateLinearWebhookSecret).mockReturnValue("generated-webhook-secret");
+    vi.mocked(reconcileLinearWebhookUrlForVerification).mockResolvedValue({
+      attempted: false,
+      reconciled: false,
+      canonicalWebhookExists: false,
+      matchingPreviousWebhookFound: false,
+      manualSteps: [],
+    });
     vi.mocked(ensureLinearIssueWebhook).mockResolvedValue({
       mode: "automated",
       secret: "generated-webhook-secret",
@@ -772,6 +781,232 @@ describe("vercel-setup-apply", () => {
     expect(result.deploymentRedeployRequired).toBe(false);
     expect(result.verified).toBe(true);
     expect(result.signedProbeVerified).toBe(true);
+  });
+
+  it("reconciles stale deployment-specific URLs on verification retry without secret rotation", async () => {
+    vi.mocked(previewVercelBridgeSetup).mockResolvedValue({
+      ...previewResult,
+      productionUrl: "https://harness-gui.vercel.app",
+      webhookUrl: "https://harness-gui.vercel.app/api/linear-webhook",
+      productionUrlSource: "stable_alias",
+      canonicalDeploymentId: "dpl-new-1",
+    });
+    vi.mocked(reconcileLinearWebhookUrlForVerification).mockResolvedValue({
+      attempted: true,
+      reconciled: true,
+      previousWebhookId: "wh-1",
+      previousWebhookUrl:
+        "https://agentic-product-development-harness-apseun4qi-kinterra-team-url.vercel.app/api/linear-webhook",
+      canonicalWebhookExists: false,
+      matchingPreviousWebhookFound: true,
+      manualSteps: [],
+    });
+    vi.mocked(readControlPlaneSetupState).mockResolvedValue({
+      version: 1,
+      vercel: {
+        projectId: "proj-1",
+        projectName: "harness-gui",
+        productionUrl:
+          "https://agentic-product-development-harness-apseun4qi-kinterra-team-url.vercel.app",
+        webhookUrl:
+          "https://agentic-product-development-harness-apseun4qi-kinterra-team-url.vercel.app/api/linear-webhook",
+        endpointReachable: true,
+        envVarPresence: {
+          LINEAR_WEBHOOK_SECRET: "present",
+          GITHUB_DISPATCH_TOKEN: "present",
+          HARNESS_TEAM_KEY: "present",
+        },
+        linearWebhookVerified: true,
+        deploymentRedeployRequired: true,
+        appliedFingerprint: "preview-fingerprint",
+      },
+    });
+    vi.mocked(resolveLinearWebhookCandidateSecret).mockResolvedValue({
+      secret: "stable-webhook-secret",
+      source: "generated",
+      manualSteps: [],
+    });
+    vi.mocked(runSignedWebhookProbe).mockResolvedValue({
+      passed: true,
+      result: "accepted_ignored",
+      reason: "ignored_event",
+      probedAt: new Date().toISOString(),
+      webhookHost: "harness-gui.vercel.app",
+      webhookPath: "/api/linear-webhook",
+    });
+
+    const result = await applyVercelBridgeSetup({
+      plan: {
+        vercelToken: "vercel-token",
+        projectId: "proj-1",
+        linearApiKey: "lin_api_test",
+        derivedHarnessTeamKey: "WES",
+        derivedGithubDispatchToken: "ghp_saved",
+        verificationLinearWebhookSecret: "stable-webhook-secret",
+        preserveGeneratedWebhookSecretFingerprint: true,
+      },
+      confirmed: true,
+      fingerprint: "preview-fingerprint",
+      verifyOnly: true,
+      cwd: tempRoot,
+    });
+
+    expect(reconcileLinearWebhookUrlForVerification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        previousWebhookUrl:
+          "https://agentic-product-development-harness-apseun4qi-kinterra-team-url.vercel.app/api/linear-webhook",
+        canonicalWebhookUrl: "https://harness-gui.vercel.app/api/linear-webhook",
+        secret: "stable-webhook-secret",
+      }),
+    );
+    expect(ensureLinearIssueWebhook).toHaveBeenCalledWith(
+      expect.objectContaining({
+        webhookUrl: "https://harness-gui.vercel.app/api/linear-webhook",
+        mutatePolicy: "verify-only",
+      }),
+    );
+    expect(runSignedWebhookProbe).toHaveBeenCalledWith(
+      expect.objectContaining({
+        webhookUrl: "https://harness-gui.vercel.app/api/linear-webhook",
+      }),
+    );
+    expect(upsertVercelProjectEnvVar).not.toHaveBeenCalledWith(
+      "vercel-token",
+      expect.objectContaining({ key: "LINEAR_WEBHOOK_SECRET" }),
+    );
+    expect(generateLinearWebhookSecret).not.toHaveBeenCalled();
+    expect(updateControlPlaneSetupState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        vercel: expect.objectContaining({
+          productionUrl: "https://harness-gui.vercel.app",
+          webhookUrl: "https://harness-gui.vercel.app/api/linear-webhook",
+        }),
+      }),
+      tempRoot,
+    );
+    expect(result.verificationRetry).toBe(true);
+    expect(result.verified).toBe(true);
+    expect(JSON.stringify(result)).not.toContain("stable-webhook-secret");
+  });
+
+  it("persists canonical URLs when verification fails after stale Linear webhook reconciliation", async () => {
+    vi.mocked(previewVercelBridgeSetup).mockResolvedValue({
+      ...previewResult,
+      productionUrl: "https://harness-gui.vercel.app",
+      webhookUrl: "https://harness-gui.vercel.app/api/linear-webhook",
+    });
+    vi.mocked(reconcileLinearWebhookUrlForVerification).mockResolvedValue({
+      attempted: true,
+      reconciled: true,
+      canonicalWebhookExists: false,
+      matchingPreviousWebhookFound: true,
+      manualSteps: [],
+    });
+    vi.mocked(readControlPlaneSetupState).mockResolvedValue({
+      version: 1,
+      vercel: {
+        projectId: "proj-1",
+        projectName: "harness-gui",
+        productionUrl: "https://old-deployment.vercel.app",
+        webhookUrl: "https://old-deployment.vercel.app/api/linear-webhook",
+        endpointReachable: true,
+        envVarPresence: {
+          LINEAR_WEBHOOK_SECRET: "present",
+          GITHUB_DISPATCH_TOKEN: "present",
+          HARNESS_TEAM_KEY: "present",
+        },
+        linearWebhookVerified: true,
+        deploymentRedeployRequired: true,
+        appliedFingerprint: "preview-fingerprint",
+      },
+    });
+    vi.mocked(runSignedWebhookProbe).mockResolvedValue({
+      passed: false,
+      result: "auth_failed",
+      reason: "invalid_signature",
+      probedAt: new Date().toISOString(),
+    });
+
+    const result = await applyVercelBridgeSetup({
+      plan: {
+        vercelToken: "vercel-token",
+        projectId: "proj-1",
+        linearApiKey: "lin_api_test",
+        verificationLinearWebhookSecret: "stable-webhook-secret",
+        preserveGeneratedWebhookSecretFingerprint: true,
+      },
+      confirmed: true,
+      fingerprint: "preview-fingerprint",
+      verifyOnly: true,
+      cwd: tempRoot,
+    });
+
+    expect(result.verified).toBe(false);
+    expect(updateControlPlaneSetupState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        vercel: expect.objectContaining({
+          productionUrl: "https://harness-gui.vercel.app",
+          webhookUrl: "https://harness-gui.vercel.app/api/linear-webhook",
+        }),
+      }),
+      tempRoot,
+    );
+    expect(generateLinearWebhookSecret).not.toHaveBeenCalled();
+  });
+
+  it("returns manual recovery when stale URL drift has no matching previous Linear webhook", async () => {
+    vi.mocked(previewVercelBridgeSetup).mockResolvedValue({
+      ...previewResult,
+      webhookUrl: "https://harness-gui.vercel.app/api/linear-webhook",
+    });
+    vi.mocked(reconcileLinearWebhookUrlForVerification).mockResolvedValue({
+      attempted: true,
+      reconciled: false,
+      canonicalWebhookExists: false,
+      matchingPreviousWebhookFound: false,
+      manualSteps: [
+        "No matching Linear Issue webhook was found at the previously stored webhook URL.",
+      ],
+    });
+    vi.mocked(readControlPlaneSetupState).mockResolvedValue({
+      version: 1,
+      vercel: {
+        projectId: "proj-1",
+        projectName: "harness-gui",
+        productionUrl: "https://old-deployment.vercel.app",
+        webhookUrl: "https://old-deployment.vercel.app/api/linear-webhook",
+        endpointReachable: true,
+        envVarPresence: {
+          LINEAR_WEBHOOK_SECRET: "present",
+          GITHUB_DISPATCH_TOKEN: "present",
+          HARNESS_TEAM_KEY: "present",
+        },
+        linearWebhookVerified: true,
+        deploymentRedeployRequired: true,
+        appliedFingerprint: "preview-fingerprint",
+      },
+    });
+
+    const result = await applyVercelBridgeSetup({
+      plan: {
+        vercelToken: "vercel-token",
+        projectId: "proj-1",
+        linearApiKey: "lin_api_test",
+        verificationLinearWebhookSecret: "stable-webhook-secret",
+        preserveGeneratedWebhookSecretFingerprint: true,
+      },
+      confirmed: true,
+      fingerprint: "preview-fingerprint",
+      verifyOnly: true,
+      cwd: tempRoot,
+    });
+
+    expect(result.linearWebhookSetup.mode).toBe("existing-unverified");
+    expect(result.linearWebhookSetup.manualSteps.join(" ")).toMatch(
+      /No matching Linear Issue webhook/i,
+    );
+    expect(generateLinearWebhookSecret).not.toHaveBeenCalled();
+    expect(ensureLinearIssueWebhook).not.toHaveBeenCalled();
   });
 
   it("reuses saved .env.local webhook secret on normal apply without regenerating or overwriting", async () => {
