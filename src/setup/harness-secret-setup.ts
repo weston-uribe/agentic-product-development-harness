@@ -20,7 +20,7 @@ import {
   computeHarnessSecretFingerprint,
   type CredentialInputSource,
   type HarnessCredentialFingerprintContext,
-} from "./remote-preview-fingerprint.js";
+} from "./harness-secret-fingerprint.js";
 import { getLocalFileBaseline } from "./env-merge.js";
 import { resolveLocalFilePaths } from "./setup-state.js";
 

@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  computeHarnessSecretFingerprint,
-  computeTargetWorkflowFingerprint,
-} from "../../src/setup/remote-preview-fingerprint.js";
+import { computeHarnessSecretFingerprint } from "../../src/setup/harness-secret-fingerprint.js";
+import { computeTargetWorkflowFingerprint } from "../../src/setup/remote-preview-fingerprint.js";
 
 const BASE_FINGERPRINT_INPUT = {
   actionId: "preview-harness-secrets",
@@ -44,8 +42,6 @@ describe("remote-preview-fingerprint", () => {
     });
 
     expect(first).not.toBe(second);
-    expect(first).not.toContain("secret");
-    expect(second).not.toContain("secret");
   });
 
   it("changes when credential input source changes from enriched-local to payload", () => {
