@@ -16,6 +16,11 @@ const FAKE_SECRETS = {
   linearApiKey: "sentinel-linear-secret-value",
   cursorApiKey: "sentinel-cursor-secret-value",
   githubToken: "sentinel-github-secret-value",
+  credentialInputSources: {
+    linearApiKey: "payload" as const,
+    cursorApiKey: "payload" as const,
+    harnessGithubToken: "payload" as const,
+  },
 };
 
 describe("remote-apply-actions", () => {
@@ -123,6 +128,27 @@ describe("remote-apply-actions", () => {
         fingerprint: "stale-fingerprint",
       }),
     ).rejects.toThrow(/stale/i);
+  });
+
+  it("apply rejects unresolved harness dispatch repo before remote writes", async () => {
+    const preview = await previewRemoteHarnessSecrets({
+      cwd: tempRoot,
+      operatorInput: FAKE_SECRETS,
+    });
+
+    expect(preview.harnessDispatchRepoResolved).toBe(false);
+
+    await expect(
+      applyRemoteHarnessSecrets({
+        cwd: tempRoot,
+        operatorInput: FAKE_SECRETS,
+        confirmed: true,
+        fingerprint: preview.fingerprint,
+        provider: new MockGitHubRemoteSetupProvider(),
+      }),
+    ).rejects.toThrow(
+      "Harness dispatch repo must be resolved before applying secrets",
+    );
   });
 
   it("apply rejects harness secret writes without provider", async () => {

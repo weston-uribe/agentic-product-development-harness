@@ -730,7 +730,7 @@ describe("M6 configure GUI boundaries", () => {
     expect(confirmationSource).toContain("update local setup files");
   });
 
-  it("guided Step 5 workflow apply shows next-action state instead of apply dead-end", () => {
+  it("guided Step 7 workflow apply shows automatic finalization progress instead of manual merge", () => {
     const experienceSource = readFileSync(
       path.join(repoRoot, "apps/gui/components/custom/configure-experience.tsx"),
       "utf8",
@@ -755,14 +755,15 @@ describe("M6 configure GUI boundaries", () => {
     );
 
     expect(experienceSource).toContain("handleGuidedWorkflowSetupComplete");
-    expect(experienceSource).toContain("GUIDED_DISPLAY_STEP_AFTER_WORKFLOW_READY");
-    expect(experienceSource).toContain("Waiting for workflow PR merge");
+    expect(experienceSource).toContain("workflowFinalizationByRepo");
+    expect(experienceSource).toContain("Finalizing workflow install");
     expect(experienceSource).toContain("workflowInstallPendingByRepo");
 
     expect(workflowCardSource).toContain("onGuidedApplySuccess");
-    expect(workflowCardSource).toContain("WorkflowInstallPendingPanel");
-    expect(workflowCardSource).toContain("Refresh status");
-    expect(workflowCardSource).toContain("pending && isPendingInstallResult(pending)");
+    expect(workflowCardSource).toContain("WorkflowInstallProgressPanel");
+    expect(workflowCardSource).toContain("/api/setup/finalize-target-workflow");
+    expect(workflowCardSource).not.toContain("Refresh status");
+    expect(workflowCardSource).not.toContain("Merge it in GitHub");
 
     expect(prCardSource).toContain("onGuidedApplySuccess");
     expect(prCardSource).toContain('variant === "guided"');
@@ -771,8 +772,10 @@ describe("M6 configure GUI boundaries", () => {
     );
     expect(prCardSource).toContain('variant === "advanced" && successMessage');
 
-    expect(pendingPanelSource).toContain("Open workflow install PR");
-    expect(pendingPanelSource).toContain("Merge the PR in GitHub");
+    expect(pendingPanelSource).toContain("WorkflowInstallProgressPanel");
+    expect(pendingPanelSource).toContain("Merging automatically");
+    expect(pendingPanelSource).toContain("Open GitHub details");
+    expect(pendingPanelSource).not.toContain("Merge the PR in GitHub");
     expect(pendingPanelSource).not.toMatch(/auto-merge|dispatch|harness phase/i);
   });
 

@@ -1,16 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { RemoteTargetWorkflowApplyResult } from "@harness/setup/remote-actions";
 import type { RemoteSetupSummary } from "@harness/setup/remote-setup-summary";
 import type { RemoteWorkflowStatus } from "@harness/setup/remote-actions";
+import type { TargetWorkflowFinalizationResult } from "@harness/setup/target-workflow-finalization-types";
+import { WORKFLOW_INSTALL_SHORT_POLL_INTERVAL_MS } from "@harness/setup/target-workflow-finalization-types";
 
 import { SPACING } from "@/lib/constants";
 import { GUIDED_SETUP_STEP_COUNT } from "@/lib/guided-setup";
 import { SectionCard } from "@/components/custom/section-card";
 import { TargetWorkflowPrCard } from "@/components/custom/target-workflow-pr-card";
 import {
-  WorkflowInstallPendingPanel,
+  WorkflowInstallProgressPanel,
   WorkflowInstallReadyPanel,
 } from "@/components/custom/workflow-install-pending-panel";
 
@@ -20,8 +22,12 @@ interface GuidedTargetWorkflowCardProps {
   onWorkflowSetupComplete?: () => void;
   onWorkflowAwaitingMergeChange?: (awaiting: boolean) => void;
   pendingInstallByRepo?: Record<string, RemoteTargetWorkflowApplyResult>;
+  finalizationByRepo?: Record<string, TargetWorkflowFinalizationResult>;
   onPendingInstallChange?: (
     pending: Record<string, RemoteTargetWorkflowApplyResult>,
+  ) => void;
+  onFinalizationChange?: (
+    finalization: Record<string, TargetWorkflowFinalizationResult>,
   ) => void;
   blockedByUpstream?: boolean;
 }
@@ -56,62 +62,162 @@ function isPendingInstallResult(
   );
 }
 
+function shouldContinuePolling(
+  finalization: TargetWorkflowFinalizationResult | undefined,
+): boolean {
+  if (!finalization) {
+    return false;
+  }
+  if (finalization.lifecycle === "complete") {
+    return false;
+  }
+  if (finalization.lifecycle === "blocked" && !finalization.canRetry) {
+    return false;
+  }
+  return true;
+}
+
+function isTerminalFinalization(
+  finalization: TargetWorkflowFinalizationResult | undefined,
+): boolean {
+  return (
+    finalization?.lifecycle === "complete" ||
+    (finalization?.lifecycle === "blocked" && !finalization.canRetry)
+  );
+}
+
 export function GuidedTargetWorkflowCard({
   initialSummary,
   onSummaryUpdated,
   onWorkflowSetupComplete,
   onWorkflowAwaitingMergeChange,
   pendingInstallByRepo = {},
+  finalizationByRepo = {},
   onPendingInstallChange,
+  onFinalizationChange,
   blockedByUpstream = false,
 }: GuidedTargetWorkflowCardProps) {
   const [summary, setSummary] = useState(initialSummary);
-  const [refreshing, setRefreshing] = useState(false);
+  const [localFinalizationByRepo, setLocalFinalizationByRepo] = useState(
+    finalizationByRepo,
+  );
+  const pollGenerationRef = useRef(0);
 
   useEffect(() => {
     setSummary(initialSummary);
   }, [initialSummary]);
 
+  useEffect(() => {
+    setLocalFinalizationByRepo(finalizationByRepo);
+  }, [finalizationByRepo]);
+
   const refreshSummary = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      const response = await fetch("/api/setup/remote-summary");
+    const response = await fetch("/api/setup/remote-summary");
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error ?? "Remote summary refresh failed");
+    }
+    const nextSummary = data as RemoteSetupSummary;
+    setSummary(nextSummary);
+    onSummaryUpdated?.(nextSummary);
+    return nextSummary;
+  }, [onSummaryUpdated]);
+
+  const finalizeRepo = useCallback(
+    async (repoConfigId: string, apply?: RemoteTargetWorkflowApplyResult) => {
+      const repo = summary.targetRepos.find(
+        (entry) => entry.repoConfigId === repoConfigId,
+      );
+      if (!repo) {
+        return;
+      }
+
+      const response = await fetch("/api/setup/finalize-target-workflow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repoConfigId: repo.repoConfigId,
+          targetRepo: repo.targetRepo,
+          productionBranch: repo.productionBranch,
+          prUrl: apply?.prUrl,
+          branchName: apply?.branchName,
+        }),
+      });
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data.error ?? "Remote summary refresh failed");
+        throw new Error(data.error ?? "Workflow finalization failed");
       }
-      const nextSummary = data as RemoteSetupSummary;
+
+      const finalization = data.finalization as TargetWorkflowFinalizationResult;
+      const nextSummary = data.summary as RemoteSetupSummary;
+
+      setLocalFinalizationByRepo((previous) => {
+        const existing = previous[repoConfigId];
+        if (
+          existing &&
+          isTerminalFinalization(existing) &&
+          !isTerminalFinalization(finalization)
+        ) {
+          return previous;
+        }
+        const next = { ...previous, [repoConfigId]: finalization };
+        onFinalizationChange?.(next);
+        return next;
+      });
+
       setSummary(nextSummary);
       onSummaryUpdated?.(nextSummary);
+
+      if (finalization.lifecycle === "complete") {
+        const nextPending = { ...pendingInstallByRepo };
+        delete nextPending[repoConfigId];
+        onPendingInstallChange?.(nextPending);
+      }
 
       if (allTargetWorkflowsReady(nextSummary)) {
         onPendingInstallChange?.({});
         onWorkflowAwaitingMergeChange?.(false);
         onWorkflowSetupComplete?.();
-        return nextSummary;
       }
 
-      const nextPending = { ...pendingInstallByRepo };
-      for (const repo of nextSummary.targetRepos) {
-        if (repo.workflowStatus === "present") {
-          delete nextPending[repo.repoConfigId];
+      return finalization;
+    },
+    [
+      onFinalizationChange,
+      onPendingInstallChange,
+      onSummaryUpdated,
+      onWorkflowAwaitingMergeChange,
+      onWorkflowSetupComplete,
+      pendingInstallByRepo,
+      summary.targetRepos,
+    ],
+  );
+
+  const startPolling = useCallback(
+    (repoConfigId: string, apply?: RemoteTargetWorkflowApplyResult) => {
+      const generation = pollGenerationRef.current + 1;
+      pollGenerationRef.current = generation;
+
+      const poll = async () => {
+        while (pollGenerationRef.current === generation) {
+          try {
+            const finalization = await finalizeRepo(repoConfigId, apply);
+            if (!shouldContinuePolling(finalization)) {
+              break;
+            }
+          } catch {
+            break;
+          }
+          await new Promise((resolve) =>
+            setTimeout(resolve, WORKFLOW_INSTALL_SHORT_POLL_INTERVAL_MS),
+          );
         }
-      }
-      if (Object.keys(nextPending).length !== Object.keys(pendingInstallByRepo).length) {
-        onPendingInstallChange?.(nextPending);
-      }
-      onWorkflowAwaitingMergeChange?.(Object.keys(nextPending).length > 0);
-      return nextSummary;
-    } finally {
-      setRefreshing(false);
-    }
-  }, [
-    onPendingInstallChange,
-    onSummaryUpdated,
-    onWorkflowAwaitingMergeChange,
-    onWorkflowSetupComplete,
-    pendingInstallByRepo,
-  ]);
+      };
+
+      void poll();
+    },
+    [finalizeRepo],
+  );
 
   useEffect(() => {
     if (allTargetWorkflowsReady(summary)) {
@@ -120,97 +226,89 @@ export function GuidedTargetWorkflowCard({
   }, [onWorkflowSetupComplete, summary]);
 
   useEffect(() => {
-    onWorkflowAwaitingMergeChange?.(
-      Object.values(pendingInstallByRepo).some(isPendingInstallResult),
+    const awaiting = Object.entries(localFinalizationByRepo).some(([, state]) =>
+      shouldContinuePolling(state),
     );
-  }, [onWorkflowAwaitingMergeChange, pendingInstallByRepo]);
+    onWorkflowAwaitingMergeChange?.(awaiting);
+  }, [localFinalizationByRepo, onWorkflowAwaitingMergeChange]);
+
+  useEffect(() => {
+    for (const [repoConfigId, apply] of Object.entries(pendingInstallByRepo)) {
+      if (!isPendingInstallResult(apply)) {
+        continue;
+      }
+      const existing = localFinalizationByRepo[repoConfigId];
+      if (existing && isTerminalFinalization(existing)) {
+        continue;
+      }
+      if (!existing || shouldContinuePolling(existing)) {
+        startPolling(repoConfigId, apply);
+      }
+    }
+  }, [localFinalizationByRepo, pendingInstallByRepo, startPolling]);
 
   const handleGuidedApplySuccess = useCallback(
     async (
       repoConfigId: string,
       result: RemoteTargetWorkflowApplyResult,
+      initialFinalization?: TargetWorkflowFinalizationResult,
     ) => {
       let nextPending = { ...pendingInstallByRepo };
 
       if (result.outcome === "already-installed") {
         delete nextPending[repoConfigId];
-      } else if (isPendingInstallResult(result)) {
+        onPendingInstallChange?.(nextPending);
+        await refreshSummary();
+        return;
+      }
+
+      if (isPendingInstallResult(result)) {
         nextPending[repoConfigId] = result;
       }
 
       onPendingInstallChange?.(nextPending);
-      onWorkflowAwaitingMergeChange?.(
-        Object.values(nextPending).some(isPendingInstallResult),
-      );
 
-      setRefreshing(true);
-      try {
-        const response = await fetch("/api/setup/remote-summary");
-        const data = await response.json();
-        if (!response.ok) {
-          throw new Error(data.error ?? "Remote summary refresh failed");
-        }
-        const nextSummary = data as RemoteSetupSummary;
-        setSummary(nextSummary);
-        onSummaryUpdated?.(nextSummary);
+      if (initialFinalization) {
+        const next = {
+          ...localFinalizationByRepo,
+          [repoConfigId]: initialFinalization,
+        };
+        setLocalFinalizationByRepo(next);
+        onFinalizationChange?.(next);
+      }
 
-        if (allTargetWorkflowsReady(nextSummary)) {
-          onPendingInstallChange?.({});
-          onWorkflowAwaitingMergeChange?.(false);
-          onWorkflowSetupComplete?.();
-          return;
-        }
-
-        const clearedPending = { ...nextPending };
-        for (const repo of nextSummary.targetRepos) {
-          if (repo.workflowStatus === "present") {
-            delete clearedPending[repo.repoConfigId];
-          }
-        }
-        onPendingInstallChange?.(clearedPending);
-        onWorkflowAwaitingMergeChange?.(
-          Object.values(clearedPending).some(isPendingInstallResult),
-        );
-      } finally {
-        setRefreshing(false);
+      if (isPendingInstallResult(result)) {
+        startPolling(repoConfigId, result);
       }
     },
     [
+      localFinalizationByRepo,
+      onFinalizationChange,
       onPendingInstallChange,
-      onSummaryUpdated,
-      onWorkflowAwaitingMergeChange,
-      onWorkflowSetupComplete,
       pendingInstallByRepo,
+      refreshSummary,
+      startPolling,
     ],
   );
 
-  const awaitingMerge = Object.values(pendingInstallByRepo).some(
-    isPendingInstallResult,
+  const awaitingFinalization = Object.values(localFinalizationByRepo).some(
+    (state) => shouldContinuePolling(state),
   );
 
   return (
     <SectionCard
       title={`Step 7 of ${GUIDED_SETUP_STEP_COUNT} · Install target repo workflow`}
       description={
-        awaitingMerge
-          ? "Workflow install PR created. Merge it in GitHub, then refresh status here."
-          : "Now we'll add a GitHub Actions workflow to each target repo so future harness runs can be triggered safely."
+        awaitingFinalization
+          ? "Installing the harness workflow automatically. Setup will continue when production verification succeeds."
+          : "The harness will create or reuse a workflow install PR, merge it automatically when GitHub permits, and verify the production workflow."
       }
     >
       <div className={SPACING.stackSm}>
-        {awaitingMerge ? (
-          <p className="text-sm text-muted-foreground">
-            Setup is waiting on GitHub. Merge the workflow install PR, then use
-            Refresh status to continue.
-          </p>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            The target repo does not yet have the expected harness workflow, or
-            the workflow file is outdated. Each install creates or updates an
-            install branch and opens or reuses a PR. Nothing is merged to main
-            automatically.
-          </p>
-        )}
+        <p className="text-sm text-muted-foreground">
+          Each target repo gets a deterministic install branch and PR. The harness
+          finalizes the install automatically when checks and branch protection allow.
+        </p>
 
         {summary.targetRepos.length === 0 ? (
           <p className="text-sm text-muted-foreground">
@@ -220,6 +318,7 @@ export function GuidedTargetWorkflowCard({
           <div className={SPACING.stackSm}>
             {summary.targetRepos.map((repo) => {
               const pending = pendingInstallByRepo[repo.repoConfigId];
+              const finalization = localFinalizationByRepo[repo.repoConfigId];
               const workflowReady = repo.workflowStatus === "present";
 
               return (
@@ -239,24 +338,48 @@ export function GuidedTargetWorkflowCard({
 
                   {workflowReady ? (
                     <WorkflowInstallReadyPanel repoConfigId={repo.repoConfigId} />
+                  ) : finalization ? (
+                    <WorkflowInstallProgressPanel
+                      finalization={finalization}
+                      onRetry={
+                        finalization.canRetry
+                          ? () => void finalizeRepo(repo.repoConfigId, pending)
+                          : undefined
+                      }
+                    />
                   ) : pending && isPendingInstallResult(pending) ? (
-                    <WorkflowInstallPendingPanel
-                      applyResult={pending}
-                      onRefresh={() => void refreshSummary()}
-                      refreshing={refreshing}
+                    <WorkflowInstallProgressPanel
+                      finalization={{
+                        repoConfigId: repo.repoConfigId,
+                        targetRepo: repo.targetRepo,
+                        targetRepoSlug: repo.targetRepo,
+                        productionBranch: repo.productionBranch,
+                        branchName: pending.branchName,
+                        lifecycle: "preparing",
+                        message: "Starting automatic workflow install finalization.",
+                        workflowStatus: repo.workflowStatus,
+                        canRetry: false,
+                        requiresGitHubIntervention: false,
+                        advancedThisRequest: false,
+                        lockContended: false,
+                      }}
                     />
                   ) : (
                     <>
                       <p className="text-sm text-muted-foreground">
-                        Create or update an install branch and open/reuse a PR.
-                        Nothing is merged to main.
+                        Preview and confirm to create or update the workflow install
+                        PR. Finalization runs automatically after apply.
                       </p>
                       <TargetWorkflowPrCard
                         repo={repo}
                         variant="guided"
                         onApplied={() => undefined}
-                        onGuidedApplySuccess={(result) =>
-                          void handleGuidedApplySuccess(repo.repoConfigId, result)
+                        onGuidedApplySuccess={(result, finalization) =>
+                          void handleGuidedApplySuccess(
+                            repo.repoConfigId,
+                            result,
+                            finalization,
+                          )
                         }
                         blockedByUpstream={blockedByUpstream}
                       />

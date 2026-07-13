@@ -83,6 +83,33 @@ export interface CloudSecretsApplyEvidence {
   applyFingerprint: string;
   configStateFingerprint: string;
   harnessConfigJsonB64Written: boolean;
+  harnessDispatchRepo?: string;
+  harnessDispatchRepoResolved?: boolean;
+  harnessDispatchRepoSource?: string;
+  harnessRepoAccess?: RemoteSetupSummary["harnessRepoAccess"];
+  postApplyVerificationReady?: boolean;
+  secretPresence?: {
+    allPresent: boolean;
+    missing: string[];
+    unknown: string[];
+  };
+}
+
+export type Step6AutomaticApplyOutcomeKind =
+  | "idle"
+  | "success"
+  | "stale-after-apply"
+  | "apply-failed"
+  | "verification-inconclusive"
+  | "success-blocked";
+
+export interface Step6AutomaticApplyOutcome {
+  kind: Step6AutomaticApplyOutcomeKind;
+  message?: string;
+  primaryBlocker?: ReadinessBlocker;
+  canContinue?: boolean;
+  showRetry?: boolean;
+  showRefresh?: boolean;
 }
 
 export interface PrimarySetupTask {
@@ -355,7 +382,7 @@ export function collectCloudSecretsBlockers(
       stepId: "cloud-secrets",
       message: "Blocked: Harness dispatch repo could not be resolved.",
       action:
-        "Next: Confirm your harness repo remote and target repo config, then refresh.",
+        "Next: Return to Step 4, enter your harness repo, and use Verify and use harness repo.",
       priority: 301,
     });
   }
@@ -366,19 +393,20 @@ export function collectCloudSecretsBlockers(
       stepId: "cloud-secrets",
       message: `Blocked: I tried to check ${remoteSummary.harnessDispatchRepo} and GitHub denied access.`,
       action:
-        "Next: Confirm this is the repo you intend to use. If it is wrong, fix local setup first. If it is correct, update your GitHub token permissions and refresh.",
+        "Next: Return to Step 4 to correct the harness repo, or update GITHUB_TOKEN permissions in Step 1 and verify again.",
       priority: 302,
     });
   } else if (
     remoteSummary.harnessRepoAccess === "unknown" &&
-    remoteSummary.githubTokenConfigured
+    remoteSummary.harnessDispatchRepoResolved
   ) {
-    pushWarning(warnings, {
+    pushBlocker(blockers, {
       id: "harness-repo-access-unknown",
       stepId: "cloud-secrets",
-      message: "Harness repo access could not be verified yet.",
-      action: "Refresh cloud secrets setup after GITHUB_TOKEN is saved locally.",
-      priority: 590,
+      message: "Blocked: Harness repo access could not be verified yet.",
+      action:
+        "Next: Return to Step 4 and use Verify and use harness repo, or refresh after saving GITHUB_TOKEN in Step 1.",
+      priority: 303,
     });
   }
 
@@ -466,7 +494,27 @@ export function buildCloudSecretsApplyEvidence(input: {
   applyResult: RemoteHarnessSecretApplyResult;
   setupSummary: SetupGuiViewModel;
   controlPlaneContext?: ControlPlaneReadinessContext;
+  remoteSummary?: RemoteSetupSummary;
 }): CloudSecretsApplyEvidence {
+  return buildAuthoritativeCloudSecretsApplyEvidence({
+    applyResult: input.applyResult,
+    setupSummary: input.setupSummary,
+    controlPlaneContext: input.controlPlaneContext,
+    remoteSummary: input.remoteSummary,
+  });
+}
+
+export function buildAuthoritativeCloudSecretsApplyEvidence(input: {
+  applyResult: RemoteHarnessSecretApplyResult;
+  setupSummary: SetupGuiViewModel;
+  controlPlaneContext?: ControlPlaneReadinessContext;
+  remoteSummary?: RemoteSetupSummary;
+}): CloudSecretsApplyEvidence {
+  const remoteSummary = input.remoteSummary;
+  const secretPresence = remoteSummary
+    ? evaluateHarnessSecretPresence(remoteSummary.harnessSecretStatuses)
+    : undefined;
+
   return {
     path: "automatic",
     applyFingerprint: input.applyResult.fingerprint,
@@ -477,7 +525,172 @@ export function buildCloudSecretsApplyEvidence(input: {
     harnessConfigJsonB64Written: harnessConfigJsonB64WasWritten(
       input.applyResult,
     ),
+    harnessDispatchRepo:
+      remoteSummary?.harnessDispatchRepo ?? input.applyResult.harnessDispatchRepo,
+    harnessDispatchRepoResolved: remoteSummary?.harnessDispatchRepoResolved,
+    harnessDispatchRepoSource: remoteSummary?.harnessDispatchRepoSource,
+    harnessRepoAccess: remoteSummary?.harnessRepoAccess,
+    postApplyVerificationReady: remoteSummary
+      ? step6PostApplyVerificationReady(remoteSummary)
+      : undefined,
+    secretPresence: secretPresence
+      ? {
+          allPresent: secretPresence.allPresent,
+          missing: secretPresence.missing,
+          unknown: secretPresence.unknown,
+        }
+      : undefined,
   };
+}
+
+export function shouldInvalidateCloudSecretsApplyEvidence(input: {
+  evidence?: CloudSecretsApplyEvidence;
+  currentConfigStateFingerprint: string;
+  harnessDispatchRepo?: string;
+}): boolean {
+  if (!input.evidence) {
+    return false;
+  }
+  if (
+    input.evidence.harnessDispatchRepo &&
+    input.harnessDispatchRepo &&
+    input.evidence.harnessDispatchRepo !== input.harnessDispatchRepo
+  ) {
+    return true;
+  }
+  return (
+    input.evidence.configStateFingerprint !== input.currentConfigStateFingerprint
+  );
+}
+
+export function isCloudSecretsApplyEvidenceCurrent(input: {
+  evidence?: CloudSecretsApplyEvidence;
+  currentConfigStateFingerprint: string;
+  harnessDispatchRepo?: string;
+}): boolean {
+  if (!input.evidence) {
+    return false;
+  }
+  if (shouldInvalidateCloudSecretsApplyEvidence(input)) {
+    return false;
+  }
+  return isCloudSecretsStaleLinearConfigResolved({
+    evidence: input.evidence,
+    currentConfigStateFingerprint: input.currentConfigStateFingerprint,
+  });
+}
+
+export function deriveStep6AutomaticApplyOutcome(input: {
+  setupType: "automatic" | "manual" | null;
+  loading: string | null;
+  applyError: string | null;
+  applyResult: RemoteHarnessSecretApplyResult | null;
+  verifiedAutomaticSuccess: boolean;
+  cloudSecretsApplyEvidence?: CloudSecretsApplyEvidence;
+  eligibility: Step6ContinueEligibility;
+  currentConfigStateFingerprint: string;
+  harnessDispatchRepo?: string;
+}): Step6AutomaticApplyOutcome {
+  if (input.setupType !== "automatic") {
+    return { kind: "idle" };
+  }
+
+  if (input.loading === "apply") {
+    return { kind: "idle" };
+  }
+
+  if (input.applyError) {
+    return {
+      kind: "apply-failed",
+      message: input.applyError,
+      showRetry: true,
+    };
+  }
+
+  const evidenceCurrent = isCloudSecretsApplyEvidenceCurrent({
+    evidence: input.cloudSecretsApplyEvidence,
+    currentConfigStateFingerprint: input.currentConfigStateFingerprint,
+    harnessDispatchRepo: input.harnessDispatchRepo,
+  });
+
+  const hasAutomaticProof =
+    input.verifiedAutomaticSuccess ||
+    (Boolean(input.applyResult) && evidenceCurrent);
+
+  if (!hasAutomaticProof) {
+    return { kind: "idle" };
+  }
+
+  if (
+    input.cloudSecretsApplyEvidence &&
+    shouldInvalidateCloudSecretsApplyEvidence({
+      evidence: input.cloudSecretsApplyEvidence,
+      currentConfigStateFingerprint: input.currentConfigStateFingerprint,
+      harnessDispatchRepo: input.harnessDispatchRepo,
+    })
+  ) {
+    return {
+      kind: "stale-after-apply",
+      message:
+        "Local or control-plane config changed after the last automatic secret write. Preview and apply again to refresh HARNESS_CONFIG_JSON_B64.",
+      showRetry: true,
+      primaryBlocker: input.eligibility.blockers.find(
+        (blocker) => blocker.id === "cloud-secrets-stale-linear-config",
+      ),
+    };
+  }
+
+  if (!input.eligibility.postApplyVerificationReady) {
+    return {
+      kind: "verification-inconclusive",
+      message:
+        "Write request completed, but remote secret verification is not ready yet. Refresh or retry.",
+      showRefresh: true,
+      showRetry: true,
+    };
+  }
+
+  if (input.eligibility.canContinue) {
+    return {
+      kind: "success",
+      message:
+        "Encrypted GitHub Actions secrets were created or updated successfully.",
+      canContinue: true,
+    };
+  }
+
+  return {
+    kind: "success-blocked",
+    message:
+      "Automatic secret write succeeded, but Step 6 is not ready to continue yet.",
+    primaryBlocker: input.eligibility.blockers[0],
+    showRefresh: true,
+    showRetry: true,
+  };
+}
+
+export function assertStep6AutomaticApplyOutcomeInvariant(input: {
+  outcome: Step6AutomaticApplyOutcome;
+  verifiedAutomaticSuccess: boolean;
+  applyResult: RemoteHarnessSecretApplyResult | null;
+  loading: string | null;
+  canContinue: boolean;
+}): void {
+  const silentDeadEnd =
+    input.verifiedAutomaticSuccess &&
+    Boolean(input.applyResult) &&
+    input.loading !== "apply" &&
+    !input.canContinue &&
+    input.outcome.kind !== "stale-after-apply" &&
+    input.outcome.kind !== "apply-failed" &&
+    input.outcome.kind !== "verification-inconclusive" &&
+    input.outcome.kind !== "success-blocked";
+
+  if (silentDeadEnd) {
+    throw new Error(
+      "Step 6 automatic apply entered a silent dead-end state without explicit recovery UI.",
+    );
+  }
 }
 
 export function isCloudSecretsStaleLinearConfigResolved(input: {
@@ -544,6 +757,60 @@ function resolveStep6HardBlockers(
     previewStaleCleared: input.previewStaleCleared,
     postApplyVerificationReady: input.postApplyVerificationReady,
   });
+}
+
+export type Step6RemoteActionRoute = "step4-harness-repo" | "connect-services";
+
+export interface Step6RemoteActionEligibility {
+  allowed: boolean;
+  reason?: string;
+  action?: string;
+  route?: Step6RemoteActionRoute;
+}
+
+export function deriveStep6RemoteActionEligibility(
+  summary: RemoteSetupSummary,
+): Step6RemoteActionEligibility {
+  if (!summary.githubTokenConfigured) {
+    return {
+      allowed: false,
+      reason: "Blocked: GITHUB_TOKEN is required for cloud secrets setup.",
+      action: "Add GITHUB_TOKEN in Step 1, then return to cloud secrets setup.",
+      route: "connect-services",
+    };
+  }
+
+  if (!summary.harnessDispatchRepoResolved) {
+    return {
+      allowed: false,
+      reason: "Blocked: Harness dispatch repo could not be resolved.",
+      action:
+        "Return to Step 4, enter your harness repo, and use Verify and use harness repo.",
+      route: "step4-harness-repo",
+    };
+  }
+
+  if (summary.harnessRepoAccess === "denied") {
+    return {
+      allowed: false,
+      reason: `Blocked: GitHub denied access to ${summary.harnessDispatchRepo}.`,
+      action:
+        "Return to Step 4 to correct the harness repo, or update GITHUB_TOKEN permissions in Step 1 and verify again.",
+      route: "step4-harness-repo",
+    };
+  }
+
+  if (summary.harnessRepoAccess !== "available") {
+    return {
+      allowed: false,
+      reason: "Blocked: Harness repo access could not be verified yet.",
+      action:
+        "Return to Step 4 and use Verify and use harness repo, then refresh cloud secrets setup.",
+      route: "step4-harness-repo",
+    };
+  }
+
+  return { allowed: true };
 }
 
 export function deriveStep6ContinueEligibility(

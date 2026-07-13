@@ -31,6 +31,13 @@ export interface GitHubPullRequest {
 }
 
 export interface GitHubRepository {
+  id?: number;
+  name?: string;
+  full_name?: string;
+  private?: boolean;
+  visibility?: string;
+  is_template?: boolean;
+  default_branch?: string;
   permissions?: {
     admin?: boolean;
     maintain?: boolean;
@@ -38,6 +45,27 @@ export interface GitHubRepository {
     triage?: boolean;
     pull?: boolean;
   };
+}
+
+export interface GitHubAuthenticatedUser {
+  id: number;
+  login: string;
+}
+
+export interface GitHubCreateRepositoryFromTemplateInput {
+  templateOwner: string;
+  templateRepo: string;
+  owner: string;
+  name: string;
+  description: string;
+  private: boolean;
+  includeAllBranches?: boolean;
+}
+
+export interface GitHubCreateRepositoryFromTemplateResult {
+  id: number;
+  full_name: string;
+  default_branch: string;
 }
 
 interface GraphQLResponse<T> {
@@ -205,8 +233,8 @@ export class GitHubClient {
     return payload.data;
   }
 
-  async getAuthenticatedUser(): Promise<{ login: string }> {
-    return this.request<{ login: string }>("/user");
+  async getAuthenticatedUser(): Promise<GitHubAuthenticatedUser> {
+    return this.request<GitHubAuthenticatedUser>("/user");
   }
 
   async inspectAuthenticatedUser(): Promise<{
@@ -263,6 +291,13 @@ export class GitHubClient {
 
   async getRepository(owner: string, repo: string): Promise<GitHubRepository> {
     return this.request<GitHubRepository>(`/repos/${owner}/${repo}`);
+  }
+
+  async getRepositoryById(repositoryId: number): Promise<GitHubRepository> {
+    if (!Number.isInteger(repositoryId) || repositoryId <= 0) {
+      throw new Error(`Invalid GitHub repository ID: ${String(repositoryId)}`);
+    }
+    return this.request<GitHubRepository>(`/repositories/${repositoryId}`);
   }
 
   async getPullRequest(
@@ -343,6 +378,7 @@ export class GitHubClient {
     options: {
       mergeMethod: "squash" | "merge" | "rebase";
       commitTitle?: string;
+      expectedHeadSha?: string;
     },
   ): Promise<{ sha: string; merged: boolean; message?: string }> {
     return this.request<{ sha: string; merged: boolean; message?: string }>(
@@ -352,6 +388,7 @@ export class GitHubClient {
         body: {
           merge_method: options.mergeMethod,
           ...(options.commitTitle ? { commit_title: options.commitTitle } : {}),
+          ...(options.expectedHeadSha ? { sha: options.expectedHeadSha } : {}),
         },
       },
     );
@@ -479,6 +516,24 @@ export class GitHubClient {
         sha,
       },
     });
+  }
+
+  async createRepositoryFromTemplate(
+    input: GitHubCreateRepositoryFromTemplateInput,
+  ): Promise<GitHubCreateRepositoryFromTemplateResult> {
+    return this.request<GitHubCreateRepositoryFromTemplateResult>(
+      `/repos/${input.templateOwner}/${input.templateRepo}/generate`,
+      {
+        method: "POST",
+        body: {
+          owner: input.owner,
+          name: input.name,
+          description: input.description,
+          private: input.private,
+          include_all_branches: input.includeAllBranches ?? false,
+        },
+      },
+    );
   }
 
   async createPullRequest(input: {

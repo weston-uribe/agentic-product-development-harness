@@ -22,7 +22,7 @@ import {
 import { summarizeLinearWebhookReadiness } from "./linear-setup-plan.js";
 import { planLinearWebhookSecret } from "./linear-webhook-secret.js";
 import { SETUP_PERMISSIONS } from "./permission-model.js";
-import { tokenizeSecretInput } from "./remote-preview-fingerprint.js";
+import { tokenizeSecretInput } from "./secret-change-token.js";
 
 export const VERCEL_SETUP_ACTIONS = {
   preview: {

@@ -140,9 +140,23 @@ export function ConfigureWorkflow({
   const [harnessRepoVerification, setHarnessRepoVerification] = useState<{
     state: "unchecked" | "checking" | "connected" | "failed";
     verifiedRepo?: string;
+    verifiedGithubTokenFingerprint?: string;
     message?: string;
     limitation?: string;
   }>({ state: "unchecked" });
+  const [autoProvisionedHarnessRepo, setAutoProvisionedHarnessRepo] = useState<
+    string | null
+  >(null);
+  const [serverValidatedHarnessRepo, setServerValidatedHarnessRepo] = useState<
+    string | null
+  >(null);
+  const [provisioningHarnessRepo, setProvisioningHarnessRepo] = useState(false);
+  const [provisioningMessage, setProvisioningMessage] = useState<string | null>(
+    null,
+  );
+  const [provisioningError, setProvisioningError] = useState<string | null>(
+    null,
+  );
   const [verifyingHarnessRepo, setVerifyingHarnessRepo] = useState(false);
   const [showPreviewDisclosure, setShowPreviewDisclosure] = useState(false);
   const [preview, setPreview] = useState<LocalSetupPreviewResult | null>(null);
@@ -277,6 +291,153 @@ export function ConfigureWorkflow({
       activeGithubToken?.fingerprint ?? null,
     ),
   );
+
+  const effectiveHarnessDispatchRepo =
+    envValues.githubDispatchRepository.trim() ||
+    initialEnv.savedHarnessDispatchRepository?.trim() ||
+    "";
+
+  const harnessRepoReady =
+    effectiveHarnessDispatchRepo.length > 0 &&
+    (serverValidatedHarnessRepo === effectiveHarnessDispatchRepo ||
+      (harnessRepoVerification.state === "connected" &&
+        harnessRepoVerification.verifiedRepo === effectiveHarnessDispatchRepo &&
+        (!activeGithubToken?.fingerprint ||
+          harnessRepoVerification.verifiedGithubTokenFingerprint ===
+            activeGithubToken.fingerprint)));
+
+  useEffect(() => {
+    if (mode !== "guided" || guidedStep !== "choose-target-repos") {
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch("/api/setup/harness-provisioning-summary");
+        const data = await response.json();
+        if (!response.ok || cancelled) {
+          return;
+        }
+
+        if (data.verifiedSavedRepo && data.harnessDispatchRepo) {
+          setServerValidatedHarnessRepo(data.harnessDispatchRepo);
+          setEnvValues((current) => ({
+            ...current,
+            githubDispatchRepository: data.harnessDispatchRepo,
+          }));
+          if (data.connectedAutomatically) {
+            setAutoProvisionedHarnessRepo(data.harnessDispatchRepo);
+          }
+          setHarnessRepoVerification({
+            state: "connected",
+            verifiedRepo: data.harnessDispatchRepo,
+            message: data.message,
+          });
+        } else {
+          setServerValidatedHarnessRepo(null);
+        }
+      } catch {
+        if (!cancelled) {
+          setServerValidatedHarnessRepo(null);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [guidedStep, mode]);
+
+  useEffect(() => {
+    if (serverValidatedHarnessRepo || autoProvisionedHarnessRepo) {
+      return;
+    }
+    setHarnessRepoVerification({ state: "unchecked" });
+  }, [
+    activeGithubToken?.fingerprint,
+    autoProvisionedHarnessRepo,
+    serverValidatedHarnessRepo,
+  ]);
+
+  const continueWithHarnessProvisioning = useCallback(async () => {
+    setProvisioningHarnessRepo(true);
+    setProvisioningError(null);
+    setProvisioningMessage("Setting up your private p-dev workspace...");
+
+    try {
+      const previewResponse = await fetch(
+        "/api/setup/preview-harness-repo-provisioning",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        },
+      );
+      const previewData = await previewResponse.json();
+      if (!previewResponse.ok) {
+        throw new Error(previewData.error ?? "Provisioning preview failed");
+      }
+
+      if (previewData.state === "skipped-not-packaged") {
+        onConnectServicesComplete?.();
+        return;
+      }
+
+      const applyResponse = await fetch(
+        "/api/setup/apply-harness-repo-provisioning",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            confirmed: true,
+            fingerprint: previewData.fingerprint,
+            operationId: previewData.operationId,
+          }),
+        },
+      );
+      const applyData = await applyResponse.json();
+      if (!applyResponse.ok) {
+        throw new Error(applyData.error ?? "Provisioning apply failed");
+      }
+
+      if (applyData.apply.state !== "verified-and-persisted") {
+        if (applyData.apply.recoverable) {
+          setProvisioningError(applyData.apply.message);
+          return;
+        }
+        throw new Error(
+          applyData.apply.message ?? "Harness workspace provisioning did not complete.",
+        );
+      }
+
+      const repoSlug = applyData.apply.harnessDispatchRepo as string | null;
+      if (repoSlug) {
+        setAutoProvisionedHarnessRepo(repoSlug);
+        setEnvValues((current) => ({
+          ...current,
+          githubDispatchRepository: repoSlug,
+        }));
+        setHarnessRepoVerification({
+          state: "connected",
+          verifiedRepo: repoSlug,
+          message: applyData.apply.message,
+        });
+      }
+
+      onSummaryUpdated?.(applyData.summary as SetupGuiViewModel);
+      setProvisioningMessage(applyData.apply.message);
+      onConnectServicesComplete?.();
+    } catch (provisionError) {
+      setProvisioningError(
+        provisionError instanceof Error
+          ? provisionError.message
+          : "Harness workspace provisioning failed",
+      );
+    } finally {
+      setProvisioningHarnessRepo(false);
+    }
+  }, [onConnectServicesComplete, onSummaryUpdated]);
 
   const resetApplyState = () => {
     setApplySuccess(null);
@@ -444,62 +605,72 @@ export function ConfigureWorkflow({
     [envValues, saveConnectServiceKey],
   );
 
-  const verifyHarnessRepo = useCallback(async () => {
-    const harnessDispatchRepo = envValues.githubDispatchRepository.trim();
-    const tokenContext = resolveActiveGitHubToken({
-      typedToken: envValues.githubToken,
-      hasSavedToken: presence.GITHUB_TOKEN,
-    });
-
-    setVerifyingHarnessRepo(true);
-    setHarnessRepoVerification({ state: "checking" });
-
-    try {
-      const response = await fetch("/api/setup/verify-harness-repo", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          harnessDispatchRepo,
-          ...(tokenContext?.tokenForRequest
-            ? { githubToken: tokenContext.tokenForRequest }
-            : {}),
-        }),
+  const verifyAndUseHarnessRepo = useCallback(
+    async (draftRepo: string) => {
+      const harnessDispatchRepo = draftRepo.trim();
+      const tokenContext = resolveActiveGitHubToken({
+        typedToken: envValues.githubToken,
+        hasSavedToken: presence.GITHUB_TOKEN,
       });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error ?? "Harness repo verification failed");
+      const tokenFingerprint = tokenContext?.fingerprint ?? null;
+
+      setVerifyingHarnessRepo(true);
+      setHarnessRepoVerification({ state: "checking" });
+
+      try {
+        const response = await fetch("/api/setup/verify-harness-repo", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            harnessDispatchRepo,
+            ...(tokenContext?.tokenForRequest
+              ? { githubToken: tokenContext.tokenForRequest }
+              : {}),
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error ?? "Harness repo verification failed");
+        }
+
+        if (data.status === "connected" && data.repoSlug) {
+          invalidatePreview();
+          setEnvValues((current) => ({
+            ...current,
+            githubDispatchRepository: data.repoSlug,
+          }));
+          setHarnessRepoVerification({
+            state: "connected",
+            verifiedRepo: data.repoSlug,
+            verifiedGithubTokenFingerprint: tokenFingerprint ?? undefined,
+            message: data.message,
+            limitation: data.limitation,
+          });
+        } else {
+          setHarnessRepoVerification({
+            state: "failed",
+            message: data.message,
+            limitation: data.limitation,
+          });
+        }
+      } catch (verifyError) {
+        setHarnessRepoVerification({
+          state: "failed",
+          message:
+            verifyError instanceof Error
+              ? verifyError.message
+              : "Harness repo verification failed",
+        });
+      } finally {
+        setVerifyingHarnessRepo(false);
       }
-
-      setHarnessRepoVerification(
-        data.status === "connected"
-          ? {
-              state: "connected",
-              verifiedRepo: data.repoSlug,
-              message: data.message,
-              limitation: data.limitation,
-            }
-          : {
-              state: "failed",
-              message: data.message,
-              limitation: data.limitation,
-            },
-      );
-    } catch (verifyError) {
-      setHarnessRepoVerification({
-        state: "failed",
-        message:
-          verifyError instanceof Error
-            ? verifyError.message
-            : "Harness repo verification failed",
-      });
-    } finally {
-      setVerifyingHarnessRepo(false);
-    }
-  }, [
-    envValues.githubDispatchRepository,
-    envValues.githubToken,
-    presence.GITHUB_TOKEN,
-  ]);
+    },
+    [
+      envValues.githubToken,
+      invalidatePreview,
+      presence.GITHUB_TOKEN,
+    ],
+  );
 
   const verifyRepo = useCallback(
     async (rowId: string) => {
@@ -759,6 +930,7 @@ export function ConfigureWorkflow({
     servicesPersistedReady &&
     targetReposReady &&
     allReposVerified &&
+    harnessRepoReady &&
     confirmed;
 
   const guidedApplyBlockedReason =
@@ -772,7 +944,11 @@ export function ConfigureWorkflow({
             ? `Verify access for each target repo before ${
                 localSetupFilesExist ? "updating" : "creating"
               } setup files.`
-            : !confirmed
+            : !harnessRepoReady
+              ? effectiveHarnessDispatchRepo
+                ? "Verify and use your harness repo before creating local setup files."
+                : "Complete Step 1 harness workspace setup before creating local setup files."
+              : !confirmed
               ? `Confirm that you understand local setup files will be ${
                   localSetupFilesExist ? "updated" : "created"
                 } on this machine.`
@@ -825,10 +1001,14 @@ export function ConfigureWorkflow({
               <div className={FORM.actions}>
                 <Button
                   type="button"
-                  onClick={() => onConnectServicesComplete?.()}
-                  disabled={!connectServicesReady}
+                  onClick={() => {
+                    void continueWithHarnessProvisioning();
+                  }}
+                  disabled={!connectServicesReady || provisioningHarnessRepo}
                 >
-                  Continue
+                  {provisioningHarnessRepo
+                    ? "Setting up your private p-dev workspace..."
+                    : "Continue and set up private p-dev workspace"}
                 </Button>
               </div>
               {!connectServicesReady ? (
@@ -836,6 +1016,17 @@ export function ConfigureWorkflow({
                   Verify and save each service key above. Continue unlocks after
                   all four services are verified and saved locally.
                 </p>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  p-dev will use your GitHub token to create or reconnect your
+                  private `p-dev-harness` workspace before continuing.
+                </p>
+              )}
+              {provisioningMessage ? (
+                <p className="text-sm text-muted-foreground">{provisioningMessage}</p>
+              ) : null}
+              {provisioningError ? (
+                <p className="text-sm text-destructive">{provisioningError}</p>
               ) : null}
             </SectionCard>
           );
@@ -866,7 +1057,14 @@ export function ConfigureWorkflow({
                     githubDispatchRepository: value,
                   }));
                 }}
-                onVerifyHarnessRepo={verifyHarnessRepo}
+                onVerifyAndUseHarnessRepo={(draftRepo) => {
+                  void verifyAndUseHarnessRepo(draftRepo);
+                }}
+                harnessConnectedAutomatically={
+                  autoProvisionedHarnessRepo === effectiveHarnessDispatchRepo &&
+                  serverValidatedHarnessRepo === effectiveHarnessDispatchRepo &&
+                  Boolean(effectiveHarnessDispatchRepo)
+                }
                 guidedRepos={guidedRepoRows}
                 repoVerification={repoVerification}
                 verifyingRepoRowId={verifyingRepoRowId}

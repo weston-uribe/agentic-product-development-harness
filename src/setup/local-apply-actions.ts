@@ -478,3 +478,47 @@ export async function applyLocalSetupFiles(
     plan,
   };
 }
+
+export async function persistGithubDispatchRepository(options: {
+  cwd?: string;
+  githubDispatchRepository: string;
+  githubDispatchRepositoryId?: number;
+}): Promise<SetupActionResult> {
+  const paths = resolveLocalFilePaths(options.cwd);
+  const existingEnv = await readExistingEnvFile(paths);
+  const repositoryIdValue =
+    options.githubDispatchRepositoryId !== undefined
+      ? String(options.githubDispatchRepositoryId)
+      : undefined;
+  const mergedEnv = mergeEnvInput(existingEnv, {
+    githubDispatchRepository: options.githubDispatchRepository.trim(),
+    githubDispatchRepositoryId: repositoryIdValue,
+  });
+
+  const slugUnchanged =
+    existingEnv?.values.GITHUB_DISPATCH_REPOSITORY?.trim() ===
+    options.githubDispatchRepository.trim();
+  const idUnchanged =
+    repositoryIdValue === undefined ||
+    existingEnv?.values.GITHUB_DISPATCH_REPOSITORY_ID?.trim() ===
+      repositoryIdValue;
+
+  if (slugUnchanged && idUnchanged) {
+    return {
+      actionId: "write-env-local",
+      outcome: "skipped",
+      targetPath: paths.envLocal,
+      permission: SETUP_PERMISSIONS.localFileWrite,
+      reason: "GITHUB_DISPATCH_REPOSITORY already persisted.",
+    };
+  }
+
+  const existingContent = await readExistingEnvFileContent(paths);
+  const envContent = mergeEnvFileContent(existingContent, mergedEnv);
+  return writeEnvLocal({
+    paths,
+    mode: "apply",
+    content: envContent,
+    force: true,
+  });
+}

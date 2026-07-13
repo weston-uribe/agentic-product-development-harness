@@ -18,8 +18,9 @@ import {
 } from "./remote-actions.js";
 import {
   computeHarnessSecretFingerprint,
-  tokenizeSecretInput,
-} from "./remote-preview-fingerprint.js";
+  type CredentialInputSource,
+  type HarnessCredentialFingerprintContext,
+} from "./harness-secret-fingerprint.js";
 import { getLocalFileBaseline } from "./env-merge.js";
 import { resolveLocalFilePaths } from "./setup-state.js";
 
@@ -27,6 +28,94 @@ export interface HarnessSecretOperatorInput {
   linearApiKey?: string;
   cursorApiKey?: string;
   githubToken?: string;
+  /** Credential secrets listed here were explicitly submitted for replacement. */
+  explicitCredentialReplacements?: HarnessActionsSecretName[];
+  credentialInputSources?: {
+    linearApiKey: CredentialInputSource;
+    cursorApiKey: CredentialInputSource;
+    harnessGithubToken: CredentialInputSource;
+  };
+}
+
+function resolveCredentialInputSource(input: {
+  explicitReplacement: boolean;
+  envPresent: boolean;
+}): CredentialInputSource {
+  if (input.explicitReplacement) {
+    return "payload";
+  }
+  if (input.envPresent) {
+    return "enriched-local";
+  }
+  return "absent";
+}
+
+export async function resolveHarnessCredentialFingerprintContext(options: {
+  cwd?: string;
+  operatorInput?: HarnessSecretOperatorInput;
+}): Promise<HarnessCredentialFingerprintContext> {
+  const paths = resolveLocalFilePaths(options.cwd);
+  const envLocalCredentialBaseline = await getLocalFileBaseline(paths.envLocal);
+  const sources = options.operatorInput?.credentialInputSources ?? {
+    linearApiKey: "absent",
+    cursorApiKey: "absent",
+    harnessGithubToken: "absent",
+  };
+
+  return {
+    linearApiKey: sources.linearApiKey,
+    cursorApiKey: sources.cursorApiKey,
+    harnessGithubToken: sources.harnessGithubToken,
+    explicitCredentialReplacements: [
+      ...(options.operatorInput?.explicitCredentialReplacements ?? []),
+    ].sort(),
+    envLocalCredentialBaseline,
+  };
+}
+
+function isExplicitCredentialReplacement(
+  input: HarnessSecretOperatorInput | undefined,
+  name: HarnessActionsSecretName,
+): boolean {
+  return (
+    input?.explicitCredentialReplacements?.includes(name) ?? false
+  );
+}
+
+function operatorCredentialValue(
+  input: HarnessSecretOperatorInput | undefined,
+  name: HarnessActionsSecretName,
+): string | undefined {
+  if (name === "LINEAR_API_KEY") {
+    return input?.linearApiKey;
+  }
+  if (name === "CURSOR_API_KEY") {
+    return input?.cursorApiKey;
+  }
+  if (name === "HARNESS_GITHUB_TOKEN") {
+    return input?.githubToken;
+  }
+  return undefined;
+}
+
+function credentialAvailable(
+  input: HarnessSecretOperatorInput | undefined,
+  name: HarnessActionsSecretName,
+): boolean {
+  const sources = input?.credentialInputSources;
+  if (sources) {
+    if (name === "LINEAR_API_KEY") {
+      return sources.linearApiKey !== "absent";
+    }
+    if (name === "CURSOR_API_KEY") {
+      return sources.cursorApiKey !== "absent";
+    }
+    if (name === "HARNESS_GITHUB_TOKEN") {
+      return sources.harnessGithubToken !== "absent";
+    }
+  }
+
+  return Boolean(operatorCredentialValue(input, name)?.trim());
 }
 
 export interface HarnessSecretSetupOptions {
@@ -65,36 +154,44 @@ export function buildHarnessSecretWritePlan(input: {
 
   for (const name of HARNESS_ACTIONS_SECRET_NAMES) {
     if (name === "HARNESS_CONFIG_JSON_B64") {
+      if (!input.configLocalExists) {
+        plan.push({
+          name,
+          action: "skip",
+          source: "missing-input",
+        });
+        continue;
+      }
+
       plan.push({
         name,
-        action: input.configLocalExists ? "create" : "skip",
-        source: input.configLocalExists ? "generated-config-b64" : "missing-input",
+        action: statusByName.get(name) === "present" ? "update" : "create",
+        source: "generated-config-b64",
       });
       continue;
     }
 
-    const operatorValue =
-      name === "LINEAR_API_KEY"
-        ? input.operatorInput?.linearApiKey
-        : name === "CURSOR_API_KEY"
-          ? input.operatorInput?.cursorApiKey
-          : input.operatorInput?.githubToken;
+    const remotePresent = statusByName.get(name) === "present";
+    const hasOperatorCredential = credentialAvailable(input.operatorInput, name);
+    const explicitReplacement = isExplicitCredentialReplacement(
+      input.operatorInput,
+      name,
+    );
 
-    if (operatorValue?.trim()) {
-      plan.push({
-        name,
-        action:
-          statusByName.get(name) === "present" ? "update" : "create",
-        source: "operator-input",
-      });
-      continue;
-    }
-
-    if (statusByName.get(name) === "present") {
+    if (remotePresent && !explicitReplacement) {
       plan.push({
         name,
         action: "skip",
         source: "preserve-existing",
+      });
+      continue;
+    }
+
+    if (hasOperatorCredential) {
+      plan.push({
+        name,
+        action: remotePresent ? "update" : "create",
+        source: "operator-input",
       });
       continue;
     }
@@ -190,17 +287,16 @@ export async function previewHarnessSecretSetup(
     harnessRepo: harnessDispatchRepoSlug,
   }).steps;
 
+  const credentialInputContext = await resolveHarnessCredentialFingerprintContext(
+    options,
+  );
   const fingerprint = computeHarnessSecretFingerprint({
     actionId: REMOTE_SETUP_ACTIONS.previewHarnessSecrets.id,
     permissionScope: REMOTE_SETUP_ACTIONS.previewHarnessSecrets.permission.scope,
     harnessDispatchRepo: harnessDispatchRepoSlug,
     harnessDispatchRepoSource: context.harnessDispatchRepo.source,
     secretWritePlan: context.secretWritePlan,
-    linearApiKeyToken: tokenizeSecretInput(options.operatorInput?.linearApiKey),
-    cursorApiKeyToken: tokenizeSecretInput(options.operatorInput?.cursorApiKey),
-    harnessGithubTokenToken: tokenizeSecretInput(
-      options.operatorInput?.githubToken,
-    ),
+    credentialInputContext,
     configLocalHash: context.configLocalHash,
   });
 
@@ -234,6 +330,72 @@ export function targetRepoSlugFromUrl(targetRepo: string): string | null {
 export interface ManualHarnessSecretCopyValues {
   values: Partial<Record<HarnessActionsSecretName, string>>;
   missing: HarnessActionsSecretName[];
+}
+
+export interface HarnessSecretOperatorPayload {
+  linearApiKey?: string;
+  cursorApiKey?: string;
+  harnessGithubToken?: string;
+}
+
+export async function resolveHarnessSecretOperatorInput(options: {
+  cwd?: string;
+  payload: HarnessSecretOperatorPayload;
+}): Promise<HarnessSecretOperatorInput> {
+  const paths = resolveLocalFilePaths(options.cwd);
+  const existingEnv = await readExistingEnvFile(paths);
+  const explicitCredentialReplacements: HarnessActionsSecretName[] = [];
+
+  let linearApiKey = options.payload.linearApiKey?.trim();
+  if (linearApiKey) {
+    explicitCredentialReplacements.push("LINEAR_API_KEY");
+  } else {
+    linearApiKey = existingEnv?.values.LINEAR_API_KEY?.trim() || undefined;
+  }
+
+  let cursorApiKey = options.payload.cursorApiKey?.trim();
+  if (cursorApiKey) {
+    explicitCredentialReplacements.push("CURSOR_API_KEY");
+  } else {
+    cursorApiKey = existingEnv?.values.CURSOR_API_KEY?.trim() || undefined;
+  }
+
+  let githubToken = options.payload.harnessGithubToken?.trim();
+  if (githubToken) {
+    explicitCredentialReplacements.push("HARNESS_GITHUB_TOKEN");
+  } else {
+    githubToken = existingEnv?.values.GITHUB_TOKEN?.trim() || undefined;
+  }
+
+  return {
+    linearApiKey,
+    cursorApiKey,
+    githubToken,
+    explicitCredentialReplacements:
+      explicitCredentialReplacements.length > 0
+        ? explicitCredentialReplacements
+        : undefined,
+    credentialInputSources: {
+      linearApiKey: resolveCredentialInputSource({
+        explicitReplacement: explicitCredentialReplacements.includes(
+          "LINEAR_API_KEY",
+        ),
+        envPresent: existingEnv?.presence.LINEAR_API_KEY ?? false,
+      }),
+      cursorApiKey: resolveCredentialInputSource({
+        explicitReplacement: explicitCredentialReplacements.includes(
+          "CURSOR_API_KEY",
+        ),
+        envPresent: existingEnv?.presence.CURSOR_API_KEY ?? false,
+      }),
+      harnessGithubToken: resolveCredentialInputSource({
+        explicitReplacement: explicitCredentialReplacements.includes(
+          "HARNESS_GITHUB_TOKEN",
+        ),
+        envPresent: existingEnv?.presence.GITHUB_TOKEN ?? false,
+      }),
+    },
+  };
 }
 
 export async function buildManualHarnessSecretCopyValues(options?: {

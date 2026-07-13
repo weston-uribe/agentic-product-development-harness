@@ -111,6 +111,30 @@ describe("GitHubClient", () => {
     ).rejects.toBeInstanceOf(GitHubApiError);
   });
 
+  it("merges a PR with expected head sha", async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse(200, { sha: "merged-sha", merged: true }),
+    );
+
+    const client = new GitHubClient({ token: "test-token" });
+    const result = await client.mergePullRequest("owner", "repo", 12, {
+      mergeMethod: "squash",
+      commitTitle: "Merge PR",
+      expectedHeadSha: "abc123",
+    });
+
+    expect(result.sha).toBe("merged-sha");
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [url, init] = mockFetch.mock.calls[0]!;
+    expect(url).toBe("https://api.github.com/repos/owner/repo/pulls/12/merge");
+    expect(init?.method).toBe("PUT");
+    expect(JSON.parse(String(init?.body))).toEqual({
+      merge_method: "squash",
+      commit_title: "Merge PR",
+      sha: "abc123",
+    });
+  });
+
   it("updates a PR branch with expected head sha", async () => {
     mockFetch.mockResolvedValueOnce(
       jsonResponse(202, { message: "Updating pull request branch." }),

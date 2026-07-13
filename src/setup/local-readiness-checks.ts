@@ -4,6 +4,7 @@ import { validateRepoClosure } from "../config/load-config.js";
 import type { HarnessConfig } from "../config/types.js";
 import { normalizeHarnessEnvPaths } from "../gui/repo-root.js";
 import { resolveConfigSource } from "../config/resolve-config.js";
+import { resolveHarnessDispatchRepo } from "./harness-dispatch-repo.js";
 import { redactKnownSecretValues } from "./redact-secrets.js";
 import { summarizeCursorModelSettings } from "./model-settings.js";
 import { resolveLocalFilePaths } from "./setup-state.js";
@@ -131,6 +132,27 @@ export async function runLocalReadinessChecks(options?: {
         ".env.local is present",
         "The local environment file is missing.",
         "Return to Step 2 and create local setup files again.",
+      ),
+    );
+  }
+
+  const harnessDispatchRepo = await resolveHarnessDispatchRepo({ cwd });
+  if (harnessDispatchRepo.resolved && harnessDispatchRepo.repo) {
+    checks.push(
+      passed(
+        "harness-dispatch-repo-resolved",
+        "Harness dispatch repo is resolved",
+        harnessDispatchRepo.repo,
+      ),
+    );
+  } else {
+    checks.push(
+      failed(
+        "harness-dispatch-repo-resolved",
+        "Harness dispatch repo is resolved",
+        harnessDispatchRepo.detail ??
+          "Harness dispatch repo could not be resolved from local setup.",
+        "Return to Step 4, enter your harness repo, and use Verify and use harness repo.",
       ),
     );
   }

@@ -17,7 +17,7 @@ import {
   type LinearWorkflowStateSummary,
 } from "./linear-setup-client.js";
 import { SETUP_PERMISSIONS } from "./permission-model.js";
-import { tokenizeSecretInput } from "./remote-preview-fingerprint.js";
+import { tokenizeSecretInput } from "./secret-change-token.js";
 
 export const LINEAR_SETUP_ACTIONS = {
   preview: {

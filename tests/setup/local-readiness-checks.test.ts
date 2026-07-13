@@ -97,6 +97,7 @@ describe("local-readiness-checks", () => {
       path.join(tempRoot, ".env.local"),
       [
         "HARNESS_CONFIG_PATH=.harness/config.local.json",
+        "GITHUB_DISPATCH_REPOSITORY=owner/harness-repo",
         "LINEAR_API_KEY=lin_test_key",
         "CURSOR_API_KEY=cur_test_key",
         "GITHUB_TOKEN=ghp_test_token",

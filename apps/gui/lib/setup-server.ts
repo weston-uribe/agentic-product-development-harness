@@ -1,5 +1,6 @@
 import "server-only";
 
+import { randomUUID } from "node:crypto";
 import { resolveHarnessRepoRoot } from "@harness/gui/repo-root";
 import {
   applyLocalSetupFiles,
@@ -19,7 +20,9 @@ import {
   readGitRemoteOrigin,
 } from "@harness/setup/harness-dispatch-repo";
 import {
+  buildAuthoritativeCloudSecretsApplyEvidence,
   deriveFirstRunReadiness,
+  type CloudSecretsApplyEvidence,
   type FirstRunReadiness,
 } from "@harness/setup/first-run-readiness";
 import {
@@ -27,10 +30,28 @@ import {
   type SetupGuiViewModel,
 } from "@harness/setup/gui-view-model";
 import { createLiveGitHubRemoteSetupProvider } from "@harness/setup/github-remote-setup-live";
-import type { GitHubRemoteSetupProvider } from "@harness/setup/github-remote-provider";
+import { createLiveGitHubHarnessProvisioningProvider,
+} from "@harness/setup/github-remote-setup-live";
+import { tryCreateHarnessTestProvisioningProvider } from "@harness/setup/test-only-provisioning-provider";
+import { tryCreateHarnessTestRemoteSetupProvider } from "@harness/setup/test-only-remote-setup-provider";
+import {
+  applyHarnessRepoProvisioning,
+  loadHarnessRepoProvisioningSummary,
+  previewHarnessRepoProvisioning,
+  type HarnessRepoProvisioningApplyResult,
+  type HarnessRepoProvisioningPreview,
+  type HarnessRepoProvisioningSummary,
+} from "@harness/setup/harness-repo-provisioning";
+import {
+  MockGitHubRemoteSetupProvider,
+  type GitHubRemoteSetupProvider,
+  type GitHubHarnessProvisioningProvider,
+} from "@harness/setup/github-remote-provider";
+import { GitHubClient } from "@harness/github/client";
 import type { HarnessSecretOperatorInput } from "@harness/setup/harness-secret-setup";
 import {
   buildManualHarnessSecretCopyValues,
+  resolveHarnessSecretOperatorInput,
 } from "@harness/setup/harness-secret-setup";
 import {
   applyRemoteHarnessSecrets,
@@ -43,6 +64,11 @@ import {
   buildRemoteSetupSummary,
   type RemoteSetupSummary,
 } from "@harness/setup/remote-setup-summary";
+import { finalizeTargetWorkflowRemote } from "@harness/setup/target-workflow-finalization";
+import type {
+  TargetWorkflowFinalizeInput,
+  TargetWorkflowFinalizationResult,
+} from "@harness/setup/target-workflow-finalization-types";
 import { collectRemoteSecretInputs } from "@harness/setup/redact-secrets";
 import {
   loadGithubTokenFromEnvLocal,
@@ -109,6 +135,10 @@ function resolveCwd(): string {
 async function resolveRemoteProvider(): Promise<
   GitHubRemoteSetupProvider | undefined
 > {
+  const testProvider = tryCreateHarnessTestRemoteSetupProvider();
+  if (testProvider) {
+    return testProvider;
+  }
   const token = await loadGithubTokenFromEnvLocal({ cwd: resolveCwd() });
   if (!hasGithubTokenConfigured(token)) {
     return undefined;
@@ -119,10 +149,45 @@ async function resolveRemoteProvider(): Promise<
 function toOperatorInput(
   payload: RemoteSecretFormPayload,
 ): HarnessSecretOperatorInput {
+  const explicitCredentialReplacements: HarnessSecretOperatorInput["explicitCredentialReplacements"] =
+    [];
+  if (payload.linearApiKey?.trim()) {
+    explicitCredentialReplacements.push("LINEAR_API_KEY");
+  }
+  if (payload.cursorApiKey?.trim()) {
+    explicitCredentialReplacements.push("CURSOR_API_KEY");
+  }
+  if (payload.harnessGithubToken?.trim()) {
+    explicitCredentialReplacements.push("HARNESS_GITHUB_TOKEN");
+  }
+
   return {
     linearApiKey: payload.linearApiKey,
     cursorApiKey: payload.cursorApiKey,
     githubToken: payload.harnessGithubToken,
+    explicitCredentialReplacements:
+      explicitCredentialReplacements.length > 0
+        ? explicitCredentialReplacements
+        : undefined,
+  };
+}
+
+async function resolveEnrichedHarnessSecretOperatorInput(
+  payload: RemoteSecretFormPayload,
+): Promise<HarnessSecretOperatorInput> {
+  const cwd = resolveCwd();
+  const explicit = toOperatorInput(payload);
+  const enriched = await resolveHarnessSecretOperatorInput({
+    cwd,
+    payload,
+  });
+
+  return {
+    linearApiKey: explicit.linearApiKey?.trim() || enriched.linearApiKey,
+    cursorApiKey: explicit.cursorApiKey?.trim() || enriched.cursorApiKey,
+    githubToken: explicit.githubToken?.trim() || enriched.githubToken,
+    explicitCredentialReplacements: explicit.explicitCredentialReplacements,
+    credentialInputSources: enriched.credentialInputSources,
   };
 }
 
@@ -225,7 +290,7 @@ export async function applyLocalFiles(options: {
 export async function previewHarnessSecretsRemote(
   payload: RemoteSecretFormPayload,
 ): Promise<RemoteHarnessSecretPreview> {
-  const operatorInput = toOperatorInput(payload);
+  const operatorInput = await resolveEnrichedHarnessSecretOperatorInput(payload);
   const knownSecrets = collectRemoteSecretInputs(operatorInput);
   const preview = await previewRemoteHarnessSecrets({
     cwd: resolveCwd(),
@@ -243,18 +308,35 @@ export async function applyHarnessSecretsRemote(options: {
 }): Promise<{
   apply: RemoteHarnessSecretApplyResult;
   summary: RemoteSetupSummary;
+  evidence: CloudSecretsApplyEvidence;
 }> {
-  const operatorInput = toOperatorInput(options.payload);
+  const cwd = resolveCwd();
+  const operatorInput = await resolveEnrichedHarnessSecretOperatorInput(
+    options.payload,
+  );
   const apply = await applyRemoteHarnessSecrets({
-    cwd: resolveCwd(),
+    cwd,
     operatorInput,
     manualHarnessDispatchRepo: options.payload.manualHarnessDispatchRepo,
     confirmed: options.confirmed,
     fingerprint: options.fingerprint,
     provider: await resolveRemoteProvider(),
   });
-  const summary = await loadRemoteSetupSummary();
-  return { apply, summary };
+  const [summary, setupSummary] = await Promise.all([
+    loadRemoteSetupSummary(),
+    loadSetupSummary(),
+  ]);
+  const controlPlaneContext = await loadControlPlaneReadinessContext(
+    cwd,
+    setupSummary,
+  );
+  const evidence = buildAuthoritativeCloudSecretsApplyEvidence({
+    applyResult: apply,
+    setupSummary,
+    controlPlaneContext,
+    remoteSummary: summary,
+  });
+  return { apply, summary, evidence };
 }
 
 export async function previewTargetWorkflowRemote(
@@ -277,7 +359,9 @@ export async function applyTargetWorkflowRemote(options: {
 }): Promise<{
   apply: RemoteTargetWorkflowApplyResult;
   summary: RemoteSetupSummary;
+  finalization?: TargetWorkflowFinalizationResult;
 }> {
+  const provider = await resolveRemoteProvider();
   const apply = await applyRemoteTargetWorkflow({
     cwd: resolveCwd(),
     repoConfigId: options.payload.repoConfigId,
@@ -286,10 +370,84 @@ export async function applyTargetWorkflowRemote(options: {
     manualHarnessDispatchRepo: options.payload.manualHarnessDispatchRepo,
     confirmed: options.confirmed,
     fingerprint: options.fingerprint,
-    provider: await resolveRemoteProvider(),
+    provider,
+  });
+
+  let finalization: TargetWorkflowFinalizationResult | undefined;
+  if (
+    provider &&
+    apply.outcome !== "already-installed" &&
+    (apply.outcome === "pr-created" ||
+      apply.outcome === "pr-updated" ||
+      apply.outcome === "branch-updated")
+  ) {
+    finalization = await runTargetWorkflowFinalization({
+      provider,
+      input: {
+        repoConfigId: options.payload.repoConfigId,
+        targetRepo: options.payload.targetRepo,
+        productionBranch: options.payload.productionBranch,
+        manualHarnessDispatchRepo: options.payload.manualHarnessDispatchRepo,
+        prUrl: apply.prUrl,
+        branchName: apply.branchName,
+      },
+    });
+  }
+
+  const summary = await loadRemoteSetupSummary();
+  return { apply, summary, finalization };
+}
+
+export async function finalizeTargetWorkflowRemoteAction(
+  payload: RemoteTargetWorkflowFormPayload & {
+    prUrl?: string;
+    branchName?: string;
+  },
+): Promise<{
+  finalization: TargetWorkflowFinalizationResult;
+  summary: RemoteSetupSummary;
+}> {
+  const provider = await resolveRemoteProvider();
+  if (!provider) {
+    throw new Error("GitHub token is required for target workflow finalization");
+  }
+
+  const finalization = await runTargetWorkflowFinalization({
+    provider,
+    input: {
+      repoConfigId: payload.repoConfigId,
+      targetRepo: payload.targetRepo,
+      productionBranch: payload.productionBranch,
+      manualHarnessDispatchRepo: payload.manualHarnessDispatchRepo,
+      prUrl: payload.prUrl,
+      branchName: payload.branchName,
+    },
   });
   const summary = await loadRemoteSetupSummary();
-  return { apply, summary };
+  return { finalization, summary };
+}
+
+async function runTargetWorkflowFinalization(options: {
+  provider: GitHubRemoteSetupProvider;
+  input: TargetWorkflowFinalizeInput;
+}): Promise<TargetWorkflowFinalizationResult> {
+  if (options.provider instanceof MockGitHubRemoteSetupProvider) {
+    return options.provider.advanceTargetWorkflowFinalization(options.input);
+  }
+
+  const cwd = resolveCwd();
+  const token = await loadGithubTokenFromEnvLocal({ cwd });
+  if (!hasGithubTokenConfigured(token)) {
+    throw new Error("GitHub token is required for target workflow finalization");
+  }
+
+  const client = new GitHubClient({ token: token! });
+  return finalizeTargetWorkflowRemote({
+    cwd,
+    input: options.input,
+    provider: options.provider,
+    client,
+  });
 }
 
 async function loadLinearApiKey(cwd: string): Promise<string | undefined> {
@@ -476,6 +634,97 @@ export async function pollVercelBridgeRedeployRemote(options: {
   });
   const summary = await buildVercelSetupSummary(cwd);
   return { apply, summary };
+}
+
+async function resolveProvisioningProvider(): Promise<
+  GitHubHarnessProvisioningProvider | undefined
+> {
+  const testProvider = tryCreateHarnessTestProvisioningProvider();
+  if (testProvider) {
+    return testProvider;
+  }
+  const token = await loadGithubTokenFromEnvLocal({ cwd: resolveCwd() });
+  if (!hasGithubTokenConfigured(token)) {
+    return undefined;
+  }
+  return createLiveGitHubHarnessProvisioningProvider(token!);
+}
+
+export async function loadHarnessRepoProvisioningSummaryRemote(): Promise<HarnessRepoProvisioningSummary> {
+  const provider = await resolveProvisioningProvider();
+  return loadHarnessRepoProvisioningSummary({
+    cwd: resolveCwd(),
+    provider,
+  });
+}
+
+export async function previewHarnessRepoProvisioningRemote(options?: {
+  operationId?: string;
+}): Promise<HarnessRepoProvisioningPreview> {
+  const provider = await resolveProvisioningProvider();
+  if (!provider) {
+    return {
+      state: "token-unavailable",
+      fingerprint: JSON.stringify({ action: "preview", tokenUnavailable: true }),
+      operationId: options?.operationId ?? randomUUID(),
+      creationPreviewFingerprint: null,
+      resumedFromPending: false,
+      harnessDispatchRepo: null,
+      authenticatedLogin: null,
+      templateOwner: "weston-uribe",
+      templateRepo: "p-dev-harness-template",
+      templateDefaultBranch: "main",
+      templateHeadSha: "",
+      templateContentId: null,
+      message: "GITHUB_TOKEN is required before provisioning a harness workspace.",
+      recoverable: true,
+      willCreateRepository: false,
+      tokenCapabilities: {
+        tokenType: "unknown",
+        hasRepoScope: false,
+        hasWorkflowScope: false,
+        scopeAmbiguous: true,
+      },
+    };
+  }
+
+  return previewHarnessRepoProvisioning({
+    cwd: resolveCwd(),
+    provider,
+    operationId: options?.operationId,
+  });
+}
+
+export async function applyHarnessRepoProvisioningRemote(options: {
+  confirmed: boolean;
+  fingerprint: string;
+  operationId: string;
+}): Promise<{
+  apply: HarnessRepoProvisioningApplyResult;
+  summary: SetupGuiViewModel;
+  provisioning: HarnessRepoProvisioningPreview;
+}> {
+  const provider = await resolveProvisioningProvider();
+  if (!provider) {
+    throw new Error(
+      "GITHUB_TOKEN is required before provisioning a harness workspace.",
+    );
+  }
+
+  const provisioning = await previewHarnessRepoProvisioning({
+    cwd: resolveCwd(),
+    provider,
+    operationId: options.operationId,
+  });
+  const apply = await applyHarnessRepoProvisioning({
+    cwd: resolveCwd(),
+    provider,
+    confirmed: options.confirmed,
+    fingerprint: options.fingerprint,
+    operationId: options.operationId,
+  });
+  const summary = await getSetupStateSummary({ cwd: resolveCwd() });
+  return { apply, summary, provisioning };
 }
 
 export async function verifyHarnessRepoAccessRemote(options: {

@@ -190,9 +190,8 @@ describe("configure GUI fix loop", () => {
       guidedMinimalEnd,
     );
 
-    expect(guidedMinimalSource).toContain("Update harness repo");
-    expect(guidedMinimalSource).toContain("Use this harness repo");
-    expect(guidedMinimalSource).toContain("Verify harness repo");
+    expect(guidedMinimalSource).toContain("Enter harness repo");
+    expect(guidedMinimalSource).toContain("Verify and use harness repo");
     expect(targetSource).toContain("Detected from git remote");
     expect(targetSource).toContain("Saved in .env.local");
     expect(guidedMinimalSource).toContain("{harnessRepoSource}");
@@ -229,6 +228,7 @@ describe("configure GUI fix loop", () => {
     );
     expect(guidedStep4Source).not.toContain("githubTokenSourceHint");
     expect(workflowSource).toContain("servicesPersistedReady");
+    expect(workflowSource).toContain("harnessRepoReady");
     expect(workflowSource).toContain("guidedApplyBlockedReason");
     expect(workflowSource).toMatch(
       /previewIsCurrent && preview[\s\S]*\? preview[\s\S]*: await runPreview\(\)/,
@@ -257,6 +257,8 @@ describe("configure GUI fix loop", () => {
     expect(source).toContain('setupType === "automatic"');
     expect(source).toContain('setupType === "manual"');
     expect(source).toContain("deriveStep6ContinueEligibility");
+    expect(source).toContain("deriveStep6RemoteActionEligibility");
+    expect(source).toContain("Go to Step 4 harness repo");
     expect(source).toContain("Step6BlockerPanel");
     expect(source).not.toContain("<dt className=\"text-muted-foreground\">Harness repo</dt>");
     expect(source).not.toContain("<dt className=\"text-muted-foreground\">GitHub access</dt>");

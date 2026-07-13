@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { VercelEnvWritePlanEntry } from "./vercel-setup-plan.js";
 import type { VercelSignedProbeEvidence } from "./vercel-webhook-probe.js";
-import { tokenizeSecretInput } from "./remote-preview-fingerprint.js";
+import { tokenizeSecretInput } from "./secret-change-token.js";
 
 export interface VercelBridgeVerificationInputs {
   projectId?: string;

@@ -9,10 +9,12 @@ import type { VercelSetupSummary } from "@harness/setup/vercel-setup-summary";
 import type { ControlPlaneReadinessContext } from "@harness/setup/control-plane-types";
 import {
   deriveFirstRunReadiness,
+  shouldInvalidateCloudSecretsApplyEvidence,
   type CloudSecretsApplyEvidence,
   type FirstRunReadinessUiState,
   type FirstRunStepId,
 } from "@harness/setup/first-run-readiness";
+import { computeCloudSecretsConfigStateFingerprint } from "@harness/setup/control-plane-readiness";
 
 import { LAYOUT, RESPONSIVE, SPACING } from "@/lib/constants";
 import {
@@ -36,6 +38,7 @@ import {
   syncVercelSummaryFromEnvPresence,
 } from "@harness/setup/sync-downstream-summaries";
 import type { RemoteTargetWorkflowApplyResult } from "@harness/setup/remote-actions";
+import type { TargetWorkflowFinalizationResult } from "@harness/setup/target-workflow-finalization-types";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/custom/status-badge";
 import { ReadinessBanner } from "@/components/custom/readiness-banner";
@@ -128,6 +131,9 @@ export function ConfigureExperience({
     );
   const [workflowInstallPendingByRepo, setWorkflowInstallPendingByRepo] =
     useState<Record<string, RemoteTargetWorkflowApplyResult>>({});
+  const [workflowFinalizationByRepo, setWorkflowFinalizationByRepo] = useState<
+    Record<string, TargetWorkflowFinalizationResult>
+  >({});
   const [workflowAwaitingMerge, setWorkflowAwaitingMerge] = useState(false);
   const previousReadinessStepRef = useRef<FirstRunStepId | null>(null);
 
@@ -346,17 +352,36 @@ export function ConfigureExperience({
     setRemoteSummary((current) =>
       syncRemoteSummaryFromEnvPresence(current, nextSummary.envKeyPresence),
     );
-    setUiState((current) => ({
-      ...current,
-      linearPreviewStale: true,
-      vercelPreviewStale: true,
-      remoteSecretPreviewStale: true,
-    }));
-  }, []);
+    setUiState((current) => {
+      const nextControlPlaneContext = buildControlPlaneContext({
+        linearSummary,
+        vercelSummary,
+        summary: nextSummary,
+      });
+      const invalidateEvidence = shouldInvalidateCloudSecretsApplyEvidence({
+        evidence: current.cloudSecretsApplyEvidence,
+        currentConfigStateFingerprint: computeCloudSecretsConfigStateFingerprint({
+          setupSummary: nextSummary,
+          controlPlaneContext: nextControlPlaneContext,
+        }),
+        harnessDispatchRepo: remoteSummary.harnessDispatchRepo,
+      });
+      return {
+        ...current,
+        linearPreviewStale: true,
+        vercelPreviewStale: true,
+        remoteSecretPreviewStale: true,
+        cloudSecretsApplyEvidence: invalidateEvidence
+          ? undefined
+          : current.cloudSecretsApplyEvidence,
+      };
+    });
+  }, [linearSummary, remoteSummary.harnessDispatchRepo, vercelSummary]);
 
   const handleGuidedWorkflowSetupComplete = useCallback(() => {
     setWorkflowAwaitingMerge(false);
     setWorkflowInstallPendingByRepo({});
+    setWorkflowFinalizationByRepo({});
   }, []);
 
   const handleGuidedLocalApplySuccess = useCallback(() => {
@@ -506,6 +531,10 @@ export function ConfigureExperience({
             onUiStateChange={handleRemoteUiStateChange}
             onContinue={handleCloudSecretsReviewed}
             blockedByUpstream={readiness.remoteSetupBlockedByUpstream}
+            onGoToHarnessRepo={() => setDisplayedGuidedStep("choose-target-repos")}
+            onGoToConnectServices={() =>
+              setDisplayedGuidedStep("connect-services")
+            }
           />
         );
       case "target-workflow":
@@ -516,7 +545,9 @@ export function ConfigureExperience({
             onWorkflowSetupComplete={handleGuidedWorkflowSetupComplete}
             onWorkflowAwaitingMergeChange={setWorkflowAwaitingMerge}
             pendingInstallByRepo={workflowInstallPendingByRepo}
+            finalizationByRepo={workflowFinalizationByRepo}
             onPendingInstallChange={setWorkflowInstallPendingByRepo}
+            onFinalizationChange={setWorkflowFinalizationByRepo}
             blockedByUpstream={readiness.remoteSetupBlockedByUpstream}
           />
         );
@@ -529,8 +560,8 @@ export function ConfigureExperience({
             <div className={SPACING.stackSm}>
               <StatusBadge label="Setup complete" variant="success" />
               <p className="text-sm text-muted-foreground">
-                Your harness setup is ready. If you just merged a workflow
-                install PR, that merge is what made the target workflow ready.
+                Your harness setup is ready. The target workflow install finished
+                automatically when production verification succeeded.
                 A later milestone can add a safe first-issue dry run or no-op
                 harness validation.
               </p>
@@ -555,7 +586,7 @@ export function ConfigureExperience({
   const guidedStatusBadgeLabel = readiness.readyForFirstRun
     ? "Setup complete"
     : workflowAwaitingMerge
-      ? "Waiting for workflow PR merge"
+      ? "Finalizing workflow install"
       : "Setup in progress";
 
   return (

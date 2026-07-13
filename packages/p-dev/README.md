@@ -9,6 +9,11 @@ This directory holds the **unpublished** `p-dev` npm package boundary for a loca
 - A packed tarball can expose a `p-dev` executable.
 - macOS operators can launch the existing Configure GUI without cloning the harness source repo.
 - Operator files (`.env.local`, `.harness/config.local.json`) resolve under a durable workspace such as `~/.p-dev` or `P_DEV_HOME`, not inside the npm install directory.
+- Packaged guided setup can auto-provision a private `OWNER/p-dev-harness` workspace during Step 1 when `P_DEV_RUNTIME_MODE=packaged` and a classic PAT with `repo` + `workflow` scopes is saved.
+
+## External template prerequisite (operator-owned)
+
+Automatic workspace provisioning uses the public GitHub template repository `weston-uribe/p-dev-harness-template`. That repo must exist, be marked as a GitHub template, and include `.harness/p-dev-template.json` before real-account validation can complete. Automated tests mock all GitHub mutations and do not create real repositories.
 
 ## Local validation (maintainers)
 

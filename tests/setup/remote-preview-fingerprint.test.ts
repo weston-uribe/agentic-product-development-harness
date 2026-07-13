@@ -1,45 +1,94 @@
 import { describe, expect, it } from "vitest";
-import {
-  computeHarnessSecretFingerprint,
-  computeTargetWorkflowFingerprint,
-  tokenizeSecretInput,
-} from "../../src/setup/remote-preview-fingerprint.js";
+import { computeHarnessSecretFingerprint } from "../../src/setup/harness-secret-fingerprint.js";
+import { computeTargetWorkflowFingerprint } from "../../src/setup/remote-preview-fingerprint.js";
+
+const BASE_FINGERPRINT_INPUT = {
+  actionId: "preview-harness-secrets",
+  permissionScope: "remote-read" as const,
+  harnessDispatchRepo: "owner/harness",
+  harnessDispatchRepoSource: "git-remote-origin",
+  secretWritePlan: [
+    {
+      name: "LINEAR_API_KEY" as const,
+      action: "create" as const,
+      source: "operator-input" as const,
+    },
+  ],
+  configLocalHash: "config-hash",
+};
 
 describe("remote-preview-fingerprint", () => {
-  it("changes when secret input tokens change without storing raw values", () => {
-    const base = computeHarnessSecretFingerprint({
-      actionId: "preview-harness-secrets",
-      permissionScope: "remote-read",
-      harnessDispatchRepo: "owner/harness",
-      harnessDispatchRepoSource: "git-remote-origin",
-      secretWritePlan: [
-        {
-          name: "LINEAR_API_KEY",
-          action: "create",
-          source: "operator-input",
-        },
-      ],
-      linearApiKeyToken: tokenizeSecretInput("secret-a"),
+  it("changes when env-local credential baseline changes without secret-derived tokens", () => {
+    const first = computeHarnessSecretFingerprint({
+      ...BASE_FINGERPRINT_INPUT,
+      credentialInputContext: {
+        linearApiKey: "enriched-local",
+        cursorApiKey: "enriched-local",
+        harnessGithubToken: "enriched-local",
+        explicitCredentialReplacements: [],
+        envLocalCredentialBaseline: "42:1000",
+      },
     });
 
-    const changed = computeHarnessSecretFingerprint({
-      actionId: "preview-harness-secrets",
-      permissionScope: "remote-read",
-      harnessDispatchRepo: "owner/harness",
-      harnessDispatchRepoSource: "git-remote-origin",
-      secretWritePlan: [
-        {
-          name: "LINEAR_API_KEY",
-          action: "create",
-          source: "operator-input",
-        },
-      ],
-      linearApiKeyToken: tokenizeSecretInput("secret-b"),
+    const second = computeHarnessSecretFingerprint({
+      ...BASE_FINGERPRINT_INPUT,
+      credentialInputContext: {
+        linearApiKey: "enriched-local",
+        cursorApiKey: "enriched-local",
+        harnessGithubToken: "enriched-local",
+        explicitCredentialReplacements: [],
+        envLocalCredentialBaseline: "55:2000",
+      },
     });
 
-    expect(base).not.toBe(changed);
-    expect(base).not.toContain("secret-a");
-    expect(changed).not.toContain("secret-b");
+    expect(first).not.toBe(second);
+  });
+
+  it("changes when credential input source changes from enriched-local to payload", () => {
+    const enriched = computeHarnessSecretFingerprint({
+      ...BASE_FINGERPRINT_INPUT,
+      credentialInputContext: {
+        linearApiKey: "enriched-local",
+        cursorApiKey: "absent",
+        harnessGithubToken: "absent",
+        explicitCredentialReplacements: [],
+        envLocalCredentialBaseline: "42:1000",
+      },
+    });
+
+    const payload = computeHarnessSecretFingerprint({
+      ...BASE_FINGERPRINT_INPUT,
+      credentialInputContext: {
+        linearApiKey: "payload",
+        cursorApiKey: "absent",
+        harnessGithubToken: "absent",
+        explicitCredentialReplacements: ["LINEAR_API_KEY"],
+        envLocalCredentialBaseline: "42:1000",
+      },
+    });
+
+    expect(enriched).not.toBe(payload);
+  });
+
+  it("stays stable for an unchanged credential input context", () => {
+    const context = {
+      linearApiKey: "enriched-local" as const,
+      cursorApiKey: "enriched-local" as const,
+      harnessGithubToken: "enriched-local" as const,
+      explicitCredentialReplacements: [] as string[],
+      envLocalCredentialBaseline: "42:1000",
+    };
+
+    const first = computeHarnessSecretFingerprint({
+      ...BASE_FINGERPRINT_INPUT,
+      credentialInputContext: context,
+    });
+    const second = computeHarnessSecretFingerprint({
+      ...BASE_FINGERPRINT_INPUT,
+      credentialInputContext: context,
+    });
+
+    expect(first).toBe(second);
   });
 
   it("changes when workflow content hash changes", () => {

@@ -20,6 +20,7 @@ const SECRET_KEYS = [
 const MANAGED_KEYS = [
   "HARNESS_CONFIG_PATH",
   "GITHUB_DISPATCH_REPOSITORY",
+  "GITHUB_DISPATCH_REPOSITORY_ID",
   ...SECRET_KEYS,
 ] as const;
 
@@ -28,6 +29,7 @@ type ManagedKey = (typeof MANAGED_KEYS)[number];
 export interface EnvKeyPresence {
   HARNESS_CONFIG_PATH: boolean;
   GITHUB_DISPATCH_REPOSITORY: boolean;
+  GITHUB_DISPATCH_REPOSITORY_ID: boolean;
   LINEAR_API_KEY: boolean;
   CURSOR_API_KEY: boolean;
   GITHUB_TOKEN: boolean;
@@ -57,6 +59,7 @@ export function parseEnvFileContent(content: string): ParsedEnvFile {
   const presence: EnvKeyPresence = {
     HARNESS_CONFIG_PATH: false,
     GITHUB_DISPATCH_REPOSITORY: false,
+    GITHUB_DISPATCH_REPOSITORY_ID: false,
     LINEAR_API_KEY: false,
     CURSOR_API_KEY: false,
     GITHUB_TOKEN: false,
@@ -119,6 +122,10 @@ export function mergeEnvInput(
       input.githubDispatchRepository?.trim() ||
       existing?.values.GITHUB_DISPATCH_REPOSITORY ||
       undefined,
+    githubDispatchRepositoryId:
+      input.githubDispatchRepositoryId?.trim() ||
+      existing?.values.GITHUB_DISPATCH_REPOSITORY_ID ||
+      undefined,
   };
 
   const secretMap = {
@@ -145,6 +152,7 @@ function managedValuesFromMerged(merged: SetupEnvInput): Record<ManagedKey, stri
     HARNESS_CONFIG_PATH:
       merged.harnessConfigPath ?? DEFAULT_HARNESS_CONFIG_PATH,
     GITHUB_DISPATCH_REPOSITORY: merged.githubDispatchRepository ?? "",
+    GITHUB_DISPATCH_REPOSITORY_ID: merged.githubDispatchRepositoryId ?? "",
     LINEAR_API_KEY: merged.linearApiKey ?? "",
     CURSOR_API_KEY: merged.cursorApiKey ?? "",
     GITHUB_TOKEN: merged.githubToken ?? "",
@@ -160,6 +168,7 @@ function generateNewEnvFileContent(merged: SetupEnvInput): string {
 # --- Harness managed keys ---
 HARNESS_CONFIG_PATH=${values.HARNESS_CONFIG_PATH}
 GITHUB_DISPATCH_REPOSITORY=${values.GITHUB_DISPATCH_REPOSITORY}
+GITHUB_DISPATCH_REPOSITORY_ID=${values.GITHUB_DISPATCH_REPOSITORY_ID}
 LINEAR_API_KEY=${values.LINEAR_API_KEY}
 CURSOR_API_KEY=${values.CURSOR_API_KEY}
 GITHUB_TOKEN=${values.GITHUB_TOKEN}
@@ -235,6 +244,9 @@ export function summarizeManagedKeyPresence(
   return {
     HARNESS_CONFIG_PATH: Boolean(merged.harnessConfigPath?.trim()),
     GITHUB_DISPATCH_REPOSITORY: Boolean(merged.githubDispatchRepository?.trim()),
+    GITHUB_DISPATCH_REPOSITORY_ID: Boolean(
+      merged.githubDispatchRepositoryId?.trim(),
+    ),
     LINEAR_API_KEY: Boolean(merged.linearApiKey?.trim()),
     CURSOR_API_KEY: Boolean(merged.cursorApiKey?.trim()),
     GITHUB_TOKEN: Boolean(merged.githubToken?.trim()),
