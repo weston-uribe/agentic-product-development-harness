@@ -11,6 +11,8 @@ describe("resolveHarnessRepoRoot", () => {
   let tempRoot = "";
 
   beforeEach(async () => {
+    delete process.env.HARNESS_REPO_ROOT;
+    delete process.env.P_DEV_HOME;
     tempRoot = await mkdtemp(path.join(tmpdir(), "harness-repo-root-"));
     await writeFile(
       path.join(tempRoot, "package.json"),
@@ -23,6 +25,7 @@ describe("resolveHarnessRepoRoot", () => {
 
   afterEach(async () => {
     delete process.env.HARNESS_REPO_ROOT;
+    delete process.env.P_DEV_HOME;
     await rm(tempRoot, { recursive: true, force: true });
   });
 
@@ -36,6 +39,14 @@ describe("resolveHarnessRepoRoot", () => {
     process.env.HARNESS_REPO_ROOT = otherRoot;
     expect(resolveHarnessRepoRoot(path.join(tempRoot, "apps", "gui"))).toBe(
       otherRoot,
+    );
+  });
+
+  it("uses P_DEV_HOME when HARNESS_REPO_ROOT is unset", () => {
+    const workspaceRoot = path.join(tempRoot, "operator-workspace");
+    process.env.P_DEV_HOME = workspaceRoot;
+    expect(resolveHarnessRepoRoot(path.join(tempRoot, "apps", "gui"))).toBe(
+      workspaceRoot,
     );
   });
 

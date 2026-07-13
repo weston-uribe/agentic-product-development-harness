@@ -11,3 +11,9 @@ dist/
 !.env.example
 .harness/config.local.json
 .harness/*.local.json
+packages/p-dev/bin/
+packages/p-dev/dist/
+packages/p-dev/gui/
+packages/p-dev/templates/
+packages/p-dev/node_modules/
+packages/p-dev/*.tgz

@@ -132,6 +132,7 @@ Use named token constants for layout and responsive patterns. Do not scatter arb
 
 ## Related
 
+- [`docs/npm-packaging-spike.md`](npm-packaging-spike.md) — unpublished `p-dev` local packaging spike (not on npm)
 - [`docs/operator-config.md`](operator-config.md)
 - [`docs/getting-started.md`](getting-started.md)
 - [`docs/design/product-development-harness-gui.md`](design/product-development-harness-gui.md)
