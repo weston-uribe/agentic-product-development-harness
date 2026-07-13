@@ -21,7 +21,10 @@
     "harness:sync-production": "tsx src/index.ts sync-production",
     "harness:redact-output": "tsx src/index.ts redact-output",
     "harness:operator:init": "tsx src/index.ts operator init",
-    "generate:config-schema": "tsx scripts/generate-config-schema.ts"
+    "generate:config-schema": "tsx scripts/generate-config-schema.ts",
+    "package:p-dev:prepare": "tsx scripts/prepare-p-dev-package.ts",
+    "package:p-dev:pack": "npm run package:p-dev:prepare && sh -c 'cd packages/p-dev && npm pack --pack-destination .'",
+    "package:p-dev:inspect": "sh -c 'cd packages/p-dev && npm pack --dry-run --json'"
   },
   "dependencies": {
     "@cursor/sdk": "^1.0.23",

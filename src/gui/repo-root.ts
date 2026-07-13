@@ -4,11 +4,17 @@ import { fileURLToPath } from "node:url";
 import { loadHarnessDotenv } from "../config/load-dotenv.js";
 
 const HARNESS_PACKAGE_NAME = "agentic-product-development-harness";
+const P_DEV_HOME_ENV = "P_DEV_HOME";
 
 export function resolveHarnessRepoRoot(startDir = process.cwd()): string {
   const fromEnv = process.env.HARNESS_REPO_ROOT?.trim();
   if (fromEnv) {
     return path.resolve(fromEnv);
+  }
+
+  const fromWorkspace = process.env[P_DEV_HOME_ENV]?.trim();
+  if (fromWorkspace) {
+    return path.resolve(fromWorkspace);
   }
 
   let current = path.resolve(startDir);
