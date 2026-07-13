@@ -30,7 +30,7 @@ describe("packaged harness target workflow route regression", () => {
 
   beforeEach(async () => {
     process.env.P_DEV_RUNTIME_MODE = "packaged";
-    process.env.P_DEV_PACKAGE_VERSION = "0.0.0";
+    process.env.P_DEV_PACKAGE_VERSION = "0.3.0";
     process.env.HARNESS_VITEST_REMOTE_SETUP_MOCK = "enabled";
     resetMockWorkflowFinalizationRuntime();
 

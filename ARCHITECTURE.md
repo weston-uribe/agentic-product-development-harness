@@ -1,14 +1,34 @@
 # Architecture
 
-Modular design for an agentic product development harness. The architecture is **modular by subsystem** (product system, SCM/PR system, runner, agent provider, preview provider), but it is **not provider-agnostic yet**. Components are defined so the harness can run manually in Cursor while later phases add automation without rewriting the model — but in V0.2 the only implemented agent provider is Cursor. Runner phases import [`src/agents/`](src/agents/) for agent lifecycle operations; the Cursor adapter delegates to [`src/cursor/`](src/cursor/) for SDK-specific behavior.
+Modular design for an agentic product development harness. The architecture is **modular by subsystem** (product system, SCM/PR system, runner, agent provider, preview provider), but it is **not provider-agnostic yet**. Components are defined so the harness can run manually in Cursor while later phases add automation without rewriting the model — but in V0.3 the only implemented agent provider is Cursor. Runner phases import [`src/agents/`](src/agents/) for agent lifecycle operations; the Cursor adapter delegates to [`src/cursor/`](src/cursor/) for SDK-specific behavior.
+
+## p-dev packaged operator shell
+
+**Status:** **Implemented** in v0.3.0 — public npm package `p-dev@0.3.0`.
+
+**Purpose:** Launch the guided Configure GUI without cloning the source repository. Operators use a durable workspace (`~/.p-dev`, `P_DEV_HOME`, or `--workspace`) separate from the npm install directory.
+
+**Boundaries:**
+
+| Boundary | Role |
+|----------|------|
+| `packages/p-dev` | Published npm artifact and launcher |
+| Operator workspace | Local secrets and config (`.env.local`, `.harness/config.local.json`) |
+| Public template (`weston-uribe/p-dev-harness-template`) | Provisioning source |
+| Private `OWNER/p-dev-harness` | Managed harness workspace for cloud automation |
+| Target repos | Product codebases |
+
+**Guided control-plane setup:** Seven-step Configure GUI with confirmation-gated local and remote writes. Step 7 auto-finalizes system-owned workflow install PRs with check gating and production verification; ordinary product PRs remain governed by Linear status gates.
+
+Details: [`docs/p-dev.md`](docs/p-dev.md)
 
 ## Configuration and portability posture
 
-V0.2 is **Cursor-first**. Key assumptions:
+V0.3 is **Cursor-first**. Key assumptions:
 
 - **Runner phases import `src/agents/` for agent lifecycle operations.** The internal provider seam exists (`src/agents/cursor-provider.ts`); Cursor SDK calls remain in `src/cursor/`. No second adapter is implemented.
 - **`agentProvider` config makes Cursor explicit** (`id: "cursor"` only today). Model resolution prefers `agentProvider.model.id` and falls back to `defaultModel.id`.
-- **GitHub and Linear are explicit V0.2 assumptions** — GitHub is the SCM/PR provider and cloud runner (GitHub Actions), and Linear is the product/control system.
+- **GitHub and Linear are explicit V0.3 assumptions** — GitHub is the SCM/PR provider and cloud runner (GitHub Actions), and Linear is the product/control system.
 - **Vercel is the only implemented preview provider** when preview capture is enabled; other repos use `previewProvider: "none"`.
 - The harness does **not** claim Claude Code, Codex, VS Code local agents, GitLab, or Bitbucket support.
 

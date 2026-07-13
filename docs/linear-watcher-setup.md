@@ -1,8 +1,8 @@
 # Linear watcher setup
 
-Operator guide for the V0.2.0 event-driven auto-runner.
+Operator guide for the v0.3.0 event-driven auto-runner.
 
-**Related:** [`docs/milestones/m8-linear-watcher.md`](milestones/m8-linear-watcher.md), [`ARCHITECTURE.md`](../ARCHITECTURE.md), [`docs/security.md`](security.md), [`docs/releases/v0.2.0.md`](releases/v0.2.0.md)
+**Related:** [`docs/milestones/m8-linear-watcher.md`](milestones/m8-linear-watcher.md), [`ARCHITECTURE.md`](../ARCHITECTURE.md), [`docs/security.md`](security.md), [`docs/releases/v0.3.0.md`](releases/v0.3.0.md)
 
 ---
 

@@ -15,7 +15,7 @@ Automated evals are only useful when the criteria are stable. v0.1 runs against 
 | Phase | Eval capability |
 |-------|-----------------|
 | v0.1 | Manual rubrics in markdown |
-| v0.2 eval contract | **Deferred** — superseded by V0.2.0 source release scope; see [`docs/releases/v0.2.0.md`](../docs/releases/v0.2.0.md) |
+| v0.3 eval contract | **Deferred** — manual rubrics remain; see [`docs/releases/v0.3.0.md`](../docs/releases/v0.3.0.md) |
 | Later | Optional automated checks (lint, tests, preview smoke) tied to scorecard rows |
 
 ## What belongs here

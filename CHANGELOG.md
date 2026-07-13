@@ -2,23 +2,97 @@
 
 All notable changes to this harness repo are documented here.
 
-This is a **GitHub source release** changelog. The harness is `private: true` and is **not** published to npm.
+V0.3.0 is a **GitHub source release** plus a **public npm CLI package** (`p-dev@0.3.0`). The root repository remains `private: true`; the published package is `packages/p-dev`.
 
 ## Unreleased
 
-- Canonical skill architecture documented at [`docs/skills/skill-architecture.md`](docs/skills/skill-architecture.md) with six implemented skills under [`.agents/skills/`](.agents/skills/).
-- Implemented operator-invoked audit skills: `code-health-audit`, `architecture-evolution-audit`, and `security-audit`.
-- Deferred skill-system items: `performance-cost-audit`, skill registry/package manager, skill manifests, runner-skill prompt integration, and provider/client adapters (`src/prompts/*.md` remain runner implementation details).
-- Milestone 5 PR 2: remote setup GUI with confirmation-gated harness repo Actions secret writes and target workflow branch/PR installs (`preview-harness-secrets`, `apply-harness-secrets`, `preview-target-workflow`, `apply-target-workflow` API routes).
-- Milestone 5 PR 1: setup-core remote contracts, preview models, permission gates, redaction helpers, manual instructions, dispatch repo resolution, and deferred apply function signatures.
-- Milestone 4 GUI: guided local configuration with preview/confirmation-gated writes for `.env.local` and `.harness/config.local.json`.
-- Generalized public target-repo examples and removed personal target repo references from docs.
+## [0.3.0] — 2026-07-13
+
+V0.3.0 is the guided-onboarding and distribution release: seven-step Configure GUI, six canonical skills, and public `p-dev` npm package.
+
+**Release type:** GitHub source release (annotated tag + curated release notes) plus public npm package `p-dev@0.3.0`.
+
+### Highlights
+
+- Guided seven-step Configure GUI repaired and automated end to end
+- Public `p-dev` package — launch without cloning the source repository
+- Six canonical harness skills under `.agents/skills/`
+- Public template provisioning for private `OWNER/p-dev-harness` workspaces
+- Automated Vercel bridge setup with redeploy polling and signed webhook verification
+- Guarded Step 7 workflow install PR finalization for system-owned setup PRs
+
+### Added
+
+- Canonical end-user guide [`docs/p-dev.md`](docs/p-dev.md)
+- Public npm package `p-dev@0.3.0` with durable operator workspace (`~/.p-dev`, `P_DEV_HOME`, `--workspace`)
+- Packaged harness workspace provisioning/reconnection from `weston-uribe/p-dev-harness-template`
+- Seven-step guided Configure GUI with confirmation-gated local and remote writes
+- Remote setup: Linear workspace/status configuration, Vercel bridge, cloud secrets, target workflow install
+- Automatic Vercel production redeploy polling and signed webhook verification
+- Step 7 workflow install PR validation, guarded merge, and production verification
+- Six canonical skills: `issue-intake`, `code-health-audit`, `architecture-evolution-audit`, `security-audit`, `planner`, `implementation`
+- Skill architecture documentation at [`docs/skills/skill-architecture.md`](docs/skills/skill-architecture.md)
+- Release contract [`docs/releases/v0.3.0.md`](docs/releases/v0.3.0.md)
+- Package publication process in [`docs/releases/release-process.md`](docs/releases/release-process.md)
+
+### Changed
+
+- README leads product managers to `npx --yes p-dev@0.3.0`; source clone remains contributor path
+- `docs/getting-started.md` — p-dev primary, source clone for maintainers
+- `docs/npm-packaging-spike.md` — historical spike document linking to `docs/p-dev.md`
+- `packages/p-dev/README.md` — public npm package README
+- Root `package.json` version `0.2.0` → `0.3.0` (source marker; `private: true` unchanged)
+- `RELEASE_PHASE` `v0.2-prep` → `v0.3-prep`
+- ROADMAP reflects post-v0.3 priorities; shipped v0.3 items moved to history
+
+### Fixed
+
+- Guided setup step order and navigation (seven stages before completion)
+- Packaged workspace seeding without overwriting existing operator files
+- Durable repo ID / managed-marker recovery for provisioned harness workspaces
+- Server-authored evidence for cloud secret setup
+- Target workflow PR reuse, exact-content validation, and production verification
+
+### Security and safety
+
+- Confirmation-gated remote mutations with fingerprint validation
+- Error redaction and permission handling in setup flows
+- Published package excludes credentials, local state, and generated private workspace artifacts
+- MIT license included in npm package artifact
+
+### Documentation
+
+- Truth audit across README, AGENTS, ARCHITECTURE, ROADMAP, operator and GUI docs
+- Token permission documentation derived from implementation (classic `repo` + `workflow`; fine-grained Contents + Workflows write)
+- Explicit distinction: system-owned setup PR automation does not alter ordinary product PR policy
+
+### Validation
+
+- Codespaces source-based GUI validation
+- Controlled separate-account packaged onboarding through Setup complete
+- Package pack/inspect tests, tarball smoke, Configure route HTTP 200
+- Expanded setup, GUI, and provisioning test coverage
+
+### Known limitations
+
+- **Cursor-only** agent provider
+- **Linear / GitHub / GitHub Actions / Vercel** stack only
+- **macOS validated** for packaged browser auto-launch; use `--no-open` elsewhere
+- **No full real issue lifecycle** from an isolated npm-installed workspace
+- **No automatic upgrade/sync** of already-created private harness workspaces
+- **Public template compatibility** dependency on `weston-uribe/p-dev-harness-template`
+- **Not production-grade SaaS** or provider-agnostic
+- Manual eval rubrics remain where automation is not implemented
+- Deferred: `performance-cost-audit`, skill registry/package manager, manifests, provider adapters, runner-skill prompt integration
+
+[0.3.0]: https://github.com/weston-uribe/agentic-product-development-harness/releases/tag/v0.3.0
+[0.2.0]: https://github.com/weston-uribe/agentic-product-development-harness/releases/tag/v0.2.0
 
 ## [0.2.0] — 2026-07-08
 
 V0.2.0 moves the harness from early validated spikes to a documented source release: lifecycle runners, Linear-triggered GitHub Actions automation, production sync, provider posture, security hardening, and operator docs now tell one consistent story.
 
-**Release type:** GitHub source release (annotated tag + GitHub release). Not an npm package publication.
+**Release type:** GitHub source release (annotated tag + GitHub release).
 
 ### Added
 
@@ -65,6 +139,3 @@ V0.2.0 moves the harness from early validated spikes to a documented source rele
 - OpenSSF Scorecard deferred
 - No generic auto-merge for arbitrary green public PRs
 - Linear/status gates required — automation does not ship without human-controlled status transitions
-- npm package publication and stability are explicitly out of scope
-
-[0.2.0]: https://github.com/weston-uribe/agentic-product-development-harness/releases/tag/v0.2.0

@@ -1,30 +1,51 @@
-# p-dev (unpublished packaging spike)
+# p-dev
 
-This directory holds the **unpublished** `p-dev` npm package boundary for a local packaging proof of concept.
+Launch the **Product Development Harness** guided Configure GUI without cloning the source repository.
 
-**Status:** spike only — not published to npm. Public `npx p-dev` is not available yet.
+## Quick start
 
-## What it proves
-
-- A packed tarball can expose a `p-dev` executable.
-- macOS operators can launch the existing Configure GUI without cloning the harness source repo.
-- Operator files (`.env.local`, `.harness/config.local.json`) resolve under a durable workspace such as `~/.p-dev` or `P_DEV_HOME`, not inside the npm install directory.
-- Packaged guided setup can auto-provision a private `OWNER/p-dev-harness` workspace during Step 1 when `P_DEV_RUNTIME_MODE=packaged` and a classic PAT with `repo` + `workflow` scopes is saved.
-
-## External template prerequisite (operator-owned)
-
-Automatic workspace provisioning uses the public GitHub template repository `weston-uribe/p-dev-harness-template`. That repo must exist, be marked as a GitHub template, and include `.harness/p-dev-template.json` before real-account validation can complete. Automated tests mock all GitHub mutations and do not create real repositories.
-
-## Local validation (maintainers)
-
-From the repository root after `npm run package:p-dev:pack`:
+**Node.js 22+** required. **macOS** is the validated packaged platform.
 
 ```bash
-TMPDIR=$(mktemp -d)
-export P_DEV_HOME="$TMPDIR/workspace"
-npx --yes "file:/absolute/path/to/packages/p-dev/p-dev-0.0.0.tgz" --no-open
+npx --yes p-dev@0.3.0
 ```
 
-Then verify `http://localhost:3000/settings/configure` (or the printed port) responds successfully.
+Without browser auto-open:
 
-Generated runtime assets under `bin/`, `dist/`, `gui/`, `templates/`, and `*.tgz` are build outputs and must not be committed.
+```bash
+npx --yes p-dev@0.3.0 --no-open
+```
+
+Custom workspace:
+
+```bash
+npx --yes p-dev@0.3.0 --workspace ~/.p-dev
+```
+
+## What it does
+
+- Starts the seven-step Configure GUI at `/settings/configure`
+- Stores durable operator state under `~/.p-dev`, `P_DEV_HOME`, or `--workspace`
+- Can provision or reconnect a private `OWNER/p-dev-harness` workspace from the public template `weston-uribe/p-dev-harness-template`
+- Guides Linear, Cursor, GitHub, and Vercel setup through confirmation-gated remote writes
+
+## Requirements
+
+- Classic GitHub PAT with **`repo`** + **`workflow`** scopes for packaged workspace provisioning
+- Linear, Cursor, and Vercel credentials for full setup
+- Public template repo must exist and be marked as a GitHub template
+
+## Limitations
+
+- Cursor-only agent provider; Linear/GitHub/GitHub Actions/Vercel stack
+- macOS validated for browser auto-launch; use `--no-open` elsewhere
+- Setup completion is validated; a full real issue lifecycle from an isolated npm install is **not** yet validated
+- Early-stage operator tool — not production SaaS
+
+## Full guide
+
+See the repository guide: [docs/p-dev.md](https://github.com/weston-uribe/agentic-product-development-harness/blob/main/docs/p-dev.md)
+
+## License
+
+MIT

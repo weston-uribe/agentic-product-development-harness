@@ -1,6 +1,13 @@
 # Local GUI
 
-Launch the local Product Development Harness GUI for guided Settings / Configure setup.
+Launch the Product Development Harness GUI for guided Settings / Configure setup.
+
+**v0.3.0 paths:**
+
+- **Product managers (packaged):** `npx --yes p-dev@0.3.0` — see [`docs/p-dev.md`](p-dev.md)
+- **Contributors (source):** `npm run harness:configure` — this document
+
+The guided Configure flow has **seven steps** before the completion screen. See [`docs/gui-remote-setup.md`](gui-remote-setup.md) for remote setup and Step 7 workflow finalization.
 
 ## Canonical local testing (recommended)
 
@@ -132,7 +139,8 @@ Use named token constants for layout and responsive patterns. Do not scatter arb
 
 ## Related
 
-- [`docs/npm-packaging-spike.md`](npm-packaging-spike.md) — unpublished `p-dev` local packaging spike (not on npm)
+- [`docs/p-dev.md`](p-dev.md) — canonical `p-dev` npm package guide
+- [`docs/npm-packaging-spike.md`](npm-packaging-spike.md) — historical packaging spike notes
 - [`docs/operator-config.md`](operator-config.md)
 - [`docs/getting-started.md`](getting-started.md)
 - [`docs/design/product-development-harness-gui.md`](design/product-development-harness-gui.md)

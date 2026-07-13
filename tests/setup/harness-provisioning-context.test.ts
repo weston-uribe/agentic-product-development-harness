@@ -28,7 +28,7 @@ function buildContext(
     templateIdentity: TEMPLATE_IDENTITY,
     classification: "absent",
     envBaseline: "",
-    pDevVersion: "0.0.0",
+    pDevVersion: "0.3.0",
     resumedFromPending: false,
     creationPreviewFingerprint: null,
     ...overrides,

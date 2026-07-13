@@ -2,7 +2,7 @@
 
 Operator guide for automatic production sync after a target repo integration branch is promoted to production.
 
-**Related:** [`docs/target-repo-branch-setup.md`](target-repo-branch-setup.md), [`docs/linear-watcher-setup.md`](linear-watcher-setup.md), [`docs/operator-config.md`](operator-config.md), [`docs/releases/v0.2.0.md`](releases/v0.2.0.md)
+**Related:** [`docs/target-repo-branch-setup.md`](target-repo-branch-setup.md), [`docs/linear-watcher-setup.md`](linear-watcher-setup.md), [`docs/operator-config.md`](operator-config.md), [`docs/releases/v0.3.0.md`](releases/v0.3.0.md)
 
 ---
 

@@ -39,7 +39,7 @@ describe("packaged harness provisioning route regression", () => {
 
   beforeEach(async () => {
     process.env.P_DEV_RUNTIME_MODE = "packaged";
-    process.env.P_DEV_PACKAGE_VERSION = "0.0.0";
+    process.env.P_DEV_PACKAGE_VERSION = "0.3.0";
     process.env.HARNESS_VITEST_PROVISIONING_MOCK = "enabled";
 
     workspaceDir = await mkdtemp(path.join(tmpdir(), "packaged-route-prov-"));
@@ -128,7 +128,7 @@ describe("packaged harness provisioning route regression", () => {
     const fingerprintPayload = JSON.parse(preview.fingerprint) as {
       pDevVersion: string;
     };
-    expect(fingerprintPayload.pDevVersion).toBe("0.0.0");
+    expect(fingerprintPayload.pDevVersion).toBe("0.3.0");
 
     const applyResponse = await applyRoute(
       new Request("http://localhost/api/setup/apply-harness-repo-provisioning", {

@@ -187,4 +187,4 @@ At that point, update the ruleset to require approvals and enable CODEOWNER revi
 
 - `harness-manual` environment for `workflow_dispatch` — adds an approval gate for manual cloud runs if desired later.
 
-Release contract: [`docs/releases/v0.2.0.md`](releases/v0.2.0.md)
+**Release contract:** [`docs/releases/v0.3.0.md`](releases/v0.3.0.md) (current), [`docs/releases/v0.2.0.md`](releases/v0.2.0.md) (historical)

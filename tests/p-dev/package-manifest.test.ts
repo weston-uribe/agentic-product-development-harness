@@ -9,23 +9,31 @@ const repoRoot = path.resolve(
 );
 
 describe("p-dev package manifest", () => {
-  it("declares the unpublished spike package metadata", () => {
+  it("declares publishable package metadata for v0.3.0", () => {
     const manifest = JSON.parse(
       readFileSync(path.join(repoRoot, "packages/p-dev/package.json"), "utf8"),
     ) as {
       name: string;
-      private: boolean;
+      version: string;
+      private?: boolean;
+      license: string;
       bin: Record<string, string>;
       engines: { node: string };
       files: string[];
+      publishConfig: { access: string };
+      repository: { directory: string };
     };
 
     expect(manifest.name).toBe("p-dev");
-    expect(manifest.private).toBe(true);
+    expect(manifest.version).toBe("0.3.0");
+    expect(manifest.private).toBeUndefined();
+    expect(manifest.license).toBe("MIT");
     expect(manifest.bin["p-dev"]).toBe("./bin/p-dev.js");
     expect(manifest.engines.node).toBe(">=22");
+    expect(manifest.publishConfig.access).toBe("public");
+    expect(manifest.repository.directory).toBe("packages/p-dev");
     expect(manifest.files).toEqual(
-      expect.arrayContaining(["bin", "dist", "gui", "templates"]),
+      expect.arrayContaining(["bin", "dist", "gui", "templates", "README.md", "LICENSE"]),
     );
   });
 });

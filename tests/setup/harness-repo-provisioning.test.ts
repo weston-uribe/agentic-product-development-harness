@@ -53,7 +53,7 @@ function buildManagedMarker(repoSlug: string) {
     operationId: "op-1",
     createdByGithubUserId: 1,
     createdByLogin: "test-user",
-    pDevVersion: "0.0.0",
+    pDevVersion: "0.3.0",
   });
 }
 
@@ -122,7 +122,7 @@ describe("harness-repo-provisioning", () => {
 
   beforeEach(async () => {
     process.env.P_DEV_RUNTIME_MODE = "packaged";
-    process.env.P_DEV_PACKAGE_VERSION = "0.0.0";
+    process.env.P_DEV_PACKAGE_VERSION = "0.3.0";
     delete process.env.HARNESS_PROVISIONING_POLL_TIMEOUT_MS;
     delete process.env.HARNESS_PROVISIONING_POLL_INITIAL_DELAY_MS;
     workspaceDir = await mkdtemp(path.join(tmpdir(), "harness-provision-"));
@@ -768,7 +768,7 @@ describe("harness-repo-provisioning", () => {
       operationId: "op-version",
     });
     const payload = JSON.parse(preview.fingerprint) as { pDevVersion: string };
-    expect(payload.pDevVersion).toBe("0.0.0");
+    expect(payload.pDevVersion).toBe("0.3.0");
   });
 
   it("rejects legacy managed marker without repository ID on reconnect", async () => {
