@@ -506,6 +506,10 @@ export function ConfigureExperience({
             onUiStateChange={handleRemoteUiStateChange}
             onContinue={handleCloudSecretsReviewed}
             blockedByUpstream={readiness.remoteSetupBlockedByUpstream}
+            onGoToHarnessRepo={() => setDisplayedGuidedStep("choose-target-repos")}
+            onGoToConnectServices={() =>
+              setDisplayedGuidedStep("connect-services")
+            }
           />
         );
       case "target-workflow":

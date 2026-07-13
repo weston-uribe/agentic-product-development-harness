@@ -31,6 +31,7 @@ import type { GitHubRemoteSetupProvider } from "@harness/setup/github-remote-pro
 import type { HarnessSecretOperatorInput } from "@harness/setup/harness-secret-setup";
 import {
   buildManualHarnessSecretCopyValues,
+  resolveHarnessSecretOperatorInput,
 } from "@harness/setup/harness-secret-setup";
 import {
   applyRemoteHarnessSecrets,
@@ -119,10 +120,44 @@ async function resolveRemoteProvider(): Promise<
 function toOperatorInput(
   payload: RemoteSecretFormPayload,
 ): HarnessSecretOperatorInput {
+  const explicitCredentialReplacements: HarnessSecretOperatorInput["explicitCredentialReplacements"] =
+    [];
+  if (payload.linearApiKey?.trim()) {
+    explicitCredentialReplacements.push("LINEAR_API_KEY");
+  }
+  if (payload.cursorApiKey?.trim()) {
+    explicitCredentialReplacements.push("CURSOR_API_KEY");
+  }
+  if (payload.harnessGithubToken?.trim()) {
+    explicitCredentialReplacements.push("HARNESS_GITHUB_TOKEN");
+  }
+
   return {
     linearApiKey: payload.linearApiKey,
     cursorApiKey: payload.cursorApiKey,
     githubToken: payload.harnessGithubToken,
+    explicitCredentialReplacements:
+      explicitCredentialReplacements.length > 0
+        ? explicitCredentialReplacements
+        : undefined,
+  };
+}
+
+async function resolveEnrichedHarnessSecretOperatorInput(
+  payload: RemoteSecretFormPayload,
+): Promise<HarnessSecretOperatorInput> {
+  const cwd = resolveCwd();
+  const explicit = toOperatorInput(payload);
+  const enriched = await resolveHarnessSecretOperatorInput({
+    cwd,
+    payload,
+  });
+
+  return {
+    linearApiKey: explicit.linearApiKey?.trim() || enriched.linearApiKey,
+    cursorApiKey: explicit.cursorApiKey?.trim() || enriched.cursorApiKey,
+    githubToken: explicit.githubToken?.trim() || enriched.githubToken,
+    explicitCredentialReplacements: explicit.explicitCredentialReplacements,
   };
 }
 
@@ -225,7 +260,7 @@ export async function applyLocalFiles(options: {
 export async function previewHarnessSecretsRemote(
   payload: RemoteSecretFormPayload,
 ): Promise<RemoteHarnessSecretPreview> {
-  const operatorInput = toOperatorInput(payload);
+  const operatorInput = await resolveEnrichedHarnessSecretOperatorInput(payload);
   const knownSecrets = collectRemoteSecretInputs(operatorInput);
   const preview = await previewRemoteHarnessSecrets({
     cwd: resolveCwd(),
@@ -244,7 +279,9 @@ export async function applyHarnessSecretsRemote(options: {
   apply: RemoteHarnessSecretApplyResult;
   summary: RemoteSetupSummary;
 }> {
-  const operatorInput = toOperatorInput(options.payload);
+  const operatorInput = await resolveEnrichedHarnessSecretOperatorInput(
+    options.payload,
+  );
   const apply = await applyRemoteHarnessSecrets({
     cwd: resolveCwd(),
     operatorInput,

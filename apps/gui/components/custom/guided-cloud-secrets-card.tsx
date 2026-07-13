@@ -16,6 +16,7 @@ import type { ControlPlaneReadinessContext } from "@harness/setup/control-plane-
 import {
   buildCloudSecretsApplyEvidence,
   deriveStep6ContinueEligibility,
+  deriveStep6RemoteActionEligibility,
   step6PostApplyVerificationReady,
   type CloudSecretsApplyEvidence,
   type FirstRunReadiness,
@@ -49,6 +50,8 @@ interface GuidedCloudSecretsCardProps {
   }) => void;
   onContinue: () => void;
   blockedByUpstream?: boolean;
+  onGoToHarnessRepo?: () => void;
+  onGoToConnectServices?: () => void;
 }
 
 function cloudSecretVerificationMessage(summary: RemoteSetupSummary): string {
@@ -94,6 +97,8 @@ export function GuidedCloudSecretsCard({
   onUiStateChange,
   onContinue,
   blockedByUpstream = false,
+  onGoToHarnessRepo,
+  onGoToConnectServices,
 }: GuidedCloudSecretsCardProps) {
   const [summary, setSummary] = useState(initialSummary);
   const [setupType, setSetupType] = useState<CloudSecretsSetupType | null>(null);
@@ -140,6 +145,22 @@ export function GuidedCloudSecretsCard({
       remoteSecretPreviewStale: preview !== null && !previewIsCurrent,
     });
   }, [onUiStateChange, preview, previewIsCurrent]);
+
+  const remoteActionEligibility = useMemo(
+    () => deriveStep6RemoteActionEligibility(summary),
+    [summary],
+  );
+
+  const remoteActionsBlocked =
+    blockedByUpstream || !remoteActionEligibility.allowed;
+
+  const remoteActionsBlockedReason = blockedByUpstream
+    ? "Fix harness repo access in local setup before cloud secrets can be configured."
+    : remoteActionEligibility.reason;
+
+  const remoteActionsBlockedAction = blockedByUpstream
+    ? "Return to Step 4 and verify your harness repo, then refresh."
+    : remoteActionEligibility.action;
 
   const needsSecretWrite = summary.harnessSecretStatuses.some(
     (entry) => entry.status === "missing",
@@ -288,16 +309,19 @@ export function GuidedCloudSecretsCard({
 
   const handleDisclosureOpenChange = useCallback(
     (open: boolean) => {
+      if (remoteActionsBlocked) {
+        return;
+      }
       setDisclosureOpen(open);
       if (open && !previewIsCurrent && loading !== "preview") {
         void handlePreview();
       }
     },
-    [handlePreview, loading, previewIsCurrent],
+    [handlePreview, loading, previewIsCurrent, remoteActionsBlocked],
   );
 
   const handleApply = async () => {
-    if (!confirmed || blockedByUpstream || !summary.githubTokenConfigured) {
+    if (!confirmed || remoteActionsBlocked) {
       return;
     }
 
@@ -351,6 +375,9 @@ export function GuidedCloudSecretsCard({
   };
 
   const handleGenerateManualValues = async () => {
+    if (remoteActionsBlocked) {
+      return;
+    }
     if (!manualValuesWarningAccepted) {
       setManualValuesError(
         "Confirm the sensitivity warning before generating manual copy values.",
@@ -391,6 +418,9 @@ export function GuidedCloudSecretsCard({
   };
 
   const handleManualVerify = async () => {
+    if (remoteActionsBlocked) {
+      return;
+    }
     setLoading("manual-verify");
     setManualVerifyMessage(null);
     setVerifiedManualSuccess(false);
@@ -454,12 +484,8 @@ export function GuidedCloudSecretsCard({
     ],
   );
 
-  const upstreamBlockedReason = blockedByUpstream
-    ? "Fix harness repo access in local setup before cloud secrets can be configured."
-    : undefined;
-
-  const confirmDisabledReason = upstreamBlockedReason
-    ? upstreamBlockedReason
+  const confirmDisabledReason = remoteActionsBlocked
+    ? remoteActionsBlockedReason
     : preview?.validationError
       ? "Fix validation errors before confirming this write."
       : undefined;
@@ -468,9 +494,7 @@ export function GuidedCloudSecretsCard({
     confirmDisabledReason ??
     (!confirmed
       ? "Confirm the GitHub Actions secret write before applying."
-      : !summary.githubTokenConfigured
-        ? "Add GITHUB_TOKEN in Step 1 before writing cloud secrets."
-        : undefined);
+      : undefined);
 
   const userVerifiedSuccess = verifiedAutomaticSuccess || verifiedManualSuccess;
 
@@ -479,7 +503,7 @@ export function GuidedCloudSecretsCard({
     eligibility.canContinue &&
     !readiness.cloudSecretsReviewed &&
     !loading &&
-    !blockedByUpstream;
+    !remoteActionsBlocked;
 
   const automaticSuccessEligible =
     verifiedAutomaticSuccess && applyResult && eligibility.canContinue;
@@ -505,19 +529,40 @@ export function GuidedCloudSecretsCard({
       description="Your local setup is ready. Choose automatic GitHub Actions secret setup or manual setup in GitHub, then verify before continuing."
     >
       <div className={SPACING.stackSm}>
-        {blockedByUpstream ? (
+        {remoteActionsBlocked ? (
           <>
-            <p className="text-sm text-muted-foreground">
-              {upstreamBlockedReason}
-            </p>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => void refreshSummary()}
-              disabled={loading !== null}
-            >
-              {loading === "refresh" ? "Refreshing…" : "Refresh"}
-            </Button>
+            <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-4">
+              <p className="text-sm font-medium">
+                {remoteActionsBlockedReason}
+              </p>
+              {remoteActionsBlockedAction ? (
+                <p className="text-sm text-muted-foreground">
+                  {remoteActionsBlockedAction}
+                </p>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {remoteActionEligibility.route === "step4-harness-repo" &&
+              onGoToHarnessRepo ? (
+                <Button type="button" onClick={onGoToHarnessRepo}>
+                  Go to Step 4 harness repo
+                </Button>
+              ) : null}
+              {remoteActionEligibility.route === "connect-services" &&
+              onGoToConnectServices ? (
+                <Button type="button" onClick={onGoToConnectServices}>
+                  Go to Step 1 services
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void refreshSummary()}
+                disabled={loading !== null}
+              >
+                {loading === "refresh" ? "Refreshing…" : "Refresh"}
+              </Button>
+            </div>
           </>
         ) : (
           <>
@@ -576,8 +621,7 @@ export function GuidedCloudSecretsCard({
                   variant="guided"
                   confirmed={confirmed}
                   disabled={
-                    Boolean(upstreamBlockedReason) ||
-                    Boolean(preview?.validationError)
+                    remoteActionsBlocked || Boolean(preview?.validationError)
                   }
                   disabledReason={confirmDisabledReason}
                   onConfirmedChange={setConfirmed}
@@ -591,8 +635,7 @@ export function GuidedCloudSecretsCard({
                       loading !== null ||
                       !confirmed ||
                       Boolean(preview?.validationError) ||
-                      Boolean(upstreamBlockedReason) ||
-                      !summary.githubTokenConfigured ||
+                      remoteActionsBlocked ||
                       verifiedAutomaticSuccess
                     }
                     variant={verifiedAutomaticSuccess ? "outline" : "default"}
@@ -601,7 +644,7 @@ export function GuidedCloudSecretsCard({
                   </Button>
                 </div>
 
-                {applyDisabledReason && !upstreamBlockedReason ? (
+                {applyDisabledReason && !remoteActionsBlocked ? (
                   <p className="text-sm text-muted-foreground">
                     {applyDisabledReason}
                   </p>

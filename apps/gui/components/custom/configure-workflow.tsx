@@ -140,6 +140,7 @@ export function ConfigureWorkflow({
   const [harnessRepoVerification, setHarnessRepoVerification] = useState<{
     state: "unchecked" | "checking" | "connected" | "failed";
     verifiedRepo?: string;
+    verifiedGithubTokenFingerprint?: string;
     message?: string;
     limitation?: string;
   }>({ state: "unchecked" });
@@ -277,6 +278,18 @@ export function ConfigureWorkflow({
       activeGithubToken?.fingerprint ?? null,
     ),
   );
+
+  const harnessRepoReady =
+    envValues.githubDispatchRepository.trim().length > 0 &&
+    harnessRepoVerification.state === "connected" &&
+    harnessRepoVerification.verifiedRepo ===
+      envValues.githubDispatchRepository.trim() &&
+    harnessRepoVerification.verifiedGithubTokenFingerprint ===
+      (activeGithubToken?.fingerprint ?? undefined);
+
+  useEffect(() => {
+    setHarnessRepoVerification({ state: "unchecked" });
+  }, [activeGithubToken?.fingerprint]);
 
   const resetApplyState = () => {
     setApplySuccess(null);
@@ -444,62 +457,72 @@ export function ConfigureWorkflow({
     [envValues, saveConnectServiceKey],
   );
 
-  const verifyHarnessRepo = useCallback(async () => {
-    const harnessDispatchRepo = envValues.githubDispatchRepository.trim();
-    const tokenContext = resolveActiveGitHubToken({
-      typedToken: envValues.githubToken,
-      hasSavedToken: presence.GITHUB_TOKEN,
-    });
-
-    setVerifyingHarnessRepo(true);
-    setHarnessRepoVerification({ state: "checking" });
-
-    try {
-      const response = await fetch("/api/setup/verify-harness-repo", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          harnessDispatchRepo,
-          ...(tokenContext?.tokenForRequest
-            ? { githubToken: tokenContext.tokenForRequest }
-            : {}),
-        }),
+  const verifyAndUseHarnessRepo = useCallback(
+    async (draftRepo: string) => {
+      const harnessDispatchRepo = draftRepo.trim();
+      const tokenContext = resolveActiveGitHubToken({
+        typedToken: envValues.githubToken,
+        hasSavedToken: presence.GITHUB_TOKEN,
       });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error ?? "Harness repo verification failed");
+      const tokenFingerprint = tokenContext?.fingerprint ?? null;
+
+      setVerifyingHarnessRepo(true);
+      setHarnessRepoVerification({ state: "checking" });
+
+      try {
+        const response = await fetch("/api/setup/verify-harness-repo", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            harnessDispatchRepo,
+            ...(tokenContext?.tokenForRequest
+              ? { githubToken: tokenContext.tokenForRequest }
+              : {}),
+          }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error ?? "Harness repo verification failed");
+        }
+
+        if (data.status === "connected" && data.repoSlug) {
+          invalidatePreview();
+          setEnvValues((current) => ({
+            ...current,
+            githubDispatchRepository: data.repoSlug,
+          }));
+          setHarnessRepoVerification({
+            state: "connected",
+            verifiedRepo: data.repoSlug,
+            verifiedGithubTokenFingerprint: tokenFingerprint ?? undefined,
+            message: data.message,
+            limitation: data.limitation,
+          });
+        } else {
+          setHarnessRepoVerification({
+            state: "failed",
+            message: data.message,
+            limitation: data.limitation,
+          });
+        }
+      } catch (verifyError) {
+        setHarnessRepoVerification({
+          state: "failed",
+          message:
+            verifyError instanceof Error
+              ? verifyError.message
+              : "Harness repo verification failed",
+        });
+      } finally {
+        setVerifyingHarnessRepo(false);
       }
-
-      setHarnessRepoVerification(
-        data.status === "connected"
-          ? {
-              state: "connected",
-              verifiedRepo: data.repoSlug,
-              message: data.message,
-              limitation: data.limitation,
-            }
-          : {
-              state: "failed",
-              message: data.message,
-              limitation: data.limitation,
-            },
-      );
-    } catch (verifyError) {
-      setHarnessRepoVerification({
-        state: "failed",
-        message:
-          verifyError instanceof Error
-            ? verifyError.message
-            : "Harness repo verification failed",
-      });
-    } finally {
-      setVerifyingHarnessRepo(false);
-    }
-  }, [
-    envValues.githubDispatchRepository,
-    envValues.githubToken,
-    presence.GITHUB_TOKEN,
-  ]);
+    },
+    [
+      envValues.githubToken,
+      invalidatePreview,
+      presence.GITHUB_TOKEN,
+    ],
+  );
 
   const verifyRepo = useCallback(
     async (rowId: string) => {
@@ -759,6 +782,7 @@ export function ConfigureWorkflow({
     servicesPersistedReady &&
     targetReposReady &&
     allReposVerified &&
+    harnessRepoReady &&
     confirmed;
 
   const guidedApplyBlockedReason =
@@ -772,7 +796,11 @@ export function ConfigureWorkflow({
             ? `Verify access for each target repo before ${
                 localSetupFilesExist ? "updating" : "creating"
               } setup files.`
-            : !confirmed
+            : !harnessRepoReady
+              ? envValues.githubDispatchRepository.trim()
+                ? "Verify and use your harness repo before creating local setup files."
+                : "Enter and verify your harness repo before creating local setup files."
+              : !confirmed
               ? `Confirm that you understand local setup files will be ${
                   localSetupFilesExist ? "updated" : "created"
                 } on this machine.`
@@ -866,7 +894,9 @@ export function ConfigureWorkflow({
                     githubDispatchRepository: value,
                   }));
                 }}
-                onVerifyHarnessRepo={verifyHarnessRepo}
+                onVerifyAndUseHarnessRepo={(draftRepo) => {
+                  void verifyAndUseHarnessRepo(draftRepo);
+                }}
                 guidedRepos={guidedRepoRows}
                 repoVerification={repoVerification}
                 verifyingRepoRowId={verifyingRepoRowId}

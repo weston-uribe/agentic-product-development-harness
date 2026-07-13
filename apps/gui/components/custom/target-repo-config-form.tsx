@@ -38,6 +38,7 @@ export interface RepoVerificationUi {
 export interface HarnessRepoVerificationUi {
   state: RepoVerificationUiState;
   verifiedRepo?: string;
+  verifiedGithubTokenFingerprint?: string;
   message?: string;
   limitation?: string;
 }
@@ -64,7 +65,7 @@ interface TargetRepoConfigFormProps {
   onRemoveRepo?: (rowId: string) => void;
   harnessDispatchRepository?: string;
   onHarnessDispatchRepositoryChange?: (value: string) => void;
-  onVerifyHarnessRepo?: () => void;
+  onVerifyAndUseHarnessRepo?: (draftRepo: string) => void;
   githubTokenSourceHint?: string;
   activeGithubTokenFingerprint?: string | null;
 }
@@ -88,7 +89,7 @@ export function TargetRepoConfigForm({
   onRemoveRepo,
   harnessDispatchRepository = "",
   onHarnessDispatchRepositoryChange,
-  onVerifyHarnessRepo,
+  onVerifyAndUseHarnessRepo,
   githubTokenSourceHint,
   activeGithubTokenFingerprint = null,
 }: TargetRepoConfigFormProps) {
@@ -110,9 +111,13 @@ export function TargetRepoConfigForm({
     : suggestedHarnessDispatchRepo?.trim()
       ? "Detected from git remote"
       : "Not detected yet";
+  const activeHarnessRepo = harnessDispatchRepository.trim();
   const harnessRepoVerified =
     harnessRepoVerification.state === "connected" &&
-    harnessRepoVerification.verifiedRepo === draftHarnessRepo.trim();
+    harnessRepoVerification.verifiedRepo === activeHarnessRepo &&
+    (!activeGithubTokenFingerprint ||
+      harnessRepoVerification.verifiedGithubTokenFingerprint ===
+        activeGithubTokenFingerprint);
 
   const updateRepo = (index: number, patch: Partial<(typeof values.repos)[0]>) => {
     const repos = [...values.repos];
@@ -147,7 +152,7 @@ export function TargetRepoConfigForm({
           {!editingHarnessRepo ? (
             <>
               <p className="text-sm font-medium break-all">
-                {effectiveHarnessRepo || "Not detected yet"}
+                {activeHarnessRepo || effectiveHarnessRepo || "Not detected yet"}
               </p>
               <p className={FORM.secretHint}>
                 This is the GitHub repo where harness GitHub Actions secrets and
@@ -171,16 +176,25 @@ export function TargetRepoConfigForm({
                   If this detected repo is correct, you do not need to change it.
                 </p>
               ) : null}
+              {harnessRepoVerified && harnessRepoVerification.message ? (
+                <ConnectedStatusMessage message={harnessRepoVerification.message} />
+              ) : null}
+              {!harnessRepoVerified && activeHarnessRepo ? (
+                <p className={FORM.secretHint}>
+                  Verify and use this harness repo before creating local setup
+                  files.
+                </p>
+              ) : null}
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  setDraftHarnessRepo(effectiveHarnessRepo);
+                  setDraftHarnessRepo(activeHarnessRepo || effectiveHarnessRepo);
                   setEditingHarnessRepo(true);
                 }}
               >
-                Update harness repo
+                {activeHarnessRepo ? "Update harness repo" : "Enter harness repo"}
               </Button>
             </>
           ) : (
@@ -193,13 +207,11 @@ export function TargetRepoConfigForm({
               />
               <p className={FORM.secretHint}>
                 Enter the harness repo slug or GitHub URL. Saving to `.env.local`
-                still happens when you create or update local setup files.
+                happens when you verify and use this repo, then create or update
+                local setup files.
               </p>
-              {harnessRepoVerification.state === "connected" &&
+              {harnessRepoVerification.state === "failed" &&
               harnessRepoVerification.message ? (
-                <ConnectedStatusMessage message={harnessRepoVerification.message} />
-              ) : harnessRepoVerification.state === "failed" &&
-                harnessRepoVerification.message ? (
                 <ConnectedStatusMessage
                   message={harnessRepoVerification.message}
                   failed
@@ -211,40 +223,24 @@ export function TargetRepoConfigForm({
                 </p>
               ) : null}
               <div className="flex flex-wrap items-center gap-2">
-                {onVerifyHarnessRepo ? (
+                {onVerifyAndUseHarnessRepo ? (
                   <Button
                     type="button"
-                    variant="outline"
                     size="sm"
-                    onClick={() => onVerifyHarnessRepo()}
-                    disabled={
-                      verifyingHarnessRepo || !draftHarnessRepo.trim()
-                    }
+                    onClick={() => onVerifyAndUseHarnessRepo(draftHarnessRepo)}
+                    disabled={verifyingHarnessRepo || !draftHarnessRepo.trim()}
                   >
                     {verifyingHarnessRepo
                       ? "Verifying harness repo…"
-                      : harnessRepoVerified
-                        ? "Verified"
-                        : "Verify harness repo"}
+                      : "Verify and use harness repo"}
                   </Button>
                 ) : null}
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={() => {
-                    onHarnessDispatchRepositoryChange?.(draftHarnessRepo.trim());
-                    setEditingHarnessRepo(false);
-                  }}
-                  disabled={!draftHarnessRepo.trim()}
-                >
-                  Use this harness repo
-                </Button>
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
                   onClick={() => {
-                    setDraftHarnessRepo(effectiveHarnessRepo);
+                    setDraftHarnessRepo(activeHarnessRepo || effectiveHarnessRepo);
                     setEditingHarnessRepo(false);
                   }}
                 >

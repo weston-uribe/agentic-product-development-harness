@@ -7,6 +7,7 @@ import {
   collectRemoteSetupBlockers,
   deriveFirstRunReadiness,
   deriveStep6ContinueEligibility,
+  deriveStep6RemoteActionEligibility,
   projectMissingStepsFromReadiness,
   buildCloudSecretsApplyEvidence,
   filterResolvedCloudSecretsBlockers,
@@ -470,7 +471,7 @@ describe("first-run-readiness", () => {
     const summary = completeLocalSummary();
     const remoteSummary = baseRemoteSummary({
       githubTokenConfigured: true,
-      harnessRepoAccess: "unknown",
+      harnessRepoAccess: "available",
       harnessSecretStatuses: HARNESS_ACTIONS_SECRET_NAMES.map((name) => ({
         name,
         status: "missing",
@@ -480,8 +481,8 @@ describe("first-run-readiness", () => {
           repoConfigId: "target-app",
           targetRepo: "https://github.com/owner/example-target-app",
           productionBranch: "main",
-          repoAccess: "available",
-          workflowStatus: "present",
+          repoAccess: "unknown",
+          workflowStatus: "unknown",
           harnessDispatchRepo: "owner/harness",
         },
       ],
@@ -618,8 +619,44 @@ describe("first-run-readiness", () => {
       "I tried to check owner/harness and GitHub denied access.",
     );
     expect(readiness.highestPriorityBlocker?.action).toContain(
-      "Confirm this is the repo you intend to use",
+      "Return to Step 4",
     );
+  });
+
+  it("derives Step 6 remote action eligibility from harness repo access state", () => {
+    expect(
+      deriveStep6RemoteActionEligibility(
+        baseRemoteSummary({
+          githubTokenConfigured: false,
+          harnessDispatchRepoResolved: false,
+        }),
+      ),
+    ).toMatchObject({
+      allowed: false,
+      route: "connect-services",
+    });
+
+    expect(
+      deriveStep6RemoteActionEligibility(
+        baseRemoteSummary({
+          githubTokenConfigured: true,
+          harnessDispatchRepoResolved: false,
+        }),
+      ),
+    ).toMatchObject({
+      allowed: false,
+      route: "step4-harness-repo",
+    });
+
+    expect(
+      deriveStep6RemoteActionEligibility(
+        baseRemoteSummary({
+          githubTokenConfigured: true,
+          harnessDispatchRepoResolved: true,
+          harnessRepoAccess: "available",
+        }),
+      ),
+    ).toEqual({ allowed: true });
   });
 });
 

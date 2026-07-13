@@ -125,6 +125,27 @@ describe("remote-apply-actions", () => {
     ).rejects.toThrow(/stale/i);
   });
 
+  it("apply rejects unresolved harness dispatch repo before remote writes", async () => {
+    const preview = await previewRemoteHarnessSecrets({
+      cwd: tempRoot,
+      operatorInput: FAKE_SECRETS,
+    });
+
+    expect(preview.harnessDispatchRepoResolved).toBe(false);
+
+    await expect(
+      applyRemoteHarnessSecrets({
+        cwd: tempRoot,
+        operatorInput: FAKE_SECRETS,
+        confirmed: true,
+        fingerprint: preview.fingerprint,
+        provider: new MockGitHubRemoteSetupProvider(),
+      }),
+    ).rejects.toThrow(
+      "Harness dispatch repo must be resolved before applying secrets",
+    );
+  });
+
   it("apply rejects harness secret writes without provider", async () => {
     const preview = await previewRemoteHarnessSecrets({
       cwd: tempRoot,

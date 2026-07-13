@@ -355,7 +355,7 @@ export function collectCloudSecretsBlockers(
       stepId: "cloud-secrets",
       message: "Blocked: Harness dispatch repo could not be resolved.",
       action:
-        "Next: Confirm your harness repo remote and target repo config, then refresh.",
+        "Next: Return to Step 4, enter your harness repo, and use Verify and use harness repo.",
       priority: 301,
     });
   }
@@ -366,19 +366,20 @@ export function collectCloudSecretsBlockers(
       stepId: "cloud-secrets",
       message: `Blocked: I tried to check ${remoteSummary.harnessDispatchRepo} and GitHub denied access.`,
       action:
-        "Next: Confirm this is the repo you intend to use. If it is wrong, fix local setup first. If it is correct, update your GitHub token permissions and refresh.",
+        "Next: Return to Step 4 to correct the harness repo, or update GITHUB_TOKEN permissions in Step 1 and verify again.",
       priority: 302,
     });
   } else if (
     remoteSummary.harnessRepoAccess === "unknown" &&
-    remoteSummary.githubTokenConfigured
+    remoteSummary.harnessDispatchRepoResolved
   ) {
-    pushWarning(warnings, {
+    pushBlocker(blockers, {
       id: "harness-repo-access-unknown",
       stepId: "cloud-secrets",
-      message: "Harness repo access could not be verified yet.",
-      action: "Refresh cloud secrets setup after GITHUB_TOKEN is saved locally.",
-      priority: 590,
+      message: "Blocked: Harness repo access could not be verified yet.",
+      action:
+        "Next: Return to Step 4 and use Verify and use harness repo, or refresh after saving GITHUB_TOKEN in Step 1.",
+      priority: 303,
     });
   }
 
@@ -544,6 +545,60 @@ function resolveStep6HardBlockers(
     previewStaleCleared: input.previewStaleCleared,
     postApplyVerificationReady: input.postApplyVerificationReady,
   });
+}
+
+export type Step6RemoteActionRoute = "step4-harness-repo" | "connect-services";
+
+export interface Step6RemoteActionEligibility {
+  allowed: boolean;
+  reason?: string;
+  action?: string;
+  route?: Step6RemoteActionRoute;
+}
+
+export function deriveStep6RemoteActionEligibility(
+  summary: RemoteSetupSummary,
+): Step6RemoteActionEligibility {
+  if (!summary.githubTokenConfigured) {
+    return {
+      allowed: false,
+      reason: "Blocked: GITHUB_TOKEN is required for cloud secrets setup.",
+      action: "Add GITHUB_TOKEN in Step 1, then return to cloud secrets setup.",
+      route: "connect-services",
+    };
+  }
+
+  if (!summary.harnessDispatchRepoResolved) {
+    return {
+      allowed: false,
+      reason: "Blocked: Harness dispatch repo could not be resolved.",
+      action:
+        "Return to Step 4, enter your harness repo, and use Verify and use harness repo.",
+      route: "step4-harness-repo",
+    };
+  }
+
+  if (summary.harnessRepoAccess === "denied") {
+    return {
+      allowed: false,
+      reason: `Blocked: GitHub denied access to ${summary.harnessDispatchRepo}.`,
+      action:
+        "Return to Step 4 to correct the harness repo, or update GITHUB_TOKEN permissions in Step 1 and verify again.",
+      route: "step4-harness-repo",
+    };
+  }
+
+  if (summary.harnessRepoAccess !== "available") {
+    return {
+      allowed: false,
+      reason: "Blocked: Harness repo access could not be verified yet.",
+      action:
+        "Return to Step 4 and use Verify and use harness repo, then refresh cloud secrets setup.",
+      route: "step4-harness-repo",
+    };
+  }
+
+  return { allowed: true };
 }
 
 export function deriveStep6ContinueEligibility(
