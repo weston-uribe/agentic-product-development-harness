@@ -382,6 +382,15 @@ describe("vercel-bridge-diagnostics", () => {
         appliedFingerprint: "preview-fingerprint",
       },
     });
+    vi.mocked(listLinearWebhooks).mockResolvedValue([
+      {
+        id: "wh-old",
+        url: "https://agentic-product-development-harness-apseun4qi-kinterra-team-url.vercel.app/api/linear-webhook",
+        enabled: true,
+        resourceTypes: ["Issue"],
+        teamId: "linear-team-1",
+      },
+    ]);
 
     const report = await buildVercelBridgeDiagnosticReport({ cwd: tempRoot });
 
@@ -389,6 +398,11 @@ describe("vercel-bridge-diagnostics", () => {
     expect(report.webhookTargetDrift?.canonicalProductionWebhookUrl).toBe(
       "https://harness-gui.vercel.app/api/linear-webhook",
     );
+    expect(report.webhookTargetDrift?.matchingPreviousLinearWebhookFound).toBe(
+      true,
+    );
+    expect(report.webhookTargetDrift?.canonicalLinearWebhookExists).toBe(false);
+    expect(report.webhookTargetDrift?.reconciliationRecommended).toBe(true);
   });
 
   it("includes deployment and linear webhook metadata", async () => {

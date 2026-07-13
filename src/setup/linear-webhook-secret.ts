@@ -19,7 +19,20 @@ export type LinearWebhookCandidateSource =
   | "generated"
   | "unreadable";
 
-export type LinearWebhookMutatePolicy = "setup" | "verify-only";
+export type LinearWebhookMutatePolicy =
+  | "setup"
+  | "verify-only"
+  | "verify-reconcile-url";
+
+export interface LinearWebhookUrlReconciliationResult {
+  attempted: boolean;
+  reconciled: boolean;
+  previousWebhookId?: string;
+  previousWebhookUrl?: string;
+  canonicalWebhookExists: boolean;
+  matchingPreviousWebhookFound: boolean;
+  manualSteps: string[];
+}
 
 export interface LinearWebhookSecretPlan {
   mode: LinearWebhookSecretMode;
@@ -184,6 +197,111 @@ export async function planLinearWebhookSecret(input: {
   };
 }
 
+export async function reconcileLinearWebhookUrlForVerification(input: {
+  linearApiKey: string;
+  linearTeamId?: string;
+  previousWebhookUrl: string;
+  canonicalWebhookUrl: string;
+  secret: string;
+}): Promise<LinearWebhookUrlReconciliationResult> {
+  const previousUrl = normalizeWebhookUrl(input.previousWebhookUrl);
+  const canonicalUrl = normalizeWebhookUrl(input.canonicalWebhookUrl);
+
+  if (!previousUrl || !canonicalUrl || previousUrl === canonicalUrl) {
+    return {
+      attempted: false,
+      reconciled: false,
+      canonicalWebhookExists: false,
+      matchingPreviousWebhookFound: false,
+      manualSteps: [],
+    };
+  }
+
+  const client = createLinearSetupClient(input.linearApiKey);
+  const webhooks = await listLinearWebhooks(client);
+  const previousWebhook = findMatchingLinearWebhook({
+    webhooks,
+    webhookUrl: previousUrl,
+    linearTeamId: input.linearTeamId,
+  });
+  const canonicalWebhook = findMatchingLinearWebhook({
+    webhooks,
+    webhookUrl: canonicalUrl,
+    linearTeamId: input.linearTeamId,
+  });
+
+  if (!previousWebhook) {
+    return {
+      attempted: true,
+      reconciled: false,
+      previousWebhookUrl: previousUrl,
+      canonicalWebhookExists: Boolean(canonicalWebhook),
+      matchingPreviousWebhookFound: false,
+      manualSteps: [
+        "No matching Linear Issue webhook was found at the previously stored webhook URL.",
+        "Create or update the Linear webhook manually to point at the canonical production URL, then retry verification.",
+      ],
+    };
+  }
+
+  if (canonicalWebhook) {
+    if (canonicalWebhook.id === previousWebhook.id) {
+      return {
+        attempted: true,
+        reconciled: true,
+        previousWebhookId: previousWebhook.id,
+        previousWebhookUrl: previousUrl,
+        canonicalWebhookExists: true,
+        matchingPreviousWebhookFound: true,
+        manualSteps: [],
+      };
+    }
+
+    return {
+      attempted: true,
+      reconciled: false,
+      previousWebhookId: previousWebhook.id,
+      previousWebhookUrl: previousUrl,
+      canonicalWebhookExists: true,
+      matchingPreviousWebhookFound: true,
+      manualSteps: [
+        "A separate Linear Issue webhook already exists at the canonical production URL.",
+        "Consolidate webhook configuration manually before retrying verification.",
+      ],
+    };
+  }
+
+  try {
+    await updateLinearIssueWebhook(client, {
+      webhookId: previousWebhook.id,
+      url: canonicalUrl,
+      secret: input.secret.trim(),
+    });
+    return {
+      attempted: true,
+      reconciled: true,
+      previousWebhookId: previousWebhook.id,
+      previousWebhookUrl: previousUrl,
+      canonicalWebhookExists: false,
+      matchingPreviousWebhookFound: true,
+      manualSteps: [],
+    };
+  } catch {
+    return {
+      attempted: true,
+      reconciled: false,
+      previousWebhookId: previousWebhook.id,
+      previousWebhookUrl: previousUrl,
+      canonicalWebhookExists: false,
+      matchingPreviousWebhookFound: true,
+      manualSteps: [
+        "Could not update the existing Linear Issue webhook to the canonical production URL automatically.",
+        "Update the Linear webhook URL manually to match the canonical production URL, then retry verification.",
+      ],
+    };
+  }
+}
+
 export async function ensureLinearIssueWebhook(input: {
   linearApiKey: string;
   webhookUrl: string;
@@ -263,6 +381,17 @@ export async function ensureLinearIssueWebhook(input: {
   }
 
   if (mutatePolicy === "verify-only") {
+    return {
+      secret: input.secret,
+      mode: "manual-copy",
+      manualSteps: [
+        `Create a Linear Issue webhook pointing at ${input.webhookUrl}.`,
+        "Retry verification after the webhook exists and its signing secret matches Vercel.",
+      ],
+    };
+  }
+
+  if (mutatePolicy === "verify-reconcile-url") {
     return {
       secret: input.secret,
       mode: "manual-copy",

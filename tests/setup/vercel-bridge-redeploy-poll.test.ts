@@ -15,6 +15,7 @@ vi.mock("../../src/setup/vercel-setup-plan.js", async (importOriginal) => {
 vi.mock("../../src/setup/linear-webhook-secret.js", () => ({
   ensureLinearIssueWebhook: vi.fn(),
   generateLinearWebhookSecret: vi.fn(),
+  reconcileLinearWebhookUrlForVerification: vi.fn(),
   resolveLinearWebhookCandidateSecret: vi.fn(),
 }));
 
@@ -71,6 +72,7 @@ import {
 import { summarizeLinearWebhookReadiness } from "../../src/setup/linear-setup-plan.js";
 import {
   ensureLinearIssueWebhook,
+  reconcileLinearWebhookUrlForVerification,
   resolveLinearWebhookCandidateSecret,
 } from "../../src/setup/linear-webhook-secret.js";
 import {
@@ -210,6 +212,13 @@ describe("vercel-bridge-redeploy-poll", () => {
     vi.mocked(readControlPlaneSetupState).mockImplementation(async () => storedState);
     vi.mocked(resolveLinearWebhookCandidateSecret).mockResolvedValue({
       source: "generated",
+      manualSteps: [],
+    });
+    vi.mocked(reconcileLinearWebhookUrlForVerification).mockResolvedValue({
+      attempted: true,
+      reconciled: true,
+      canonicalWebhookExists: false,
+      matchingPreviousWebhookFound: true,
       manualSteps: [],
     });
     vi.mocked(ensureLinearIssueWebhook).mockImplementation(async (input) => ({
@@ -527,6 +536,14 @@ describe("vercel-bridge-redeploy-poll", () => {
       expect.objectContaining({
         webhookUrl: "https://harness-gui.vercel.app/api/linear-webhook",
         mutatePolicy: "verify-only",
+      }),
+    );
+    expect(reconcileLinearWebhookUrlForVerification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        previousWebhookUrl:
+          "https://agentic-product-development-harness-apseun4qi-kinterra-team-url.vercel.app/api/linear-webhook",
+        canonicalWebhookUrl: "https://harness-gui.vercel.app/api/linear-webhook",
+        secret: "generated-webhook-secret",
       }),
     );
     expect(runSignedWebhookProbe).toHaveBeenCalledWith(
