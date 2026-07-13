@@ -83,6 +83,33 @@ export interface CloudSecretsApplyEvidence {
   applyFingerprint: string;
   configStateFingerprint: string;
   harnessConfigJsonB64Written: boolean;
+  harnessDispatchRepo?: string;
+  harnessDispatchRepoResolved?: boolean;
+  harnessDispatchRepoSource?: string;
+  harnessRepoAccess?: RemoteSetupSummary["harnessRepoAccess"];
+  postApplyVerificationReady?: boolean;
+  secretPresence?: {
+    allPresent: boolean;
+    missing: string[];
+    unknown: string[];
+  };
+}
+
+export type Step6AutomaticApplyOutcomeKind =
+  | "idle"
+  | "success"
+  | "stale-after-apply"
+  | "apply-failed"
+  | "verification-inconclusive"
+  | "success-blocked";
+
+export interface Step6AutomaticApplyOutcome {
+  kind: Step6AutomaticApplyOutcomeKind;
+  message?: string;
+  primaryBlocker?: ReadinessBlocker;
+  canContinue?: boolean;
+  showRetry?: boolean;
+  showRefresh?: boolean;
 }
 
 export interface PrimarySetupTask {
@@ -467,7 +494,27 @@ export function buildCloudSecretsApplyEvidence(input: {
   applyResult: RemoteHarnessSecretApplyResult;
   setupSummary: SetupGuiViewModel;
   controlPlaneContext?: ControlPlaneReadinessContext;
+  remoteSummary?: RemoteSetupSummary;
 }): CloudSecretsApplyEvidence {
+  return buildAuthoritativeCloudSecretsApplyEvidence({
+    applyResult: input.applyResult,
+    setupSummary: input.setupSummary,
+    controlPlaneContext: input.controlPlaneContext,
+    remoteSummary: input.remoteSummary,
+  });
+}
+
+export function buildAuthoritativeCloudSecretsApplyEvidence(input: {
+  applyResult: RemoteHarnessSecretApplyResult;
+  setupSummary: SetupGuiViewModel;
+  controlPlaneContext?: ControlPlaneReadinessContext;
+  remoteSummary?: RemoteSetupSummary;
+}): CloudSecretsApplyEvidence {
+  const remoteSummary = input.remoteSummary;
+  const secretPresence = remoteSummary
+    ? evaluateHarnessSecretPresence(remoteSummary.harnessSecretStatuses)
+    : undefined;
+
   return {
     path: "automatic",
     applyFingerprint: input.applyResult.fingerprint,
@@ -478,7 +525,172 @@ export function buildCloudSecretsApplyEvidence(input: {
     harnessConfigJsonB64Written: harnessConfigJsonB64WasWritten(
       input.applyResult,
     ),
+    harnessDispatchRepo:
+      remoteSummary?.harnessDispatchRepo ?? input.applyResult.harnessDispatchRepo,
+    harnessDispatchRepoResolved: remoteSummary?.harnessDispatchRepoResolved,
+    harnessDispatchRepoSource: remoteSummary?.harnessDispatchRepoSource,
+    harnessRepoAccess: remoteSummary?.harnessRepoAccess,
+    postApplyVerificationReady: remoteSummary
+      ? step6PostApplyVerificationReady(remoteSummary)
+      : undefined,
+    secretPresence: secretPresence
+      ? {
+          allPresent: secretPresence.allPresent,
+          missing: secretPresence.missing,
+          unknown: secretPresence.unknown,
+        }
+      : undefined,
   };
+}
+
+export function shouldInvalidateCloudSecretsApplyEvidence(input: {
+  evidence?: CloudSecretsApplyEvidence;
+  currentConfigStateFingerprint: string;
+  harnessDispatchRepo?: string;
+}): boolean {
+  if (!input.evidence) {
+    return false;
+  }
+  if (
+    input.evidence.harnessDispatchRepo &&
+    input.harnessDispatchRepo &&
+    input.evidence.harnessDispatchRepo !== input.harnessDispatchRepo
+  ) {
+    return true;
+  }
+  return (
+    input.evidence.configStateFingerprint !== input.currentConfigStateFingerprint
+  );
+}
+
+export function isCloudSecretsApplyEvidenceCurrent(input: {
+  evidence?: CloudSecretsApplyEvidence;
+  currentConfigStateFingerprint: string;
+  harnessDispatchRepo?: string;
+}): boolean {
+  if (!input.evidence) {
+    return false;
+  }
+  if (shouldInvalidateCloudSecretsApplyEvidence(input)) {
+    return false;
+  }
+  return isCloudSecretsStaleLinearConfigResolved({
+    evidence: input.evidence,
+    currentConfigStateFingerprint: input.currentConfigStateFingerprint,
+  });
+}
+
+export function deriveStep6AutomaticApplyOutcome(input: {
+  setupType: "automatic" | "manual" | null;
+  loading: string | null;
+  applyError: string | null;
+  applyResult: RemoteHarnessSecretApplyResult | null;
+  verifiedAutomaticSuccess: boolean;
+  cloudSecretsApplyEvidence?: CloudSecretsApplyEvidence;
+  eligibility: Step6ContinueEligibility;
+  currentConfigStateFingerprint: string;
+  harnessDispatchRepo?: string;
+}): Step6AutomaticApplyOutcome {
+  if (input.setupType !== "automatic") {
+    return { kind: "idle" };
+  }
+
+  if (input.loading === "apply") {
+    return { kind: "idle" };
+  }
+
+  if (input.applyError) {
+    return {
+      kind: "apply-failed",
+      message: input.applyError,
+      showRetry: true,
+    };
+  }
+
+  const evidenceCurrent = isCloudSecretsApplyEvidenceCurrent({
+    evidence: input.cloudSecretsApplyEvidence,
+    currentConfigStateFingerprint: input.currentConfigStateFingerprint,
+    harnessDispatchRepo: input.harnessDispatchRepo,
+  });
+
+  const hasAutomaticProof =
+    input.verifiedAutomaticSuccess ||
+    (Boolean(input.applyResult) && evidenceCurrent);
+
+  if (!hasAutomaticProof) {
+    return { kind: "idle" };
+  }
+
+  if (
+    input.cloudSecretsApplyEvidence &&
+    shouldInvalidateCloudSecretsApplyEvidence({
+      evidence: input.cloudSecretsApplyEvidence,
+      currentConfigStateFingerprint: input.currentConfigStateFingerprint,
+      harnessDispatchRepo: input.harnessDispatchRepo,
+    })
+  ) {
+    return {
+      kind: "stale-after-apply",
+      message:
+        "Local or control-plane config changed after the last automatic secret write. Preview and apply again to refresh HARNESS_CONFIG_JSON_B64.",
+      showRetry: true,
+      primaryBlocker: input.eligibility.blockers.find(
+        (blocker) => blocker.id === "cloud-secrets-stale-linear-config",
+      ),
+    };
+  }
+
+  if (!input.eligibility.postApplyVerificationReady) {
+    return {
+      kind: "verification-inconclusive",
+      message:
+        "Write request completed, but remote secret verification is not ready yet. Refresh or retry.",
+      showRefresh: true,
+      showRetry: true,
+    };
+  }
+
+  if (input.eligibility.canContinue) {
+    return {
+      kind: "success",
+      message:
+        "Encrypted GitHub Actions secrets were created or updated successfully.",
+      canContinue: true,
+    };
+  }
+
+  return {
+    kind: "success-blocked",
+    message:
+      "Automatic secret write succeeded, but Step 6 is not ready to continue yet.",
+    primaryBlocker: input.eligibility.blockers[0],
+    showRefresh: true,
+    showRetry: true,
+  };
+}
+
+export function assertStep6AutomaticApplyOutcomeInvariant(input: {
+  outcome: Step6AutomaticApplyOutcome;
+  verifiedAutomaticSuccess: boolean;
+  applyResult: RemoteHarnessSecretApplyResult | null;
+  loading: string | null;
+  canContinue: boolean;
+}): void {
+  const silentDeadEnd =
+    input.verifiedAutomaticSuccess &&
+    Boolean(input.applyResult) &&
+    input.loading !== "apply" &&
+    !input.canContinue &&
+    input.outcome.kind !== "stale-after-apply" &&
+    input.outcome.kind !== "apply-failed" &&
+    input.outcome.kind !== "verification-inconclusive" &&
+    input.outcome.kind !== "success-blocked";
+
+  if (silentDeadEnd) {
+    throw new Error(
+      "Step 6 automatic apply entered a silent dead-end state without explicit recovery UI.",
+    );
+  }
 }
 
 export function isCloudSecretsStaleLinearConfigResolved(input: {

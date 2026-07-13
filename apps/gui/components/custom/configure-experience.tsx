@@ -9,10 +9,12 @@ import type { VercelSetupSummary } from "@harness/setup/vercel-setup-summary";
 import type { ControlPlaneReadinessContext } from "@harness/setup/control-plane-types";
 import {
   deriveFirstRunReadiness,
+  shouldInvalidateCloudSecretsApplyEvidence,
   type CloudSecretsApplyEvidence,
   type FirstRunReadinessUiState,
   type FirstRunStepId,
 } from "@harness/setup/first-run-readiness";
+import { computeCloudSecretsConfigStateFingerprint } from "@harness/setup/control-plane-readiness";
 
 import { LAYOUT, RESPONSIVE, SPACING } from "@/lib/constants";
 import {
@@ -346,13 +348,31 @@ export function ConfigureExperience({
     setRemoteSummary((current) =>
       syncRemoteSummaryFromEnvPresence(current, nextSummary.envKeyPresence),
     );
-    setUiState((current) => ({
-      ...current,
-      linearPreviewStale: true,
-      vercelPreviewStale: true,
-      remoteSecretPreviewStale: true,
-    }));
-  }, []);
+    setUiState((current) => {
+      const nextControlPlaneContext = buildControlPlaneContext({
+        linearSummary,
+        vercelSummary,
+        summary: nextSummary,
+      });
+      const invalidateEvidence = shouldInvalidateCloudSecretsApplyEvidence({
+        evidence: current.cloudSecretsApplyEvidence,
+        currentConfigStateFingerprint: computeCloudSecretsConfigStateFingerprint({
+          setupSummary: nextSummary,
+          controlPlaneContext: nextControlPlaneContext,
+        }),
+        harnessDispatchRepo: remoteSummary.harnessDispatchRepo,
+      });
+      return {
+        ...current,
+        linearPreviewStale: true,
+        vercelPreviewStale: true,
+        remoteSecretPreviewStale: true,
+        cloudSecretsApplyEvidence: invalidateEvidence
+          ? undefined
+          : current.cloudSecretsApplyEvidence,
+      };
+    });
+  }, [linearSummary, remoteSummary.harnessDispatchRepo, vercelSummary]);
 
   const handleGuidedWorkflowSetupComplete = useCallback(() => {
     setWorkflowAwaitingMerge(false);

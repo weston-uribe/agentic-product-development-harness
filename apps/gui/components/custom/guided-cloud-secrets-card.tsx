@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   RemoteHarnessSecretApplyResult,
   RemoteHarnessSecretManualCopyValues,
@@ -13,16 +13,25 @@ import {
 import type { RemoteSetupSummary } from "@harness/setup/remote-setup-summary";
 import type { SetupGuiViewModel } from "@/lib/setup-server";
 import type { ControlPlaneReadinessContext } from "@harness/setup/control-plane-types";
+import { computeCloudSecretsConfigStateFingerprint } from "@harness/setup/control-plane-readiness";
 import {
-  buildCloudSecretsApplyEvidence,
+  assertStep6AutomaticApplyOutcomeInvariant,
+  deriveStep6AutomaticApplyOutcome,
   deriveStep6ContinueEligibility,
   deriveStep6RemoteActionEligibility,
+  isCloudSecretsApplyEvidenceCurrent,
   step6PostApplyVerificationReady,
   type CloudSecretsApplyEvidence,
   type FirstRunReadiness,
   type ReadinessBlocker,
 } from "@harness/setup/first-run-readiness";
 import { generateGitHubSecretInstructions } from "@harness/setup/generated-instructions";
+import {
+  beginStep6RemoteStateRevision,
+  createStep6RemoteStateRevisionTracker,
+  installStep6RemoteSummaryIfLatest,
+  isLatestStep6RemoteStateRevision,
+} from "@/lib/step6-remote-state";
 
 import { FORM, SPACING } from "@/lib/constants";
 import { GUIDED_SETUP_STEP_COUNT } from "@/lib/guided-setup";
@@ -108,7 +117,7 @@ export function GuidedCloudSecretsCard({
   const [disclosureOpen, setDisclosureOpen] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [loading, setLoading] = useState<
-    "preview" | "apply" | "refresh" | "manual-values" | "manual-verify" | null
+    "preview" | "apply" | "refresh" | "manual-values" | "manual-verify" | "mount-refresh" | null
   >(null);
   const [error, setError] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -126,10 +135,39 @@ export function GuidedCloudSecretsCard({
     null,
   );
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+  const [mountRefreshError, setMountRefreshError] = useState<string | null>(null);
+
+  const remoteStateRevisionRef = useRef(createStep6RemoteStateRevisionTracker());
+  const hasAutoRefreshedRef = useRef(false);
+
+  const currentConfigStateFingerprint = useMemo(
+    () =>
+      computeCloudSecretsConfigStateFingerprint({
+        setupSummary,
+        controlPlaneContext,
+      }),
+    [setupSummary, controlPlaneContext],
+  );
+
+  const installRemoteSummary = useCallback(
+    (nextSummary: RemoteSetupSummary, revision: number) => {
+      installStep6RemoteSummaryIfLatest({
+        tracker: remoteStateRevisionRef.current,
+        revision,
+        summary: nextSummary,
+        install: (installedSummary) => {
+          setSummary(installedSummary);
+          onSummaryUpdated?.(installedSummary);
+        },
+      });
+    },
+    [onSummaryUpdated],
+  );
 
   useEffect(() => {
-    setSummary(initialSummary);
-  }, [initialSummary]);
+    const revision = beginStep6RemoteStateRevision(remoteStateRevisionRef.current);
+    installRemoteSummary(initialSummary, revision);
+  }, [initialSummary, installRemoteSummary]);
 
   useEffect(() => {
     return () => {
@@ -137,6 +175,58 @@ export function GuidedCloudSecretsCard({
       setManualValuesRevealed(false);
     };
   }, []);
+
+  const refreshSummary = useCallback(
+    async (source: "manual" | "mount" = "manual") => {
+      const revision = beginStep6RemoteStateRevision(remoteStateRevisionRef.current);
+      setLoading(source === "mount" ? "mount-refresh" : "refresh");
+      if (source === "mount") {
+        setMountRefreshError(null);
+      } else {
+        setError(null);
+      }
+      try {
+        const response = await fetch("/api/setup/remote-summary");
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error ?? "Remote summary refresh failed");
+        }
+        const nextSummary = data as RemoteSetupSummary;
+        if (!isLatestStep6RemoteStateRevision(remoteStateRevisionRef.current, revision)) {
+          return null;
+        }
+        installRemoteSummary(nextSummary, revision);
+        return nextSummary;
+      } catch (refreshError) {
+        if (!isLatestStep6RemoteStateRevision(remoteStateRevisionRef.current, revision)) {
+          return null;
+        }
+        const message =
+          refreshError instanceof Error
+            ? refreshError.message
+            : "Remote summary refresh failed";
+        if (source === "mount") {
+          setMountRefreshError(message);
+        } else {
+          setError(message);
+        }
+        return null;
+      } finally {
+        if (isLatestStep6RemoteStateRevision(remoteStateRevisionRef.current, revision)) {
+          setLoading(null);
+        }
+      }
+    },
+    [installRemoteSummary],
+  );
+
+  useEffect(() => {
+    if (hasAutoRefreshedRef.current) {
+      return;
+    }
+    hasAutoRefreshedRef.current = true;
+    void refreshSummary("mount");
+  }, [refreshSummary]);
 
   const previewIsCurrent = preview !== null && previewGenerated;
 
@@ -201,15 +291,13 @@ export function GuidedCloudSecretsCard({
   const handleSetupTypeChange = useCallback(
     (nextType: CloudSecretsSetupType) => {
       setSetupType(nextType);
-      setPreviewStaleCleared(false);
-      onUiStateChange?.({ cloudSecretsApplyEvidence: undefined });
       if (nextType === "automatic") {
         clearManualPathState();
       } else {
         clearAutomaticPathState();
       }
     },
-    [clearAutomaticPathState, clearManualPathState, onUiStateChange],
+    [clearAutomaticPathState, clearManualPathState],
   );
 
   const clearManualValues = useCallback(() => {
@@ -222,52 +310,24 @@ export function GuidedCloudSecretsCard({
   const markVerifiedSuccess = useCallback(
     (
       path: CloudSecretsSetupType,
-      nextApplyResult?: RemoteHarnessSecretApplyResult,
+      nextEvidence?: CloudSecretsApplyEvidence,
     ) => {
       setPreviewStaleCleared(true);
       onUiStateChange?.({ remoteSecretPreviewStale: false });
       if (path === "automatic") {
         setVerifiedAutomaticSuccess(true);
-        if (nextApplyResult) {
+        if (nextEvidence) {
           onUiStateChange?.({
             remoteSecretPreviewStale: false,
-            cloudSecretsApplyEvidence: buildCloudSecretsApplyEvidence({
-              applyResult: nextApplyResult,
-              setupSummary,
-              controlPlaneContext,
-            }),
+            cloudSecretsApplyEvidence: nextEvidence,
           });
         }
       } else {
         setVerifiedManualSuccess(true);
       }
     },
-    [controlPlaneContext, onUiStateChange, setupSummary],
+    [onUiStateChange],
   );
-
-  const refreshSummary = useCallback(async () => {
-    setLoading("refresh");
-    try {
-      const response = await fetch("/api/setup/remote-summary");
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error ?? "Remote summary refresh failed");
-      }
-      const nextSummary = data as RemoteSetupSummary;
-      setSummary(nextSummary);
-      onSummaryUpdated?.(nextSummary);
-      return nextSummary;
-    } catch (refreshError) {
-      setError(
-        refreshError instanceof Error
-          ? refreshError.message
-          : "Remote summary refresh failed",
-      );
-      return null;
-    } finally {
-      setLoading(null);
-    }
-  }, [onSummaryUpdated]);
 
   const runPreview = useCallback(async (): Promise<RemoteHarnessSecretPreview> => {
     const response = await fetch("/api/setup/preview-harness-secrets", {
@@ -321,10 +381,11 @@ export function GuidedCloudSecretsCard({
   );
 
   const handleApply = async () => {
-    if (!confirmed || remoteActionsBlocked) {
+    if (!confirmed || remoteActionsBlocked || loading === "apply") {
       return;
     }
 
+    const revision = beginStep6RemoteStateRevision(remoteStateRevisionRef.current);
     setLoading("apply");
     setError(null);
     setVerifiedAutomaticSuccess(false);
@@ -348,29 +409,38 @@ export function GuidedCloudSecretsCard({
         throw new Error(data.error ?? "Apply failed");
       }
 
+      if (!isLatestStep6RemoteStateRevision(remoteStateRevisionRef.current, revision)) {
+        return;
+      }
+
       const nextSummary = data.summary as RemoteSetupSummary;
       const nextApplyResult = data.apply as RemoteHarnessSecretApplyResult;
+      const nextEvidence = data.evidence as CloudSecretsApplyEvidence;
       setApplyResult(nextApplyResult);
-      setSummary(nextSummary);
-      onSummaryUpdated?.(nextSummary);
+      installRemoteSummary(nextSummary, revision);
       setPreview(null);
       setPreviewGenerated(false);
       setConfirmed(false);
       setDisclosureOpen(false);
 
       if (step6PostApplyVerificationReady(nextSummary)) {
-        markVerifiedSuccess("automatic", nextApplyResult);
+        markVerifiedSuccess("automatic", nextEvidence);
       } else {
         setError(
           `Write request completed, but verification failed: ${cloudSecretVerificationMessage(nextSummary)}. Refresh or retry.`,
         );
       }
     } catch (applyError) {
+      if (!isLatestStep6RemoteStateRevision(remoteStateRevisionRef.current, revision)) {
+        return;
+      }
       setError(
         applyError instanceof Error ? applyError.message : "Apply failed",
       );
     } finally {
-      setLoading(null);
+      if (isLatestStep6RemoteStateRevision(remoteStateRevisionRef.current, revision)) {
+        setLoading(null);
+      }
     }
   };
 
@@ -425,7 +495,7 @@ export function GuidedCloudSecretsCard({
     setManualVerifyMessage(null);
     setVerifiedManualSuccess(false);
     try {
-      const nextSummary = await refreshSummary();
+      const nextSummary = await refreshSummary("manual");
       if (!nextSummary) {
         return;
       }
@@ -484,6 +554,24 @@ export function GuidedCloudSecretsCard({
     ],
   );
 
+  const automaticEvidenceCurrent = isCloudSecretsApplyEvidenceCurrent({
+    evidence: cloudSecretsApplyEvidence,
+    currentConfigStateFingerprint,
+    harnessDispatchRepo: summary.harnessDispatchRepo,
+  });
+
+  const automaticOutcome = deriveStep6AutomaticApplyOutcome({
+    setupType,
+    loading,
+    applyError: error,
+    applyResult,
+    verifiedAutomaticSuccess,
+    cloudSecretsApplyEvidence,
+    eligibility,
+    currentConfigStateFingerprint,
+    harnessDispatchRepo: summary.harnessDispatchRepo,
+  });
+
   const confirmDisabledReason = remoteActionsBlocked
     ? remoteActionsBlockedReason
     : preview?.validationError
@@ -494,9 +582,14 @@ export function GuidedCloudSecretsCard({
     confirmDisabledReason ??
     (!confirmed
       ? "Confirm the GitHub Actions secret write before applying."
-      : undefined);
+      : automaticOutcome.kind === "success"
+        ? "Automatic secret write already verified for the current config."
+        : undefined);
 
-  const userVerifiedSuccess = verifiedAutomaticSuccess || verifiedManualSuccess;
+  const userVerifiedSuccess =
+    (setupType === "automatic" &&
+      (verifiedAutomaticSuccess || automaticEvidenceCurrent)) ||
+    (setupType === "manual" && verifiedManualSuccess);
 
   const canContinue =
     userVerifiedSuccess &&
@@ -505,16 +598,20 @@ export function GuidedCloudSecretsCard({
     !loading &&
     !remoteActionsBlocked;
 
-  const automaticSuccessEligible =
-    verifiedAutomaticSuccess && applyResult && eligibility.canContinue;
+  if (process.env.NODE_ENV !== "production") {
+    assertStep6AutomaticApplyOutcomeInvariant({
+      outcome: automaticOutcome,
+      verifiedAutomaticSuccess,
+      applyResult,
+      loading,
+      canContinue,
+    });
+  }
 
   const manualSuccessEligible =
     verifiedManualSuccess &&
     manualVerifyMessage !== null &&
     eligibility.canContinue;
-
-  const automaticSuccessBlocked =
-    verifiedAutomaticSuccess && applyResult && !eligibility.canContinue;
 
   const manualSuccessBlocked =
     verifiedManualSuccess &&
@@ -522,6 +619,12 @@ export function GuidedCloudSecretsCard({
     !eligibility.canContinue;
 
   const primaryBlocker = eligibility.blockers[0];
+  const automaticApplyDisabled =
+    loading !== null ||
+    !confirmed ||
+    Boolean(preview?.validationError) ||
+    remoteActionsBlocked ||
+    automaticOutcome.kind === "success";
 
   return (
     <SectionCard
@@ -529,6 +632,26 @@ export function GuidedCloudSecretsCard({
       description="Your local setup is ready. Choose automatic GitHub Actions secret setup or manual setup in GitHub, then verify before continuing."
     >
       <div className={SPACING.stackSm}>
+        {loading === "mount-refresh" ? (
+          <p className="text-sm text-muted-foreground">
+            Refreshing harness repo and secret status…
+          </p>
+        ) : null}
+
+        {mountRefreshError ? (
+          <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-4">
+            <p className="text-sm font-medium">{mountRefreshError}</p>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void refreshSummary("mount")}
+              disabled={loading !== null}
+            >
+              Retry refresh
+            </Button>
+          </div>
+        ) : null}
+
         {remoteActionsBlocked ? (
           <>
             <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-4">
@@ -557,7 +680,7 @@ export function GuidedCloudSecretsCard({
               <Button
                 type="button"
                 variant="outline"
-                onClick={() => void refreshSummary()}
+                onClick={() => void refreshSummary("manual")}
                 disabled={loading !== null}
               >
                 {loading === "refresh" ? "Refreshing…" : "Refresh"}
@@ -631,17 +754,33 @@ export function GuidedCloudSecretsCard({
                   <Button
                     type="button"
                     onClick={() => void handleApply()}
-                    disabled={
-                      loading !== null ||
-                      !confirmed ||
-                      Boolean(preview?.validationError) ||
-                      remoteActionsBlocked ||
-                      verifiedAutomaticSuccess
+                    disabled={automaticApplyDisabled}
+                    variant={
+                      automaticOutcome.kind === "success" ? "outline" : "default"
                     }
-                    variant={verifiedAutomaticSuccess ? "outline" : "default"}
                   >
                     {loading === "apply" ? "Writing secrets…" : applyLabel}
                   </Button>
+                  {automaticOutcome.showRefresh ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void refreshSummary("manual")}
+                      disabled={loading !== null}
+                    >
+                      {loading === "refresh" ? "Refreshing…" : "Refresh"}
+                    </Button>
+                  ) : null}
+                  {automaticOutcome.showRetry ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void handlePreview()}
+                      disabled={loading !== null}
+                    >
+                      {loading === "preview" ? "Refreshing preview…" : "Preview again"}
+                    </Button>
+                  ) : null}
                 </div>
 
                 {applyDisabledReason && !remoteActionsBlocked ? (
@@ -806,17 +945,31 @@ export function GuidedCloudSecretsCard({
               </div>
             ) : null}
 
-            {error ? <SetupApplyResult success={false} message={error} /> : null}
-
-            {automaticSuccessEligible ? (
+            {automaticOutcome.kind === "apply-failed" ||
+            automaticOutcome.kind === "verification-inconclusive" ? (
               <SetupApplyResult
-                success
-                message="Encrypted GitHub Actions secrets were created or updated successfully."
+                success={false}
+                message={automaticOutcome.message ?? "Automatic apply failed."}
               />
             ) : null}
 
-            {automaticSuccessBlocked && primaryBlocker ? (
-              <Step6BlockerPanel blocker={primaryBlocker} />
+            {automaticOutcome.kind === "success" ? (
+              <SetupApplyResult
+                success
+                message={automaticOutcome.message ?? "Automatic apply succeeded."}
+              />
+            ) : null}
+
+            {automaticOutcome.kind === "stale-after-apply" ? (
+              <SetupApplyResult
+                success={false}
+                message={automaticOutcome.message ?? "Config changed after apply."}
+              />
+            ) : null}
+
+            {automaticOutcome.kind === "success-blocked" &&
+            automaticOutcome.primaryBlocker ? (
+              <Step6BlockerPanel blocker={automaticOutcome.primaryBlocker} />
             ) : null}
 
             {manualSuccessEligible ? (

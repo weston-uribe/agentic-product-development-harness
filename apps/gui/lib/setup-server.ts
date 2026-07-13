@@ -20,7 +20,9 @@ import {
   readGitRemoteOrigin,
 } from "@harness/setup/harness-dispatch-repo";
 import {
+  buildAuthoritativeCloudSecretsApplyEvidence,
   deriveFirstRunReadiness,
+  type CloudSecretsApplyEvidence,
   type FirstRunReadiness,
 } from "@harness/setup/first-run-readiness";
 import {
@@ -31,6 +33,7 @@ import { createLiveGitHubRemoteSetupProvider } from "@harness/setup/github-remot
 import { createLiveGitHubHarnessProvisioningProvider,
 } from "@harness/setup/github-remote-setup-live";
 import { tryCreateHarnessTestProvisioningProvider } from "@harness/setup/test-only-provisioning-provider";
+import { tryCreateHarnessTestRemoteSetupProvider } from "@harness/setup/test-only-remote-setup-provider";
 import {
   applyHarnessRepoProvisioning,
   loadHarnessRepoProvisioningSummary,
@@ -123,6 +126,10 @@ function resolveCwd(): string {
 async function resolveRemoteProvider(): Promise<
   GitHubRemoteSetupProvider | undefined
 > {
+  const testProvider = tryCreateHarnessTestRemoteSetupProvider();
+  if (testProvider) {
+    return testProvider;
+  }
   const token = await loadGithubTokenFromEnvLocal({ cwd: resolveCwd() });
   if (!hasGithubTokenConfigured(token)) {
     return undefined;
@@ -292,20 +299,35 @@ export async function applyHarnessSecretsRemote(options: {
 }): Promise<{
   apply: RemoteHarnessSecretApplyResult;
   summary: RemoteSetupSummary;
+  evidence: CloudSecretsApplyEvidence;
 }> {
+  const cwd = resolveCwd();
   const operatorInput = await resolveEnrichedHarnessSecretOperatorInput(
     options.payload,
   );
   const apply = await applyRemoteHarnessSecrets({
-    cwd: resolveCwd(),
+    cwd,
     operatorInput,
     manualHarnessDispatchRepo: options.payload.manualHarnessDispatchRepo,
     confirmed: options.confirmed,
     fingerprint: options.fingerprint,
     provider: await resolveRemoteProvider(),
   });
-  const summary = await loadRemoteSetupSummary();
-  return { apply, summary };
+  const [summary, setupSummary] = await Promise.all([
+    loadRemoteSetupSummary(),
+    loadSetupSummary(),
+  ]);
+  const controlPlaneContext = await loadControlPlaneReadinessContext(
+    cwd,
+    setupSummary,
+  );
+  const evidence = buildAuthoritativeCloudSecretsApplyEvidence({
+    applyResult: apply,
+    setupSummary,
+    controlPlaneContext,
+    remoteSummary: summary,
+  });
+  return { apply, summary, evidence };
 }
 
 export async function previewTargetWorkflowRemote(
