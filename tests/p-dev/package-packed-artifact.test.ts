@@ -9,7 +9,7 @@ const repoRoot = path.resolve(
   "../..",
 );
 const packageDir = path.join(repoRoot, "packages", "p-dev");
-const tarballPath = path.join(packageDir, "p-dev-0.3.0.tgz");
+const tarballPath = path.join(packageDir, "p-dev-harness-0.3.0.tgz");
 
 describe("p-dev packed artifact", () => {
   beforeAll(() => {

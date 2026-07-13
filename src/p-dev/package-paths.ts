@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const P_DEV_PACKAGE_NAME = "p-dev";
+export const P_DEV_PACKAGE_NAME = "p-dev-harness";
 
 export function resolvePackageRootFromModule(moduleUrl: string): string {
   let current = path.resolve(path.dirname(fileURLToPath(moduleUrl)));

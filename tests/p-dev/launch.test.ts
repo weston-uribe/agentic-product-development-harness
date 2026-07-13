@@ -29,7 +29,7 @@ describe("p-dev launch", () => {
     await mkdir(guiDir, { recursive: true });
     await writeFile(
       path.join(packageRoot, "package.json"),
-      JSON.stringify({ name: "p-dev", version: "0.3.0" }),
+      JSON.stringify({ name: "p-dev-harness", version: "0.3.0" }),
       "utf8",
     );
     await writeFile(

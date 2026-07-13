@@ -1,6 +1,6 @@
 # Release process
 
-Operator guide for harness releases: GitHub source release plus public npm package `p-dev`.
+Operator guide for harness releases: GitHub source release plus public npm package `p-dev-harness`.
 
 **Related:** [`v0.3.0.md`](v0.3.0.md) (current release contract), [`v0.2.0.md`](v0.2.0.md) (historical), [`CHANGELOG.md`](../../CHANGELOG.md), [`docs/p-dev.md`](../p-dev.md)
 
@@ -10,7 +10,7 @@ The release process has distinct phases:
 
 1. **Release-preparation PR** — versions, docs, tests, release contract (no tag/npm/release mutations)
 2. **Template synchronization** — curated sync to `weston-uribe/p-dev-harness-template`
-3. **Exact tarball validation** — build and smoke-test `p-dev-0.3.0.tgz` at `RELEASE_SHA`
+3. **Exact tarball validation** — build and smoke-test `p-dev-harness-0.3.0.tgz` at `RELEASE_SHA`
 4. **npm publication** — publish the exact validated tarball
 5. **Annotated git tag** — primary `v0.3.0` at `RELEASE_SHA`
 6. **GitHub release** — curated notes from `docs/releases/v0.3.0.md`
@@ -24,7 +24,7 @@ Do **not** push directly to `main`, force-push, overwrite tags, or republish npm
 
 Merge to `main`:
 
-- Version bumps (`0.3.0` root, `p-dev@0.3.0`)
+- Version bumps (`0.3.0` root, `p-dev-harness@0.3.0`)
 - `CHANGELOG.md`, `docs/releases/v0.3.0.md`, truth-audit docs
 - Package publication metadata and tests
 - Validation on the PR branch
@@ -67,14 +67,14 @@ Before publication:
 ```bash
 npm config get registry
 npm whoami --registry=https://registry.npmjs.org/
-npm view p-dev --registry=https://registry.npmjs.org/ --json
-npm view p-dev@0.3.0 --registry=https://registry.npmjs.org/ --json
+npm view p-dev-harness --registry=https://registry.npmjs.org/ --json
+npm view p-dev-harness@0.3.0 --registry=https://registry.npmjs.org/ --json
 ```
 
 **Stop** if:
 
 - Not authenticated or not authorized to publish
-- `p-dev@0.3.0` already exists
+- `p-dev-harness@0.3.0` already exists
 - Package name is owned by someone else
 
 Never print tokens, OTPs, or secrets.
@@ -100,7 +100,7 @@ Record tarball bytes, SHA-1, SHA-256, manifest, unpacked size, file count.
 Tarball smoke:
 
 ```bash
-TARBALL="packages/p-dev/p-dev-0.3.0.tgz"
+TARBALL="packages/p-dev/p-dev-harness-0.3.0.tgz"
 WORKDIR=$(mktemp -d)
 export P_DEV_HOME="$WORKDIR/workspace"
 cd "$WORKDIR"
@@ -111,7 +111,7 @@ npx --yes "file:/absolute/path/to/$TARBALL" --no-open
 Dry-run publish:
 
 ```bash
-npm publish packages/p-dev/p-dev-0.3.0.tgz --dry-run --access public --registry=https://registry.npmjs.org/
+npm publish packages/p-dev/p-dev-harness-0.3.0.tgz --dry-run --access public --registry=https://registry.npmjs.org/
 ```
 
 ---
@@ -121,7 +121,7 @@ npm publish packages/p-dev/p-dev-0.3.0.tgz --dry-run --access public --registry=
 Publish the **exact already-tested tarball** (do not rebuild between smoke and publish):
 
 ```bash
-npm publish packages/p-dev/p-dev-0.3.0.tgz --access public --registry=https://registry.npmjs.org/
+npm publish packages/p-dev/p-dev-harness-0.3.0.tgz --access public --registry=https://registry.npmjs.org/
 ```
 
 If npm requests OTP, enter it interactively. **Never** place OTP or token in files, commands reported in PRs, or logs.
@@ -129,7 +129,7 @@ If npm requests OTP, enter it interactively. **Never** place OTP or token in fil
 Verify:
 
 ```bash
-npm view p-dev@0.3.0 name version dist-tags.latest dist.shasum dist.integrity engines bin repository license
+npm view p-dev-harness@0.3.0 name version dist-tags.latest dist.shasum dist.integrity engines bin repository license
 ```
 
 Registry smoke from fresh directory:
@@ -138,7 +138,7 @@ Registry smoke from fresh directory:
 WORKDIR=$(mktemp -d)
 export P_DEV_HOME="$WORKDIR/workspace"
 cd "$WORKDIR"
-npx --yes p-dev@0.3.0 --no-open
+npx --yes p-dev-harness@0.3.0 --no-open
 ```
 
 ---
@@ -197,8 +197,8 @@ npm run package:p-dev:pack && npm run package:p-dev:inspect
 
 # npm preflight + publish (interactive OTP if required)
 npm whoami --registry=https://registry.npmjs.org/
-npm view p-dev@0.3.0 --registry=https://registry.npmjs.org/
-npm publish packages/p-dev/p-dev-0.3.0.tgz --access public --registry=https://registry.npmjs.org/
+npm view p-dev-harness@0.3.0 --registry=https://registry.npmjs.org/
+npm publish packages/p-dev/p-dev-harness-0.3.0.tgz --access public --registry=https://registry.npmjs.org/
 
 # Tag and release
 git tag -a v0.3.0 "$RELEASE_SHA" -m "v0.3.0"
@@ -224,7 +224,7 @@ V0.2.0 was source-release only (no npm). See [`v0.2.0.md`](v0.2.0.md) for the hi
 | Artifact | `private` | Published |
 |----------|-----------|-----------|
 | Root `agentic-product-development-harness` | `true` | GitHub source release only |
-| `packages/p-dev` (`p-dev`) | no | Public npm |
+| `packages/p-dev` (`p-dev-harness`) | no | Public npm |
 
 ### What not to run during release-doc PRs
 

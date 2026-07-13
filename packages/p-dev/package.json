@@ -1,11 +1,11 @@
 {
-  "name": "p-dev",
+  "name": "p-dev-harness",
   "version": "0.3.0",
   "type": "module",
   "description": "Launch the Product Development Harness guided Configure GUI without cloning the source repository.",
   "license": "MIT",
   "bin": {
-    "p-dev": "./bin/p-dev.js"
+    "p-dev-harness": "./bin/p-dev.js"
   },
   "engines": {
     "node": ">=22"

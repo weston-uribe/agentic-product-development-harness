@@ -28,7 +28,7 @@ npm run package:p-dev:inspect
 Packed tarball smoke from a clean temporary directory:
 
 ```bash
-TARBALL="/absolute/path/to/repo/packages/p-dev/p-dev-0.3.0.tgz"
+TARBALL="/absolute/path/to/repo/packages/p-dev/p-dev-harness-0.3.0.tgz"
 WORKDIR=$(mktemp -d)
 export P_DEV_HOME="$WORKDIR/workspace"
 cd "$WORKDIR"
