@@ -28,9 +28,9 @@ import {
   type SetupGuiViewModel,
 } from "@harness/setup/gui-view-model";
 import { createLiveGitHubRemoteSetupProvider } from "@harness/setup/github-remote-setup-live";
-import {
-  createLiveGitHubHarnessProvisioningProvider,
+import { createLiveGitHubHarnessProvisioningProvider,
 } from "@harness/setup/github-remote-setup-live";
+import { tryCreateHarnessTestProvisioningProvider } from "@harness/setup/test-only-provisioning-provider";
 import {
   applyHarnessRepoProvisioning,
   loadHarnessRepoProvisioningSummary,
@@ -532,6 +532,10 @@ export async function pollVercelBridgeRedeployRemote(options: {
 async function resolveProvisioningProvider(): Promise<
   GitHubHarnessProvisioningProvider | undefined
 > {
+  const testProvider = tryCreateHarnessTestProvisioningProvider();
+  if (testProvider) {
+    return testProvider;
+  }
   const token = await loadGithubTokenFromEnvLocal({ cwd: resolveCwd() });
   if (!hasGithubTokenConfigured(token)) {
     return undefined;

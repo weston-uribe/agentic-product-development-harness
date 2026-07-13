@@ -63,6 +63,7 @@ export interface GitHubCreateRepositoryFromTemplateInput {
 }
 
 export interface GitHubCreateRepositoryFromTemplateResult {
+  id: number;
   full_name: string;
   default_branch: string;
 }
@@ -290,6 +291,13 @@ export class GitHubClient {
 
   async getRepository(owner: string, repo: string): Promise<GitHubRepository> {
     return this.request<GitHubRepository>(`/repos/${owner}/${repo}`);
+  }
+
+  async getRepositoryById(repositoryId: number): Promise<GitHubRepository> {
+    if (!Number.isInteger(repositoryId) || repositoryId <= 0) {
+      throw new Error(`Invalid GitHub repository ID: ${String(repositoryId)}`);
+    }
+    return this.request<GitHubRepository>(`/repositories/${repositoryId}`);
   }
 
   async getPullRequest(

@@ -443,6 +443,37 @@ export class LiveGitHubHarnessProvisioningProvider
         : new GitHubClient(options);
   }
 
+  private mapRepositoryToMetadata(
+    owner: string,
+    repo: string,
+    repository: Awaited<ReturnType<GitHubClient["getRepository"]>>,
+  ): GitHubRepositoryMetadata {
+    if (
+      typeof repository.id !== "number" ||
+      !Number.isInteger(repository.id) ||
+      repository.id <= 0
+    ) {
+      throw new Error(
+        `GitHub repository metadata for ${owner}/${repo} is missing a valid numeric repository ID.`,
+      );
+    }
+    return {
+      repositoryId: repository.id,
+      owner,
+      repo,
+      private: repository.private === true,
+      visibility:
+        repository.visibility ?? (repository.private ? "private" : "public"),
+      isTemplate: repository.is_template === true,
+      defaultBranch: repository.default_branch ?? "main",
+      permissions: {
+        admin: repository.permissions?.admin === true,
+        maintain: repository.permissions?.maintain === true,
+        push: repository.permissions?.push === true,
+      },
+    };
+  }
+
   async resolveAuthenticatedUser(): Promise<AuthenticatedGitHubUser> {
     const user = await this.client.getAuthenticatedUser();
     return { id: user.id, login: user.login };
@@ -471,19 +502,33 @@ export class LiveGitHubHarnessProvisioningProvider
   ): Promise<GitHubRepositoryMetadata | null> {
     try {
       const repository = await this.client.getRepository(owner, repo);
-      return {
-        owner,
-        repo,
-        private: repository.private === true,
-        visibility: repository.visibility ?? (repository.private ? "private" : "public"),
-        isTemplate: repository.is_template === true,
-        defaultBranch: repository.default_branch ?? "main",
-        permissions: {
-          admin: repository.permissions?.admin === true,
-          maintain: repository.permissions?.maintain === true,
-          push: repository.permissions?.push === true,
-        },
-      };
+      return this.mapRepositoryToMetadata(owner, repo, repository);
+    } catch (error) {
+      if (error instanceof GitHubApiError && error.status === 404) {
+        return null;
+      }
+      throw new Error(sanitizeGitHubSetupError(error));
+    }
+  }
+
+  async getRepositoryMetadataById(
+    repositoryId: number,
+  ): Promise<GitHubRepositoryMetadata | null> {
+    try {
+      const repository = await this.client.getRepositoryById(repositoryId);
+      const fullName = repository.full_name;
+      if (!fullName || !fullName.includes("/")) {
+        throw new Error(
+          `GitHub repository ID ${repositoryId} returned invalid full_name metadata.`,
+        );
+      }
+      const [owner, repo] = fullName.split("/");
+      if (!owner || !repo) {
+        throw new Error(
+          `GitHub repository ID ${repositoryId} returned invalid full_name metadata.`,
+        );
+      }
+      return this.mapRepositoryToMetadata(owner, repo, repository);
     } catch (error) {
       if (error instanceof GitHubApiError && error.status === 404) {
         return null;
@@ -530,6 +575,7 @@ export class LiveGitHubHarnessProvisioningProvider
         includeAllBranches: input.includeAllBranches,
       });
       return {
+        repositoryId: created.id,
         fullName: created.full_name,
         defaultBranch: created.default_branch,
       };

@@ -17,6 +17,10 @@ import {
 } from "../gui/configure-health.js";
 import { resolveAvailableGuiPort } from "../gui/port.js";
 import {
+  P_DEV_PACKAGE_VERSION_ENV,
+  readPDevPackageVersionFromPackageRoot,
+} from "./package-version.js";
+import {
   isPathInsidePackageInstall,
   P_DEV_HOME_ENV,
   resolveWorkspaceDir,
@@ -78,6 +82,7 @@ export async function launchPDev(
 
   const url = buildConfigureUrl(host, port, cli.route);
   const nextBin = resolveNextBin(packageRoot);
+  const packagedVersion = readPDevPackageVersionFromPackageRoot(packageRoot);
 
   const spawnImpl = options.spawnImpl ?? spawn;
   const shutdown = createShutdownController();
@@ -102,6 +107,7 @@ export async function launchPDev(
         [P_DEV_HOME_ENV]: workspace.workspaceDir,
         HARNESS_REPO_ROOT: workspace.workspaceDir,
         P_DEV_RUNTIME_MODE: "packaged",
+        [P_DEV_PACKAGE_VERSION_ENV]: packagedVersion,
         HARNESS_GUI_HOST: host,
         HARNESS_GUI_PORT: String(port),
       },

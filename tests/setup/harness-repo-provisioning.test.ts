@@ -17,6 +17,7 @@ import {
 } from "../../src/setup/harness-provisioning-pending-state.js";
 import {
   MockGitHubHarnessProvisioningProvider,
+  deterministicMockRepositoryId,
 } from "../../src/setup/github-remote-provider.js";
 import {
   HARNESS_TEMPLATE_IDENTITY_FILE,
@@ -45,13 +46,14 @@ const TEMPLATE_IDENTITY_JSON = `${JSON.stringify(TEMPLATE_IDENTITY, null, 2)}\n`
 function buildManagedMarker(repoSlug: string) {
   return buildHarnessManagedRepoMarker({
     repository: repoSlug,
+    repositoryId: deterministicMockRepositoryId(repoSlug),
     templateIdentity: TEMPLATE_IDENTITY,
     defaultBranch: "main",
     sourceHeadSha: "abc123templatehead",
     operationId: "op-1",
     createdByGithubUserId: 1,
     createdByLogin: "test-user",
-    pDevVersion: "0.2.0",
+    pDevVersion: "0.0.0",
   });
 }
 
@@ -113,12 +115,14 @@ function validPendingState(
 describe("harness-repo-provisioning", () => {
   let workspaceDir = "";
   const originalRuntimeMode = process.env.P_DEV_RUNTIME_MODE;
+  const originalPackagedVersion = process.env.P_DEV_PACKAGE_VERSION;
   const originalPollTimeout = process.env.HARNESS_PROVISIONING_POLL_TIMEOUT_MS;
   const originalPollInitialDelay =
     process.env.HARNESS_PROVISIONING_POLL_INITIAL_DELAY_MS;
 
   beforeEach(async () => {
     process.env.P_DEV_RUNTIME_MODE = "packaged";
+    process.env.P_DEV_PACKAGE_VERSION = "0.0.0";
     delete process.env.HARNESS_PROVISIONING_POLL_TIMEOUT_MS;
     delete process.env.HARNESS_PROVISIONING_POLL_INITIAL_DELAY_MS;
     workspaceDir = await mkdtemp(path.join(tmpdir(), "harness-provision-"));
@@ -137,6 +141,11 @@ describe("harness-repo-provisioning", () => {
       delete process.env.P_DEV_RUNTIME_MODE;
     } else {
       process.env.P_DEV_RUNTIME_MODE = originalRuntimeMode;
+    }
+    if (originalPackagedVersion === undefined) {
+      delete process.env.P_DEV_PACKAGE_VERSION;
+    } else {
+      process.env.P_DEV_PACKAGE_VERSION = originalPackagedVersion;
     }
     if (originalPollTimeout === undefined) {
       delete process.env.HARNESS_PROVISIONING_POLL_TIMEOUT_MS;
@@ -743,6 +752,111 @@ describe("harness-repo-provisioning", () => {
     });
     expect(managedSummary.verifiedSavedRepo).toBe(true);
     expect(managedSummary.harnessDispatchRepo).toBe("test-user/p-dev-harness");
+  });
+
+  it("includes packaged pDevVersion in preview fingerprint", async () => {
+    const provider = new MockGitHubHarnessProvisioningProvider({
+      authenticatedUser: { id: 1, login: "test-user" },
+      repositories: {
+        "weston-uribe/p-dev-harness-template": templateRepoMetadata(),
+      },
+    });
+
+    const preview = await previewHarnessRepoProvisioning({
+      cwd: workspaceDir,
+      provider,
+      operationId: "op-version",
+    });
+    const payload = JSON.parse(preview.fingerprint) as { pDevVersion: string };
+    expect(payload.pDevVersion).toBe("0.0.0");
+  });
+
+  it("rejects legacy managed marker without repository ID on reconnect", async () => {
+    const legacyMarker = {
+      ...buildManagedMarker("test-user/p-dev-harness"),
+      markerVersion: 1,
+    };
+    delete (legacyMarker as { repositoryId?: number }).repositoryId;
+    const provider = new MockGitHubHarnessProvisioningProvider({
+      authenticatedUser: { id: 1, login: "test-user" },
+      repositories: {
+        "weston-uribe/p-dev-harness-template": templateRepoMetadata(),
+        "test-user/p-dev-harness": destinationRepoMetadata({
+          managedMarkerContent: `${JSON.stringify(legacyMarker, null, 2)}\n`,
+        }),
+      },
+    });
+
+    await writeFile(
+      path.join(workspaceDir, ".env.local"),
+      [
+        "GITHUB_TOKEN=ghp_test_token",
+        "HARNESS_CONFIG_PATH=.harness/config.local.json",
+        "GITHUB_DISPATCH_REPOSITORY=test-user/p-dev-harness",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const preview = await previewHarnessRepoProvisioning({
+      cwd: workspaceDir,
+      provider,
+    });
+    expect(preview.state).toBe("explicit-packaged-repo-invalid");
+  });
+
+  it("reconnects after rename when numeric repository ID is unchanged", async () => {
+    const renamedSlug = "test-user/renamed-p-dev-harness";
+    const repositoryId = deterministicMockRepositoryId("test-user/p-dev-harness");
+    const managedMarker = buildManagedMarker("test-user/p-dev-harness");
+    const provider = new MockGitHubHarnessProvisioningProvider({
+      authenticatedUser: { id: 1, login: "test-user" },
+      repositories: {
+        "weston-uribe/p-dev-harness-template": templateRepoMetadata(),
+        [renamedSlug]: {
+          repositoryId,
+          owner: "test-user",
+          repo: "renamed-p-dev-harness",
+          private: true,
+          visibility: "private",
+          isTemplate: false,
+          defaultBranch: "main",
+          permissions: { admin: true, maintain: true, push: true },
+          managedMarkerContent: `${JSON.stringify(managedMarker, null, 2)}\n`,
+          templateIdentityContent: TEMPLATE_IDENTITY_JSON,
+          branchHeadSha: "generatedheadsha",
+        },
+      },
+    });
+
+    await writeFile(
+      path.join(workspaceDir, ".env.local"),
+      [
+        "GITHUB_TOKEN=ghp_test_token",
+        "HARNESS_CONFIG_PATH=.harness/config.local.json",
+        "GITHUB_DISPATCH_REPOSITORY=test-user/p-dev-harness",
+        `GITHUB_DISPATCH_REPOSITORY_ID=${repositoryId}`,
+      ].join("\n"),
+      "utf8",
+    );
+
+    const preview = await previewHarnessRepoProvisioning({
+      cwd: workspaceDir,
+      provider,
+    });
+    expect(preview.state).toBe("explicit-repo-present");
+
+    const apply = await applyHarnessRepoProvisioning({
+      cwd: workspaceDir,
+      provider,
+      confirmed: true,
+      fingerprint: preview.fingerprint,
+      operationId: preview.operationId,
+    });
+    expect(apply.state).toBe("verified-and-persisted");
+    expect(apply.harnessDispatchRepo).toBe(renamedSlug);
+    const env = await readFile(path.join(workspaceDir, ".env.local"), "utf8");
+    expect(env).toContain(`GITHUB_DISPATCH_REPOSITORY=${renamedSlug}`);
+    expect(env).toContain(`GITHUB_DISPATCH_REPOSITORY_ID=${repositoryId}`);
   });
 });
 

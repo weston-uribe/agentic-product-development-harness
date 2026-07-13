@@ -18,13 +18,14 @@ const TEMPLATE_IDENTITY = {
 function validMarker(overrides: Record<string, unknown> = {}) {
   const marker = buildHarnessManagedRepoMarker({
     repository: "test-user/p-dev-harness",
+    repositoryId: 100_001,
     templateIdentity: TEMPLATE_IDENTITY,
     defaultBranch: "main",
     sourceHeadSha: "abc123templatehead",
     operationId: "op-1",
     createdByGithubUserId: 1,
     createdByLogin: "test-user",
-    pDevVersion: "0.2.0",
+    pDevVersion: "0.0.0",
   });
   return { ...marker, ...overrides };
 }
@@ -118,6 +119,7 @@ describe("harness managed repo marker", () => {
     const reconnect = validateManagedMarkerForReconnect(
       parsed.marker,
       "other-user/p-dev-harness",
+      { repositoryId: parsed.marker.repositoryId! },
     );
     expect(reconnect.ok).toBe(false);
   });
@@ -132,6 +134,7 @@ describe("harness managed repo marker", () => {
     const reconnect = validateManagedMarkerForReconnect(
       parsed.marker,
       "test-user/p-dev-harness",
+      { repositoryId: parsed.marker.repositoryId! },
     );
     expect(reconnect.ok).toBe(false);
   });

@@ -12,12 +12,16 @@ import {
 
 export { HARNESS_MANAGED_REPO_MARKER_FILE };
 
+export const HARNESS_LEGACY_MANAGED_REPO_MARKER_VERSION = 1;
+export const HARNESS_MANAGED_REPO_MARKER_VERSION = 2;
+
 export interface HarnessManagedRepoMarker {
   schemaVersion: number;
   product: string;
   role: string;
   managedBy: string;
   repository: string;
+  repositoryId?: number;
   markerVersion: number;
   operationId?: string;
   createdByGithubUserId?: number;
@@ -117,11 +121,44 @@ export function parseHarnessManagedRepoMarkerJson(
   if (!markerVersion.ok) {
     return { ok: false, reason: markerVersion.reason };
   }
-  if (markerVersion.value !== HARNESS_MARKER_VERSION) {
+  if (markerVersion.value !== HARNESS_LEGACY_MANAGED_REPO_MARKER_VERSION &&
+    markerVersion.value !== HARNESS_MANAGED_REPO_MARKER_VERSION) {
     return {
       ok: false,
       reason: `Unsupported managed marker version ${String(markerVersion.value)}.`,
     };
+  }
+
+  let repositoryId: number | undefined;
+  if (markerVersion.value === HARNESS_MANAGED_REPO_MARKER_VERSION) {
+    const parsedRepositoryId = readRequiredNumber(
+      record,
+      "repositoryId",
+      "repositoryId",
+    );
+    if (!parsedRepositoryId.ok) {
+      return { ok: false, reason: parsedRepositoryId.reason };
+    }
+    if (
+      !Number.isInteger(parsedRepositoryId.value) ||
+      parsedRepositoryId.value <= 0
+    ) {
+      return {
+        ok: false,
+        reason: "Managed marker repositoryId must be a positive integer.",
+      };
+    }
+    repositoryId = parsedRepositoryId.value;
+  } else if (record.repositoryId !== undefined) {
+    const parsedRepositoryId = readRequiredNumber(
+      record,
+      "repositoryId",
+      "repositoryId",
+    );
+    if (!parsedRepositoryId.ok) {
+      return { ok: false, reason: parsedRepositoryId.reason };
+    }
+    repositoryId = parsedRepositoryId.value;
   }
 
   const createdFromTemplate = record.createdFromTemplate;
@@ -222,6 +259,7 @@ export function parseHarnessManagedRepoMarkerJson(
       role: HARNESS_WORKSPACE_ROLE,
       managedBy: "p-dev",
       repository: repository.value,
+      repositoryId,
       markerVersion: markerVersion.value,
       operationId:
         typeof record.operationId === "string" ? record.operationId : undefined,
@@ -249,8 +287,40 @@ export function parseHarnessManagedRepoMarkerJson(
 export function validateManagedMarkerForReconnect(
   marker: HarnessManagedRepoMarker,
   repoSlug: string,
-): { ok: true } | { ok: false; reason: string } {
+  metadata?: { repositoryId: number },
+): { ok: true; renamedFrom?: string } | { ok: false; reason: string } {
+  if (marker.markerVersion < HARNESS_MANAGED_REPO_MARKER_VERSION) {
+    return {
+      ok: false,
+      reason:
+        "Managed marker is missing a stable repository ID. Use advanced recovery to reconnect this workspace.",
+    };
+  }
+  if (
+    marker.repositoryId === undefined ||
+    !Number.isInteger(marker.repositoryId) ||
+    marker.repositoryId <= 0
+  ) {
+    return {
+      ok: false,
+      reason:
+        "Managed marker is missing a stable repository ID. Use advanced recovery to reconnect this workspace.",
+    };
+  }
+  if (metadata && metadata.repositoryId !== marker.repositoryId) {
+    return {
+      ok: false,
+      reason: `Managed marker repository ID does not match GitHub metadata for ${repoSlug}.`,
+    };
+  }
   if (marker.repository !== repoSlug) {
+    if (metadata && marker.repositoryId === metadata.repositoryId) {
+      const [markerOwner] = marker.repository.split("/");
+      const [slugOwner] = repoSlug.split("/");
+      if (markerOwner && slugOwner && markerOwner === slugOwner) {
+        return { ok: true, renamedFrom: marker.repository };
+      }
+    }
     return {
       ok: false,
       reason: `Managed marker repository mismatch for ${repoSlug}.`,
@@ -287,6 +357,7 @@ export function validateManagedMarkerForReconnect(
 
 export function buildHarnessManagedRepoMarker(input: {
   repository: string;
+  repositoryId: number;
   templateIdentity: HarnessTemplateIdentity;
   defaultBranch: string;
   sourceHeadSha: string;
@@ -295,13 +366,17 @@ export function buildHarnessManagedRepoMarker(input: {
   createdByLogin?: string;
   pDevVersion?: string;
 }): HarnessManagedRepoMarker {
+  if (!Number.isInteger(input.repositoryId) || input.repositoryId <= 0) {
+    throw new Error("Managed marker requires a positive integer repositoryId.");
+  }
   return {
     schemaVersion: HARNESS_SCHEMA_VERSION,
     product: HARNESS_PRODUCT,
     role: HARNESS_WORKSPACE_ROLE,
     managedBy: "p-dev",
     repository: input.repository,
-    markerVersion: HARNESS_MARKER_VERSION,
+    repositoryId: input.repositoryId,
+    markerVersion: HARNESS_MANAGED_REPO_MARKER_VERSION,
     operationId: input.operationId,
     createdByGithubUserId: input.createdByGithubUserId,
     createdByLogin: input.createdByLogin,
@@ -324,6 +399,7 @@ export function markersAreEquivalentForOperation(
 ): boolean {
   return (
     existing.repository === expected.repository &&
+    existing.repositoryId === expected.repositoryId &&
     existing.operationId === expected.operationId &&
     existing.createdFromTemplate.templateIdentity ===
       expected.createdFromTemplate.templateIdentity &&
@@ -339,6 +415,7 @@ export function markersAreEquivalentForOperation(
 export function markerValidForExistingWorkspace(
   existing: HarnessManagedRepoMarker,
   repoSlug: string,
+  metadata?: { repositoryId: number },
 ): boolean {
-  return validateManagedMarkerForReconnect(existing, repoSlug).ok;
+  return validateManagedMarkerForReconnect(existing, repoSlug, metadata).ok;
 }

@@ -1,8 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { readHarnessPackageVersion } from "../p-dev/package-version.js";
+import { resolveHarnessPackageVersion } from "../p-dev/package-version.js";
 import { isPackagedPDevRuntime } from "../p-dev/runtime-mode.js";
 import { GitHubApiError } from "../github/client.js";
 import { readExistingEnvFile } from "./env-merge.js";
+import {
+  buildHarnessProvisioningPreviewContext,
+  normalizeRepoSlug,
+  serializeHarnessProvisioningPreviewContext,
+  validateSubmittedHarnessProvisioningFingerprint,
+  type HarnessProvisioningClassification,
+} from "./harness-provisioning-context.js";
 import {
   buildHarnessManagedRepoMarker,
   HARNESS_MANAGED_REPO_MARKER_FILE,
@@ -27,7 +34,6 @@ import {
   type GitHubTokenMetadata,
 } from "./github-workflow-permissions.js";
 import {
-  fingerprintHarnessTemplateIdentity,
   HARNESS_DEFAULT_DESTINATION_DESCRIPTION,
   HARNESS_DEFAULT_DESTINATION_REPO_NAME,
   HARNESS_LEGACY_PUBLIC_SOURCE_REPO,
@@ -150,6 +156,20 @@ type TemplatePreviewOk = Extract<
   { ok: true }
 >;
 
+function readSavedRepositoryId(
+  existingEnv: Awaited<ReturnType<typeof readExistingEnvFile>>,
+): number | null {
+  const raw = existingEnv?.values.GITHUB_DISPATCH_REPOSITORY_ID?.trim();
+  if (!raw) {
+    return null;
+  }
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return null;
+  }
+  return parsed;
+}
+
 function buildProvisioningPreviewFingerprint(input: {
   operationId: string;
   user: { id: number; login: string };
@@ -161,25 +181,20 @@ function buildProvisioningPreviewFingerprint(input: {
   resumedFromPending: boolean;
   creationPreviewFingerprint: string | null;
 }): string {
-  return buildFingerprint({
-    action: "preview",
+  const context = buildHarnessProvisioningPreviewContext({
     operationId: input.operationId,
-    authenticatedUserId: input.user.id,
-    authenticatedLogin: input.user.login,
+    user: input.user,
     destination: input.destination,
-    templateOwner: HARNESS_TEMPLATE_OWNER,
-    templateRepo: HARNESS_TEMPLATE_REPO,
     templateDefaultBranch: input.templatePreview.defaultBranch,
     templateHeadSha: input.templatePreview.headSha,
-    templateIdentityFingerprint: fingerprintHarnessTemplateIdentity(
-      input.templatePreview.identity.identity,
-    ),
+    templateIdentity: input.templatePreview.identity.identity,
     classification: input.classification,
     envBaseline: input.envBaseline,
     pDevVersion: input.pDevVersion,
     resumedFromPending: input.resumedFromPending,
     creationPreviewFingerprint: input.creationPreviewFingerprint,
   });
+  return serializeHarnessProvisioningPreviewContext(context);
 }
 
 async function resolveProvisioningOperation(input: {
@@ -344,8 +359,16 @@ async function loadTemplatePreview(
 async function validateExplicitPackagedRepo(
   provider: GitHubHarnessProvisioningProvider,
   repoSlug: string,
+  savedRepositoryId: number | null,
 ): Promise<
-  | { ok: true; marker: ReturnType<typeof parseHarnessManagedRepoMarkerJson> & { ok: true } }
+  | {
+      ok: true;
+      repoSlug: string;
+      repositoryId: number;
+      marker: ReturnType<typeof parseHarnessManagedRepoMarkerJson> & {
+        ok: true;
+      };
+    }
   | { ok: false; state: HarnessProvisioningState; message: string }
 > {
   if (repoSlug === HARNESS_LEGACY_PUBLIC_SOURCE_REPO) {
@@ -357,8 +380,36 @@ async function validateExplicitPackagedRepo(
     };
   }
 
-  const { owner, repo } = parseRepoSlug(repoSlug);
-  const metadata = await provider.getRepositoryMetadata(owner, repo);
+  let resolvedSlug = normalizeRepoSlug(repoSlug);
+  let metadata = null as Awaited<
+    ReturnType<GitHubHarnessProvisioningProvider["getRepositoryMetadata"]>
+  >;
+
+  if (savedRepositoryId) {
+    metadata = await provider.getRepositoryMetadataById(savedRepositoryId);
+    if (!metadata) {
+      return {
+        ok: false,
+        state: "explicit-packaged-repo-invalid",
+        message: `Saved harness repository ID ${savedRepositoryId} is missing or inaccessible.`,
+      };
+    }
+    resolvedSlug = normalizeRepoSlug(`${metadata.owner}/${metadata.repo}`);
+    if (
+      normalizeRepoSlug(repoSlug) !== resolvedSlug &&
+      savedRepositoryId !== metadata.repositoryId
+    ) {
+      return {
+        ok: false,
+        state: "explicit-packaged-repo-invalid",
+        message: `Saved harness repo ${repoSlug} does not match repository ID ${savedRepositoryId}.`,
+      };
+    }
+  } else {
+    const { owner, repo } = parseRepoSlug(resolvedSlug);
+    metadata = await provider.getRepositoryMetadata(owner, repo);
+  }
+
   if (!metadata) {
     return {
       ok: false,
@@ -366,24 +417,31 @@ async function validateExplicitPackagedRepo(
       message: `Saved harness repo ${repoSlug} is missing or inaccessible.`,
     };
   }
+  if (savedRepositoryId && metadata.repositoryId !== savedRepositoryId) {
+    return {
+      ok: false,
+      state: "explicit-packaged-repo-invalid",
+      message: `Saved harness repository ID does not match GitHub metadata for ${resolvedSlug}.`,
+    };
+  }
   if (!metadata.private || metadata.visibility !== "private") {
     return {
       ok: false,
       state: "explicit-packaged-repo-invalid",
-      message: `Saved harness repo ${repoSlug} must be private in packaged mode.`,
+      message: `Saved harness repo ${resolvedSlug} must be private in packaged mode.`,
     };
   }
   if (!metadata.permissions.admin) {
     return {
       ok: false,
       state: "explicit-packaged-repo-invalid",
-      message: `Saved harness repo ${repoSlug} requires admin access.`,
+      message: `Saved harness repo ${resolvedSlug} requires admin access.`,
     };
   }
 
   const markerRaw = await provider.readRepositoryFileContent(
-    owner,
-    repo,
+    metadata.owner,
+    metadata.repo,
     HARNESS_MANAGED_REPO_MARKER_FILE,
     metadata.defaultBranch,
   );
@@ -391,7 +449,7 @@ async function validateExplicitPackagedRepo(
     return {
       ok: false,
       state: "explicit-packaged-repo-invalid",
-      message: `Saved harness repo ${repoSlug} is missing a compatible managed marker.`,
+      message: `Saved harness repo ${resolvedSlug} is missing a compatible managed marker.`,
     };
   }
   const marker = parseHarnessManagedRepoMarkerJson(markerRaw);
@@ -402,7 +460,11 @@ async function validateExplicitPackagedRepo(
       message: marker.reason,
     };
   }
-  const reconnect = validateManagedMarkerForReconnect(marker.marker, repoSlug);
+  const reconnect = validateManagedMarkerForReconnect(
+    marker.marker,
+    resolvedSlug,
+    { repositoryId: metadata.repositoryId },
+  );
   if (!reconnect.ok) {
     return {
       ok: false,
@@ -411,12 +473,17 @@ async function validateExplicitPackagedRepo(
     };
   }
 
-  return { ok: true, marker };
+  return {
+    ok: true,
+    repoSlug: resolvedSlug,
+    repositoryId: metadata.repositoryId,
+    marker,
+  };
 }
 
 type DestinationClassification =
   | { kind: "absent" }
-  | { kind: "valid-managed"; repoSlug: string }
+  | { kind: "valid-managed"; repoSlug: string; repositoryId: number }
   | { kind: "public-collision" }
   | { kind: "unmanaged-collision" }
   | { kind: "malformed-marker"; reason: string }
@@ -453,11 +520,17 @@ async function classifyDestinationRepo(
     if (!marker.ok) {
       return { kind: "malformed-marker", reason: marker.reason };
     }
-    const reconnect = validateManagedMarkerForReconnect(marker.marker, repoSlug);
+    const reconnect = validateManagedMarkerForReconnect(marker.marker, repoSlug, {
+      repositoryId: metadata.repositoryId,
+    });
     if (!reconnect.ok) {
       return { kind: "malformed-marker", reason: reconnect.reason };
     }
-    return { kind: "valid-managed", repoSlug };
+    return {
+      kind: "valid-managed",
+      repoSlug,
+      repositoryId: metadata.repositoryId,
+    };
   }
 
   const templateRaw = await provider.readRepositoryFileContent(
@@ -517,7 +590,14 @@ async function pollGeneratedRepository(
   repoSlug: string,
   expectedContentId: string,
 ): Promise<
-  | { ok: true; defaultBranch: string; identity: ReturnType<typeof parseHarnessTemplateIdentityJson> & { ok: true } }
+  | {
+      ok: true;
+      defaultBranch: string;
+      repositoryId: number;
+      identity: ReturnType<typeof parseHarnessTemplateIdentityJson> & {
+        ok: true;
+      };
+    }
   | { ok: false; timedOut: boolean; message: string }
 > {
   const { owner, repo } = parseRepoSlug(repoSlug);
@@ -543,6 +623,7 @@ async function pollGeneratedRepository(
           return {
             ok: true,
             defaultBranch: metadata.defaultBranch,
+            repositoryId: metadata.repositoryId,
             identity: parsed,
           };
         }
@@ -564,6 +645,7 @@ async function finalizeManagedMarker(
   provider: GitHubHarnessProvisioningProvider,
   input: {
     repoSlug: string;
+    repositoryId: number;
     defaultBranch: string;
     templateIdentity: ReturnType<typeof parseHarnessTemplateIdentityJson> & {
       ok: true;
@@ -575,8 +657,22 @@ async function finalizeManagedMarker(
   },
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   const { owner, repo } = parseRepoSlug(input.repoSlug);
+  const metadata = await provider.getRepositoryMetadata(owner, repo);
+  if (!metadata) {
+    return {
+      ok: false,
+      message: `Generated harness workspace ${input.repoSlug} is not accessible for marker finalization.`,
+    };
+  }
+  if (metadata.repositoryId !== input.repositoryId) {
+    return {
+      ok: false,
+      message: `Generated harness workspace repository ID mismatch for ${input.repoSlug}.`,
+    };
+  }
   const expectedMarker = buildHarnessManagedRepoMarker({
     repository: input.repoSlug,
+    repositoryId: input.repositoryId,
     templateIdentity: input.templateIdentity.identity,
     defaultBranch: input.defaultBranch,
     sourceHeadSha: input.templateHeadSha,
@@ -598,7 +694,9 @@ async function finalizeManagedMarker(
     }
     if (
       markersAreEquivalentForOperation(existing.marker, expectedMarker) ||
-      markerValidForExistingWorkspace(existing.marker, input.repoSlug)
+      markerValidForExistingWorkspace(existing.marker, input.repoSlug, {
+        repositoryId: input.repositoryId,
+      })
     ) {
       return { ok: true };
     }
@@ -702,6 +800,7 @@ export async function loadHarnessRepoProvisioningSummary(options: {
   const validated = await validateExplicitPackagedRepo(
     options.provider,
     explicitRepo,
+    readSavedRepositoryId(existingEnv),
   );
   if (!validated.ok) {
     return {
@@ -766,7 +865,7 @@ export async function previewHarnessRepoProvisioning(options: {
   const paths = resolveLocalFilePaths(options.cwd);
   const existingEnv = await readExistingEnvFile(paths);
   const explicitRepo = existingEnv?.values.GITHUB_DISPATCH_REPOSITORY?.trim();
-  const pDevVersion = readHarnessPackageVersion();
+  const pDevVersion = resolveHarnessPackageVersion();
 
   const capabilities = await options.provider.inspectTokenCapabilities();
   const tokenMetadata: GitHubTokenMetadata = {
@@ -856,6 +955,7 @@ export async function previewHarnessRepoProvisioning(options: {
     const explicit = await validateExplicitPackagedRepo(
       options.provider,
       explicitRepo,
+      readSavedRepositoryId(existingEnv),
     );
     const fingerprint = buildFingerprint({
       action: "preview",
@@ -1141,7 +1241,7 @@ async function applyHarnessRepoProvisioningLocked(options: {
   }
 
   const user = await options.provider.resolveAuthenticatedUser();
-  const pDevVersion = readHarnessPackageVersion();
+  const pDevVersion = resolveHarnessPackageVersion();
   const paths = resolveLocalFilePaths(options.cwd);
   const existingEnv = await readExistingEnvFile(paths);
   const explicitRepo = existingEnv?.values.GITHUB_DISPATCH_REPOSITORY?.trim();
@@ -1152,6 +1252,7 @@ async function applyHarnessRepoProvisioningLocked(options: {
     const explicit = await validateExplicitPackagedRepo(
       options.provider,
       explicitRepo,
+      readSavedRepositoryId(existingEnv),
     );
     if (!explicit.ok) {
       return {
@@ -1165,12 +1266,13 @@ async function applyHarnessRepoProvisioningLocked(options: {
 
     const persist = await persistGithubDispatchRepository({
       cwd: options.cwd,
-      githubDispatchRepository: explicitRepo,
+      githubDispatchRepository: explicit.repoSlug,
+      githubDispatchRepositoryId: explicit.repositoryId,
     });
     if (persist.outcome !== "changed" && persist.outcome !== "skipped") {
       return {
         state: "created-but-persistence-failed",
-        harnessDispatchRepo: explicitRepo,
+        harnessDispatchRepo: explicit.repoSlug,
         message: persist.reason ?? "Failed to persist GITHUB_DISPATCH_REPOSITORY.",
         recoverable: true,
         persisted: false,
@@ -1179,8 +1281,8 @@ async function applyHarnessRepoProvisioningLocked(options: {
     await clearHarnessProvisioningPendingState(options.cwd);
     return {
       state: "verified-and-persisted",
-      harnessDispatchRepo: explicitRepo,
-      message: `Connected to saved harness workspace ${explicitRepo}.`,
+      harnessDispatchRepo: explicit.repoSlug,
+      message: `Connected to saved harness workspace ${explicit.repoSlug}.`,
       recoverable: false,
       persisted: true,
     };
@@ -1204,26 +1306,37 @@ async function applyHarnessRepoProvisioningLocked(options: {
     templatePreview,
   );
 
-  const staleFingerprint = buildProvisioningPreviewFingerprint({
+  const currentContext = buildHarnessProvisioningPreviewContext({
     operationId: options.operationId,
     user,
-    destination: explicitRepo ?? destinationSlug(user.login),
-    templatePreview,
-    classification: classification.kind,
+    destination: destinationSlug(user.login),
+    templateDefaultBranch: templatePreview.defaultBranch,
+    templateHeadSha: templatePreview.headSha,
+    templateIdentity: templatePreview.identity.identity,
+    classification: classification.kind as HarnessProvisioningClassification,
     envBaseline: existingEnv?.values.GITHUB_DISPATCH_REPOSITORY ?? "",
     pDevVersion,
     resumedFromPending: preview.resumedFromPending,
     creationPreviewFingerprint: preview.creationPreviewFingerprint,
   });
-  if (staleFingerprint !== options.fingerprint) {
+  const contextValidation = validateSubmittedHarnessProvisioningFingerprint({
+    submittedFingerprint: options.fingerprint,
+    currentContext,
+  });
+  if (!contextValidation.ok) {
     return {
       state: "template-preview-stale",
       harnessDispatchRepo: null,
-      message: "Template metadata changed before apply. Retry Step 1 Continue.",
+      message: contextValidation.message,
       recoverable: true,
       persisted: false,
     };
   }
+
+  let targetRepositoryId: number | undefined =
+    classification.kind === "valid-managed"
+      ? classification.repositoryId
+      : undefined;
 
   const pending = await readHarnessProvisioningPendingState(options.cwd);
   if (preview.resumedFromPending) {
@@ -1320,6 +1433,7 @@ async function applyHarnessRepoProvisioningLocked(options: {
         includeAllBranches: false,
       });
       targetRepo = created.fullName;
+      targetRepositoryId = created.repositoryId;
     } catch (error) {
       const recovered = await classifyDestinationRepo(
         options.provider,
@@ -1390,8 +1504,23 @@ async function applyHarnessRepoProvisioningLocked(options: {
     };
   }
 
+  const resolvedRepositoryId = targetRepositoryId ?? poll.repositoryId;
+  if (
+    targetRepositoryId !== undefined &&
+    targetRepositoryId !== poll.repositoryId
+  ) {
+    return {
+      state: "repo-created-pending-verification",
+      harnessDispatchRepo: targetRepo,
+      message: `Generated harness workspace repository ID mismatch for ${targetRepo}.`,
+      recoverable: true,
+      persisted: false,
+    };
+  }
+
   const markerResult = await finalizeManagedMarker(options.provider, {
     repoSlug: targetRepo,
+    repositoryId: resolvedRepositoryId,
     defaultBranch: poll.defaultBranch,
     templateIdentity: poll.identity,
     templateHeadSha: pending?.templateHeadSha ?? templatePreview.headSha,
@@ -1412,6 +1541,7 @@ async function applyHarnessRepoProvisioningLocked(options: {
   const persist = await persistGithubDispatchRepository({
     cwd: options.cwd,
     githubDispatchRepository: targetRepo,
+    githubDispatchRepositoryId: resolvedRepositoryId,
   });
   if (persist.outcome !== "changed" && persist.outcome !== "skipped") {
     return {

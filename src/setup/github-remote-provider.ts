@@ -8,6 +8,7 @@ import { HARNESS_ACTIONS_SECRET_NAMES } from "./remote-actions.js";
 import type { GitHubTokenType } from "./github-workflow-permissions.js";
 
 export interface GitHubRepositoryMetadata {
+  repositoryId: number;
   owner: string;
   repo: string;
   private: boolean;
@@ -45,6 +46,7 @@ export interface CreateRepositoryFromTemplateInput {
 }
 
 export interface CreateRepositoryFromTemplateResult {
+  repositoryId: number;
   fullName: string;
   defaultBranch: string;
 }
@@ -65,6 +67,9 @@ export interface GitHubHarnessProvisioningProvider {
   getRepositoryMetadata(
     owner: string,
     repo: string,
+  ): Promise<GitHubRepositoryMetadata | null>;
+  getRepositoryMetadataById(
+    repositoryId: number,
   ): Promise<GitHubRepositoryMetadata | null>;
   getRepositoryDefaultBranchHead(
     owner: string,
@@ -308,6 +313,35 @@ export interface MockGitHubHarnessProvisioningProviderState {
   fileWrites?: Array<RepositoryFileWriteInput & { commitSha: string }>;
 }
 
+export function deterministicMockRepositoryId(slug: string): number {
+  let hash = 0;
+  for (let index = 0; index < slug.length; index += 1) {
+    hash = (hash * 31 + slug.charCodeAt(index)) % 900_000_000;
+  }
+  return 100_000 + hash;
+}
+
+function withRepositoryId(
+  slug: string,
+  metadata: GitHubRepositoryMetadata & {
+    templateIdentityContent?: string | null;
+    managedMarkerContent?: string | null;
+    branchHeadSha?: string;
+  },
+): GitHubRepositoryMetadata & {
+  templateIdentityContent?: string | null;
+  managedMarkerContent?: string | null;
+  branchHeadSha?: string;
+} {
+  return {
+    ...metadata,
+    repositoryId:
+      Number.isInteger(metadata.repositoryId) && metadata.repositoryId > 0
+        ? metadata.repositoryId
+        : deterministicMockRepositoryId(slug),
+  };
+}
+
 export class MockGitHubHarnessProvisioningProvider
   implements GitHubHarnessProvisioningProvider
 {
@@ -324,7 +358,12 @@ export class MockGitHubHarnessProvisioningProvider
   constructor(
     private readonly state: MockGitHubHarnessProvisioningProviderState = {},
   ) {
-    this.repositories = { ...(state.repositories ?? {}) };
+    this.repositories = Object.fromEntries(
+      Object.entries(state.repositories ?? {}).map(([slug, metadata]) => [
+        slug,
+        withRepositoryId(slug, metadata),
+      ]),
+    );
   }
 
   async resolveAuthenticatedUser(): Promise<AuthenticatedGitHubUser> {
@@ -363,6 +402,27 @@ export class MockGitHubHarnessProvisioningProvider
     const { templateIdentityContent: _t, managedMarkerContent: _m, branchHeadSha: _b, ...metadata } =
       entry;
     return metadata;
+  }
+
+  async getRepositoryMetadataById(
+    repositoryId: number,
+  ): Promise<GitHubRepositoryMetadata | null> {
+    this.calls.push({
+      method: "getRepositoryMetadataById",
+      args: [repositoryId],
+    });
+    for (const entry of Object.values(this.repositories)) {
+      if (entry.repositoryId === repositoryId) {
+        const {
+          templateIdentityContent: _t,
+          managedMarkerContent: _m,
+          branchHeadSha: _b,
+          ...metadata
+        } = entry;
+        return metadata;
+      }
+    }
+    return null;
   }
 
   async getRepositoryDefaultBranchHead(
@@ -412,6 +472,7 @@ export class MockGitHubHarnessProvisioningProvider
     }
     const result =
       this.state.createRepositoryFromTemplateResult ?? {
+        repositoryId: deterministicMockRepositoryId(`${input.owner}/${input.name}`),
         fullName: `${input.owner}/${input.name}`,
         defaultBranch: "main",
       };
@@ -419,9 +480,10 @@ export class MockGitHubHarnessProvisioningProvider
     const templateSource =
       this.repositories[`${input.templateOwner}/${input.templateRepo}`]
         ?.templateIdentityContent ?? null;
-    this.repositories[key] = {
+    this.repositories[key] = withRepositoryId(key, {
       owner: input.owner,
       repo: input.name,
+      repositoryId: result.repositoryId,
       private: input.private,
       visibility: input.private ? "private" : "public",
       isTemplate: false,
@@ -432,7 +494,7 @@ export class MockGitHubHarnessProvisioningProvider
         : templateSource,
       managedMarkerContent: null,
       branchHeadSha: "generatedheadsha",
-    };
+    });
     return result;
   }
 
@@ -476,7 +538,7 @@ export class MockGitHubHarnessProvisioningProvider
       branchHeadSha?: string;
     },
   ): void {
-    this.repositories[slug] = metadata;
+    this.repositories[slug] = withRepositoryId(slug, metadata);
   }
 }
 

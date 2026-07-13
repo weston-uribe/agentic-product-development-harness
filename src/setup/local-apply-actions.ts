@@ -482,17 +482,28 @@ export async function applyLocalSetupFiles(
 export async function persistGithubDispatchRepository(options: {
   cwd?: string;
   githubDispatchRepository: string;
+  githubDispatchRepositoryId?: number;
 }): Promise<SetupActionResult> {
   const paths = resolveLocalFilePaths(options.cwd);
   const existingEnv = await readExistingEnvFile(paths);
+  const repositoryIdValue =
+    options.githubDispatchRepositoryId !== undefined
+      ? String(options.githubDispatchRepositoryId)
+      : undefined;
   const mergedEnv = mergeEnvInput(existingEnv, {
     githubDispatchRepository: options.githubDispatchRepository.trim(),
+    githubDispatchRepositoryId: repositoryIdValue,
   });
 
-  if (
+  const slugUnchanged =
     existingEnv?.values.GITHUB_DISPATCH_REPOSITORY?.trim() ===
-    options.githubDispatchRepository.trim()
-  ) {
+    options.githubDispatchRepository.trim();
+  const idUnchanged =
+    repositoryIdValue === undefined ||
+    existingEnv?.values.GITHUB_DISPATCH_REPOSITORY_ID?.trim() ===
+      repositoryIdValue;
+
+  if (slugUnchanged && idUnchanged) {
     return {
       actionId: "write-env-local",
       outcome: "skipped",
