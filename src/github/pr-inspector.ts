@@ -19,6 +19,7 @@ export interface PrInspectionResult {
   title: string;
   url: string;
   branch: string;
+  /** Live PR branch head commit; use for check lookup and guarded merge. */
   headSha: string;
   baseBranch: string;
   state: string;
@@ -27,6 +28,7 @@ export interface PrInspectionResult {
   mergeable: boolean | null;
   mergeableState: string | null;
   rebaseable: boolean | null;
+  /** Merge-result metadata only (synthetic test-merge on open PRs, merge commit when merged). */
   mergeCommitSha: string | null;
   mergedAt: string | null;
   repoUrl: string;
@@ -210,7 +212,9 @@ async function inspectPullRequestRaw(
     );
   }
 
-  const headSha = pull.merge_commit_sha ?? pull.head.sha;
+  // merge_commit_sha is merge-result metadata (synthetic test-merge on open PRs).
+  // Never use it for check/status lookup or as headSha identity.
+  const checkRefSha = pull.head.sha;
 
   let rawChecks: GitHubCheckRun[] | null = null;
   let checks: PrCheckInfo[] = [];
@@ -218,7 +222,7 @@ async function inspectPullRequestRaw(
     const checkPayload = await client.getCheckRunsForRef(
       parsed.owner,
       parsed.repo,
-      headSha,
+      checkRefSha,
     );
     rawChecks = checkPayload.check_runs ?? [];
     checks = rawChecks.map((run) => ({
@@ -237,7 +241,7 @@ async function inspectPullRequestRaw(
       const combined = await client.getCombinedStatusForRef(
         parsed.owner,
         parsed.repo,
-        headSha,
+        checkRefSha,
       );
       checks = checksFromCombinedStatus(combined);
     } catch {
