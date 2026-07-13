@@ -66,6 +66,7 @@ interface TargetRepoConfigFormProps {
   harnessDispatchRepository?: string;
   onHarnessDispatchRepositoryChange?: (value: string) => void;
   onVerifyAndUseHarnessRepo?: (draftRepo: string) => void;
+  harnessConnectedAutomatically?: boolean;
   githubTokenSourceHint?: string;
   activeGithubTokenFingerprint?: string | null;
 }
@@ -90,6 +91,7 @@ export function TargetRepoConfigForm({
   harnessDispatchRepository = "",
   onHarnessDispatchRepositoryChange,
   onVerifyAndUseHarnessRepo,
+  harnessConnectedAutomatically = false,
   githubTokenSourceHint,
   activeGithubTokenFingerprint = null,
 }: TargetRepoConfigFormProps) {
@@ -148,18 +150,24 @@ export function TargetRepoConfigForm({
     return (
       <div className="space-y-6">
         <div className={FORM.fieldStack}>
-          <Label htmlFor="harness-dispatch-repository-guided">Harness repo</Label>
+          <Label htmlFor="harness-dispatch-repository-guided">Harness workspace</Label>
           {!editingHarnessRepo ? (
             <>
               <p className="text-sm font-medium break-all">
-                {activeHarnessRepo || effectiveHarnessRepo || "Not detected yet"}
+                {activeHarnessRepo || effectiveHarnessRepo || "Not connected yet"}
               </p>
               <p className={FORM.secretHint}>
-                This is the GitHub repo where harness GitHub Actions secrets and
-                future dispatch/workflow setup are configured. It is not your
-                target app repo.
+                This is the private GitHub repo where harness GitHub Actions
+                secrets and future dispatch/workflow setup are configured. It is
+                not your target app repo.
               </p>
-              <p className={FORM.secretHint}>{harnessRepoSource}</p>
+              {harnessConnectedAutomatically ? (
+                <p className={FORM.secretHint}>
+                  Connected automatically during Step 1.
+                </p>
+              ) : (
+                <p className={FORM.secretHint}>{harnessRepoSource}</p>
+              )}
               {savedHarnessDispatchRepository.trim() &&
               suggestedHarnessDispatchRepo?.trim() &&
               savedHarnessDispatchRepository.trim() !==
@@ -179,7 +187,7 @@ export function TargetRepoConfigForm({
               {harnessRepoVerified && harnessRepoVerification.message ? (
                 <ConnectedStatusMessage message={harnessRepoVerification.message} />
               ) : null}
-              {!harnessRepoVerified && activeHarnessRepo ? (
+              {!harnessConnectedAutomatically && !harnessRepoVerified && activeHarnessRepo ? (
                 <p className={FORM.secretHint}>
                   Verify and use this harness repo before creating local setup
                   files.
@@ -194,7 +202,11 @@ export function TargetRepoConfigForm({
                   setEditingHarnessRepo(true);
                 }}
               >
-                {activeHarnessRepo ? "Update harness repo" : "Enter harness repo"}
+                {harnessConnectedAutomatically
+                  ? "Use a different or existing harness repo"
+                  : activeHarnessRepo
+                    ? "Update harness repo"
+                    : "Enter harness repo"}
               </Button>
             </>
           ) : (

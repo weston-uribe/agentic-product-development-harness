@@ -31,6 +31,21 @@ export const GITHUB_CLASSIC_PAT_MISSING_WORKFLOW_MESSAGE =
 export const GITHUB_CLASSIC_PAT_MISSING_REPO_MESSAGE =
   'This token is valid, but it is missing repo access. Open "How do I get a GitHub token?" and create a classic token with repo and workflow selected.';
 
+export const GITHUB_CLASSIC_PAT_MISSING_REPO_MESSAGE_PACKAGED =
+  "This token is missing the repo scope required to create and access your private p-dev-harness workspace. Create a classic PAT with repo and workflow selected, then verify again.";
+
+export const GITHUB_CLASSIC_PAT_MISSING_WORKFLOW_MESSAGE_PACKAGED =
+  "This token is missing the workflow scope required for harness Actions workflow setup. Create a classic PAT with repo and workflow selected, then verify again.";
+
+export const GITHUB_FINE_GRAINED_PACKAGED_PROVISIONING_MESSAGE =
+  "p-dev's first release needs a classic GitHub token with repo and workflow scopes so it can create your private p-dev-harness workspace and configure Actions. Fine-grained tokens are not yet supported for automatic workspace provisioning.";
+
+export const GITHUB_TOKEN_SCOPE_AMBIGUOUS_PACKAGED_MESSAGE =
+  "GitHub accepted this token, but p-dev could not verify that it is a classic PAT with repo and workflow scopes. Create a classic PAT with repo and workflow selected, then verify again.";
+
+export const GITHUB_UNKNOWN_TOKEN_PACKAGED_MESSAGE =
+  GITHUB_TOKEN_SCOPE_AMBIGUOUS_PACKAGED_MESSAGE;
+
 export const GITHUB_FINE_GRAINED_STEP1_LIMITATION =
   "Fine-grained PAT detected. Repo-specific workflow install permission will be checked in Step 2 for each target repo.";
 
@@ -80,6 +95,12 @@ export function classicPatHasRepoScope(oauthScopes: readonly string[]): boolean 
   return oauthScopes.includes("repo") || oauthScopes.includes("public_repo");
 }
 
+export function classicPatHasPrivateRepoScope(
+  oauthScopes: readonly string[],
+): boolean {
+  return oauthScopes.includes("repo");
+}
+
 export function assessClassicPatGuidedCapabilities(
   metadata: GitHubTokenMetadata,
 ): { ok: true; limitation?: string } | { ok: false; message: string } {
@@ -98,6 +119,47 @@ export function assessClassicPatGuidedCapabilities(
     return {
       ok: false,
       message: GITHUB_CLASSIC_PAT_MISSING_WORKFLOW_MESSAGE,
+    };
+  }
+
+  return { ok: true };
+}
+
+export function assessPackagedProvisioningTokenCapabilities(
+  metadata: GitHubTokenMetadata,
+): { ok: true } | { ok: false; message: string } {
+  if (metadata.tokenType === "fine-grained") {
+    return {
+      ok: false,
+      message: GITHUB_FINE_GRAINED_PACKAGED_PROVISIONING_MESSAGE,
+    };
+  }
+
+  if (metadata.tokenType === "unknown") {
+    return {
+      ok: false,
+      message: GITHUB_UNKNOWN_TOKEN_PACKAGED_MESSAGE,
+    };
+  }
+
+  if (metadata.oauthScopes.length === 0) {
+    return {
+      ok: false,
+      message: GITHUB_TOKEN_SCOPE_AMBIGUOUS_PACKAGED_MESSAGE,
+    };
+  }
+
+  if (!classicPatHasPrivateRepoScope(metadata.oauthScopes)) {
+    return {
+      ok: false,
+      message: GITHUB_CLASSIC_PAT_MISSING_REPO_MESSAGE_PACKAGED,
+    };
+  }
+
+  if (!metadata.hasWorkflowScope) {
+    return {
+      ok: false,
+      message: GITHUB_CLASSIC_PAT_MISSING_WORKFLOW_MESSAGE_PACKAGED,
     };
   }
 

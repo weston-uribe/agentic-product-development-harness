@@ -9,6 +9,12 @@ import {
 } from "./github-repo-slug.js";
 import { resolveLocalFilePaths } from "./setup-state.js";
 
+import { HARNESS_LEGACY_PUBLIC_SOURCE_REPO } from "./harness-template-identity.js";
+
+export function isLegacyPublicHarnessSourceRepo(repoSlug: string): boolean {
+  return repoSlug.trim() === HARNESS_LEGACY_PUBLIC_SOURCE_REPO;
+}
+
 export { parseGitHubRepoSlug, parseGitRemoteOriginUrl } from "./github-repo-slug.js";
 export { MANUAL_HARNESS_DISPATCH_REPO_PLACEHOLDER } from "./remote-actions.js";
 

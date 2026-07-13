@@ -31,6 +31,13 @@ export interface GitHubPullRequest {
 }
 
 export interface GitHubRepository {
+  id?: number;
+  name?: string;
+  full_name?: string;
+  private?: boolean;
+  visibility?: string;
+  is_template?: boolean;
+  default_branch?: string;
   permissions?: {
     admin?: boolean;
     maintain?: boolean;
@@ -38,6 +45,26 @@ export interface GitHubRepository {
     triage?: boolean;
     pull?: boolean;
   };
+}
+
+export interface GitHubAuthenticatedUser {
+  id: number;
+  login: string;
+}
+
+export interface GitHubCreateRepositoryFromTemplateInput {
+  templateOwner: string;
+  templateRepo: string;
+  owner: string;
+  name: string;
+  description: string;
+  private: boolean;
+  includeAllBranches?: boolean;
+}
+
+export interface GitHubCreateRepositoryFromTemplateResult {
+  full_name: string;
+  default_branch: string;
 }
 
 interface GraphQLResponse<T> {
@@ -205,8 +232,8 @@ export class GitHubClient {
     return payload.data;
   }
 
-  async getAuthenticatedUser(): Promise<{ login: string }> {
-    return this.request<{ login: string }>("/user");
+  async getAuthenticatedUser(): Promise<GitHubAuthenticatedUser> {
+    return this.request<GitHubAuthenticatedUser>("/user");
   }
 
   async inspectAuthenticatedUser(): Promise<{
@@ -479,6 +506,24 @@ export class GitHubClient {
         sha,
       },
     });
+  }
+
+  async createRepositoryFromTemplate(
+    input: GitHubCreateRepositoryFromTemplateInput,
+  ): Promise<GitHubCreateRepositoryFromTemplateResult> {
+    return this.request<GitHubCreateRepositoryFromTemplateResult>(
+      `/repos/${input.templateOwner}/${input.templateRepo}/generate`,
+      {
+        method: "POST",
+        body: {
+          owner: input.owner,
+          name: input.name,
+          description: input.description,
+          private: input.private,
+          include_all_branches: input.includeAllBranches ?? false,
+        },
+      },
+    );
   }
 
   async createPullRequest(input: {

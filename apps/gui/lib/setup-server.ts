@@ -1,5 +1,6 @@
 import "server-only";
 
+import { randomUUID } from "node:crypto";
 import { resolveHarnessRepoRoot } from "@harness/gui/repo-root";
 import {
   applyLocalSetupFiles,
@@ -27,7 +28,19 @@ import {
   type SetupGuiViewModel,
 } from "@harness/setup/gui-view-model";
 import { createLiveGitHubRemoteSetupProvider } from "@harness/setup/github-remote-setup-live";
+import {
+  createLiveGitHubHarnessProvisioningProvider,
+} from "@harness/setup/github-remote-setup-live";
+import {
+  applyHarnessRepoProvisioning,
+  loadHarnessRepoProvisioningSummary,
+  previewHarnessRepoProvisioning,
+  type HarnessRepoProvisioningApplyResult,
+  type HarnessRepoProvisioningPreview,
+  type HarnessRepoProvisioningSummary,
+} from "@harness/setup/harness-repo-provisioning";
 import type { GitHubRemoteSetupProvider } from "@harness/setup/github-remote-provider";
+import type { GitHubHarnessProvisioningProvider } from "@harness/setup/github-remote-provider";
 import type { HarnessSecretOperatorInput } from "@harness/setup/harness-secret-setup";
 import {
   buildManualHarnessSecretCopyValues,
@@ -514,6 +527,87 @@ export async function pollVercelBridgeRedeployRemote(options: {
   });
   const summary = await buildVercelSetupSummary(cwd);
   return { apply, summary };
+}
+
+async function resolveProvisioningProvider(): Promise<
+  GitHubHarnessProvisioningProvider | undefined
+> {
+  const token = await loadGithubTokenFromEnvLocal({ cwd: resolveCwd() });
+  if (!hasGithubTokenConfigured(token)) {
+    return undefined;
+  }
+  return createLiveGitHubHarnessProvisioningProvider(token!);
+}
+
+export async function loadHarnessRepoProvisioningSummaryRemote(): Promise<HarnessRepoProvisioningSummary> {
+  return loadHarnessRepoProvisioningSummary({ cwd: resolveCwd() });
+}
+
+export async function previewHarnessRepoProvisioningRemote(options?: {
+  operationId?: string;
+}): Promise<HarnessRepoProvisioningPreview> {
+  const provider = await resolveProvisioningProvider();
+  if (!provider) {
+    return {
+      state: "token-unavailable",
+      fingerprint: JSON.stringify({ action: "preview", tokenUnavailable: true }),
+      operationId: options?.operationId ?? randomUUID(),
+      harnessDispatchRepo: null,
+      authenticatedLogin: null,
+      templateOwner: "weston-uribe",
+      templateRepo: "p-dev-harness-template",
+      templateDefaultBranch: "main",
+      templateHeadSha: "",
+      templateContentId: null,
+      message: "GITHUB_TOKEN is required before provisioning a harness workspace.",
+      recoverable: true,
+      willCreateRepository: false,
+      tokenCapabilities: {
+        tokenType: "unknown",
+        hasRepoScope: false,
+        hasWorkflowScope: false,
+        scopeAmbiguous: true,
+      },
+    };
+  }
+
+  return previewHarnessRepoProvisioning({
+    cwd: resolveCwd(),
+    provider,
+    operationId: options?.operationId,
+  });
+}
+
+export async function applyHarnessRepoProvisioningRemote(options: {
+  confirmed: boolean;
+  fingerprint: string;
+  operationId: string;
+}): Promise<{
+  apply: HarnessRepoProvisioningApplyResult;
+  summary: SetupGuiViewModel;
+  provisioning: HarnessRepoProvisioningPreview;
+}> {
+  const provider = await resolveProvisioningProvider();
+  if (!provider) {
+    throw new Error(
+      "GITHUB_TOKEN is required before provisioning a harness workspace.",
+    );
+  }
+
+  const provisioning = await previewHarnessRepoProvisioning({
+    cwd: resolveCwd(),
+    provider,
+    operationId: options.operationId,
+  });
+  const apply = await applyHarnessRepoProvisioning({
+    cwd: resolveCwd(),
+    provider,
+    confirmed: options.confirmed,
+    fingerprint: options.fingerprint,
+    operationId: options.operationId,
+  });
+  const summary = await getSetupStateSummary({ cwd: resolveCwd() });
+  return { apply, summary, provisioning };
 }
 
 export async function verifyHarnessRepoAccessRemote(options: {

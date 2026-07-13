@@ -5,6 +5,85 @@ import type {
   RemoteWorkflowStatus,
 } from "./remote-actions.js";
 import { HARNESS_ACTIONS_SECRET_NAMES } from "./remote-actions.js";
+import type { GitHubTokenType } from "./github-workflow-permissions.js";
+
+export interface GitHubRepositoryMetadata {
+  owner: string;
+  repo: string;
+  private: boolean;
+  visibility: string;
+  isTemplate: boolean;
+  defaultBranch: string;
+  permissions: {
+    admin: boolean;
+    maintain: boolean;
+    push: boolean;
+  };
+}
+
+export interface AuthenticatedGitHubUser {
+  id: number;
+  login: string;
+}
+
+export interface GitHubTokenCapabilitySummary {
+  login: string;
+  tokenType: GitHubTokenType;
+  hasRepoScope: boolean;
+  hasWorkflowScope: boolean;
+  scopeAmbiguous: boolean;
+}
+
+export interface CreateRepositoryFromTemplateInput {
+  templateOwner: string;
+  templateRepo: string;
+  owner: string;
+  name: string;
+  description: string;
+  private: boolean;
+  includeAllBranches: boolean;
+}
+
+export interface CreateRepositoryFromTemplateResult {
+  fullName: string;
+  defaultBranch: string;
+}
+
+export interface RepositoryFileWriteInput {
+  owner: string;
+  repo: string;
+  path: string;
+  branch: string;
+  message: string;
+  content: string;
+  sha?: string;
+}
+
+export interface GitHubHarnessProvisioningProvider {
+  resolveAuthenticatedUser(): Promise<AuthenticatedGitHubUser>;
+  inspectTokenCapabilities(): Promise<GitHubTokenCapabilitySummary>;
+  getRepositoryMetadata(
+    owner: string,
+    repo: string,
+  ): Promise<GitHubRepositoryMetadata | null>;
+  getRepositoryDefaultBranchHead(
+    owner: string,
+    repo: string,
+    branch: string,
+  ): Promise<string>;
+  readRepositoryFileContent(
+    owner: string,
+    repo: string,
+    path: string,
+    ref: string,
+  ): Promise<string | null>;
+  createRepositoryFromTemplate(
+    input: CreateRepositoryFromTemplateInput,
+  ): Promise<CreateRepositoryFromTemplateResult>;
+  writeRepositoryFile(
+    input: RepositoryFileWriteInput,
+  ): Promise<{ commitSha: string }>;
+}
 
 export interface HarnessSecretWriteRequest {
   name: HarnessActionsSecretName;
@@ -208,6 +287,176 @@ export class MockGitHubRemoteSetupProvider implements GitHubRemoteSetupProvider 
         `https://github.com/${input.targetRepoSlug}/pull/1`,
       directProductionBranchWrite: false,
     };
+  }
+}
+
+export interface MockGitHubHarnessProvisioningProviderState {
+  authenticatedUser?: AuthenticatedGitHubUser;
+  tokenCapabilities?: GitHubTokenCapabilitySummary;
+  repositories?: Record<
+    string,
+    GitHubRepositoryMetadata & {
+      templateIdentityContent?: string | null;
+      managedMarkerContent?: string | null;
+      branchHeadSha?: string;
+    }
+  >;
+  createRepositoryFromTemplateResult?: CreateRepositoryFromTemplateResult;
+  createRepositoryFromTemplateError?: Error;
+  fileWrites?: Array<RepositoryFileWriteInput & { commitSha: string }>;
+}
+
+export class MockGitHubHarnessProvisioningProvider
+  implements GitHubHarnessProvisioningProvider
+{
+  readonly calls: Array<{ method: string; args: unknown[] }> = [];
+  private repositories: Record<
+    string,
+    GitHubRepositoryMetadata & {
+      templateIdentityContent?: string | null;
+      managedMarkerContent?: string | null;
+      branchHeadSha?: string;
+    }
+  >;
+
+  constructor(
+    private readonly state: MockGitHubHarnessProvisioningProviderState = {},
+  ) {
+    this.repositories = { ...(state.repositories ?? {}) };
+  }
+
+  async resolveAuthenticatedUser(): Promise<AuthenticatedGitHubUser> {
+    this.calls.push({ method: "resolveAuthenticatedUser", args: [] });
+    return (
+      this.state.authenticatedUser ?? {
+        id: 1,
+        login: "test-user",
+      }
+    );
+  }
+
+  async inspectTokenCapabilities(): Promise<GitHubTokenCapabilitySummary> {
+    this.calls.push({ method: "inspectTokenCapabilities", args: [] });
+    return (
+      this.state.tokenCapabilities ?? {
+        login: "test-user",
+        tokenType: "classic",
+        hasRepoScope: true,
+        hasWorkflowScope: true,
+        scopeAmbiguous: false,
+      }
+    );
+  }
+
+  async getRepositoryMetadata(
+    owner: string,
+    repo: string,
+  ): Promise<GitHubRepositoryMetadata | null> {
+    this.calls.push({ method: "getRepositoryMetadata", args: [owner, repo] });
+    const key = `${owner}/${repo}`;
+    const entry = this.repositories[key];
+    if (!entry) {
+      return null;
+    }
+    const { templateIdentityContent: _t, managedMarkerContent: _m, branchHeadSha: _b, ...metadata } =
+      entry;
+    return metadata;
+  }
+
+  async getRepositoryDefaultBranchHead(
+    owner: string,
+    repo: string,
+    branch: string,
+  ): Promise<string> {
+    this.calls.push({
+      method: "getRepositoryDefaultBranchHead",
+      args: [owner, repo, branch],
+    });
+    const key = `${owner}/${repo}`;
+    return this.repositories[key]?.branchHeadSha ?? "abc123templatehead";
+  }
+
+  async readRepositoryFileContent(
+    owner: string,
+    repo: string,
+    path: string,
+    ref: string,
+  ): Promise<string | null> {
+    this.calls.push({
+      method: "readRepositoryFileContent",
+      args: [owner, repo, path, ref],
+    });
+    const key = `${owner}/${repo}`;
+    const entry = this.repositories[key];
+    if (!entry) {
+      return null;
+    }
+    if (path.endsWith("p-dev-template.json")) {
+      return entry.templateIdentityContent ?? null;
+    }
+    if (path.endsWith("p-dev-managed-repo.json")) {
+      return entry.managedMarkerContent ?? null;
+    }
+    void ref;
+    return null;
+  }
+
+  async createRepositoryFromTemplate(
+    input: CreateRepositoryFromTemplateInput,
+  ): Promise<CreateRepositoryFromTemplateResult> {
+    this.calls.push({ method: "createRepositoryFromTemplate", args: [input] });
+    if (this.state.createRepositoryFromTemplateError) {
+      throw this.state.createRepositoryFromTemplateError;
+    }
+    const result =
+      this.state.createRepositoryFromTemplateResult ?? {
+        fullName: `${input.owner}/${input.name}`,
+        defaultBranch: "main",
+      };
+    const key = result.fullName;
+    this.repositories[key] = {
+      owner: input.owner,
+      repo: input.name,
+      private: input.private,
+      visibility: input.private ? "private" : "public",
+      isTemplate: false,
+      defaultBranch: result.defaultBranch,
+      permissions: { admin: true, maintain: true, push: true },
+      templateIdentityContent:
+        this.repositories[`${input.templateOwner}/${input.templateRepo}`]
+          ?.templateIdentityContent ?? null,
+      managedMarkerContent: null,
+      branchHeadSha: "generatedheadsha",
+    };
+    return result;
+  }
+
+  async writeRepositoryFile(
+    input: RepositoryFileWriteInput,
+  ): Promise<{ commitSha: string }> {
+    this.calls.push({ method: "writeRepositoryFile", args: [input] });
+    const key = `${input.owner}/${input.repo}`;
+    const entry = this.repositories[key];
+    if (entry && input.path.endsWith("p-dev-managed-repo.json")) {
+      entry.managedMarkerContent = input.content;
+    }
+    const commitSha = `commit-${this.state.fileWrites?.length ?? 0}`;
+    this.state.fileWrites = [
+      ...(this.state.fileWrites ?? []),
+      { ...input, commitSha },
+    ];
+    return { commitSha };
+  }
+
+  setRepository(
+    slug: string,
+    metadata: GitHubRepositoryMetadata & {
+      templateIdentityContent?: string | null;
+      managedMarkerContent?: string | null;
+      branchHeadSha?: string;
+    },
+  ): void {
+    this.repositories[slug] = metadata;
   }
 }
 

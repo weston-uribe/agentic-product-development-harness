@@ -101,6 +101,7 @@ export async function launchPDev(
         ...process.env,
         [P_DEV_HOME_ENV]: workspace.workspaceDir,
         HARNESS_REPO_ROOT: workspace.workspaceDir,
+        P_DEV_RUNTIME_MODE: "packaged",
         HARNESS_GUI_HOST: host,
         HARNESS_GUI_PORT: String(port),
       },

@@ -18,12 +18,24 @@ import {
 import {
   mapGitHubAccessErrorToStatus,
   mapGitHubSecretMetadataToStatus,
+  type GitHubHarnessProvisioningProvider,
   type GitHubRemoteSetupProvider,
+  type AuthenticatedGitHubUser,
+  type CreateRepositoryFromTemplateInput,
+  type CreateRepositoryFromTemplateResult,
+  type GitHubRepositoryMetadata,
+  type GitHubTokenCapabilitySummary,
   type HarnessSecretWriteRequest,
   type HarnessSecretWriteResultEntry,
+  type RepositoryFileWriteInput,
   type TargetWorkflowApplyInput,
   type TargetWorkflowApplyResult,
 } from "./github-remote-provider.js";
+import {
+  classicPatHasRepoScope,
+  classicPatHasWorkflowScope,
+  resolveGitHubTokenType,
+} from "./github-workflow-permissions.js";
 
 export function parseRepoSlug(slug: string): { owner: string; repo: string } {
   const [owner, repo] = slug.split("/");
@@ -417,4 +429,136 @@ export function createLiveGitHubRemoteSetupProvider(
   token: string,
 ): GitHubRemoteSetupProvider {
   return new LiveGitHubRemoteSetupProvider({ token });
+}
+
+export class LiveGitHubHarnessProvisioningProvider
+  implements GitHubHarnessProvisioningProvider
+{
+  private readonly client: GitHubClient;
+
+  constructor(options: GitHubClientOptions | GitHubClient) {
+    this.client =
+      options instanceof GitHubClient
+        ? options
+        : new GitHubClient(options);
+  }
+
+  async resolveAuthenticatedUser(): Promise<AuthenticatedGitHubUser> {
+    const user = await this.client.getAuthenticatedUser();
+    return { id: user.id, login: user.login };
+  }
+
+  async inspectTokenCapabilities(): Promise<GitHubTokenCapabilitySummary> {
+    const inspected = await this.client.inspectAuthenticatedUser();
+    const tokenType = resolveGitHubTokenType(
+      inspected.tokenType,
+      inspected.oauthScopes,
+    );
+    const scopeAmbiguous =
+      tokenType === "classic" && inspected.oauthScopes.length === 0;
+    return {
+      login: inspected.login,
+      tokenType,
+      hasRepoScope: classicPatHasRepoScope(inspected.oauthScopes),
+      hasWorkflowScope: classicPatHasWorkflowScope(inspected.oauthScopes),
+      scopeAmbiguous,
+    };
+  }
+
+  async getRepositoryMetadata(
+    owner: string,
+    repo: string,
+  ): Promise<GitHubRepositoryMetadata | null> {
+    try {
+      const repository = await this.client.getRepository(owner, repo);
+      return {
+        owner,
+        repo,
+        private: repository.private === true,
+        visibility: repository.visibility ?? (repository.private ? "private" : "public"),
+        isTemplate: repository.is_template === true,
+        defaultBranch: repository.default_branch ?? "main",
+        permissions: {
+          admin: repository.permissions?.admin === true,
+          maintain: repository.permissions?.maintain === true,
+          push: repository.permissions?.push === true,
+        },
+      };
+    } catch (error) {
+      if (error instanceof GitHubApiError && error.status === 404) {
+        return null;
+      }
+      throw new Error(sanitizeGitHubSetupError(error));
+    }
+  }
+
+  async getRepositoryDefaultBranchHead(
+    owner: string,
+    repo: string,
+    branch: string,
+  ): Promise<string> {
+    const ref = await this.client.getBranchRef(owner, repo, branch);
+    return ref.object.sha;
+  }
+
+  async readRepositoryFileContent(
+    owner: string,
+    repo: string,
+    filePath: string,
+    ref: string,
+  ): Promise<string | null> {
+    const content = await this.client.getRepositoryContent(
+      owner,
+      repo,
+      filePath,
+      ref,
+    );
+    return content ? this.client.decodeRepositoryContent(content) : null;
+  }
+
+  async createRepositoryFromTemplate(
+    input: CreateRepositoryFromTemplateInput,
+  ): Promise<CreateRepositoryFromTemplateResult> {
+    try {
+      const created = await this.client.createRepositoryFromTemplate({
+        templateOwner: input.templateOwner,
+        templateRepo: input.templateRepo,
+        owner: input.owner,
+        name: input.name,
+        description: input.description,
+        private: input.private,
+        includeAllBranches: input.includeAllBranches,
+      });
+      return {
+        fullName: created.full_name,
+        defaultBranch: created.default_branch,
+      };
+    } catch (error) {
+      throw new Error(sanitizeGitHubSetupError(error));
+    }
+  }
+
+  async writeRepositoryFile(
+    input: RepositoryFileWriteInput,
+  ): Promise<{ commitSha: string }> {
+    try {
+      return await this.client.createOrUpdateRepositoryFile({
+        owner: input.owner,
+        repo: input.repo,
+        path: input.path,
+        branch: input.branch,
+        message: input.message,
+        content: input.content,
+        sha: input.sha,
+      });
+    } catch (error) {
+      throw new Error(sanitizeGitHubSetupError(error));
+    }
+  }
+}
+
+export function createLiveGitHubHarnessProvisioningProvider(
+  token: string,
+): GitHubHarnessProvisioningProvider {
+  return new LiveGitHubHarnessProvisioningProvider({ token });
 }
