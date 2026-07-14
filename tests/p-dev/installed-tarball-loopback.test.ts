@@ -1,10 +1,11 @@
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const repoRoot = path.resolve(
@@ -12,6 +13,7 @@ const repoRoot = path.resolve(
   "../..",
 );
 const packageDir = path.join(repoRoot, "packages", "p-dev");
+const execFileAsync = promisify(execFile);
 
 const GENERATED_PACKAGE_OUTPUT_PREFIXES = [
   "packages/p-dev/bin/",
@@ -254,13 +256,13 @@ process.exit(0);
       env.P_DEV_POSTHOG_PROJECT_TOKEN = "phc_installed_facade_test";
       env.P_DEV_POSTHOG_HOST = `http://127.0.0.1:${posthogPort}`;
 
-      const output = execFileSync(process.execPath, [scriptPath], {
+      const { stdout } = await execFileAsync(process.execPath, [scriptPath], {
         cwd: installDir,
         env,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
+        timeout: 60_000,
+        maxBuffer: 1024 * 1024,
       });
-      return JSON.parse(output.trim().split("\n").at(-1) ?? "{}") as ScenarioOutput;
+      return JSON.parse(stdout.trim().split("\n").at(-1) ?? "{}") as ScenarioOutput;
     }
 
     it("keeps undecided consent silent", async () => {
