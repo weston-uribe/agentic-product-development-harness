@@ -118,6 +118,16 @@ describe("M6 configure GUI boundaries", () => {
     expect(source).toContain("[readiness.currentStepId]");
   });
 
+  it("configure page uses Initial Harness Configuration title", () => {
+    const source = readFileSync(
+      path.join(repoRoot, "apps/gui/components/custom/configure-experience.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain("Initial Harness Configuration");
+    expect(source).not.toContain("Settings / Configure");
+  });
+
   it("guided configure experience hides readiness diagnostics by default", () => {
     const source = readFileSync(
       path.join(repoRoot, "apps/gui/components/custom/configure-experience.tsx"),

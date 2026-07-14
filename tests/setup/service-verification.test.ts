@@ -6,6 +6,7 @@ import {
 } from "../../src/setup/github-workflow-permissions.js";
 import {
   parseTargetRepoUrl,
+  formatCursorAccountIdentity,
   verifyCursorToken,
   verifyGitHubRepoAccess,
   verifyGitHubToken,
@@ -30,10 +31,8 @@ vi.mock("../../src/github/client.js", async (importOriginal) => {
 
 vi.mock("@cursor/sdk", () => ({
   Cursor: {
+    me: vi.fn(),
     models: {
-      list: vi.fn(),
-    },
-    repositories: {
       list: vi.fn(),
     },
   },
@@ -175,27 +174,105 @@ describe("service-verification", () => {
     expect(failure.message).not.toContain(SENTINEL_GITHUB);
   });
 
-  it("verifies Cursor tokens via models.list and labels limitations honestly", async () => {
+  it("formats Cursor account identity with deterministic fallback order", () => {
+    expect(
+      formatCursorAccountIdentity({
+        apiKeyName: "Production API Key",
+        userEmail: "weston@example.com",
+        userFirstName: "Weston",
+        userLastName: "Uribe",
+      }),
+    ).toBe("Weston Uribe");
+    expect(
+      formatCursorAccountIdentity({
+        apiKeyName: "Production API Key",
+        userEmail: "weston@example.com",
+      }),
+    ).toBe("weston@example.com");
+    expect(
+      formatCursorAccountIdentity({
+        apiKeyName: "Production API Key",
+      }),
+    ).toBe("Production API Key");
+    expect(formatCursorAccountIdentity({ apiKeyName: "   " })).toBe(
+      "Cursor account",
+    );
+  });
+
+  it("verifies Cursor tokens via account metadata and capability check", async () => {
     const { Cursor } = await getCursorSdk();
+    vi.mocked(Cursor.me).mockResolvedValueOnce({
+      apiKeyName: "Production API Key",
+      userEmail: "weston@example.com",
+      userFirstName: "Weston",
+      userLastName: "Uribe",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    } as never);
     vi.mocked(Cursor.models.list).mockResolvedValueOnce([
       { id: "composer-2.5" },
-    ] as never);
-    vi.mocked(Cursor.repositories.list).mockResolvedValueOnce([
-      { url: "https://github.com/acme/repo" },
     ] as never);
 
     const success = await verifyCursorToken(SENTINEL_CURSOR);
     expect(success.status).toBe("connected");
-    expect(success.message).toContain("Cursor API key accepted");
-    expect(success.limitation).toContain("does not guarantee");
+    expect(success.label).toBe("Weston Uribe");
+    expect(success.message).toBe("Cursor API key connected to Weston Uribe.");
+    expect(success.limitation).toBeUndefined();
+    expect(success.message).not.toMatch(/model/i);
+    expect(success.message).not.toMatch(/repo/i);
 
+    vi.mocked(Cursor.me).mockResolvedValueOnce({
+      apiKeyName: "Production API Key",
+      userEmail: "weston@example.com",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    } as never);
+    vi.mocked(Cursor.models.list).mockResolvedValueOnce([
+      { id: "composer-2.5" },
+    ] as never);
+    const emailFallback = await verifyCursorToken(SENTINEL_CURSOR);
+    expect(emailFallback.label).toBe("weston@example.com");
+
+    vi.mocked(Cursor.me).mockResolvedValueOnce({
+      apiKeyName: "Production API Key",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    } as never);
+    vi.mocked(Cursor.models.list).mockResolvedValueOnce([
+      { id: "composer-2.5" },
+    ] as never);
+    const apiKeyFallback = await verifyCursorToken(SENTINEL_CURSOR);
+    expect(apiKeyFallback.label).toBe("Production API Key");
+
+    vi.mocked(Cursor.me).mockResolvedValueOnce({
+      apiKeyName: "   ",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    } as never);
+    vi.mocked(Cursor.models.list).mockResolvedValueOnce([
+      { id: "composer-2.5" },
+    ] as never);
+    const genericFallback = await verifyCursorToken(SENTINEL_CURSOR);
+    expect(genericFallback.label).toBe("Cursor account");
+
+    vi.mocked(Cursor.me).mockResolvedValueOnce({
+      apiKeyName: "Production API Key",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    } as never);
     vi.mocked(Cursor.models.list).mockRejectedValueOnce(
       new Error(`401 unauthorized ${SENTINEL_CURSOR}`),
     );
-    const failure = await verifyCursorToken(SENTINEL_CURSOR);
-    expect(failure.status).toBe("failed");
-    expect(failure.message).toContain("Cursor rejected");
-    expect(failure.message).not.toContain(SENTINEL_CURSOR);
+    const capabilityFailure = await verifyCursorToken(SENTINEL_CURSOR);
+    expect(capabilityFailure.status).toBe("failed");
+    expect(capabilityFailure.message).toContain("Cursor rejected");
+    expect(capabilityFailure.message).not.toContain(SENTINEL_CURSOR);
+
+    vi.mocked(Cursor.me).mockRejectedValueOnce(
+      new Error(`401 unauthorized ${SENTINEL_CURSOR}`),
+    );
+    vi.mocked(Cursor.models.list).mockResolvedValueOnce([
+      { id: "composer-2.5" },
+    ] as never);
+    const metadataFailure = await verifyCursorToken(SENTINEL_CURSOR);
+    expect(metadataFailure.status).toBe("failed");
+    expect(metadataFailure.message).toContain("Cursor rejected");
+    expect(metadataFailure.message).not.toContain(SENTINEL_CURSOR);
   });
 
   it("fails invalid repo URLs before network calls", async () => {
@@ -308,5 +385,6 @@ describe("service-verification", () => {
     expect(result.status).toBe("connected");
     expect(result.label).toBe("weston");
     expect(result.message).toContain("Connected as weston");
+    expect(result.limitation).toBeUndefined();
   });
 });

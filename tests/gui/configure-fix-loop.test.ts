@@ -45,8 +45,12 @@ describe("configure GUI fix loop", () => {
     expect(source).not.toContain("Select the harness control-plane");
     expect(source).not.toContain("Vercel scope");
     expect(source).toContain("Vercel team name");
+    expect(source).toContain(
+      "Choose the Vercel team and project this setup should use for automation and issue previews before merging code.",
+    );
+    expect(source).not.toContain("Env var presence alone is not enough");
     expect(source).not.toContain(
-      "Choose the Vercel project this setup should use for automation and",
+      "Choose the Vercel project this setup should use for automation and preview checks",
     );
     expect(source).toContain("scope=\"vercel-bridge-write\"");
     expect(source).not.toContain("scope=\"remote-secret-write\"");

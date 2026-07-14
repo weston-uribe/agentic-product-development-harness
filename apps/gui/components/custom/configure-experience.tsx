@@ -696,7 +696,7 @@ export function ConfigureExperience({
     <div className={LAYOUT.sectionStack}>
       <section className={SPACING.section}>
         <div className={SPACING.stackSm}>
-          <h2 className={RESPONSIVE.pageTitle}>Settings / Configure</h2>
+          <h2 className={RESPONSIVE.pageTitle}>Initial Harness Configuration</h2>
           <p className={RESPONSIVE.pageDescription}>
             Guided first-run readiness for the Product Development Harness.
             Complete local setup, local readiness checks, cloud secrets, and
