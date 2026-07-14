@@ -623,6 +623,96 @@ describe("harness-repo-provisioning", () => {
     expect(preview.state).toBe("same-name-unmanaged-collision");
   });
 
+  const provisioningMutationMethods = new Set([
+    "createUserRepository",
+    "createGitBlob",
+    "createGitTree",
+    "createGitCommit",
+    "updateRepositoryRef",
+    "writeRepositoryFile",
+    "updateUserRepositoryDescription",
+  ]);
+
+  function countProvisioningMutations(provider: MockGitHubHarnessProvisioningProvider) {
+    return provider.calls.filter((call) => provisioningMutationMethods.has(call.method));
+  }
+
+  it("does not mutate GitHub when pending repository ID differs from remote slug identity", async () => {
+    const repoSlug = "test-user/p-dev-harness";
+    const actualRepositoryId = deterministicMockRepositoryId(repoSlug);
+    const provider = new MockGitHubHarnessProvisioningProvider({
+      authenticatedUser: { id: 1, login: "test-user" },
+      repositories: {
+        [repoSlug]: {
+          ...destinationRepoMetadata({}),
+          repositoryId: actualRepositoryId,
+        },
+      },
+    });
+
+    await writeHarnessProvisioningPendingStateAtomic(
+      validPendingState({
+        operationId: "op-repo-id-mismatch",
+        repositoryId: actualRepositoryId + 1,
+        phase: "snapshot-objects-uploading",
+        initializedCommitSha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      }),
+      workspaceDir,
+    );
+
+    const preview = await previewHarnessRepoProvisioning({
+      cwd: workspaceDir,
+      provider,
+    });
+    expect(preview.state).toBe("same-name-snapshot-only-with-pending");
+
+    const apply = await applyHarnessRepoProvisioning({
+      cwd: workspaceDir,
+      provider,
+      confirmed: true,
+      fingerprint: preview.fingerprint,
+      operationId: preview.operationId,
+    });
+
+    expect(apply.recoverable).toBe(false);
+    expect(apply.message).toMatch(/repository ID does not match/i);
+    expect(countProvisioningMutations(provider)).toHaveLength(0);
+  });
+
+  it("does not mutate GitHub when embedded snapshot validation fails preflight", async () => {
+    const loaderSpy = vi
+      .spyOn(
+        await import("../../src/setup/harness-workspace-snapshot-loader.js"),
+        "loadEmbeddedWorkspaceSnapshot",
+      )
+      .mockResolvedValue({
+        ok: false,
+        state: "snapshot-tampered",
+        message: "Snapshot file README.md SHA-256 mismatch.",
+      });
+
+    const provider = new MockGitHubHarnessProvisioningProvider({
+      authenticatedUser: { id: 1, login: "test-user" },
+    });
+
+    const preview = await previewHarnessRepoProvisioning({
+      cwd: workspaceDir,
+      provider,
+    });
+    expect(preview.state).toBe("snapshot-tampered");
+
+    const apply = await applyHarnessRepoProvisioning({
+      cwd: workspaceDir,
+      provider,
+      confirmed: true,
+      fingerprint: preview.fingerprint,
+      operationId: preview.operationId,
+    });
+    expect(["snapshot-tampered", "snapshot-preview-stale"]).toContain(apply.state);
+    expect(countProvisioningMutations(provider)).toHaveLength(0);
+    loaderSpy.mockRestore();
+  });
+
   it("does not finalize markerless repo from a clean workspace", async () => {
     const provider = new MockGitHubHarnessProvisioningProvider({
       authenticatedUser: { id: 1, login: "test-user" },
