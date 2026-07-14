@@ -1,6 +1,6 @@
 import { execFile, execFileSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -14,7 +14,7 @@ const repoRoot = path.resolve(
 );
 const packageDir = path.join(repoRoot, "packages", "p-dev");
 const execFileAsync = promisify(execFile);
-const packagePackLockPath = path.join(os.tmpdir(), "p-dev-package-pack.lock");
+const packagePackLockPath = path.join(os.tmpdir(), "p-dev-package-pack.lockdir");
 
 const GENERATED_PACKAGE_OUTPUT_PREFIXES = [
   "packages/p-dev/bin/",
@@ -67,6 +67,63 @@ function isCleanEnoughForPackagePack(): boolean {
     .map((line) => line.trimEnd())
     .filter(Boolean)
     .every((line) => isIgnorableDirtyPackagePath(line.slice(3).trim()));
+}
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function acquirePackagePackLock(): () => void {
+  while (true) {
+    try {
+      mkdirSync(packagePackLockPath);
+      return () => rmSync(packagePackLockPath, { recursive: true, force: true });
+    } catch {
+      sleepSync(250);
+    }
+  }
+}
+
+function tarballSourceCommit(tarballPath: string): string | null {
+  if (!existsSync(tarballPath)) {
+    return null;
+  }
+  try {
+    const raw = execFileSync(
+      "tar",
+      ["-xOf", tarballPath, "package/workspace-snapshot/manifest.json"],
+      { encoding: "utf8" },
+    );
+    return (JSON.parse(raw) as { sourceCommit?: string }).sourceCommit ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function packCurrentTarballIfNeeded(): string {
+  const packageJson = JSON.parse(
+    readFileSync(path.join(packageDir, "package.json"), "utf8"),
+  ) as { version: string };
+  const nextTarballPath = path.join(
+    packageDir,
+    `p-dev-harness-${packageJson.version}.tgz`,
+  );
+  const head = execFileSync("git", ["rev-parse", "HEAD"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  }).trim();
+  const releaseLock = acquirePackagePackLock();
+  try {
+    if (tarballSourceCommit(nextTarballPath) !== head) {
+      execFileSync("npm", ["run", "package:p-dev:pack"], {
+        cwd: repoRoot,
+        stdio: "pipe",
+      });
+    }
+  } finally {
+    releaseLock();
+  }
+  return nextTarballPath;
 }
 
 function listen(
@@ -150,17 +207,7 @@ describe.skipIf(!isCleanEnoughForPackagePack())(
     const tempDirs: string[] = [];
 
     beforeAll(async () => {
-      execFileSync("flock", [packagePackLockPath, "npm", "run", "package:p-dev:pack"], {
-        cwd: repoRoot,
-        stdio: "pipe",
-      });
-      const packageJson = JSON.parse(
-        readFileSync(path.join(packageDir, "package.json"), "utf8"),
-      ) as { version: string };
-      tarballPath = path.join(
-        packageDir,
-        `p-dev-harness-${packageJson.version}.tgz`,
-      );
+      tarballPath = packCurrentTarballIfNeeded();
       installDir = await mkdtemp(
         path.join(os.tmpdir(), "p-dev-installed-tarball-"),
       );
