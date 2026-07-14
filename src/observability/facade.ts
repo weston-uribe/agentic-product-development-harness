@@ -17,6 +17,7 @@ import {
   updateObservabilityPreferences,
   type UpdateObservabilityPreferencesInput,
 } from "./local-state.js";
+import { readObservabilityPublicConfig } from "./package-config.js";
 import { isObservabilityRuntimeEligible } from "./runtime-eligibility.js";
 import {
   analyticsEventToProperties,
@@ -46,6 +47,7 @@ import {
   createNoopAnalyticsTransport,
   createNoopErrorTransport,
 } from "./adapters/noop.js";
+import { createSentryErrorTransport } from "./adapters/sentry.js";
 
 export interface BeginObservabilitySessionInput {
   workspaceDir: string;
@@ -111,6 +113,9 @@ function contextToSentryTags(
 
 function configureTransports(input: {
   consent: EffectiveConsent;
+  context: ObservabilityContext;
+  moduleUrl?: string;
+  env?: NodeJS.ProcessEnv;
   fakeRecorder?: FakeTransportRecorder;
 }): void {
   analyticsTransport = createNoopAnalyticsTransport();
@@ -122,6 +127,23 @@ function configureTransports(input: {
     }
     if (input.consent.errorReportingEnabled) {
       errorTransport = createFakeErrorTransport(input.fakeRecorder);
+    }
+    return;
+  }
+
+  const publicConfig = readObservabilityPublicConfig(
+    input.moduleUrl,
+    input.env,
+  );
+
+  if (input.consent.errorReportingEnabled && publicConfig?.sentryPublicDsn) {
+    try {
+      errorTransport = createSentryErrorTransport({
+        dsn: publicConfig.sentryPublicDsn,
+        release: `p-dev-harness@${input.context.packageVersion}`,
+      });
+    } catch {
+      errorTransport = createNoopErrorTransport();
     }
   }
 }
@@ -167,7 +189,13 @@ export async function beginObservabilitySession(
   });
 
   activeFakeRecorder = input.fakeRecorder;
-  configureTransports({ consent, fakeRecorder: input.fakeRecorder });
+  configureTransports({
+    consent,
+    context,
+    moduleUrl: input.moduleUrl,
+    env,
+    fakeRecorder: input.fakeRecorder,
+  });
 
   activeSession = {
     workspaceDir: input.workspaceDir,
@@ -240,6 +268,7 @@ export async function writeObservabilityPreferences(
 
   configureTransports({
     consent,
+    context: activeSession.context,
     fakeRecorder: activeFakeRecorder,
   });
 
@@ -265,6 +294,7 @@ export async function resetObservabilityState(
     };
     configureTransports({
       consent: activeSession.consent,
+      context: activeSession.context,
       fakeRecorder: activeFakeRecorder,
     });
   }
@@ -349,5 +379,20 @@ export function createObservabilityTestRecorder(): FakeTransportRecorder {
 }
 
 export function installObservabilityUncaughtHandlers(): void {
-  // Uncaught handler wiring arrives in the Sentry slice.
+  process.on("uncaughtException", (error) => {
+    captureProductError({
+      lifecyclePhase: "launcher_startup",
+      productErrorCode: "uncaught_exception",
+      errorCategory: "unexpected",
+      cause: error,
+    });
+  });
+  process.on("unhandledRejection", (reason) => {
+    captureProductError({
+      lifecyclePhase: "launcher_startup",
+      productErrorCode: "unhandled_rejection",
+      errorCategory: "unexpected",
+      cause: reason,
+    });
+  });
 }

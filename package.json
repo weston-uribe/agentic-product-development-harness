@@ -30,6 +30,7 @@
     "@cursor/sdk": "^1.0.23",
     "@linear/sdk": "^40.0.0",
     "@radix-ui/react-slot": "^1.2.3",
+    "@sentry/node": "^9.47.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "commander": "^13.1.0",
