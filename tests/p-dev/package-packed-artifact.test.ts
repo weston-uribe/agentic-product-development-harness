@@ -108,6 +108,25 @@ describe.skipIf(!isCleanEnoughForPackagePack())("p-dev packed artifact", () => {
     expect(raw).not.toMatch(/public template.*provisioning source/i);
     expect(raw).not.toMatch(/template must remain/i);
     expect(raw).toContain("frozen legacy compatibility artifact");
+    expect(raw).toMatch(/observability|telemetry/i);
+  });
+
+  it("includes public observability config without privileged credentials", () => {
+    const listing = execFileSync("tar", ["-tzf", tarballPath], {
+      encoding: "utf8",
+    });
+    expect(listing).toContain("package/observability.public.json");
+    expect(listing).not.toMatch(/observability\.local\.json/);
+    const raw = execFileSync(
+      "tar",
+      ["-xOf", tarballPath, "package/observability.public.json"],
+      { encoding: "utf8" },
+    );
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    expect(parsed.observabilitySchemaVersion).toBe(1);
+    expect(JSON.stringify(parsed)).not.toMatch(/phx_/i);
+    expect(JSON.stringify(parsed)).not.toMatch(/authToken/i);
+    expect(JSON.stringify(parsed)).not.toMatch(/\.harness/);
   });
 
   it("records tarball metadata for release evidence", () => {

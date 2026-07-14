@@ -270,3 +270,53 @@ V0.3.0 used public-template provisioning. See [`v0.3.0.md`](v0.3.0.md) for the h
 - Live `harness:run` against production issues
 - Linear writes
 - Secret inspection, printing, or rotation in reports
+
+---
+
+## Observability release-readiness validation
+
+When shipping observability changes in `p-dev-harness`, run these checks at the stacked release-readiness tip in a **clean committed working tree** before any npm publication approval:
+
+```bash
+npm ci
+npm run build
+npm test
+npm run test:webhook
+npm run package:p-dev:prepare
+npm run package:p-dev:pack
+npm run package:p-dev:inspect
+npm test -- tests/observability/packaged-config.test.ts tests/p-dev/package-packed-artifact.test.ts
+```
+
+Record tarball path, bytes, SHA-1, SHA-256, manifest source commit, and packed entry count.
+
+Installed-tarball smoke (fresh temp dir + fresh `P_DEV_HOME`, fake/local capture only):
+
+```bash
+TARBALL="packages/p-dev/p-dev-harness-VERSION.tgz"
+WORKDIR=$(mktemp -d)
+export P_DEV_HOME="$WORKDIR/workspace"
+mkdir -p "$P_DEV_HOME"
+npx --yes "file:$(pwd)/$TARBALL" --no-open &
+PID=$!
+# wait for http://127.0.0.1:PORT/settings/configure → 200
+# GET /api/observability/preferences → undecided, no installation ID
+# verify no outbound Sentry/PostHog requests before consent
+# verify route security rejects wrong Host, origin, nonce, and malformed bodies
+kill "$PID"
+```
+
+**Stop** if:
+
+- `observability.public.json` contains privileged credentials or non-empty ingestion tokens before maintainer approval
+- Tarball ships `.harness/observability.local.json`, nonce fixtures, or maintainer overrides
+- Pre-consent network transmission occurs in smoke
+- Sentry payloads include stable installation ID
+
+**Pending until sandbox evidence exists:**
+
+- Real Sentry/PostHog project configuration
+- Vendor sandbox payload verification
+- Source-map upload decision
+
+Do **not** bump package version, publish npm, tag, or create a GitHub release from observability validation work alone.
