@@ -1,7 +1,6 @@
 import {
   OBSERVABILITY_FLUSH_DEADLINE_MS,
   P_DEV_OBSERVABILITY_NONCE_ENV,
-  P_DEV_OBSERVABILITY_SESSION_ID_ENV,
 } from "./constants.js";
 import { resolveEffectiveConsent } from "./consent.js";
 import { buildObservabilityContext } from "./context.js";
