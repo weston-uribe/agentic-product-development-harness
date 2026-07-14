@@ -1,19 +1,20 @@
 # Agentic Product Development Harness
 
-**Current release: v0.3.0** — guided onboarding and distribution release
+**Current release: v0.3.1** — immutable embedded workspace provisioning
 
 ## Use the product
 
 **Easiest start for product managers:**
 
 ```bash
-npx --yes p-dev-harness@0.3.0
+npx --yes p-dev-harness@0.3.1
 ```
 
 - Requires **Node.js 22+**
 - Starts a local guided **Configure GUI**
-- Creates or reconnects a private operator harness workspace
+- Provisions or reconnects a private operator harness workspace from the **embedded package snapshot** (0.3.1+)
 - **macOS validated** for packaged launch; use `--no-open` on other platforms
+- First-time provisioning can take several minutes; progress is shown in Configure
 - Early-stage — not production SaaS
 
 Full guide: [`docs/p-dev.md`](docs/p-dev.md)
@@ -37,7 +38,7 @@ Cursor-first orchestration harness for turning structured Linear issues into Git
 
 | Layer | Status |
 |-------|--------|
-| Product install | `p-dev-harness@0.3.0` on npm (public) |
+| Product install | `p-dev-harness@0.3.1` on npm (public) |
 | Agent provider | Cursor Cloud Agents only |
 | Product system | Linear |
 | SCM / PR | GitHub |
@@ -53,6 +54,7 @@ It is **not** provider-agnostic and **not** a production SaaS.
 |-------|-----|
 | **p-dev install guide** | [`docs/p-dev.md`](docs/p-dev.md) |
 | Getting started (source) | [`docs/getting-started.md`](docs/getting-started.md) |
+| Release contract (v0.3.1) | [`docs/releases/v0.3.1.md`](docs/releases/v0.3.1.md) |
 | Release contract (v0.3.0) | [`docs/releases/v0.3.0.md`](docs/releases/v0.3.0.md) |
 | Release contract (v0.2.0) | [`docs/releases/v0.2.0.md`](docs/releases/v0.2.0.md) |
 | Security baseline | [`docs/security.md`](docs/security.md) |

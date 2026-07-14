@@ -25,6 +25,20 @@ describe("preserveGitHubSetupError", () => {
     expect(preserved).toBeInstanceOf(GitHubApiError);
     expect((preserved as GitHubApiError).status).toBe(422);
   });
+
+  it("preserves rate-limit metadata through sanitization", () => {
+    const error = new GitHubApiError(429, "rate limit exceeded", {
+      retryAfterSeconds: 12,
+      rateLimitRemaining: 0,
+      rateLimitResetEpochSeconds: 1_700_000_000,
+      requestId: "REQ-1",
+    });
+    const preserved = preserveGitHubSetupError(error) as GitHubApiError;
+    expect(preserved.retryAfterSeconds).toBe(12);
+    expect(preserved.rateLimitRemaining).toBe(0);
+    expect(preserved.rateLimitResetEpochSeconds).toBe(1_700_000_000);
+    expect(preserved.requestId).toBe("REQ-1");
+  });
 });
 
 describe("LiveGitHubHarnessProvisioningProvider error preservation", () => {
@@ -71,6 +85,13 @@ describe("isRetryableGitHubError", () => {
   it("does not retry preserved 422 errors", () => {
     const error = preserveGitHubSetupError(
       new GitHubApiError(422, '{"message":"validation failed"}'),
+    );
+    expect(isRetryableGitHubError(error)).toBe(false);
+  });
+
+  it("does not retry preserved permission 403 errors", () => {
+    const error = preserveGitHubSetupError(
+      new GitHubApiError(403, "Resource not accessible by integration"),
     );
     expect(isRetryableGitHubError(error)).toBe(false);
   });

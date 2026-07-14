@@ -99,6 +99,17 @@ describe.skipIf(!isCleanEnoughForPackagePack())("p-dev packed artifact", () => {
     expect(parsed.files.length).toBe(parsed.fileCount);
   });
 
+  it("ships npm README describing embedded snapshot provisioning for 0.3.1", () => {
+    const raw = execFileSync("tar", ["-xOf", tarballPath, "package/README.md"], {
+      encoding: "utf8",
+    });
+    expect(raw).toContain("p-dev-harness@0.3.1");
+    expect(raw).toContain("immutable embedded workspace snapshot");
+    expect(raw).not.toMatch(/public template.*provisioning source/i);
+    expect(raw).not.toMatch(/template must remain/i);
+    expect(raw).toContain("frozen legacy compatibility artifact");
+  });
+
   it("records tarball metadata for release evidence", () => {
     const bytes = readFileSync(tarballPath).byteLength;
     const sha1 = execFileSync("shasum", ["-a", "1", tarballPath], {

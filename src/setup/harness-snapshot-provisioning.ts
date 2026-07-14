@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { GitHubApiError } from "../github/client.js";
+import { isGitHubRateLimitError } from "../github/rate-limit-metadata.js";
 import { HARNESS_MANAGED_REPO_MARKER_FILE } from "./harness-managed-repo-marker.js";
 import {
   buildHarnessSnapshotManagedRepoMarker,
@@ -17,15 +18,39 @@ import {
   isProvisioningOperationDescription,
   SnapshotProvisioningError,
 } from "./harness-snapshot-provisioning-helpers.js";
+import { GitHubUploadRateLimitGate } from "./github-upload-rate-limit-gate.js";
 
 export { SnapshotProvisioningError };
 
-const DEFAULT_UPLOAD_CONCURRENCY = Number(
-  process.env.HARNESS_SNAPSHOT_UPLOAD_CONCURRENCY ?? 4,
-);
+const DEFAULT_UPLOAD_CONCURRENCY = resolveSnapshotUploadConcurrency();
 const MAX_UPLOAD_RETRIES = Number(process.env.HARNESS_SNAPSHOT_UPLOAD_RETRIES ?? 3);
 const RECONCILE_REPOSITORY_ATTEMPTS_DEFAULT = 5;
 const RECONCILE_REPOSITORY_INITIAL_DELAY_MS_DEFAULT = 500;
+
+export function resolveSnapshotUploadConcurrency(
+  raw = process.env.HARNESS_SNAPSHOT_UPLOAD_CONCURRENCY,
+): number {
+  if (raw === undefined || raw.trim() === "") {
+    return 2;
+  }
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed)) {
+    throw new Error(
+      "Invalid HARNESS_SNAPSHOT_UPLOAD_CONCURRENCY: must be an integer between 1 and 4.",
+    );
+  }
+  const parsed = Number(trimmed);
+  if (parsed < 1 || parsed > 4) {
+    throw new Error(
+      "Invalid HARNESS_SNAPSHOT_UPLOAD_CONCURRENCY: must be between 1 and 4.",
+    );
+  }
+  return parsed;
+}
+
+export function getDefaultSnapshotUploadConcurrency(): number {
+  return DEFAULT_UPLOAD_CONCURRENCY;
+}
 
 function reconcilePollingConfig(): {
   attempts: number;
@@ -55,6 +80,7 @@ export interface SnapshotProvisioningProgress {
   phase: SnapshotProvisioningProgressPhase;
   uploadedBlobs: number;
   totalBlobs: number;
+  rateLimitPauseSeconds?: number;
 }
 
 export type SnapshotProvisioningProgressPhase = SnapshotProvisioningPhase;
@@ -68,28 +94,59 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+export interface ProvisioningRetryContext {
+  gate: GitHubUploadRateLimitGate;
+  onRateLimitPause?: (pauseSeconds: number, phase: SnapshotProvisioningPhase) => void;
+}
+
+export function createProvisioningRetryContext(input?: {
+  onRateLimitPause?: (pauseSeconds: number, phase: SnapshotProvisioningPhase) => void;
+}): ProvisioningRetryContext {
+  return {
+    gate: new GitHubUploadRateLimitGate(),
+    onRateLimitPause: input?.onRateLimitPause,
+  };
+}
+
 export function isRetryableGitHubError(error: unknown): boolean {
   if (!(error instanceof GitHubApiError)) {
     return false;
   }
-  if (error.status === 403 && /rate limit/i.test(error.message)) {
+  if (isGitHubRateLimitError(error)) {
     return true;
   }
-  return error.status === 408 || error.status === 429 || error.status >= 500;
+  return error.status === 408 || error.status >= 500;
 }
 
-async function withRetries<T>(fn: () => Promise<T>): Promise<T> {
+async function withRetries<T>(
+  fn: () => Promise<T>,
+  retryContext: ProvisioningRetryContext,
+  phase: SnapshotProvisioningPhase,
+): Promise<T> {
   let attempt = 0;
   while (true) {
+    await retryContext.gate.waitBeforeMutation();
     try {
       return await fn();
     } catch (error) {
       attempt += 1;
-      if (!isRetryableGitHubError(error) || attempt > MAX_UPLOAD_RETRIES) {
+      if (!(error instanceof GitHubApiError)) {
         throw error;
       }
-      const delayMs = Math.min(8_000, 250 * 2 ** (attempt - 1));
-      await sleep(delayMs + Math.floor(Math.random() * 100));
+      if (isGitHubRateLimitError(error)) {
+        const delayMs = retryContext.gate.recordRateLimitFailure(error);
+        retryContext.onRateLimitPause?.(Math.ceil(delayMs / 1_000), phase);
+        if (attempt > MAX_UPLOAD_RETRIES) {
+          throw error;
+        }
+        continue;
+      }
+      if (isRetryableGitHubError(error) && attempt <= MAX_UPLOAD_RETRIES) {
+        const delayMs = Math.min(8_000, 250 * 2 ** (attempt - 1));
+        await sleep(delayMs + Math.floor(Math.random() * 100));
+        continue;
+      }
+      throw error;
     }
   }
 }
@@ -121,6 +178,7 @@ export async function uploadSnapshotBlobs(input: {
   repo: string;
   snapshotRoot: string;
   manifest: WorkspaceSnapshotManifest;
+  retryContext: ProvisioningRetryContext;
   onProgress?: (progress: SnapshotProvisioningProgress) => void;
 }): Promise<Map<string, string>> {
   const blobShaByPath = new Map<string, string>();
@@ -141,12 +199,15 @@ export async function uploadSnapshotBlobs(input: {
         path: file.path,
         expectedSha256: file.sha256,
       });
-      const blob = await withRetries(() =>
-        input.provider.createGitBlob({
-          owner: input.owner,
-          repo: input.repo,
-          content,
-        }),
+      const blob = await withRetries(
+        () =>
+          input.provider.createGitBlob({
+            owner: input.owner,
+            repo: input.repo,
+            content,
+          }),
+        input.retryContext,
+        "snapshot-objects-uploading",
       );
       if (blob.sha !== file.gitBlobSha1) {
         throw new Error(
@@ -174,22 +235,26 @@ export async function createSnapshotCommit(input: {
   parentCommitSha: string;
   operationId: string;
   blobShaByPath: Map<string, string>;
+  retryContext: ProvisioningRetryContext;
 }): Promise<string> {
   const commitIdentity = deriveProvisioningCommitIdentity({
     operationId: input.operationId,
     sourceCommit: input.manifest.sourceCommit,
   });
-  const tree = await withRetries(() =>
-    input.provider.createGitTree({
-      owner: input.owner,
-      repo: input.repo,
-      tree: input.manifest.files.map((file) => ({
-        path: file.path,
-        mode: file.mode,
-        type: "blob" as const,
-        sha: input.blobShaByPath.get(file.path) ?? file.gitBlobSha1,
-      })),
-    }),
+  const tree = await withRetries(
+    () =>
+      input.provider.createGitTree({
+        owner: input.owner,
+        repo: input.repo,
+        tree: input.manifest.files.map((file) => ({
+          path: file.path,
+          mode: file.mode,
+          type: "blob" as const,
+          sha: input.blobShaByPath.get(file.path) ?? file.gitBlobSha1,
+        })),
+      }),
+    input.retryContext,
+    "snapshot-commit-created",
   );
   if (tree.sha !== input.manifest.gitRootTreeSha1) {
     throw new SnapshotProvisioningError(
@@ -198,16 +263,19 @@ export async function createSnapshotCommit(input: {
       false,
     );
   }
-  const commit = await withRetries(() =>
-    input.provider.createGitCommit({
-      owner: input.owner,
-      repo: input.repo,
-      message: `Initialize p-dev harness workspace snapshot (${input.manifest.packageVersion})`,
-      tree: tree.sha,
-      parents: [input.parentCommitSha],
-      author: commitIdentity,
-      committer: commitIdentity,
-    }),
+  const commit = await withRetries(
+    () =>
+      input.provider.createGitCommit({
+        owner: input.owner,
+        repo: input.repo,
+        message: `Initialize p-dev harness workspace snapshot (${input.manifest.packageVersion})`,
+        tree: tree.sha,
+        parents: [input.parentCommitSha],
+        author: commitIdentity,
+        committer: commitIdentity,
+      }),
+    input.retryContext,
+    "snapshot-commit-created",
   );
   return commit.sha;
 }
@@ -222,32 +290,39 @@ export async function createMarkerCommit(input: {
   markerContent: string;
   operationId: string;
   sourceCommit: string;
+  retryContext: ProvisioningRetryContext;
 }): Promise<string> {
   const commitIdentity = deriveProvisioningCommitIdentity({
     operationId: input.operationId,
     sourceCommit: input.sourceCommit,
   });
-  const markerBlob = await withRetries(() =>
-    input.provider.createGitBlob({
-      owner: input.owner,
-      repo: input.repo,
-      content: Buffer.from(input.markerContent, "utf8"),
-    }),
+  const markerBlob = await withRetries(
+    () =>
+      input.provider.createGitBlob({
+        owner: input.owner,
+        repo: input.repo,
+        content: Buffer.from(input.markerContent, "utf8"),
+      }),
+    input.retryContext,
+    "marker-pending",
   );
-  const markerTree = await withRetries(() =>
-    input.provider.createGitTree({
-      owner: input.owner,
-      repo: input.repo,
-      baseTree: input.snapshotTreeSha,
-      tree: [
-        {
-          path: HARNESS_MANAGED_REPO_MARKER_FILE,
-          mode: "100644",
-          type: "blob",
-          sha: markerBlob.sha,
-        },
-      ],
-    }),
+  const markerTree = await withRetries(
+    () =>
+      input.provider.createGitTree({
+        owner: input.owner,
+        repo: input.repo,
+        baseTree: input.snapshotTreeSha,
+        tree: [
+          {
+            path: HARNESS_MANAGED_REPO_MARKER_FILE,
+            mode: "100644",
+            type: "blob",
+            sha: markerBlob.sha,
+          },
+        ],
+      }),
+    input.retryContext,
+    "marker-pending",
   );
   if (markerTree.sha === input.snapshotTreeSha) {
     throw new SnapshotProvisioningError(
@@ -256,16 +331,19 @@ export async function createMarkerCommit(input: {
       false,
     );
   }
-  const markerCommit = await withRetries(() =>
-    input.provider.createGitCommit({
-      owner: input.owner,
-      repo: input.repo,
-      message: "Initialize p-dev managed harness workspace marker",
-      tree: markerTree.sha,
-      parents: [input.parentCommitSha],
-      author: commitIdentity,
-      committer: commitIdentity,
-    }),
+  const markerCommit = await withRetries(
+    () =>
+      input.provider.createGitCommit({
+        owner: input.owner,
+        repo: input.repo,
+        message: "Initialize p-dev managed harness workspace marker",
+        tree: markerTree.sha,
+        parents: [input.parentCommitSha],
+        author: commitIdentity,
+        committer: commitIdentity,
+      }),
+    input.retryContext,
+    "marker-pending",
   ).catch((error) => {
     throw new SnapshotProvisioningError(
       "marker-commit-failed",
@@ -281,15 +359,18 @@ export async function createMarkerCommit(input: {
   if (currentRef.object.sha === markerCommit.sha) {
     return markerCommit.sha;
   }
-  await withRetries(() =>
-    input.provider.updateGitRef({
-      owner: input.owner,
-      repo: input.repo,
-      ref: input.defaultBranch,
-      sha: markerCommit.sha,
-      force: false,
-      expectedSha: input.parentCommitSha,
-    }),
+  await withRetries(
+    () =>
+      input.provider.updateGitRef({
+        owner: input.owner,
+        repo: input.repo,
+        ref: input.defaultBranch,
+        sha: markerCommit.sha,
+        force: false,
+        expectedSha: input.parentCommitSha,
+      }),
+    input.retryContext,
+    "marker-pending",
   );
   return markerCommit.sha;
 }
@@ -545,6 +626,18 @@ export async function provisionHarnessWorkspaceFromSnapshot(input: {
 > {
   const owner = input.user.login;
   const { repo } = parseRepoSlug(`${owner}/${input.repoName}`);
+  const retryContext = createProvisioningRetryContext({
+    onRateLimitPause: (pauseSeconds, phase) => {
+      input.onProgress?.({
+        phase,
+        uploadedBlobs: input.pending?.snapshotCommitSha
+          ? input.manifest.fileCount
+          : 0,
+        totalBlobs: input.manifest.fileCount,
+        rateLimitPauseSeconds: pauseSeconds,
+      });
+    },
+  });
 
   if (input.pending?.repositoryId) {
     const identity = await verifyPendingRepositoryIdentity({
@@ -661,6 +754,7 @@ export async function provisionHarnessWorkspaceFromSnapshot(input: {
       repo,
       snapshotRoot: input.snapshotRoot,
       manifest: input.manifest,
+      retryContext,
       onProgress: input.onProgress,
     });
     snapshotCommitSha = await createSnapshotCommit({
@@ -671,18 +765,22 @@ export async function provisionHarnessWorkspaceFromSnapshot(input: {
       parentCommitSha: initializedCommitSha!,
       operationId: input.operationId,
       blobShaByPath,
+      retryContext,
     });
     const currentRef = await input.provider.getGitRef(owner, repo, resolvedDefaultBranch);
     if (currentRef.object.sha !== snapshotCommitSha) {
-      await withRetries(() =>
-        input.provider.updateGitRef({
-          owner,
-          repo,
-          ref: resolvedDefaultBranch,
-          sha: snapshotCommitSha!,
-          force: false,
-          expectedSha: initializedCommitSha,
-        }),
+      await withRetries(
+        () =>
+          input.provider.updateGitRef({
+            owner,
+            repo,
+            ref: resolvedDefaultBranch,
+            sha: snapshotCommitSha!,
+            force: false,
+            expectedSha: initializedCommitSha,
+          }),
+        retryContext,
+        "snapshot-commit-created",
       );
     }
     await input.onCheckpoint?.({
@@ -724,6 +822,7 @@ export async function provisionHarnessWorkspaceFromSnapshot(input: {
         markerContent: `${JSON.stringify(marker, null, 2)}\n`,
         operationId: input.operationId,
         sourceCommit: input.manifest.sourceCommit,
+        retryContext,
       });
     } catch (error) {
       if (error instanceof SnapshotProvisioningError && error.code === "marker-commit-failed") {

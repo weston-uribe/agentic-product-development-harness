@@ -26,6 +26,12 @@ For shipped history, see [CHANGELOG.md](CHANGELOG.md).
 - Improve multi-repo and team workflows
 - Automatic upgrade/synchronization of already-created private harness workspaces
 
+## Shipped in v0.3.1
+
+- Immutable embedded workspace snapshot provisioning in `p-dev-harness@0.3.1`
+- Package-owned GitHub git object provisioning without runtime template dependency
+- Shared upload rate-limit coordination with default concurrency 2
+
 ## Shipped in v0.3.0
 
 - Seven-step guided Configure GUI with confirmation-gated local and remote setup

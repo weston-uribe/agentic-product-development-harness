@@ -4,7 +4,7 @@ Modular design for an agentic product development harness. The architecture is *
 
 ## p-dev packaged operator shell
 
-**Status:** **Implemented** in v0.3.0 — public npm package `p-dev-harness@0.3.0`.
+**Status:** **Implemented** in v0.3.1 — public npm package `p-dev-harness@0.3.1`.
 
 **Purpose:** Launch the guided Configure GUI without cloning the source repository. Operators use a durable workspace (`~/.p-dev`, `P_DEV_HOME`, or `--workspace`) separate from the npm install directory.
 

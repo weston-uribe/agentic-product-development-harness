@@ -4,7 +4,7 @@
 
 The operator product is still called **p-dev**. The npm package is published as **`p-dev-harness`** because the registry rejected `p-dev` as too similar to the existing [`pdev`](https://www.npmjs.com/package/pdev) package.
 
-`p-dev` launches the guided **Configure GUI** without cloning the harness source repository. It is the primary product-manager path for v0.3.0.
+`p-dev` launches the guided **Configure GUI** without cloning the harness source repository. It is the primary product-manager path for **v0.3.1**.
 
 ## What p-dev is
 
@@ -12,7 +12,7 @@ The operator product is still called **p-dev**. The npm package is published as 
 
 - starts the seven-step Configure GUI locally
 - stores durable operator state under a workspace directory
-- can provision or reconnect a private `OWNER/p-dev-harness` workspace from the public template
+- can provision or reconnect a private `OWNER/p-dev-harness` workspace from the **embedded package snapshot** (0.3.1+) or reconnect legacy 0.3.0 managed workspaces
 - guides service credentials, Linear workspace/status setup, Vercel webhook bridge, target repos, local files, cloud secrets, and target workflow finalization
 
 It does **not** replace the source repository for harness development or contribution.
@@ -34,7 +34,7 @@ On non-macOS platforms, use `--no-open` and open the printed Configure URL manua
 Pinned release:
 
 ```bash
-npx --yes p-dev-harness@0.3.0
+npx --yes p-dev-harness@0.3.1
 ```
 
 Latest channel:
@@ -46,20 +46,20 @@ npx --yes p-dev-harness
 Do not open a browser automatically:
 
 ```bash
-npx --yes p-dev-harness@0.3.0 --no-open
+npx --yes p-dev-harness@0.3.1 --no-open
 ```
 
 Use a custom workspace directory:
 
 ```bash
-npx --yes p-dev-harness@0.3.0 --workspace /path/to/workspace
+npx --yes p-dev-harness@0.3.1 --workspace /path/to/workspace
 ```
 
 Or set `P_DEV_HOME`:
 
 ```bash
 export P_DEV_HOME=/path/to/workspace
-npx --yes p-dev-harness@0.3.0
+npx --yes p-dev-harness@0.3.1
 ```
 
 Default workspace when neither flag nor env is set: `~/.p-dev`.
@@ -104,15 +104,22 @@ Step 1 helper text: *"Use a classic GitHub personal access token with repo and w
 
 Do not commit tokens. Secret values never belong in docs, git, or PR comments.
 
-## Public template dependency
+## Embedded workspace snapshot (0.3.1+)
 
-Packaged setup provisions or reconnects a private harness workspace from:
+Fresh private harness workspaces are provisioned from the **immutable embedded workspace snapshot** inside the exact `p-dev-harness@X.Y.Z` npm package you install:
 
-- Template: `weston-uribe/p-dev-harness-template` (public GitHub template)
-- Destination: private `{OWNER}/p-dev-harness`
-- Identity file: `.harness/p-dev-template.json`
+- Snapshot manifest: `workspace-snapshot/manifest.json` in the published tarball
+- Provisioning uses GitHub git object APIs (`createUserRepository` + blob/tree/commit)
+- Marker v3 records `createdFromPackageSnapshot` provenance tied to the embedded manifest
+- Package version and snapshot identity are bound — reinstalling a different package version does not silently rewrite an existing workspace
 
-The template must remain public, marked as a GitHub template, and compatible with the `p-dev` release you install.
+**First-time provisioning can take several minutes** while hundreds of snapshot blobs upload. Configure shows upload progress. If GitHub rate-limits the upload, the harness coordinates a shared pause and retries automatically.
+
+Optional advanced override: `HARNESS_SNAPSHOT_UPLOAD_CONCURRENCY` (integer `1`–`4`; default `2`). Ordinary users do not need to set this.
+
+### Legacy 0.3.0 reconnect
+
+Valid existing managed workspaces created by `p-dev-harness@0.3.0` from `weston-uribe/p-dev-harness-template` reconnect without content rewrite. The public template is a **frozen legacy compatibility artifact** for 0.3.0 only — it is not used for 0.3.1+ fresh provisioning and does not need to remain available for new 0.3.1 installs.
 
 ## Seven guided setup stages
 
@@ -154,6 +161,7 @@ This automation applies to **system-owned setup PRs only**. Ordinary product imp
 | Browser does not open | Use `--no-open` and open the printed URL manually |
 | Step 6 blocked | Ensure harness dispatch repo is resolved (packaged provisioning or explicit config) |
 | Fine-grained PAT at Step 1 | Use classic `repo` + `workflow` for packaged provisioning; fine-grained may work for later steps with per-repo permissions |
+| Slow first provisioning | Normal for 0.3.1+ snapshot upload; wait for progress to complete; rate-limit pauses retry automatically |
 | Port in use | `p-dev` scans from port 3000; use the URL printed in the terminal |
 
 ### Uninstall npm execution artifacts without deleting operator state
@@ -179,8 +187,7 @@ Operator workspace files under `P_DEV_HOME` or `~/.p-dev` are separate from npm 
 - **Linear / GitHub / GitHub Actions / Vercel** stack only
 - **macOS validated** for packaged browser auto-launch; other platforms use `--no-open`
 - **No full real issue lifecycle** has been run from an isolated npm-installed workspace — setup completion is validated; end-to-end issue runs from a fresh npm install are not
-- **No automatic upgrade/sync** of an already-created private harness workspace unless the product implements it
-- **Public template compatibility** — provisioning depends on `weston-uribe/p-dev-harness-template` provenance
+- **No automatic upgrade/sync** of an already-created private harness workspace to a newer package snapshot
 - **Not production-grade SaaS** or provider-agnostic
 - Manual eval rubrics remain where automation is not implemented
 
@@ -199,7 +206,7 @@ See [`docs/getting-started.md`](getting-started.md) and [`README.md`](../README.
 
 ## Related docs
 
-- Release contract: [`docs/releases/v0.3.0.md`](releases/v0.3.0.md)
+- Release contract: [`docs/releases/v0.3.1.md`](releases/v0.3.1.md)
 - Local GUI (source): [`docs/gui-local.md`](gui-local.md)
 - Remote setup: [`docs/gui-remote-setup.md`](gui-remote-setup.md)
 - Security: [`docs/security.md`](security.md)

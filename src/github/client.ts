@@ -1,13 +1,45 @@
 import { redactSecretsString } from "../artifacts/redact.js";
+import {
+  extractGitHubRateLimitMetadata,
+  type GitHubRateLimitMetadata,
+} from "./rate-limit-metadata.js";
+
+export type { GitHubRateLimitMetadata };
 
 export class GitHubApiError extends Error {
   readonly status: number;
+  readonly retryAfterSeconds?: number;
+  readonly rateLimitRemaining?: number;
+  readonly rateLimitResetEpochSeconds?: number;
+  readonly requestId?: string;
 
-  constructor(status: number, message: string) {
+  constructor(
+    status: number,
+    message: string,
+    metadata?: GitHubRateLimitMetadata,
+  ) {
     super(message);
     this.name = "GitHubApiError";
     this.status = status;
+    if (metadata) {
+      this.retryAfterSeconds = metadata.retryAfterSeconds;
+      this.rateLimitRemaining = metadata.rateLimitRemaining;
+      this.rateLimitResetEpochSeconds = metadata.rateLimitResetEpochSeconds;
+      this.requestId = metadata.requestId;
+    }
   }
+}
+
+function createGitHubApiError(
+  status: number,
+  rawBody: string,
+  headers?: Headers,
+): GitHubApiError {
+  const message = redactSecretsString(
+    rawBody || `GitHub API request failed: ${status}`,
+  );
+  const metadata = headers ? extractGitHubRateLimitMetadata(headers) : undefined;
+  return new GitHubApiError(status, message, metadata);
 }
 
 export interface GitHubClientOptions {
@@ -225,10 +257,7 @@ export class GitHubClient {
 
     if (!response.ok) {
       const text = await response.text();
-      const message = redactSecretsString(
-        text || `GitHub API request failed: ${response.status}`,
-      );
-      throw new GitHubApiError(response.status, message);
+      throw createGitHubApiError(response.status, text, response.headers);
     }
 
     const text = await response.text();
@@ -256,10 +285,7 @@ export class GitHubClient {
 
     if (!response.ok) {
       const text = await response.text();
-      const message = redactSecretsString(
-        text || `GitHub GraphQL request failed: ${response.status}`,
-      );
-      throw new GitHubApiError(response.status, message);
+      throw createGitHubApiError(response.status, text, response.headers);
     }
 
     const payload = (await response.json()) as GraphQLResponse<T>;
@@ -296,10 +322,7 @@ export class GitHubClient {
 
     const text = await response.text();
     if (!response.ok) {
-      const message = redactSecretsString(
-        text || `GitHub API request failed: ${response.status}`,
-      );
-      throw new GitHubApiError(response.status, message);
+      throw createGitHubApiError(response.status, text, response.headers);
     }
 
     const payload = JSON.parse(text) as { login: string };

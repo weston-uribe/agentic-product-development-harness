@@ -142,6 +142,12 @@ export function preserveGitHubSetupError(error: unknown): Error {
     return new GitHubApiError(
       error.status,
       formatGitHubApiErrorMessage(error.status, error.message),
+      {
+        retryAfterSeconds: error.retryAfterSeconds,
+        rateLimitRemaining: error.rateLimitRemaining,
+        rateLimitResetEpochSeconds: error.rateLimitResetEpochSeconds,
+        requestId: error.requestId,
+      },
     );
   }
   return new Error(sanitizeGitHubSetupError(error));
