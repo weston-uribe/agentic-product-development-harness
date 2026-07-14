@@ -226,6 +226,7 @@ const result = await (async () => {
 ${source}
 })();
 console.log(JSON.stringify(result ?? {}));
+process.exit(0);
 `,
         "utf8",
       );
