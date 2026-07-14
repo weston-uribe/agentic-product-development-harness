@@ -1,10 +1,10 @@
 import { execFileSync } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const repoRoot = path.resolve(
@@ -69,8 +69,8 @@ describe.skipIf(!isCleanEnoughForPackagePack())(
     let tarballPath = "";
     let installDir = "";
     let packageRoot = "";
-    let facadePath = "";
-    let posthogAdapterPath = "";
+    let facadeUrl = "";
+    let posthogAdapterUrl = "";
     let sentryRequests: string[] = [];
     let posthogRequests: string[] = [];
     let sentryServer: Server;
@@ -102,11 +102,12 @@ describe.skipIf(!isCleanEnoughForPackagePack())(
         },
       );
       packageRoot = path.join(installDir, "node_modules", "p-dev-harness");
-      facadePath = path.join(packageRoot, "dist/observability/facade.js");
-      posthogAdapterPath = path.join(
-        packageRoot,
-        "dist/observability/adapters/posthog.js",
-      );
+      facadeUrl = pathToFileURL(
+        path.join(packageRoot, "dist/observability/facade.js"),
+      ).href;
+      posthogAdapterUrl = pathToFileURL(
+        path.join(packageRoot, "dist/observability/adapters/posthog.js"),
+      ).href;
 
       const sentryCollector = await listen((body) => {
         sentryRequests.push(body);
@@ -132,111 +133,98 @@ describe.skipIf(!isCleanEnoughForPackagePack())(
       }
     });
 
-    async function runInstalledHarness(
-      body: string,
-      env: Record<string, string>,
-    ): Promise<void> {
-      const scriptDir = await mkdtemp(path.join(os.tmpdir(), "p-dev-harness-run-"));
-      const scriptPath = path.join(scriptDir, "installed-observability.mjs");
-      await writeFile(scriptPath, body, "utf8");
-      try {
-        execFileSync(process.execPath, [scriptPath], {
-          cwd: scriptDir,
-          env: { ...process.env, ...env },
-          encoding: "utf8",
-          timeout: 30_000,
+    it(
+      "validates the installed Sentry adapter through the packaged facade",
+      async () => {
+        expect(existsSync(tarballPath)).toBe(true);
+
+        const workspaceDir = await mkdtemp(
+          path.join(os.tmpdir(), "p-dev-installed-home-"),
+        );
+        sentryRequests = [];
+
+        const previousEnv = {
+          P_DEV_RUNTIME_MODE: process.env.P_DEV_RUNTIME_MODE,
+          P_DEV_PACKAGE_VERSION: process.env.P_DEV_PACKAGE_VERSION,
+          P_DEV_HOME: process.env.P_DEV_HOME,
+          P_DEV_SENTRY_DSN: process.env.P_DEV_SENTRY_DSN,
+        };
+        process.env.P_DEV_RUNTIME_MODE = "packaged";
+        process.env.P_DEV_PACKAGE_VERSION = "0.3.1";
+        process.env.P_DEV_HOME = workspaceDir;
+        process.env.P_DEV_SENTRY_DSN = `http://public@127.0.0.1:${sentryPort}/1`;
+
+        const {
+          beginObservabilitySession,
+          writeObservabilityPreferences,
+          captureProductError,
+          flushObservability,
+          shutdownObservability,
+        } = await import(facadeUrl);
+
+        await beginObservabilitySession({
+          workspaceDir,
+          moduleUrl: facadeUrl,
+          env: process.env,
         });
-      } finally {
-        await rm(scriptDir, { recursive: true, force: true });
-      }
-    }
+        await writeObservabilityPreferences(workspaceDir, {
+          errorReportingPreference: "enabled",
+          disclosureShown: true,
+        });
+        captureProductError({
+          lifecyclePhase: "configure_route",
+          productErrorCode: "installed_tarball_probe",
+          errorCategory: "server",
+        });
+        await flushObservability(2_000);
+        await shutdownObservability();
 
-    it("validates the installed Sentry adapter through the packaged facade", async () => {
-      expect(existsSync(tarballPath)).toBe(true);
-      expect(existsSync(facadePath)).toBe(true);
+        process.env.P_DEV_RUNTIME_MODE = previousEnv.P_DEV_RUNTIME_MODE;
+        process.env.P_DEV_PACKAGE_VERSION = previousEnv.P_DEV_PACKAGE_VERSION;
+        process.env.P_DEV_HOME = previousEnv.P_DEV_HOME;
+        process.env.P_DEV_SENTRY_DSN = previousEnv.P_DEV_SENTRY_DSN;
 
-      const workspaceDir = await mkdtemp(
-        path.join(os.tmpdir(), "p-dev-installed-home-"),
-      );
-      sentryRequests = [];
+        await rm(workspaceDir, { recursive: true, force: true });
 
-      await runInstalledHarness(
-        `
-import {
-  beginObservabilitySession,
-  writeObservabilityPreferences,
-  captureProductError,
-  flushObservability,
-  shutdownObservability,
-} from ${JSON.stringify(facadePath)};
+        expect(sentryRequests.length).toBeGreaterThanOrEqual(1);
+        const sentryBody = sentryRequests.join("\n");
+        expect(sentryBody).toContain("installed_tarball_probe");
+        expect(sentryBody).not.toContain("ghp_");
+      },
+      30_000,
+    );
 
-const workspaceDir = ${JSON.stringify(workspaceDir)};
-await beginObservabilitySession({
-  workspaceDir,
-  moduleUrl: ${JSON.stringify(facadePath)},
-  env: process.env,
-});
-await writeObservabilityPreferences(workspaceDir, {
-  errorReportingPreference: "enabled",
-  disclosureShown: true,
-});
-captureProductError({
-  lifecyclePhase: "configure_route",
-  productErrorCode: "installed_tarball_probe",
-  errorCategory: "server",
-});
-await flushObservability(2_000);
-await shutdownObservability();
-`,
-        {
-          P_DEV_RUNTIME_MODE: "packaged",
-          P_DEV_PACKAGE_VERSION: "0.3.1",
-          P_DEV_HOME: workspaceDir,
-          P_DEV_SENTRY_DSN: `http://public@127.0.0.1:${sentryPort}/1`,
-        },
-      );
+    it(
+      "validates the installed PostHog adapter module against a loopback collector",
+      async () => {
+        posthogRequests = [];
 
-      await rm(workspaceDir, { recursive: true, force: true });
+        const { createPostHogAnalyticsTransport } = await import(
+          posthogAdapterUrl
+        );
+        const transport = createPostHogAnalyticsTransport({
+          projectToken: "phc_installed_tarball_test",
+          host: `http://127.0.0.1:${posthogPort}`,
+        });
+        transport.capture({
+          event: "p_dev_session_started",
+          properties: {
+            distinct_id: "installed_tarball_install_id",
+            $process_person_profile: false,
+            session_id: "installed_tarball_session",
+          },
+        });
+        await transport.flush(5_000);
+        await transport.shutdown({ deadlineMs: 5_000, flush: true });
 
-      expect(sentryRequests.length).toBeGreaterThanOrEqual(1);
-      const sentryBody = sentryRequests.join("\n");
-      expect(sentryBody).toContain("installed_tarball_probe");
-      expect(sentryBody).not.toContain("ghp_");
-    });
-
-    it("validates the installed PostHog adapter module against a loopback collector", async () => {
-      posthogRequests = [];
-
-      await runInstalledHarness(
-        `
-import { createPostHogAnalyticsTransport } from ${JSON.stringify(posthogAdapterPath)};
-
-const transport = createPostHogAnalyticsTransport({
-  projectToken: "phc_installed_tarball_test",
-  host: process.env.P_DEV_POSTHOG_HOST,
-});
-transport.capture({
-  event: "p_dev_session_started",
-  properties: {
-    distinct_id: "installed_tarball_install_id",
-    $process_person_profile: false,
-    session_id: "installed_tarball_session",
-  },
-});
-await transport.flush(5_000);
-await transport.shutdown({ deadlineMs: 5_000, flush: true });
-`,
-        {
-          P_DEV_POSTHOG_HOST: `http://127.0.0.1:${posthogPort}`,
-        },
-      );
-
-      expect(posthogRequests.length).toBeGreaterThanOrEqual(1);
-      const posthogBody = posthogRequests.join("\n");
-      expect(posthogBody).toContain("phc_installed_tarball_test");
-      expect(posthogBody).toContain("p_dev_session_started");
-      expect(posthogBody).toContain("$process_person_profile");
-      expect(posthogBody).not.toContain("ghp_");
-    });
+        expect(posthogRequests.length).toBeGreaterThanOrEqual(1);
+        const posthogBody = posthogRequests.join("\n");
+        expect(posthogBody).toContain("phc_installed_tarball_test");
+        expect(posthogBody).toContain("p_dev_session_started");
+        expect(posthogBody).toContain("$process_person_profile");
+        expect(posthogBody).not.toContain("ghp_");
+      },
+      30_000,
+    );
   },
 );
