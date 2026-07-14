@@ -1,8 +1,14 @@
 import { readExistingEnvFile } from "./env-merge.js";
 import { readControlPlaneSetupState } from "./control-plane-setup-state.js";
 import type { ControlPlaneSetupState } from "./control-plane-types.js";
+import {
+  deriveVercelBridgeOrchestrationSummary,
+  type VercelBridgeOrchestrationSummary,
+} from "./vercel-bridge-orchestration-summary.js";
 import { deriveVercelBridgeReadiness } from "./vercel-bridge-readiness.js";
 import { resolveLocalFilePaths } from "./setup-state.js";
+
+export type { VercelBridgeOrchestrationSummary } from "./vercel-bridge-orchestration-summary.js";
 
 export interface VercelSetupSummary {
   controlPlane: ControlPlaneSetupState | null;
@@ -10,6 +16,7 @@ export interface VercelSetupSummary {
   linearApiKeyConfigured: boolean;
   readiness: ReturnType<typeof deriveVercelBridgeReadiness>;
   linearTeamKey?: string;
+  orchestration?: VercelBridgeOrchestrationSummary;
 }
 
 export async function buildVercelSetupSummary(
@@ -19,6 +26,7 @@ export async function buildVercelSetupSummary(
   const existingEnv = await readExistingEnvFile(paths);
   const controlPlane = await readControlPlaneSetupState(cwd);
   const vercel = controlPlane?.vercel;
+  const orchestration = deriveVercelBridgeOrchestrationSummary(controlPlane);
 
   const readiness = deriveVercelBridgeReadiness({
     projectId: vercel?.projectId,
@@ -30,6 +38,7 @@ export async function buildVercelSetupSummary(
     signedProbeVerified: vercel?.signedProbeVerified,
     deploymentRedeployRequired: vercel?.deploymentRedeployRequired,
     manualComplete: vercel?.manualComplete,
+    orchestrationActive: orchestration?.active,
   });
 
   return {
@@ -38,5 +47,6 @@ export async function buildVercelSetupSummary(
     linearApiKeyConfigured: Boolean(existingEnv?.presence.LINEAR_API_KEY),
     readiness,
     linearTeamKey: controlPlane?.linear?.teamKey,
+    orchestration,
   };
 }

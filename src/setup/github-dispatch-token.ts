@@ -23,7 +23,7 @@ export async function assessGitHubDispatchTokenEligibility(input: {
       eligible: false,
       source: "manual-required",
       message:
-        "Add GITHUB_TOKEN in Step 1 or provide a dispatch token manually in Step 3.",
+        "Add GITHUB_TOKEN in Step 1 with Contents write access to the harness dispatch repository.",
     };
   }
 

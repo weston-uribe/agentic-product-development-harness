@@ -28,6 +28,11 @@ export interface VercelBridgeStructuredLogEvent {
   pollStatus?: string;
   verifyAttempted?: boolean;
   verifyOnly?: boolean;
+  orchestrationPhase?: string;
+  verificationAttemptCount?: number;
+  maxVerificationAttempts?: number;
+  verificationClaimId?: string;
+  verificationFailureClass?: string;
   signedProbeResult?: string;
   signedProbeReason?: string;
   signedProbeStatusCode?: number;

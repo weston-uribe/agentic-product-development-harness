@@ -37,6 +37,23 @@ export type VercelBridgeRedeployVerificationStatus =
   | "verify_failed"
   | "verified";
 
+export type VercelBridgeOrchestrationPhase =
+  | "triggered"
+  | "building"
+  | "waiting_for_ready"
+  | "verifying"
+  | "retry_wait"
+  | "verified"
+  | "terminal";
+
+export type VercelBridgeVerificationFailureClass = "retryable" | "terminal";
+
+export interface VercelBridgeVerificationClaim {
+  attemptNumber: number;
+  claimId: string;
+  claimedAt: string;
+}
+
 export type VercelBridgeCandidateSecretSource =
   | "operator"
   | "reused-readable"
@@ -80,7 +97,15 @@ export interface VercelBridgeRedeployVerification {
   startedAt: string;
   updatedAt: string;
   deadlineAt: string;
-  verifyAttempted: boolean;
+  verifyAttempted?: boolean;
+  phase?: VercelBridgeOrchestrationPhase;
+  verificationAttemptCount?: number;
+  maxVerificationAttempts?: number;
+  verificationClaim?: VercelBridgeVerificationClaim;
+  lastVerificationAttemptAt?: string;
+  nextVerificationAttemptAt?: string;
+  lastVerificationFailureReason?: string;
+  lastVerificationFailureClass?: VercelBridgeVerificationFailureClass;
   completedAt?: string;
   message?: string;
   blockedMessage?: string;

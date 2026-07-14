@@ -240,7 +240,7 @@ export async function buildVercelBridgeDiagnosticReport(input: {
       fingerprint: pending.fingerprint,
       sourceDeploymentIdPresent: Boolean(pending.sourceDeploymentId?.trim()),
       newDeploymentIdPresent: Boolean(pending.newDeploymentId?.trim()),
-      verifyAttempted: pending.verifyAttempted,
+      verifyAttempted: Boolean(pending.verifyAttempted),
       blockedMessage: pending.blockedMessage,
       blockedNextSteps: pending.blockedNextSteps,
       writtenEnvKeys: pending.writtenEnvKeys,

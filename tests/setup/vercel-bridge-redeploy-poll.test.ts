@@ -45,6 +45,26 @@ vi.mock("../../src/setup/control-plane-setup-state.js", () => ({
   readControlPlaneSetupState: vi.fn(),
 }));
 
+vi.mock("../../src/setup/control-plane-state-lock.js", () => {
+  let lockQueue = Promise.resolve();
+  return {
+    withControlPlaneStateLock: vi.fn(
+      async (_cwd: string | undefined, fn: () => Promise<unknown>) => {
+        const run = lockQueue.then(() => fn());
+        lockQueue = run.then(
+          () => undefined,
+          () => undefined,
+        );
+        return run;
+      },
+    ),
+    acquireControlPlaneStateLock: vi.fn(),
+    __resetControlPlaneStateLockQueue: () => {
+      lockQueue = Promise.resolve();
+    },
+  };
+});
+
 vi.mock("../../src/setup/vercel-production-redeploy.js", async (importOriginal) => {
   const actual =
     await importOriginal<
@@ -173,6 +193,12 @@ describe("vercel-bridge-redeploy-poll", () => {
     await mkdir(path.join(tempRoot, ".harness"), { recursive: true });
 
     vi.clearAllMocks();
+    const lockModule = await import("../../src/setup/control-plane-state-lock.js");
+    (
+      lockModule as typeof lockModule & {
+        __resetControlPlaneStateLockQueue?: () => void;
+      }
+    ).__resetControlPlaneStateLockQueue?.();
     storedState = {
       version: 1,
       linear: {
@@ -437,7 +463,33 @@ describe("vercel-bridge-redeploy-poll", () => {
     );
   });
 
-  it("returns setupBlocked when post-redeploy verifyOnly retry still fails", async () => {
+  it("returns setupBlocked when post-redeploy verifyOnly retry fails terminally", async () => {
+    vi.mocked(inspectProductionRedeployStatus).mockResolvedValue({
+      status: "ready",
+      sourceDeploymentId: "dpl-source-1",
+      newDeploymentId: "dpl-new-1",
+      message: "Production redeploy completed and deployment is READY.",
+    });
+    vi.mocked(runSignedWebhookProbe).mockResolvedValue({
+      passed: false,
+      result: "protection_redirect",
+      reason: "vercel_protection",
+      probedAt: new Date().toISOString(),
+    });
+
+    const result = await pollVercelBridgeRedeployVerification({
+      actionId: "vercel-redeploy-test",
+      cwd: tempRoot,
+    });
+
+    expect(result.setupBlocked?.message).toMatch(
+      /signed webhook delivery verification still failed/i,
+    );
+    expect(result.setupPending).toBe(false);
+    expect(result.verified).toBe(false);
+  });
+
+  it("schedules another verify attempt after a retryable failure", async () => {
     vi.mocked(inspectProductionRedeployStatus).mockResolvedValue({
       status: "ready",
       sourceDeploymentId: "dpl-source-1",
@@ -456,11 +508,9 @@ describe("vercel-bridge-redeploy-poll", () => {
       cwd: tempRoot,
     });
 
-    expect(result.setupBlocked?.message).toMatch(
-      /Production redeploy completed, but signed webhook delivery verification still failed/i,
-    );
-    expect(result.setupPending).toBe(false);
-    expect(result.verified).toBe(false);
+    expect(result.setupPending).toBe(true);
+    expect(result.orchestrationPhase).toBe("retry_wait");
+    expect(result.verificationAttemptCount).toBe(1);
   });
 
   it("returns timeout setupBlocked and keeps retry visible", async () => {
