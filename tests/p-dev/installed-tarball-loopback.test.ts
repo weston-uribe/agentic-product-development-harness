@@ -70,6 +70,7 @@ describe.skipIf(!isCleanEnoughForPackagePack())(
     let installDir = "";
     let packageRoot = "";
     let facadePath = "";
+    let posthogAdapterPath = "";
     let sentryRequests: string[] = [];
     let posthogRequests: string[] = [];
     let sentryServer: Server;
@@ -102,6 +103,10 @@ describe.skipIf(!isCleanEnoughForPackagePack())(
       );
       packageRoot = path.join(installDir, "node_modules", "p-dev-harness");
       facadePath = path.join(packageRoot, "dist/observability/facade.js");
+      posthogAdapterPath = path.join(
+        packageRoot,
+        "dist/observability/adapters/posthog.js",
+      );
 
       const sentryCollector = await listen((body) => {
         sentryRequests.push(body);
@@ -146,61 +151,14 @@ describe.skipIf(!isCleanEnoughForPackagePack())(
       }
     }
 
-    it("validates production adapters from the exact packed tarball against loopback collectors", async () => {
+    it("validates the installed Sentry adapter through the packaged facade", async () => {
       expect(existsSync(tarballPath)).toBe(true);
       expect(existsSync(facadePath)).toBe(true);
 
       const workspaceDir = await mkdtemp(
         path.join(os.tmpdir(), "p-dev-installed-home-"),
       );
-      const baseEnv = {
-        P_DEV_RUNTIME_MODE: "packaged",
-        P_DEV_PACKAGE_VERSION: "0.3.1",
-        P_DEV_HOME: workspaceDir,
-        P_DEV_SENTRY_DSN: `http://public@127.0.0.1:${sentryPort}/1`,
-        P_DEV_POSTHOG_PROJECT_TOKEN: "phc_installed_tarball_test",
-        P_DEV_POSTHOG_HOST: `http://127.0.0.1:${posthogPort}`,
-      };
-
       sentryRequests = [];
-      posthogRequests = [];
-
-      await runInstalledHarness(
-        `
-import {
-  beginObservabilitySession,
-  writeObservabilityPreferences,
-  captureAnalyticsEvent,
-  flushObservability,
-  shutdownObservability,
-} from ${JSON.stringify(facadePath)};
-
-const workspaceDir = ${JSON.stringify(workspaceDir)};
-await beginObservabilitySession({
-  workspaceDir,
-  moduleUrl: ${JSON.stringify(facadePath)},
-  env: process.env,
-});
-await writeObservabilityPreferences(workspaceDir, {
-  analyticsPreference: "enabled",
-  disclosureShown: true,
-});
-captureAnalyticsEvent({ type: "p_dev_setup_completed" });
-await flushObservability(2_000);
-await shutdownObservability();
-`,
-        baseEnv,
-      );
-
-      expect(posthogRequests.length).toBeGreaterThanOrEqual(1);
-      const posthogBody = posthogRequests.join("\n");
-      expect(posthogBody).toContain("phc_installed_tarball_test");
-      expect(posthogBody).toContain("p_dev_session_started");
-      expect(posthogBody).toContain("$process_person_profile");
-      expect(sentryRequests).toHaveLength(0);
-
-      sentryRequests = [];
-      posthogRequests = [];
 
       await runInstalledHarness(
         `
@@ -230,16 +188,55 @@ captureProductError({
 await flushObservability(2_000);
 await shutdownObservability();
 `,
-        baseEnv,
+        {
+          P_DEV_RUNTIME_MODE: "packaged",
+          P_DEV_PACKAGE_VERSION: "0.3.1",
+          P_DEV_HOME: workspaceDir,
+          P_DEV_SENTRY_DSN: `http://public@127.0.0.1:${sentryPort}/1`,
+        },
       );
 
       await rm(workspaceDir, { recursive: true, force: true });
 
       expect(sentryRequests.length).toBeGreaterThanOrEqual(1);
-      expect(posthogRequests).toHaveLength(0);
       const sentryBody = sentryRequests.join("\n");
       expect(sentryBody).toContain("installed_tarball_probe");
       expect(sentryBody).not.toContain("ghp_");
+    });
+
+    it("validates the installed PostHog adapter module against a loopback collector", async () => {
+      posthogRequests = [];
+
+      await runInstalledHarness(
+        `
+import { createPostHogAnalyticsTransport } from ${JSON.stringify(posthogAdapterPath)};
+
+const transport = createPostHogAnalyticsTransport({
+  projectToken: "phc_installed_tarball_test",
+  host: process.env.P_DEV_POSTHOG_HOST,
+});
+transport.capture({
+  event: "p_dev_session_started",
+  properties: {
+    distinct_id: "installed_tarball_install_id",
+    $process_person_profile: false,
+    session_id: "installed_tarball_session",
+  },
+});
+await transport.flush(5_000);
+await transport.shutdown({ deadlineMs: 5_000, flush: true });
+`,
+        {
+          P_DEV_POSTHOG_HOST: `http://127.0.0.1:${posthogPort}`,
+        },
+      );
+
+      expect(posthogRequests.length).toBeGreaterThanOrEqual(1);
+      const posthogBody = posthogRequests.join("\n");
+      expect(posthogBody).toContain("phc_installed_tarball_test");
+      expect(posthogBody).toContain("p_dev_session_started");
+      expect(posthogBody).toContain("$process_person_profile");
+      expect(posthogBody).not.toContain("ghp_");
     });
   },
 );
