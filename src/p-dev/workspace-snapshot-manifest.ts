@@ -10,6 +10,10 @@ import {
 } from "./workspace-snapshot-types.js";
 import { P_DEV_PACKAGE_NAME } from "./package-paths.js";
 import {
+  isForbiddenSnapshotPath,
+  normalizeSnapshotPath,
+} from "./workspace-snapshot-policy.js";
+import {
   computeSnapshotContentId,
   computeSnapshotFileSha256,
   computeSnapshotRootTreeSha1,
@@ -62,7 +66,7 @@ export function buildWorkspaceSnapshotManifest(input: {
     generation: {
       format: WORKSPACE_SNAPSHOT_FORMAT,
       version: WORKSPACE_SNAPSHOT_FORMAT_VERSION,
-      pathOrdering: "lexicographic",
+      pathOrdering: "utf8-bytes",
       digestAlgorithm: "sha256",
       modeSource: "git-ls-tree",
       byteSource: "git-cat-file",
@@ -157,11 +161,37 @@ export function parseWorkspaceSnapshotManifestJson(
   if (!record.generation || typeof record.generation !== "object") {
     return { ok: false, reason: "Workspace snapshot manifest is missing generation metadata." };
   }
+  const generation = record.generation as Record<string, unknown>;
+  if (generation.format !== WORKSPACE_SNAPSHOT_FORMAT) {
+    return {
+      ok: false,
+      reason: `Unsupported workspace snapshot generation format ${String(generation.format)}.`,
+    };
+  }
+  if (generation.version !== WORKSPACE_SNAPSHOT_FORMAT_VERSION) {
+    return {
+      ok: false,
+      reason: `Unsupported workspace snapshot generation version ${String(generation.version)}.`,
+    };
+  }
+  if (generation.pathOrdering !== "utf8-bytes") {
+    return {
+      ok: false,
+      reason: `Unsupported workspace snapshot path ordering ${String(generation.pathOrdering)}.`,
+    };
+  }
+  if (generation.digestAlgorithm !== "sha256") {
+    return {
+      ok: false,
+      reason: `Unsupported workspace snapshot digest algorithm ${String(generation.digestAlgorithm)}.`,
+    };
+  }
   if (!Array.isArray(record.files)) {
     return { ok: false, reason: "Workspace snapshot manifest is missing files." };
   }
 
   const files: WorkspaceSnapshotManifestFile[] = [];
+  const seenPaths = new Set<string>();
   for (const file of record.files) {
     if (!file || typeof file !== "object") {
       return { ok: false, reason: "Workspace snapshot manifest contains an invalid file entry." };
@@ -185,14 +215,52 @@ export function parseWorkspaceSnapshotManifestJson(
     if (typeof fileRecord.gitBlobSha1 !== "string" || !/^[0-9a-f]{40}$/.test(fileRecord.gitBlobSha1)) {
       return { ok: false, reason: `Snapshot file ${fileRecord.path} is missing gitBlobSha1.` };
     }
-    files.push({
-      path: fileRecord.path,
-      type: fileRecord.type,
-      mode: fileRecord.mode,
-      size: fileRecord.size,
-      sha256: fileRecord.sha256,
-      gitBlobSha1: fileRecord.gitBlobSha1,
-    });
+    let normalizedPath: string;
+    try {
+      normalizedPath = normalizeSnapshotPath(String(fileRecord.path));
+    } catch {
+      return { ok: false, reason: `Snapshot file path is not canonical: ${String(fileRecord.path)}` };
+    }
+    if (normalizedPath !== fileRecord.path) {
+      return {
+        ok: false,
+        reason: `Snapshot file path is not canonical: ${String(fileRecord.path)}`,
+      };
+    }
+    if (seenPaths.has(normalizedPath)) {
+      return { ok: false, reason: `Duplicate snapshot path: ${normalizedPath}` };
+    }
+    seenPaths.add(normalizedPath);
+    if (isForbiddenSnapshotPath(normalizedPath)) {
+      return { ok: false, reason: `Forbidden snapshot path: ${normalizedPath}` };
+    }
+    const candidate = {
+      path: fileRecord.path as string,
+      type: fileRecord.type as WorkspaceSnapshotManifestFile["type"],
+      mode: fileRecord.mode as string,
+      size: fileRecord.size as number,
+      sha256: fileRecord.sha256 as string,
+      gitBlobSha1: fileRecord.gitBlobSha1 as string,
+    };
+    if (candidate.type === "file" && candidate.mode !== "100644" && candidate.mode !== "100755") {
+      return {
+        ok: false,
+        reason: `Snapshot file ${candidate.path} has invalid file mode ${candidate.mode}.`,
+      };
+    }
+    if (candidate.type === "symlink" && candidate.mode !== "120000") {
+      return {
+        ok: false,
+        reason: `Snapshot symlink ${candidate.path} must use mode 120000.`,
+      };
+    }
+    if (!["100644", "100755", "120000"].includes(candidate.mode)) {
+      return {
+        ok: false,
+        reason: `Unsupported snapshot mode ${candidate.mode} for ${candidate.path}.`,
+      };
+    }
+    files.push(candidate);
   }
 
   const manifest: WorkspaceSnapshotManifest = {

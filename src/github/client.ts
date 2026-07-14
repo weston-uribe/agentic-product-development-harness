@@ -34,6 +34,7 @@ export interface GitHubRepository {
   id?: number;
   name?: string;
   full_name?: string;
+  description?: string | null;
   private?: boolean;
   visibility?: string;
   is_template?: boolean;
@@ -80,6 +81,12 @@ export interface GitHubGitTree {
   sha: string;
   tree: GitHubGitTreeEntry[];
   truncated?: boolean;
+}
+
+export interface GitHubGitCommitAuthor {
+  name: string;
+  email: string;
+  date: string;
 }
 
 export interface GitHubGitCommit {
@@ -568,6 +575,19 @@ export class GitHubClient {
     });
   }
 
+  async updateUserRepository(input: {
+    owner: string;
+    repo: string;
+    description: string;
+  }): Promise<GitHubRepository> {
+    return this.request<GitHubRepository>(`/repos/${input.owner}/${input.repo}`, {
+      method: "PATCH",
+      body: {
+        description: input.description,
+      },
+    });
+  }
+
   async createGitBlob(input: {
     owner: string;
     repo: string;
@@ -585,11 +605,13 @@ export class GitHubClient {
   async createGitTree(input: {
     owner: string;
     repo: string;
+    baseTree?: string;
     tree: GitHubGitTreeEntry[];
   }): Promise<GitHubGitTree> {
     return this.request<GitHubGitTree>(`/repos/${input.owner}/${input.repo}/git/trees`, {
       method: "POST",
       body: {
+        ...(input.baseTree ? { base_tree: input.baseTree } : {}),
         tree: input.tree,
       },
     });
@@ -601,6 +623,8 @@ export class GitHubClient {
     message: string;
     tree: string;
     parents: string[];
+    author?: GitHubGitCommitAuthor;
+    committer?: GitHubGitCommitAuthor;
   }): Promise<GitHubGitCommit> {
     return this.request<GitHubGitCommit>(`/repos/${input.owner}/${input.repo}/git/commits`, {
       method: "POST",
@@ -608,6 +632,8 @@ export class GitHubClient {
         message: input.message,
         tree: input.tree,
         parents: input.parents,
+        ...(input.author ? { author: input.author } : {}),
+        ...(input.committer ? { committer: input.committer } : {}),
       },
     });
   }

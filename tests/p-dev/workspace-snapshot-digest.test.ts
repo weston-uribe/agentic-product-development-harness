@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   computeGitBlobSha1,
-  computeGitTreeSha1,
-} from "../../src/p-dev/workspace-snapshot-git.js";
+  computeSnapshotRootTreeSha1,
+} from "../../src/p-dev/git-object-plumbing.js";
 import {
   computeSnapshotContentId,
   computeSnapshotSha256,
@@ -14,8 +14,15 @@ describe("workspace snapshot digest", () => {
     const blobSha = computeGitBlobSha1(content);
     expect(blobSha).toMatch(/^[0-9a-f]{40}$/);
 
-    const treeSha = computeGitTreeSha1([
-      { mode: "100644", path: "README.md", sha1: blobSha },
+    const treeSha = computeSnapshotRootTreeSha1([
+      {
+        path: "README.md",
+        type: "file",
+        mode: "100644",
+        size: content.byteLength,
+        sha256: "unused",
+        gitBlobSha1: blobSha,
+      },
     ]);
     expect(treeSha).toMatch(/^[0-9a-f]{40}$/);
   });

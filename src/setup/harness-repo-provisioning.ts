@@ -42,6 +42,9 @@ import {
   parseHarnessTemplateIdentityJson,
 } from "./harness-template-identity.js";
 import {
+  SnapshotProvisioningError,
+} from "./harness-snapshot-provisioning-helpers.js";
+import {
   provisionHarnessWorkspaceFromSnapshot,
   verifyProvisionedHarnessWorkspace,
 } from "./harness-snapshot-provisioning.js";
@@ -1419,13 +1422,34 @@ async function applyHarnessRepoProvisioningLocked(options: {
           packageVersion: snapshotPreview.packageVersion,
           operationId: options.operationId,
           pending: activePending,
+          onCheckpoint: async (checkpoint) => {
+            await writeHarnessProvisioningPendingStateAtomic(
+              buildSnapshotPendingState({
+                operationId: options.operationId,
+                user,
+                snapshotPreview,
+                previewFingerprint: creationFingerprint,
+                pending: activePending,
+                phase: checkpoint.phase,
+                repositoryId: checkpoint.repositoryId,
+                initializedCommitSha: checkpoint.initializedCommitSha,
+                snapshotCommitSha: checkpoint.snapshotCommitSha,
+                markerCommitSha: checkpoint.markerCommitSha,
+              }),
+              options.cwd,
+            );
+            activePending = await readHarnessProvisioningPendingState(options.cwd);
+          },
         });
       } catch (error) {
         const message =
           error instanceof Error
             ? error.message
             : "Repository provisioning failed unexpectedly.";
-        if (/marker/i.test(message)) {
+        if (
+          error instanceof SnapshotProvisioningError &&
+          error.code === "marker-commit-failed"
+        ) {
           const { owner, repo } = parseRepoSlug(destinationSlug(user.login));
           const metadata = await options.provider.getRepositoryMetadata(owner, repo);
           if (metadata) {
@@ -1521,9 +1545,15 @@ async function applyHarnessRepoProvisioningLocked(options: {
       if (provisionResult) {
         if (!provisionResult.ok) {
           return {
-            state: provisionResult.recoverable
-              ? "repo-created-pending-verification"
-              : "api-timeout-unknown",
+            state:
+              provisionResult.recoverable &&
+              (activePending?.phase === "marker-pending" ||
+                activePending?.snapshotCommitSha ||
+                /marker/i.test(provisionResult.message))
+                ? "marker-write-pending"
+                : provisionResult.recoverable
+                  ? "repo-created-pending-verification"
+                  : "api-timeout-unknown",
             harnessDispatchRepo: destinationSlug(user.login),
             message: provisionResult.message,
             recoverable: provisionResult.recoverable,

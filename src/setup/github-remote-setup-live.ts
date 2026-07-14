@@ -468,6 +468,7 @@ export class LiveGitHubHarnessProvisioningProvider
       repositoryId: repository.id,
       owner,
       repo,
+      description: repository.description ?? null,
       private: repository.private === true,
       visibility:
         repository.visibility ?? (repository.private ? "private" : "public"),
@@ -626,6 +627,7 @@ export class LiveGitHubHarnessProvisioningProvider
   async createGitTree(input: {
     owner: string;
     repo: string;
+    baseTree?: string;
     tree: GitTreeEntryInput[];
   }): Promise<GitTreeResult> {
     try {
@@ -642,6 +644,8 @@ export class LiveGitHubHarnessProvisioningProvider
     message: string;
     tree: string;
     parents: string[];
+    author?: { name: string; email: string; date: string };
+    committer?: { name: string; email: string; date: string };
   }): Promise<GitCommitResult> {
     try {
       const commit = await this.client.createGitCommit(input);
@@ -690,13 +694,40 @@ export class LiveGitHubHarnessProvisioningProvider
     ref: string;
     sha: string;
     force?: boolean;
+    expectedSha?: string;
   }): Promise<GitRefResult> {
     try {
+      if (input.expectedSha) {
+        const current = await this.client.getGitRef(input.owner, input.repo, input.ref);
+        if (current.object.sha === input.sha) {
+          return {
+            ref: current.ref,
+            object: { sha: input.sha },
+          };
+        }
+        if (current.object.sha !== input.expectedSha) {
+          throw new Error(
+            `Ref update rejected: expected parent HEAD ${input.expectedSha}, found ${current.object.sha}.`,
+          );
+        }
+      }
       const gitRef = await this.client.updateGitRef(input);
       return {
         ref: gitRef.ref,
         object: { sha: gitRef.object.sha },
       };
+    } catch (error) {
+      throw new Error(sanitizeGitHubSetupError(error));
+    }
+  }
+
+  async updateUserRepositoryDescription(input: {
+    owner: string;
+    repo: string;
+    description: string;
+  }): Promise<void> {
+    try {
+      await this.client.updateUserRepository(input);
     } catch (error) {
       throw new Error(sanitizeGitHubSetupError(error));
     }

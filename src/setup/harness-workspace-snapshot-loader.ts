@@ -5,12 +5,12 @@ import {
   resolveWorkspaceSnapshotDirectory,
 } from "../p-dev/package-paths.js";
 import { readPDevPackageVersionFromPackageRoot } from "../p-dev/package-version.js";
-import { loadWorkspaceSnapshotEntryContent } from "../p-dev/workspace-snapshot-generator.js";
 import {
   fingerprintWorkspaceSnapshotManifest,
   parseWorkspaceSnapshotManifestJson,
 } from "../p-dev/workspace-snapshot-manifest.js";
 import type { WorkspaceSnapshotManifest } from "../p-dev/workspace-snapshot-types.js";
+import { validateEmbeddedSnapshotFiles } from "../p-dev/workspace-snapshot-validation.js";
 
 export type EmbeddedWorkspaceSnapshotLoadResult =
   | {
@@ -82,22 +82,15 @@ export async function loadEmbeddedWorkspaceSnapshot(
     };
   }
 
-  try {
-    for (const file of parsed.manifest.files) {
-      await loadWorkspaceSnapshotEntryContent({
-        snapshotRoot,
-        path: file.path,
-        expectedSha256: file.sha256,
-      });
-    }
-  } catch (error) {
+  const embeddedValidation = await validateEmbeddedSnapshotFiles({
+    snapshotRoot,
+    manifest: parsed.manifest,
+  });
+  if (!embeddedValidation.ok) {
     return {
       ok: false,
       state: "snapshot-tampered",
-      message:
-        error instanceof Error
-          ? error.message
-          : "Embedded workspace snapshot failed integrity validation.",
+      message: embeddedValidation.reason,
     };
   }
 

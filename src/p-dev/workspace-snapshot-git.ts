@@ -1,6 +1,6 @@
-import { createHash } from "node:crypto";
-import { execFile, spawn, spawnSync } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
+import { computeGitBlobSha1 } from "./git-object-plumbing.js";
 import {
   isForbiddenSnapshotPath,
   isIncludedSnapshotPath,
@@ -9,6 +9,8 @@ import {
 import type { WorkspaceSnapshotEntryType } from "./workspace-snapshot-types.js";
 
 const execFileAsync = promisify(execFile);
+
+export { computeGitBlobSha1 };
 
 export interface GitTreeEntry {
   path: string;
@@ -42,13 +44,39 @@ export async function resolveGitCommit(
   return commit;
 }
 
+const GENERATED_PACKAGE_OUTPUT_PREFIXES = [
+  "packages/p-dev/bin/",
+  "packages/p-dev/dist/",
+  "packages/p-dev/gui/",
+  "packages/p-dev/templates/",
+  "packages/p-dev/workspace-snapshot/",
+] as const;
+
+function isIgnorableDirtyPackagePath(filePath: string): boolean {
+  return GENERATED_PACKAGE_OUTPUT_PREFIXES.some((prefix) =>
+    filePath.startsWith(prefix),
+  );
+}
+
 export async function assertCleanGitSource(
   repoRoot: string,
   sourceRef: string,
-): Promise<void> {
-  if (sourceRef !== "HEAD") {
-    return;
+  options?: { requireHeadMatch?: boolean; requireCleanWorkingTree?: boolean },
+): Promise<string> {
+  const headCommit = await resolveGitCommit(repoRoot, "HEAD");
+  const sourceCommit = await resolveGitCommit(repoRoot, sourceRef);
+  if (options?.requireHeadMatch && sourceCommit !== headCommit) {
+    throw new Error(
+      `Workspace snapshot source ref ${sourceRef} (${sourceCommit}) must match checked-out HEAD (${headCommit}).`,
+    );
   }
+
+  const shouldCheckClean =
+    options?.requireCleanWorkingTree ?? sourceRef === "HEAD";
+  if (!shouldCheckClean) {
+    return sourceCommit;
+  }
+
   const { stdout } = await execFileAsync("git", ["status", "--porcelain"], {
     cwd: repoRoot,
   });
@@ -58,15 +86,19 @@ export async function assertCleanGitSource(
     .filter(Boolean)
     .filter((line) => {
       const filePath = line.slice(3).trim();
-      return !filePath.startsWith("packages/p-dev/");
+      if (isIgnorableDirtyPackagePath(filePath)) {
+        return false;
+      }
+      return true;
     });
   if (dirtyLines.length > 0) {
     throw new Error(
-      `Workspace snapshot generation requires a clean working tree when sourceRef is HEAD. Dirty paths: ${dirtyLines
+      `Workspace snapshot generation requires a clean working tree. Dirty paths: ${dirtyLines
         .map((line) => line.slice(3).trim())
         .join(", ")}`,
     );
   }
+  return sourceCommit;
 }
 
 export async function listGitTreeEntries(
@@ -177,50 +209,13 @@ export async function readGitBlobContents(
     }
     const type: WorkspaceSnapshotEntryType =
       entry.mode === "120000" ? "symlink" : "file";
-    const normalizedContent =
-      type === "symlink"
-        ? Buffer.from(content.toString("utf8").replace(/\n$/, ""), "utf8")
-        : content;
     return {
       path: entry.path,
       type,
       mode: entry.mode,
-      size: normalizedContent.byteLength,
-      content: normalizedContent,
+      size: content.byteLength,
+      content,
       gitBlobSha1: entry.objectId,
     };
   });
-}
-
-export function computeGitBlobSha1(content: Buffer): string {
-  const result = spawnSync("git", ["hash-object", "--stdin"], {
-    input: content,
-  });
-  if (result.status !== 0) {
-    throw new Error(
-      `git hash-object failed: ${result.stderr?.toString("utf8") || "unknown error"}`,
-    );
-  }
-  return result.stdout.toString("utf8").trim();
-}
-
-export function computeGitTreeSha1(
-  entries: Array<{ mode: string; path: string; sha1: string }>,
-): string {
-  const sorted = [...entries].sort((left, right) =>
-    left.path.localeCompare(right.path, "en"),
-  );
-  const chunks: Buffer[] = [];
-  for (const entry of sorted) {
-    const mode = entry.mode;
-    const name = Buffer.from(`${entry.path}\0`, "utf8");
-    const sha = Buffer.from(entry.sha1, "hex");
-    if (sha.length !== 20) {
-      throw new Error(`Invalid git object sha for ${entry.path}: ${entry.sha1}`);
-    }
-    chunks.push(Buffer.from(`${mode} `, "utf8"), name, sha);
-  }
-  const body = Buffer.concat(chunks);
-  const header = Buffer.from(`tree ${body.byteLength}\0`, "utf8");
-  return createHash("sha1").update(header).update(body).digest("hex");
 }
