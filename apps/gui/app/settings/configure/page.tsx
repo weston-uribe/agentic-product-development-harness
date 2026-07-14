@@ -7,6 +7,7 @@ import {
   loadSetupSummary,
   loadVercelSetupSummary,
 } from "@/lib/setup-server";
+import { P_DEV_OBSERVABILITY_NONCE_ENV } from "@harness/observability/constants.js";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,9 @@ export default async function ConfigurePage() {
       loadVercelSetupSummary(),
     ]);
 
+  const observabilityNonce =
+    process.env[P_DEV_OBSERVABILITY_NONCE_ENV]?.trim() ?? null;
+
   return (
     <AppShell isConfigureActive>
       <ConfigurePageContent
@@ -28,6 +32,7 @@ export default async function ConfigurePage() {
         linearSummary={linearSummary}
         vercelSummary={vercelSummary}
         formDefaults={formDefaults}
+        observabilityNonce={observabilityNonce}
       />
     </AppShell>
   );

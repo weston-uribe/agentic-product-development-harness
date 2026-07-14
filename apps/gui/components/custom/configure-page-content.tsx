@@ -10,6 +10,7 @@ interface ConfigurePageContentProps {
   remoteSummary: RemoteSetupSummary;
   linearSummary: LinearSetupSummary;
   vercelSummary: VercelSetupSummary;
+  observabilityNonce: string | null;
   formDefaults: {
     env: {
       harnessConfigPath: string;
@@ -32,6 +33,7 @@ export function ConfigurePageContent({
   linearSummary,
   vercelSummary,
   formDefaults,
+  observabilityNonce,
 }: ConfigurePageContentProps) {
   return (
     <ConfigureExperience
@@ -40,6 +42,7 @@ export function ConfigurePageContent({
       initialLinearSummary={linearSummary}
       initialVercelSummary={vercelSummary}
       formDefaults={formDefaults}
+      observabilityNonce={observabilityNonce}
     />
   );
 }

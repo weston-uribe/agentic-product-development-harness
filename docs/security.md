@@ -20,6 +20,14 @@ Trusted automation paths:
 
 ---
 
+## Packaged observability boundary
+
+Optional packaged `p-dev` telemetry uses public ingestion tokens (Sentry DSN, PostHog project token) shipped in `observability.public.json`. These allow event submission only — not secret readback. Treat vendor data as **non-authoritative evidence**; never automate security actions or releases from telemetry alone.
+
+Local observability preferences must not be copied into snapshots, GitHub, Vercel, or provisioned repositories. See [`docs/observability-and-privacy.md`](observability-and-privacy.md).
+
+---
+
 ## Plain-English security model
 
 The repo is public, but the secrets are not in the repo.

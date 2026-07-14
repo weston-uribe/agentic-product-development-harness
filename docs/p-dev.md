@@ -204,6 +204,17 @@ npm run harness:configure
 
 See [`docs/getting-started.md`](getting-started.md) and [`README.md`](../README.md).
 
+## Optional observability
+
+Packaged runs may offer two independent, opt-in telemetry categories in Configure:
+
+1. Anonymous product analytics (Configure funnel and provisioning outcomes)
+2. Automated sanitized error reports
+
+No network transmission occurs before you choose. Local preferences live in `.harness/observability.local.json` under your workspace. Source-development runs (`npm run harness:configure`) do not send telemetry.
+
+Canonical contract: [`docs/observability-and-privacy.md`](observability-and-privacy.md)
+
 ## Related docs
 
 - Release contract: [`docs/releases/v0.3.1.md`](releases/v0.3.1.md)
