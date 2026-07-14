@@ -172,18 +172,11 @@ import {
   writeObservabilityPreferences,
   captureAnalyticsEvent,
   captureProductError,
+  flushObservability,
   shutdownObservability,
 } from ${JSON.stringify(facadePath)};
 
 const workspaceDir = ${JSON.stringify(workspaceDir)};
-const output = {
-  preConsentAnalytics: 0,
-  preConsentSentry: 0,
-  analyticsOnlyPosthog: 0,
-  analyticsOnlySentry: 0,
-  errorOnlyPosthog: 0,
-  errorOnlySentry: 0,
-};
 
 await beginObservabilitySession({
   workspaceDir,
@@ -196,17 +189,13 @@ captureProductError({
   productErrorCode: "pre_consent_probe",
   errorCategory: "unexpected",
 });
-output.preConsentAnalytics = 0;
-output.preConsentSentry = 0;
 
 await writeObservabilityPreferences(workspaceDir, {
   analyticsPreference: "enabled",
   disclosureShown: true,
 });
 captureAnalyticsEvent({ type: "p_dev_setup_completed" });
-await new Promise((resolve) => setTimeout(resolve, 250));
-output.analyticsOnlyPosthog = 1;
-output.analyticsOnlySentry = 0;
+await flushObservability(2_000);
 
 await writeObservabilityPreferences(workspaceDir, {
   analyticsPreference: "disabled",
@@ -217,12 +206,9 @@ captureProductError({
   productErrorCode: "installed_tarball_probe",
   errorCategory: "server",
 });
-await new Promise((resolve) => setTimeout(resolve, 250));
-output.errorOnlyPosthog = 0;
-output.errorOnlySentry = 1;
-
+await flushObservability(2_000);
 await shutdownObservability();
-process.stdout.write(JSON.stringify(output));
+process.stdout.write(JSON.stringify({ ok: true }));
 `,
         {
           P_DEV_RUNTIME_MODE: "packaged",
@@ -236,8 +222,7 @@ process.stdout.write(JSON.stringify(output));
 
       await rm(workspaceDir, { recursive: true, force: true });
 
-      expect(result.analyticsOnlyPosthog).toBe(1);
-      expect(result.errorOnlySentry).toBe(1);
+      expect(result.ok).toBe(true);
       expect(sentryRequests.length).toBeGreaterThanOrEqual(1);
       expect(posthogRequests.length).toBeGreaterThanOrEqual(1);
 

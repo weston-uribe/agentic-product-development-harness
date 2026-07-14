@@ -74,6 +74,7 @@ export interface ObservabilitySession {
   context: ObservabilityContext;
   consent: EffectiveConsent;
   localState: ObservabilityLocalState;
+  moduleUrl?: string;
 }
 
 let activeSession: ObservabilitySession | null = null;
@@ -378,6 +379,7 @@ export async function beginObservabilitySession(
     context,
     consent,
     localState,
+    moduleUrl: input.moduleUrl,
   };
 
   emitSessionStartedIfNeeded();
@@ -454,6 +456,8 @@ export async function writeObservabilityPreferences(
       await configureTransports({
         consent,
         context: activeSession.context,
+        moduleUrl: activeSession.moduleUrl,
+        env: process.env,
         fakeRecorder: activeFakeRecorder,
         analyticsOnly: true,
       });
@@ -466,6 +470,8 @@ export async function writeObservabilityPreferences(
       await configureTransports({
         consent,
         context: activeSession.context,
+        moduleUrl: activeSession.moduleUrl,
+        env: process.env,
         fakeRecorder: activeFakeRecorder,
         errorOnly: true,
       });
