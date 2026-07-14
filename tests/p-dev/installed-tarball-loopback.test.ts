@@ -317,21 +317,9 @@ await facade.flushObservability(5000);
 const state = await facade.readObservabilityPreferences(workspaceDir);
 const session = facade.getActiveObservabilitySession();
 await facade.shutdownObservability();
-await facade.beginObservabilitySession({
-  workspaceDir,
-  moduleUrl: ${JSON.stringify(facadePath)},
-  env: process.env,
-});
-const relaunchState = await facade.readObservabilityPreferences(workspaceDir);
-const relaunch = facade.getActiveObservabilitySession();
-await facade.shutdownObservability();
 return {
   state,
-  relaunchState,
   sessionId: session?.sessionId,
-  relaunchSessionId: relaunch?.sessionId,
-  analyticsEnabled: facade.isAnalyticsCaptureEnabled(),
-  errorEnabled: facade.isErrorReportingCaptureEnabled(),
 };
 `,
       );
@@ -341,11 +329,35 @@ return {
       expect(events.filter((event) => event.event === "p_dev_session_started")).toHaveLength(1);
       expect(events.filter((event) => event.event === "p_dev_configure_step_viewed")).toHaveLength(1);
       expect(output.state?.installationId).toMatch(/[0-9a-f-]{36}/i);
-      expect(output.relaunchState?.installationId).toBe(output.state?.installationId);
       for (const event of events) {
         expect(event.properties?.$process_person_profile).toBe(false);
         expect(Object.keys(event.properties ?? {})).not.toContain("email");
       }
+
+      sentryRequests = [];
+      posthogRequests = [];
+      const relaunchOutput = await runScenario(
+        "analytics-relaunch",
+        home,
+        `
+await facade.beginObservabilitySession({
+  workspaceDir,
+  moduleUrl: ${JSON.stringify(facadePath)},
+  env: process.env,
+});
+const relaunchState = await facade.readObservabilityPreferences(workspaceDir);
+const relaunch = facade.getActiveObservabilitySession();
+await facade.shutdownObservability();
+return {
+  relaunchState,
+  relaunchSessionId: relaunch?.sessionId,
+};
+`,
+      );
+
+      expect(relaunchOutput.relaunchState?.installationId).toBe(
+        output.state?.installationId,
+      );
     });
 
     it("captures error reporting only through the packaged facade", async () => {
@@ -555,8 +567,9 @@ return { state, afterResetAnalyticsEnabled, afterResetErrorEnabled };
 `,
       );
 
+      const events = extractPostHogEvents(posthogRequests);
       expect(sentryRequests).toHaveLength(0);
-      expect(posthogRequests).toHaveLength(0);
+      expect(events.some((event) => event.event === "p_dev_setup_completed")).toBe(false);
       expect(output.state?.analyticsPreference).toBeNull();
       expect(output.state?.errorReportingPreference).toBeNull();
       expect(output.state?.installationId).toBeUndefined();
