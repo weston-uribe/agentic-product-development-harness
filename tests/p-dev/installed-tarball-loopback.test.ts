@@ -14,6 +14,7 @@ const repoRoot = path.resolve(
 );
 const packageDir = path.join(repoRoot, "packages", "p-dev");
 const execFileAsync = promisify(execFile);
+const packagePackLockPath = path.join(os.tmpdir(), "p-dev-package-pack.lock");
 
 const GENERATED_PACKAGE_OUTPUT_PREFIXES = [
   "packages/p-dev/bin/",
@@ -149,7 +150,7 @@ describe.skipIf(!isCleanEnoughForPackagePack())(
     const tempDirs: string[] = [];
 
     beforeAll(async () => {
-      execFileSync("npm", ["run", "package:p-dev:pack"], {
+      execFileSync("flock", [packagePackLockPath, "npm", "run", "package:p-dev:pack"], {
         cwd: repoRoot,
         stdio: "pipe",
       });
@@ -192,8 +193,12 @@ describe.skipIf(!isCleanEnoughForPackagePack())(
 
     afterAll(async () => {
       await Promise.all([
-        new Promise<void>((resolve) => sentryServer.close(() => resolve())),
-        new Promise<void>((resolve) => posthogServer.close(() => resolve())),
+        sentryServer
+          ? new Promise<void>((resolve) => sentryServer.close(() => resolve()))
+          : Promise.resolve(),
+        posthogServer
+          ? new Promise<void>((resolve) => posthogServer.close(() => resolve()))
+          : Promise.resolve(),
       ]);
       await Promise.all(
         tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })),

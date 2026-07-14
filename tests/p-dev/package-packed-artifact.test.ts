@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -9,6 +10,7 @@ const repoRoot = path.resolve(
   "../..",
 );
 const packageDir = path.join(repoRoot, "packages", "p-dev");
+const packagePackLockPath = path.join(os.tmpdir(), "p-dev-package-pack.lock");
 let tarballPath = "";
 
 const GENERATED_PACKAGE_OUTPUT_PREFIXES = [
@@ -39,7 +41,7 @@ function isCleanEnoughForPackagePack(): boolean {
 
 describe.skipIf(!isCleanEnoughForPackagePack())("p-dev packed artifact", () => {
   beforeAll(() => {
-    execFileSync("npm", ["run", "package:p-dev:pack"], {
+    execFileSync("flock", [packagePackLockPath, "npm", "run", "package:p-dev:pack"], {
       cwd: repoRoot,
       stdio: "pipe",
     });
