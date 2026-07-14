@@ -1,4 +1,9 @@
-import { seal } from "tweetsodium";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const { seal } = require("tweetsodium") as {
+  seal: (message: Uint8Array, publicKey: Uint8Array) => Uint8Array;
+};
 
 export function encryptGitHubActionsSecret(
   secretValue: string,
