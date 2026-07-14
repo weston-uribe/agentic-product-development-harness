@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { applyHarnessRepoProvisioningRemote } from "@/lib/setup-server";
+import { handleObservabilityRouteFailure } from "@/lib/observability-route";
 
 export const dynamic = "force-dynamic";
 
@@ -26,10 +27,10 @@ export async function POST(request: Request) {
 
     return NextResponse.json(result);
   } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Harness repo provisioning apply failed";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return handleObservabilityRouteFailure(error, {
+      lifecyclePhase: "provisioning",
+      productErrorCode: "harness_repo_provisioning_route_failed",
+      errorCategory: "server",
+    });
   }
 }

@@ -18,12 +18,12 @@ import {
   type UpdateObservabilityPreferencesInput,
 } from "./local-state.js";
 import { readObservabilityPublicConfig } from "./package-config.js";
-import { isObservabilityRuntimeEligible } from "./runtime-eligibility.js";
 import {
   analyticsEventToProperties,
   allowedAnalyticsPropertyKeysForEvent,
   assertAllowedPropertyKeys,
 } from "./privacy-schema.js";
+import { isObservabilityRuntimeEligible } from "./runtime-eligibility.js";
 import type {
   AllowedSentryContext,
   AnalyticsEvent,
@@ -47,6 +47,7 @@ import {
   createNoopAnalyticsTransport,
   createNoopErrorTransport,
 } from "./adapters/noop.js";
+import { createPostHogAnalyticsTransport } from "./adapters/posthog.js";
 import { createSentryErrorTransport } from "./adapters/sentry.js";
 
 export interface BeginObservabilitySessionInput {
@@ -69,6 +70,7 @@ export interface ObservabilitySession {
 let activeSession: ObservabilitySession | null = null;
 let analyticsTransport: AnalyticsTransport = createNoopAnalyticsTransport();
 let errorTransport: ErrorTransport = createNoopErrorTransport();
+let sessionStartedEmitted = false;
 let runtimeEligible = false;
 let activeFakeRecorder: FakeTransportRecorder | undefined;
 
@@ -136,6 +138,17 @@ function configureTransports(input: {
     input.env,
   );
 
+  if (input.consent.analyticsEnabled && publicConfig?.posthogProjectToken) {
+    try {
+      analyticsTransport = createPostHogAnalyticsTransport({
+        projectToken: publicConfig.posthogProjectToken,
+        host: publicConfig.posthogIngestionHost,
+      });
+    } catch {
+      analyticsTransport = createNoopAnalyticsTransport();
+    }
+  }
+
   if (input.consent.errorReportingEnabled && publicConfig?.sentryPublicDsn) {
     try {
       errorTransport = createSentryErrorTransport({
@@ -162,6 +175,7 @@ export async function beginObservabilitySession(
     activeFakeRecorder = undefined;
     analyticsTransport = createNoopAnalyticsTransport();
     errorTransport = createNoopErrorTransport();
+    sessionStartedEmitted = false;
     return null;
   }
 
@@ -189,6 +203,7 @@ export async function beginObservabilitySession(
   });
 
   activeFakeRecorder = input.fakeRecorder;
+
   configureTransports({
     consent,
     context,
@@ -205,6 +220,12 @@ export async function beginObservabilitySession(
     consent,
     localState,
   };
+  sessionStartedEmitted = false;
+
+  if (consent.analyticsEnabled && !sessionStartedEmitted) {
+    captureAnalyticsEvent({ type: "p_dev_session_started" });
+    sessionStartedEmitted = true;
+  }
 
   return activeSession;
 }
@@ -214,11 +235,7 @@ export function getActiveObservabilitySession(): ObservabilitySession | null {
 }
 
 export function getObservabilityNonce(): string | null {
-  return (
-    activeSession?.nonce ??
-    process.env[P_DEV_OBSERVABILITY_NONCE_ENV]?.trim() ??
-    null
-  );
+  return activeSession?.nonce ?? null;
 }
 
 export async function readObservabilityPreferences(
@@ -372,6 +389,7 @@ export async function shutdownObservability(
   ]);
   activeSession = null;
   activeFakeRecorder = undefined;
+  sessionStartedEmitted = false;
 }
 
 export function createObservabilityTestRecorder(): FakeTransportRecorder {
