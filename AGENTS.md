@@ -99,9 +99,8 @@ These are distinct artifacts. Do not conflate them in docs or reports.
 
 - Claim production-ready automation exists
 - Add Cursor skills, automations, or MCP servers without explicit approval
-- Build a UI or control plane in v0.1
 - Autonomously ship software or merge PRs without human gates
-- Overstate eval automation (v0.1 evals are human-readable rubrics)
+- Overstate eval automation (manual eval rubrics remain where automation is not implemented)
 - Recommend strategic next steps unless the operator explicitly asks
 - Autonomously create or promote skills without explicit human approval
 - Create releases without explicit approval and external usefulness

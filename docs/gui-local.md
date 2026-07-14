@@ -94,9 +94,14 @@ The GUI is local-first and supports guided local setup:
 - apply `.env.local` and `.harness/config.local.json` through setup core only
 - missing setup steps and local/static doctor summary
 
-It does **not** write GitHub Actions secrets, target repo workflows, Linear issues, cloud workflow dispatches, or harness phases from the guided flow without explicit remote-setup confirmation.
+Ordinary guided steps do **not** write GitHub Actions secrets, target repo workflows, cloud workflow dispatches, or harness phases without explicit confirmation. Confirmation-gated remote setup is integrated into the seven-step flow:
 
-Remote harness secret writes and target workflow branch/PR installs are available in guided Steps 4–5 and the advanced **Remote setup** section — see [`docs/gui-remote-setup.md`](gui-remote-setup.md).
+- **Step 2:** Linear workspace setup (confirmation-gated)
+- **Step 3:** Vercel webhook bridge setup (confirmation-gated)
+- **Step 6:** harness repo GitHub Actions secret writes (confirmation-gated)
+- **Step 7:** target workflow install branch/PR creation and guarded finalization (confirmation-gated)
+
+The advanced **Remote setup** section also exposes the same remote actions — see [`docs/gui-remote-setup.md`](gui-remote-setup.md).
 
 ## Guided local setup flow
 

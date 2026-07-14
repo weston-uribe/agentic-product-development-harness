@@ -6,9 +6,9 @@ intentionally **not** claimed for the harness. Read this as a promise boundary: 
 
 **Release contract:** [`docs/releases/v0.3.0.md`](releases/v0.3.0.md)
 
-## Current V0.2 posture
+## Current v0.3.0 posture
 
-V0.2 is a **Cursor-first** harness for **Linear + GitHub + GitHub Actions**. The
+v0.3.0 is a **Cursor-first** harness for **Linear + GitHub + GitHub Actions**. The
 architecture is modular by subsystem (product system, SCM/PR system, runner,
 agent provider, preview provider), but it is **not provider-agnostic yet**.
 Cursor is the only implemented agent execution provider. Runner phases import
@@ -17,7 +17,7 @@ delegates to [`src/cursor/`](../src/cursor/) for SDK-specific behavior.
 
 ### Support matrix
 
-| Subsystem | Implemented / supported in V0.2 |
+| Subsystem | Implemented / supported in v0.3.0 |
 |-----------|----------------------------------|
 | Product system | Linear |
 | Source control / PR system | GitHub |
@@ -52,9 +52,9 @@ The following are configurable through `harness.config.json` (see
 - `agentProvider.model.id` — preferred source for model resolution
 - `defaultModel.id` — backward-compatible fallback when `agentProvider.model` is absent
 
-## What is fixed in V0.2
+## What is fixed in v0.3.0
 
-The following are structural assumptions in V0.2 and are **not** configurable as
+The following are structural assumptions in v0.3.0 and are **not** configurable as
 provider swaps:
 
 - Linear as the product system
@@ -68,15 +68,16 @@ provider swaps:
 ## What is intentionally not claimed
 
 To avoid overstating maturity, the harness does **not** claim any of the
-following in V0.2:
+following in v0.3.0:
 
 - Claude Code support
 - Codex support
 - local VS Code agent support
 - GitLab / Bitbucket support
 - generic PM-system support
-- npm package stability
 - production-grade portability
+- production SaaS maturity
+- provider-agnostic operation
 
 ## Future provider adapter requirements
 

@@ -42,7 +42,19 @@ Details: [`docs/provider-portability.md`](docs/provider-portability.md) and [`do
 
 **Inputs:** Structured setup state, committed example templates, operator-provided target repo mapping.
 
-**Outputs:** Dry-run previews, confirmation-gated local file writes via GUI (`preview-local-files` / `apply-local-files` API routes), confirmation-gated remote harness secret writes and target workflow branch/PR installs via GUI (`preview-harness-secrets` / `apply-harness-secrets` / `preview-target-workflow` / `apply-target-workflow` API routes), CLI scaffold apply, copy-paste setup instructions. Linear writes remain deferred.
+**Outputs:** Dry-run previews, confirmation-gated local file writes via GUI (`preview-local-files` / `apply-local-files` API routes), confirmation-gated remote harness secret writes and target workflow branch/PR installs via GUI (`preview-harness-secrets` / `apply-harness-secrets` / `preview-target-workflow` / `apply-target-workflow` API routes), confirmation-gated Linear workspace setup and Vercel bridge configuration via the seven-step Configure GUI (Steps 2–3, 6–7), CLI scaffold apply, copy-paste setup instructions.
+
+**Seven-step Configure GUI (implemented):**
+
+1. Connect services (optional packaged harness workspace provisioning)
+2. Set up Linear workspace (confirmation-gated)
+3. Set up Vercel webhook bridge (confirmation-gated)
+4. Choose target repo(s)
+5. Check local readiness
+6. Connect cloud secrets — harness repo GitHub Actions secret writes (confirmation-gated)
+7. Install target repo workflow — branch/PR create/reuse, checks, guarded auto-finalization for system-owned setup PRs (confirmation-gated)
+
+Ordinary product implementation PRs remain governed by Linear status gates; the GUI does not trigger harness phases or write Linear issue comments outside confirmation-gated setup actions.
 
 ## Pipeline overview
 
@@ -208,7 +220,7 @@ Planning is **optional** in the target Linear workflow. Low-risk issues may bypa
 
 **Purpose:** Ensure PM and engineering judgment remain in the loop via **Linear/status gates** — not bypassed by automation.
 
-**V0.2:** Automation respects allowlisted Linear statuses. Merge runs only when the issue is **Ready to Merge** (PM moved it from PM Review). Planning, implementation, handoff, and revision phases each require the matching Linear status. **GitHub required review is 0** in solo-maintainer mode — see [`docs/security.md`](docs/security.md).
+**V0.3:** Automation respects allowlisted Linear statuses. Merge runs only when the issue is **Ready to Merge** (PM moved it from PM Review). Planning, implementation, handoff, and revision phases each require the matching Linear status. **GitHub required review is 0** in solo-maintainer mode — see [`docs/security.md`](docs/security.md).
 
 **Note:** `Plan Review` is **not** part of the default active workflow. If the status exists in Linear, it is deprecated/reserved—not routed by automations.
 
