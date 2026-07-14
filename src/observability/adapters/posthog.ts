@@ -1,17 +1,17 @@
+import { PostHog } from "posthog-node";
 import type {
   AnalyticsTransport,
   SerializedAnalyticsEvent,
+  TransportShutdownOptions,
 } from "../types.js";
-import { OBSERVABILITY_MAX_QUEUE_SIZE } from "../constants.js";
 
 export interface PostHogAdapterOptions {
   projectToken: string;
   host: string;
   requestTimeoutMs?: number;
-}
-
-interface QueuedEvent {
-  body: string;
+  fetchImpl?: typeof fetch;
+  onRequestInitiated?: (timestamp: number) => void;
+  onRequestCompleted?: (timestamp: number) => void;
 }
 
 export function createPostHogAnalyticsTransport(
@@ -22,54 +22,97 @@ export function createPostHogAnalyticsTransport(
   }
 
   const host = options.host.replace(/\/$/, "");
-  const queue: QueuedEvent[] = [];
-  const requestTimeoutMs = options.requestTimeoutMs ?? 2_000;
+  const inFlight = new Set<Promise<void>>();
+  let active = true;
+  let client: PostHog | null = new PostHog(options.projectToken, {
+    host,
+    flushAt: 1,
+    flushInterval: 0,
+    disableGeoip: true,
+    disableCompression: true,
+    persistence: "memory",
+    fetch: options.fetchImpl
+      ? async (url, fetchOptions) => {
+          const response = await options.fetchImpl!(url, fetchOptions);
+          return {
+            status: response.status,
+            text: async () => response.text(),
+            json: async () => response.json(),
+          };
+        }
+      : undefined,
+  });
 
-  async function send(body: string): Promise<void> {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
+  async function deliver(event: SerializedAnalyticsEvent): Promise<void> {
+    if (!active || !client) {
+      return;
+    }
+    const initiatedAt = Date.now();
+    options.onRequestInitiated?.(initiatedAt);
     try {
-      await fetch(`${host}/capture/`, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
+      await client.captureImmediate({
+        distinctId: String(event.properties.distinct_id ?? "unknown"),
+        event: event.event,
+        properties: {
+          ...event.properties,
+          $process_person_profile: false,
         },
-        body,
-        signal: controller.signal,
+        disableGeoip: true,
       });
+      options.onRequestCompleted?.(Date.now());
     } catch {
       // best-effort transport
-    } finally {
-      clearTimeout(timeout);
     }
   }
 
   return {
     capture(event: SerializedAnalyticsEvent) {
-      if (queue.length >= OBSERVABILITY_MAX_QUEUE_SIZE) {
-        queue.shift();
+      if (!active || !client) {
+        return;
       }
-      queue.push({
-        body: JSON.stringify({
-          api_key: options.projectToken,
-          event: event.event,
-          distinct_id: event.properties.distinct_id,
-          properties: event.properties,
-        }),
+      const operation = deliver(event).finally(() => {
+        inFlight.delete(operation);
       });
+      inFlight.add(operation);
     },
     async flush(deadlineMs: number) {
       const started = Date.now();
-      while (queue.length > 0 && Date.now() - started < deadlineMs) {
-        const next = queue.shift();
-        if (!next) {
+      while (inFlight.size > 0 && Date.now() - started < deadlineMs) {
+        await Promise.allSettled([...inFlight]);
+        if (inFlight.size === 0) {
           break;
         }
-        await send(next.body);
+        await new Promise((resolve) => setTimeout(resolve, 10));
       }
     },
-    async shutdown() {
-      await this.flush(1_000);
+    async shutdown(options?: TransportShutdownOptions) {
+      active = false;
+      const deadlineMs = options?.deadlineMs ?? 2_000;
+      if (options?.flush !== false) {
+        await this.flush(deadlineMs);
+      }
+      if (client) {
+        await client._shutdown(deadlineMs);
+        client = null;
+      }
+      await Promise.allSettled([...inFlight]);
+    },
+    async disableAndDrop(deadlineMs: number) {
+      active = false;
+      if (client) {
+        client = null;
+      }
+      const started = Date.now();
+      while (inFlight.size > 0 && Date.now() - started < deadlineMs) {
+        await Promise.allSettled([...inFlight]);
+        if (inFlight.size === 0) {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    },
+    isActive() {
+      return active;
     },
   };
 }

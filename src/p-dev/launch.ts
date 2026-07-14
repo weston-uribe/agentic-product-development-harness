@@ -1,5 +1,6 @@
 import { access } from "node:fs/promises";
 import { spawn } from "node:child_process";
+import path from "node:path";
 import type { BrowserOpener } from "./browser.js";
 import { defaultBrowserOpener } from "./browser.js";
 import type { PDevCliOptions } from "./cli.js";
@@ -32,18 +33,14 @@ import {
   captureProductError,
   flushObservability,
   installObservabilityUncaughtHandlers,
+  releaseParentObservabilityOwnership,
   shutdownObservability,
 } from "../observability/facade.js";
 import {
-  P_DEV_OBSERVABILITY_NONCE_ENV,
-  P_DEV_OBSERVABILITY_SESSION_ID_ENV,
-} from "../observability/constants.js";
-import {
-  generateObservabilityNonce,
-  generateSessionId,
-} from "../observability/identity.js";
+  createObservabilityHandoff,
+  observabilityHandoffEnv,
+} from "../observability/session-handoff.js";
 import { ENV_LOCAL, CONFIG_LOCAL } from "../setup/setup-state.js";
-import path from "node:path";
 
 export const STARTUP_TIMEOUT_MS = 90_000;
 
@@ -101,15 +98,19 @@ export async function launchPDev(
     }
   }
 
-  const sessionId = generateSessionId();
-  const nonce = generateObservabilityNonce();
+  const handoff = createObservabilityHandoff();
+  const parentEnv = {
+    ...process.env,
+    ...observabilityHandoffEnv(handoff),
+  };
 
   await beginObservabilitySession({
     workspaceDir: workspace.workspaceDir,
     workspaceKind,
     moduleUrl: options.moduleUrl,
+    env: parentEnv,
   });
-  installObservabilityUncaughtHandlers();
+  const removeFatalHandlers = installObservabilityUncaughtHandlers();
 
   await seedWorkspaceTemplates({
     workspaceDir: workspace.workspaceDir,
@@ -149,8 +150,7 @@ export async function launchPDev(
         HARNESS_REPO_ROOT: workspace.workspaceDir,
         P_DEV_RUNTIME_MODE: "packaged",
         [P_DEV_PACKAGE_VERSION_ENV]: packagedVersion,
-        [P_DEV_OBSERVABILITY_SESSION_ID_ENV]: sessionId,
-        [P_DEV_OBSERVABILITY_NONCE_ENV]: nonce,
+        ...observabilityHandoffEnv(handoff),
         HARNESS_GUI_HOST: host,
         HARNESS_GUI_PORT: String(port),
       },
@@ -195,11 +195,15 @@ export async function launchPDev(
       message: health.reason,
     });
     await shutdown.cleanup();
+    removeFatalHandlers();
     await shutdownObservability();
     throw new Error(
       health.reason ?? "Configure GUI health check failed after startup.",
     );
   }
+
+  removeFatalHandlers();
+  await releaseParentObservabilityOwnership();
 
   console.log(`Configure GUI is ready at ${url}`);
 

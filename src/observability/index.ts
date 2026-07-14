@@ -10,8 +10,13 @@ export {
   readObservabilityPreferences,
   writeObservabilityPreferences,
   resetObservabilityState,
+  releaseParentObservabilityOwnership,
   createObservabilityTestRecorder,
   installObservabilityUncaughtHandlers,
+  isAnalyticsCaptureEnabled,
+  isErrorReportingCaptureEnabled,
+  registerAnalyticsAdapterFactory,
+  registerErrorAdapterFactory,
 } from "./facade.js";
 
 export type {
@@ -27,6 +32,12 @@ export type {
   ObservabilitySession,
 } from "./facade.js";
 
+export {
+  createObservabilityHandoff,
+  observabilityHandoffEnv,
+  resolveObservabilityHandoff,
+} from "./session-handoff.js";
+export type { ObservabilityHandoff } from "./session-handoff.js";
 export { OBSERVABILITY_LOCAL_FILE } from "./constants.js";
 export { isObservabilityRuntimeEligible } from "./runtime-eligibility.js";
 export {
