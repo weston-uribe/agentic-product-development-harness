@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { execFile, spawn } from "node:child_process";
+import { execFile, spawn, spawnSync } from "node:child_process";
 import { promisify } from "node:util";
 import {
   isForbiddenSnapshotPath,
@@ -193,9 +193,15 @@ export async function readGitBlobContents(
 }
 
 export function computeGitBlobSha1(content: Buffer): string {
-  const header = Buffer.from(`blob ${content.byteLength}\0`, "utf8");
-  // codeql[js/weak-cryptographic-algorithm] Git blob object IDs require SHA-1 per the Git wire protocol.
-  return createHash("sha1").update(header).update(content).digest("hex");
+  const result = spawnSync("git", ["hash-object", "--stdin"], {
+    input: content,
+  });
+  if (result.status !== 0) {
+    throw new Error(
+      `git hash-object failed: ${result.stderr?.toString("utf8") || "unknown error"}`,
+    );
+  }
+  return result.stdout.toString("utf8").trim();
 }
 
 export function computeGitTreeSha1(
@@ -210,12 +216,11 @@ export function computeGitTreeSha1(
     const name = Buffer.from(`${entry.path}\0`, "utf8");
     const sha = Buffer.from(entry.sha1, "hex");
     if (sha.length !== 20) {
-      throw new Error(`Invalid git blob sha for ${entry.path}: ${entry.sha1}`);
+      throw new Error(`Invalid git object sha for ${entry.path}: ${entry.sha1}`);
     }
     chunks.push(Buffer.from(`${mode} `, "utf8"), name, sha);
   }
   const body = Buffer.concat(chunks);
   const header = Buffer.from(`tree ${body.byteLength}\0`, "utf8");
-  // codeql[js/weak-cryptographic-algorithm] Git tree object IDs require SHA-1 per the Git wire protocol.
   return createHash("sha1").update(header).update(body).digest("hex");
 }
