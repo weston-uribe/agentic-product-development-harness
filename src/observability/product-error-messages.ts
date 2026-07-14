@@ -5,6 +5,7 @@ const APPROVED_PRODUCT_ERROR_MESSAGES: Record<string, string> = {
   configure_gui_health_check_failed:
     "The Configure GUI failed its startup health check.",
   configure_request_error: "A Configure request failed unexpectedly.",
+  provision_failed: "Harness workspace provisioning failed.",
   p_dev_launch_failed: "The p-dev launcher failed during startup.",
   harness_repo_provisioning_route_failed:
     "Harness workspace provisioning failed.",
