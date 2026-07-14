@@ -5,7 +5,8 @@ export const GITHUB_TOKEN_HELP_DISCLOSURE_LABEL = "How do I get a GitHub token?"
 export const GITHUB_TOKEN_GUIDED_HELPER_TEXT =
   "Use a classic GitHub personal access token with repo and workflow access. This lets the harness check your repos, save encrypted setup secrets, and open workflow install PRs later.";
 
-export const GITHUB_TOKEN_INPUT_LABEL = "Paste your GitHub token";
+export const GITHUB_TOKEN_INPUT_LABEL =
+  "Copy an existing GitHub personal access token or create a new one, then paste it here.";
 
 export const GITHUB_TOKEN_VERIFY_HELP_HINT = `Open "${GITHUB_TOKEN_HELP_DISCLOSURE_LABEL}" and create a classic token with repo and workflow selected.`;
 

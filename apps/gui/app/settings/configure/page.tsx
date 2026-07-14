@@ -25,7 +25,7 @@ export default async function ConfigurePage() {
     process.env[P_DEV_OBSERVABILITY_NONCE_ENV]?.trim() ?? null;
 
   return (
-    <AppShell>
+    <AppShell isConfigureActive>
       <ConfigurePageContent
         summary={summary}
         remoteSummary={remoteSummary}
