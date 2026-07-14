@@ -31,7 +31,6 @@ import { LocalWritePreview } from "@/components/custom/local-write-preview";
 import { LocalWriteConfirmation } from "@/components/custom/local-write-confirmation";
 import { ReviewGeneratedFilesDisclosure } from "@/components/custom/review-generated-files-disclosure";
 import { SetupApplyResult } from "@/components/custom/setup-apply-result";
-import { GuidedStepTransition } from "@/components/custom/guided-step-transition";
 import {
   createGuidedRepoRowId,
   guidedRowsFromConfig,
@@ -1165,9 +1164,7 @@ export function ConfigureWorkflow({
     return (
       <div className={SPACING.section}>
         <div ref={guidedTopRef} />
-        <GuidedStepTransition stepKey={guidedStep}>
-          {renderGuidedStep()}
-        </GuidedStepTransition>
+        {renderGuidedStep()}
 
         {error ? (
           <SetupApplyResult success={false} message={error} />
