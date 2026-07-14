@@ -855,13 +855,22 @@ describe("M6 configure GUI boundaries", () => {
     expect(experienceSource).toContain('case "target-workflow":');
   });
 
-  it("top nav renders the theme toggle", () => {
+  it("top nav renders the settings menu instead of a standalone theme toggle", () => {
     const appShellSource = readFileSync(
       path.join(repoRoot, "apps/gui/components/custom/app-shell.tsx"),
       "utf8",
     );
+    const settingsMenuSource = readFileSync(
+      path.join(repoRoot, "apps/gui/components/custom/settings-menu.tsx"),
+      "utf8",
+    );
 
-    expect(appShellSource).toContain("ThemeToggle");
+    expect(appShellSource).toContain("ApplicationHeader");
+    expect(appShellSource).not.toContain("ThemeToggle");
+    expect(settingsMenuSource).toContain("Settings");
+    expect(settingsMenuSource).toContain("Configure");
+    expect(settingsMenuSource).toContain("Dark mode");
+    expect(settingsMenuSource).toContain("Light mode");
   });
 
   it("guided linear workspace card loads teams and projects from linear-options", () => {

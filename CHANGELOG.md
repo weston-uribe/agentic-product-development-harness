@@ -6,6 +6,10 @@ V0.3.0 is a **GitHub source release** plus a **public npm CLI package** (`p-dev-
 
 ## Unreleased
 
+### Changed
+
+- Configure GUI application header: compact `PDev Harness` brand lockup, sticky background-matched header, and Settings dropdown with theme toggle and Configure navigation.
+
 ## [0.3.1] — 2026-07-14
 
 Patch release: immutable package-owned workspace snapshots for `p-dev-harness` provisioning plus narrowly scoped release-impact agent-contract improvements.
