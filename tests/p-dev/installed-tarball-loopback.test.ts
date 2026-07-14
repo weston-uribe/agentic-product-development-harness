@@ -90,9 +90,14 @@ describe.skipIf(!isCleanEnoughForPackagePack())(
       installDir = await mkdtemp(
         path.join(os.tmpdir(), "p-dev-installed-tarball-"),
       );
-      execFileSync("tar", ["-xzf", tarballPath, "-C", installDir], {
-        encoding: "utf8",
-      });
+      execFileSync(
+        "npm",
+        ["install", "--no-save", `file:${tarballPath}`],
+        {
+          cwd: installDir,
+          stdio: "pipe",
+        },
+      );
 
       const sentryCollector = await listen((body) => {
         sentryRequests.push(body);
@@ -140,7 +145,11 @@ describe.skipIf(!isCleanEnoughForPackagePack())(
 
     it("validates production adapters from the exact packed tarball against loopback collectors", async () => {
       expect(existsSync(tarballPath)).toBe(true);
-      const packageRoot = path.join(installDir, "package");
+      const packageRoot = path.join(
+        installDir,
+        "node_modules",
+        "p-dev-harness",
+      );
       const facadePath = path.join(
         packageRoot,
         "dist/observability/facade.js",
