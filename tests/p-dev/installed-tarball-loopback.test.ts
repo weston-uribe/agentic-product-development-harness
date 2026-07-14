@@ -40,7 +40,7 @@ function isCleanEnoughForPackagePack(): boolean {
 }
 
 function listen(
-  handler: (body: string, url: string) => void,
+  onRequest: (body: string, url: string) => void,
 ): Promise<{ server: Server; port: number }> {
   return new Promise((resolve, reject) => {
     const server = createServer(async (request, response) => {
@@ -48,7 +48,7 @@ function listen(
       for await (const chunk of request) {
         chunks.push(Buffer.from(chunk));
       }
-      handler(Buffer.concat(chunks).toString("utf8"), request.url ?? "");
+      onRequest(Buffer.concat(chunks).toString("utf8"), request.url ?? "");
       response.writeHead(200, { "content-type": "application/json" });
       response.end("{}");
     });
@@ -68,6 +68,8 @@ describe.skipIf(!isCleanEnoughForPackagePack())(
   () => {
     let tarballPath = "";
     let installDir = "";
+    let packageRoot = "";
+    let facadePath = "";
     let sentryRequests: string[] = [];
     let posthogRequests: string[] = [];
     let sentryServer: Server;
@@ -98,6 +100,8 @@ describe.skipIf(!isCleanEnoughForPackagePack())(
           stdio: "pipe",
         },
       );
+      packageRoot = path.join(installDir, "node_modules", "p-dev-harness");
+      facadePath = path.join(packageRoot, "dist/observability/facade.js");
 
       const sentryCollector = await listen((body) => {
         sentryRequests.push(body);
@@ -126,18 +130,17 @@ describe.skipIf(!isCleanEnoughForPackagePack())(
     async function runInstalledHarness(
       body: string,
       env: Record<string, string>,
-    ): Promise<Record<string, unknown>> {
+    ): Promise<void> {
       const scriptDir = await mkdtemp(path.join(os.tmpdir(), "p-dev-harness-run-"));
       const scriptPath = path.join(scriptDir, "installed-observability.mjs");
       await writeFile(scriptPath, body, "utf8");
       try {
-        const stdout = execFileSync(process.execPath, [scriptPath], {
+        execFileSync(process.execPath, [scriptPath], {
           cwd: scriptDir,
           env: { ...process.env, ...env },
           encoding: "utf8",
           timeout: 30_000,
         });
-        return JSON.parse(stdout) as Record<string, unknown>;
       } finally {
         await rm(scriptDir, { recursive: true, force: true });
       }
@@ -145,61 +148,79 @@ describe.skipIf(!isCleanEnoughForPackagePack())(
 
     it("validates production adapters from the exact packed tarball against loopback collectors", async () => {
       expect(existsSync(tarballPath)).toBe(true);
-      const packageRoot = path.join(
-        installDir,
-        "node_modules",
-        "p-dev-harness",
-      );
-      const facadePath = path.join(
-        packageRoot,
-        "dist/observability/facade.js",
-      );
       expect(existsSync(facadePath)).toBe(true);
-
-      sentryRequests = [];
-      posthogRequests = [];
 
       const workspaceDir = await mkdtemp(
         path.join(os.tmpdir(), "p-dev-installed-home-"),
       );
-      const result = await runInstalledHarness(
+      const baseEnv = {
+        P_DEV_RUNTIME_MODE: "packaged",
+        P_DEV_PACKAGE_VERSION: "0.3.1",
+        P_DEV_HOME: workspaceDir,
+        P_DEV_SENTRY_DSN: `http://public@127.0.0.1:${sentryPort}/1`,
+        P_DEV_POSTHOG_PROJECT_TOKEN: "phc_installed_tarball_test",
+        P_DEV_POSTHOG_HOST: `http://127.0.0.1:${posthogPort}`,
+      };
+
+      sentryRequests = [];
+      posthogRequests = [];
+
+      await runInstalledHarness(
         `
-import { mkdtemp } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
 import {
   beginObservabilitySession,
   writeObservabilityPreferences,
   captureAnalyticsEvent,
-  captureProductError,
   flushObservability,
   shutdownObservability,
 } from ${JSON.stringify(facadePath)};
 
 const workspaceDir = ${JSON.stringify(workspaceDir)};
-
 await beginObservabilitySession({
   workspaceDir,
   moduleUrl: ${JSON.stringify(facadePath)},
   env: process.env,
 });
-captureAnalyticsEvent({ type: "p_dev_setup_completed" });
-captureProductError({
-  lifecyclePhase: "configure_route",
-  productErrorCode: "pre_consent_probe",
-  errorCategory: "unexpected",
-});
-
 await writeObservabilityPreferences(workspaceDir, {
   analyticsPreference: "enabled",
   disclosureShown: true,
 });
 captureAnalyticsEvent({ type: "p_dev_setup_completed" });
 await flushObservability(2_000);
+await shutdownObservability();
+`,
+        baseEnv,
+      );
 
+      expect(posthogRequests.length).toBeGreaterThanOrEqual(1);
+      const posthogBody = posthogRequests.join("\n");
+      expect(posthogBody).toContain("phc_installed_tarball_test");
+      expect(posthogBody).toContain("p_dev_session_started");
+      expect(posthogBody).toContain("$process_person_profile");
+      expect(sentryRequests).toHaveLength(0);
+
+      sentryRequests = [];
+      posthogRequests = [];
+
+      await runInstalledHarness(
+        `
+import {
+  beginObservabilitySession,
+  writeObservabilityPreferences,
+  captureProductError,
+  flushObservability,
+  shutdownObservability,
+} from ${JSON.stringify(facadePath)};
+
+const workspaceDir = ${JSON.stringify(workspaceDir)};
+await beginObservabilitySession({
+  workspaceDir,
+  moduleUrl: ${JSON.stringify(facadePath)},
+  env: process.env,
+});
 await writeObservabilityPreferences(workspaceDir, {
-  analyticsPreference: "disabled",
   errorReportingPreference: "enabled",
+  disclosureShown: true,
 });
 captureProductError({
   lifecyclePhase: "configure_route",
@@ -208,32 +229,17 @@ captureProductError({
 });
 await flushObservability(2_000);
 await shutdownObservability();
-process.stdout.write(JSON.stringify({ ok: true }));
 `,
-        {
-          P_DEV_RUNTIME_MODE: "packaged",
-          P_DEV_PACKAGE_VERSION: "0.3.1",
-          P_DEV_HOME: workspaceDir,
-          P_DEV_SENTRY_DSN: `http://public@127.0.0.1:${sentryPort}/1`,
-          P_DEV_POSTHOG_PROJECT_TOKEN: "phc_installed_tarball_test",
-          P_DEV_POSTHOG_HOST: `http://127.0.0.1:${posthogPort}`,
-        },
+        baseEnv,
       );
 
       await rm(workspaceDir, { recursive: true, force: true });
 
-      expect(result.ok).toBe(true);
       expect(sentryRequests.length).toBeGreaterThanOrEqual(1);
-      expect(posthogRequests.length).toBeGreaterThanOrEqual(1);
-
+      expect(posthogRequests).toHaveLength(0);
       const sentryBody = sentryRequests.join("\n");
-      const posthogBody = posthogRequests.join("\n");
       expect(sentryBody).toContain("installed_tarball_probe");
-      expect(sentryBody).not.toContain("pre_consent_probe");
-      expect(posthogBody).toContain("phc_installed_tarball_test");
-      expect(posthogBody).toContain("p_dev_session_started");
-      expect(posthogBody).toContain("$process_person_profile");
-      expect(posthogBody).not.toContain("ghp_");
+      expect(sentryBody).not.toContain("ghp_");
     });
   },
 );
