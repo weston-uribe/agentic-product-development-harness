@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { generateWorkspaceSnapshot } from "../src/p-dev/workspace-snapshot-generator.js";
-import { assertCleanGitSource, resolveGitCommit } from "../src/p-dev/workspace-snapshot-git.js";
+import { assertCleanGitSource } from "../src/p-dev/workspace-snapshot-git.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -48,17 +48,6 @@ async function copyIfExists(source: string, destination: string): Promise<void> 
 }
 
 async function main(): Promise<void> {
-  const requestedSourceRef = process.env.P_DEV_SNAPSHOT_SOURCE_REF?.trim();
-  if (requestedSourceRef && requestedSourceRef !== "HEAD") {
-    const headCommit = await resolveGitCommit(repoRoot, "HEAD");
-    const requestedCommit = await resolveGitCommit(repoRoot, requestedSourceRef);
-    if (headCommit !== requestedCommit) {
-      throw new Error(
-        `Package preparation requires P_DEV_SNAPSHOT_SOURCE_REF to match checked-out HEAD (${headCommit}); got ${requestedSourceRef} (${requestedCommit}).`,
-      );
-    }
-  }
-
   const sourceCommit = await assertCleanGitSource(repoRoot, "HEAD", {
     requireHeadMatch: true,
     requireCleanWorkingTree: true,
