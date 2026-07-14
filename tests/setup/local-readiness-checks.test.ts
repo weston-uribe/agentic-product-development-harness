@@ -17,6 +17,7 @@ vi.mock("../../src/github/client.js", async (importOriginal) => {
 
 vi.mock("@cursor/sdk", () => ({
   Cursor: {
+    me: vi.fn(),
     models: {
       list: vi.fn(),
     },
@@ -114,6 +115,11 @@ describe("local-readiness-checks", () => {
     mockGitHubClient({});
 
     const cursorSdk = await import("@cursor/sdk");
+    vi.mocked(cursorSdk.Cursor.me).mockResolvedValue({
+      id: "user-1",
+      email: "weston@example.com",
+      name: "Weston Uribe",
+    });
     vi.mocked(cursorSdk.Cursor.models.list).mockResolvedValue([{ id: "composer-2.5" }]);
     vi.mocked(cursorSdk.Cursor.repositories.list).mockResolvedValue([]);
   });
