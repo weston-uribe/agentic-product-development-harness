@@ -21,7 +21,7 @@ export default async function ConfigurePage() {
     ]);
 
   return (
-    <AppShell>
+    <AppShell isConfigureActive>
       <ConfigurePageContent
         summary={summary}
         remoteSummary={remoteSummary}
