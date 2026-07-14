@@ -3,15 +3,19 @@ import {
   compareGuidedDisplaySteps,
   clampGuidedDisplayStep,
   defaultGuidedDisplayStep,
+  deriveGuidedProgressStages,
+  firstRunStepIdForProgressStage,
   getPreviousGuidedDisplayStep,
   GUIDED_DISPLAY_STEP_AFTER_CONNECT_SERVICES,
   GUIDED_DISPLAY_STEP_AFTER_LOCAL_APPLY,
   GUIDED_DISPLAY_STEP_AFTER_LOCAL_READINESS,
   GUIDED_DISPLAY_STEP_AFTER_WORKFLOW_READY,
   GUIDED_DISPLAY_STEP_AFTER_CLOUD_SECRETS,
+  GUIDED_PROGRESS_STAGES,
   GUIDED_SETUP_STEP_COUNT,
   isGuidedDisplayStepAllowed,
   localSetupFilesExist,
+  progressStageForFirstRunStepId,
   readinessStepAdvanced,
   shouldReadinessAdvanceGuidedDisplay,
   shouldShowGuidedBackButton,
@@ -182,5 +186,23 @@ describe("guided-setup navigation", () => {
         currentStepId: "local-readiness",
       }),
     ).toBe("connect-services");
+  });
+
+  it("exports progress metadata aligned with guided display order", () => {
+    expect(GUIDED_PROGRESS_STAGES).toHaveLength(GUIDED_SETUP_STEP_COUNT);
+    expect(progressStageForFirstRunStepId("local-setup")).toBe(
+      "choose-target-repos",
+    );
+    expect(firstRunStepIdForProgressStage("choose-target-repos")).toBe(
+      "local-setup",
+    );
+
+    const stages = deriveGuidedProgressStages({
+      displayedStep: "connect-services",
+      readinessCurrentStepId: "connect-services",
+      readinessSteps: [],
+      readyForFirstRun: false,
+    });
+    expect(stages[0]?.state).toBe("current");
   });
 });

@@ -97,9 +97,17 @@ describe("gui design-system boundaries", () => {
       path.join(process.cwd(), "apps/gui/lib/constants/layout.ts"),
       "utf8",
     );
+    const progress = await readFile(
+      path.join(
+        process.cwd(),
+        "apps/gui/components/custom/guided-setup-progress.tsx",
+      ),
+      "utf8",
+    );
 
     expect(dropdownMenu).toContain('@radix-ui/react-dropdown-menu');
     expect(layout).toContain("bg-background");
     expect(layout).toContain("sticky top-0 z-50");
+    expect(progress).toContain('from "framer-motion"');
   });
 });

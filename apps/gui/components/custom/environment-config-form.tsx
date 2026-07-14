@@ -89,7 +89,7 @@ const SERVICE_DEFINITIONS: Array<{
     displayName: "Linear",
     valueKey: "linearApiKey",
     helperText: "Lets the harness read and update Linear issues.",
-    inputLabel: "Go to Linear, create or copy your API key, then paste it here.",
+    inputLabel: "Copy an existing Linear API key or create a new one, then paste it here.",
   },
   {
     key: "CURSOR_API_KEY",
@@ -98,7 +98,7 @@ const SERVICE_DEFINITIONS: Array<{
     valueKey: "cursorApiKey",
     helperText:
       "Used to spin up Cursor agents that do the planning and development work.",
-    inputLabel: "Go to Cursor, create or copy your API key, then paste it here.",
+    inputLabel: "Copy an existing Cursor API key or create a new one, then paste it here.",
   },
   {
     key: "GITHUB_TOKEN",
@@ -115,7 +115,7 @@ const SERVICE_DEFINITIONS: Array<{
     valueKey: "vercelToken",
     helperText:
       "Used to create or access Vercel previews so implementation work can be verified before code is merged.",
-    inputLabel: "Go to Vercel, create or copy your token, then paste it here.",
+    inputLabel: "Copy an existing Vercel token or create a new one, then paste it here.",
   },
 ];
 
@@ -156,7 +156,6 @@ export function EnvironmentConfigForm({
             id={service.id}
             serviceKey={service.key}
             displayName={service.displayName}
-            envKey={service.key}
             helperText={service.helperText}
             inputLabel={service.inputLabel}
             present={presence[service.key]}
@@ -232,7 +231,6 @@ function ServiceConnectionCard({
   id,
   serviceKey,
   displayName,
-  envKey,
   helperText,
   inputLabel,
   present,
@@ -246,7 +244,6 @@ function ServiceConnectionCard({
   id: string;
   serviceKey: ServiceKey;
   displayName: string;
-  envKey: string;
   helperText: string;
   inputLabel?: string;
   present: boolean;
@@ -292,7 +289,6 @@ function ServiceConnectionCard({
             <ServiceIcon serviceKey={serviceKey} />
             <span>{displayName}</span>
           </p>
-          <p className="text-xs text-muted-foreground">{envKey}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {present ? (
@@ -305,7 +301,7 @@ function ServiceConnectionCard({
       <p className="text-sm text-muted-foreground">{helperText}</p>
 
       <div className={FORM.fieldStack}>
-        <Label htmlFor={id}>{inputLabel ?? envKey}</Label>
+        <Label htmlFor={id}>{inputLabel ?? serviceKey}</Label>
         <Input
           id={id}
           type="password"
