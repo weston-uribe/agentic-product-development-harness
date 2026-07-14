@@ -194,6 +194,7 @@ describe("M6 configure GUI boundaries", () => {
     expect(guidedEnvBlock).toBeDefined();
     expect(guidedEnvBlock).not.toContain("GITHUB_DISPATCH_REPOSITORY");
     expect(guidedEnvBlock).toContain("ServiceConnectionCard");
+    expect(guidedEnvBlock).not.toContain("envKey");
     expect(guidedEnvBlock).toContain("space-y-4");
     expect(targetSource).toContain('variant === "guided-minimal"');
     const guidedTargetBlock = targetSource.match(
@@ -344,13 +345,13 @@ describe("M6 configure GUI boundaries", () => {
     );
 
     expect(envSource).toContain(
-      "Go to Linear, create or copy your API key, then paste it here.",
+      "Copy an existing Linear API key or create a new one, then paste it here.",
     );
     expect(envSource).toContain(
-      "Go to Cursor, create or copy your API key, then paste it here.",
+      "Copy an existing Cursor API key or create a new one, then paste it here.",
     );
     expect(envSource).toContain(
-      "Go to Vercel, create or copy your token, then paste it here.",
+      "Copy an existing Vercel token or create a new one, then paste it here.",
     );
     expect(envSource).toContain(
       "Lets the harness read and update Linear issues.",
@@ -633,7 +634,9 @@ describe("M6 configure GUI boundaries", () => {
     expect(envSource).toContain("GitHubTokenHelpDisclosure");
     expect(envSource).not.toContain("Step 4");
     expect(envSource).not.toContain("Step 5");
-    expect(GITHUB_TOKEN_INPUT_LABEL).toBe("Paste your GitHub token");
+    expect(GITHUB_TOKEN_INPUT_LABEL).toBe(
+      "Copy an existing GitHub personal access token or create a new one, then paste it here.",
+    );
     expect(GITHUB_TOKEN_GUIDED_HELPER_TEXT).toContain("repo and workflow access");
     expect(GITHUB_TOKEN_GUIDED_HELPER_TEXT).not.toContain("Step 4");
     expect(GITHUB_TOKEN_GUIDED_HELPER_TEXT).not.toContain("Step 5");
@@ -853,6 +856,46 @@ describe("M6 configure GUI boundaries", () => {
     );
     expect(experienceSource).toContain('case "cloud-secrets":');
     expect(experienceSource).toContain('case "target-workflow":');
+  });
+
+  it("guided mode renders a display-only seven-stage progress indicator", () => {
+    const experienceSource = readFileSync(
+      path.join(repoRoot, "apps/gui/components/custom/configure-experience.tsx"),
+      "utf8",
+    );
+    const progressSource = readFileSync(
+      path.join(
+        repoRoot,
+        "apps/gui/components/custom/guided-setup-progress.tsx",
+      ),
+      "utf8",
+    );
+
+    expect(experienceSource).toContain("GuidedSetupProgress");
+    expect(experienceSource).toContain("deriveGuidedProgressStages");
+    expect(experienceSource).toContain('mode === "guided"');
+    expect(progressSource).toContain('aria-label="Guided setup progress"');
+    expect(progressSource).toContain('aria-current={isCurrent ? "step" : undefined}');
+    expect(progressSource).toContain("useReducedMotion");
+    expect(progressSource).not.toContain("onClick");
+    expect(progressSource).not.toContain("<button");
+    expect(progressSource).not.toContain('role="tab"');
+  });
+
+  it("guided Step 1 uses concise workspace setup button labels", () => {
+    const workflowSource = readFileSync(
+      path.join(repoRoot, "apps/gui/components/custom/configure-workflow.tsx"),
+      "utf8",
+    );
+
+    expect(workflowSource).toContain("Set up workspace");
+    expect(workflowSource).toContain("Setting up workspace…");
+    expect(workflowSource).not.toContain(
+      "Continue and set up private p-dev workspace",
+    );
+    expect(workflowSource).not.toContain(
+      "Setting up your private p-dev workspace",
+    );
   });
 
   it("top nav renders the settings menu instead of a standalone theme toggle", () => {
