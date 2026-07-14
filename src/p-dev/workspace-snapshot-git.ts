@@ -194,6 +194,7 @@ export async function readGitBlobContents(
 
 export function computeGitBlobSha1(content: Buffer): string {
   const header = Buffer.from(`blob ${content.byteLength}\0`, "utf8");
+  // codeql[js/weak-cryptographic-algorithm] Git blob object IDs require SHA-1 per the Git wire protocol.
   return createHash("sha1").update(header).update(content).digest("hex");
 }
 
@@ -215,5 +216,6 @@ export function computeGitTreeSha1(
   }
   const body = Buffer.concat(chunks);
   const header = Buffer.from(`tree ${body.byteLength}\0`, "utf8");
+  // codeql[js/weak-cryptographic-algorithm] Git tree object IDs require SHA-1 per the Git wire protocol.
   return createHash("sha1").update(header).update(body).digest("hex");
 }
