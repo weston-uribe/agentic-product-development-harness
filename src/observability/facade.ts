@@ -5,11 +5,7 @@ import {
 } from "./constants.js";
 import { resolveEffectiveConsent } from "./consent.js";
 import { buildObservabilityContext } from "./context.js";
-import {
-  generateInstallationId,
-  generateObservabilityNonce,
-  generateSessionId,
-} from "./identity.js";
+import { generateInstallationId } from "./identity.js";
 import {
   isFirstLaunchForPDevHome,
   readObservabilityLocalState,
@@ -23,6 +19,12 @@ import {
   allowedAnalyticsPropertyKeysForEvent,
   assertAllowedPropertyKeys,
 } from "./privacy-schema.js";
+import { resolveObservabilityHandoff } from "./session-handoff.js";
+import {
+  createAnalyticsLifecycle,
+  createErrorLifecycle,
+  type CategoryTransportLifecycle,
+} from "./transport-lifecycle.js";
 import type {
   AllowedSentryContext,
   AnalyticsEvent,
@@ -42,10 +44,6 @@ import {
   createFakeErrorTransport,
   createFakeTransportRecorder,
 } from "./adapters/fake.js";
-import {
-  createNoopAnalyticsTransport,
-  createNoopErrorTransport,
-} from "./adapters/noop.js";
 
 export interface BeginObservabilitySessionInput {
   workspaceDir: string;
@@ -65,10 +63,42 @@ export interface ObservabilitySession {
 }
 
 let activeSession: ObservabilitySession | null = null;
-let analyticsTransport: AnalyticsTransport = createNoopAnalyticsTransport();
-let errorTransport: ErrorTransport = createNoopErrorTransport();
+const analyticsLifecycle: CategoryTransportLifecycle<AnalyticsTransport> =
+  createAnalyticsLifecycle();
+const errorLifecycle: CategoryTransportLifecycle<ErrorTransport> =
+  createErrorLifecycle();
 let runtimeEligible = false;
 let activeFakeRecorder: FakeTransportRecorder | undefined;
+let analyticsAdapterFactory: (() => AnalyticsTransport) | null = null;
+let errorAdapterFactory: (() => ErrorTransport) | null = null;
+
+export function registerAnalyticsAdapterFactory(
+  factory: () => AnalyticsTransport,
+): void {
+  analyticsAdapterFactory = factory;
+}
+
+export function registerErrorAdapterFactory(
+  factory: () => ErrorTransport,
+): void {
+  errorAdapterFactory = factory;
+}
+
+export function isAnalyticsCaptureEnabled(): boolean {
+  return (
+    runtimeEligible &&
+    analyticsLifecycle.isCaptureEnabled() &&
+    Boolean(activeSession?.consent.analyticsEnabled)
+  );
+}
+
+export function isErrorReportingCaptureEnabled(): boolean {
+  return (
+    runtimeEligible &&
+    errorLifecycle.isCaptureEnabled() &&
+    Boolean(activeSession?.consent.errorReportingEnabled)
+  );
+}
 
 function contextToCommonAnalyticsProperties(
   context: ObservabilityContext,
@@ -109,20 +139,81 @@ function contextToSentryTags(
   };
 }
 
-function configureTransports(input: {
+function createAnalyticsAdapter(
+  fakeRecorder?: FakeTransportRecorder,
+): AnalyticsTransport | null {
+  if (fakeRecorder) {
+    return createFakeAnalyticsTransport(fakeRecorder);
+  }
+  if (analyticsAdapterFactory) {
+    return analyticsAdapterFactory();
+  }
+  return null;
+}
+
+function createErrorAdapter(
+  fakeRecorder?: FakeTransportRecorder,
+): ErrorTransport | null {
+  if (fakeRecorder) {
+    return createFakeErrorTransport(fakeRecorder);
+  }
+  if (errorAdapterFactory) {
+    return errorAdapterFactory();
+  }
+  return null;
+}
+
+async function syncAnalyticsTransport(input: {
   consent: EffectiveConsent;
   fakeRecorder?: FakeTransportRecorder;
-}): void {
-  analyticsTransport = createNoopAnalyticsTransport();
-  errorTransport = createNoopErrorTransport();
+}): Promise<void> {
+  if (!input.consent.analyticsEnabled) {
+    await analyticsLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS);
+    return;
+  }
+  const adapter = createAnalyticsAdapter(input.fakeRecorder);
+  if (!adapter) {
+    await analyticsLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS);
+    return;
+  }
+  await analyticsLifecycle.enable(() => adapter);
+}
 
-  if (input.fakeRecorder) {
-    if (input.consent.analyticsEnabled) {
-      analyticsTransport = createFakeAnalyticsTransport(input.fakeRecorder);
-    }
-    if (input.consent.errorReportingEnabled) {
-      errorTransport = createFakeErrorTransport(input.fakeRecorder);
-    }
+async function syncErrorTransport(input: {
+  consent: EffectiveConsent;
+  fakeRecorder?: FakeTransportRecorder;
+}): Promise<void> {
+  if (!input.consent.errorReportingEnabled) {
+    await errorLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS);
+    return;
+  }
+  const adapter = createErrorAdapter(input.fakeRecorder);
+  if (!adapter) {
+    await errorLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS);
+    return;
+  }
+  await errorLifecycle.enable(() => adapter);
+}
+
+async function configureTransports(input: {
+  consent: EffectiveConsent;
+  fakeRecorder?: FakeTransportRecorder;
+  analyticsOnly?: boolean;
+  errorOnly?: boolean;
+}): Promise<void> {
+  if (!input.analyticsOnly && !input.errorOnly) {
+    await Promise.all([
+      syncAnalyticsTransport(input),
+      syncErrorTransport(input),
+    ]);
+    return;
+  }
+  if (input.analyticsOnly) {
+    await syncAnalyticsTransport(input);
+    return;
+  }
+  if (input.errorOnly) {
+    await syncErrorTransport(input);
   }
 }
 
@@ -138,8 +229,10 @@ export async function beginObservabilitySession(
   if (!runtimeEligible) {
     activeSession = null;
     activeFakeRecorder = undefined;
-    analyticsTransport = createNoopAnalyticsTransport();
-    errorTransport = createNoopErrorTransport();
+    await Promise.all([
+      analyticsLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS),
+      errorLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS),
+    ]);
     return null;
   }
 
@@ -150,13 +243,10 @@ export async function beginObservabilitySession(
     env,
   });
 
-  const sessionId =
-    env[P_DEV_OBSERVABILITY_SESSION_ID_ENV]?.trim() || generateSessionId();
-  const nonce =
-    env[P_DEV_OBSERVABILITY_NONCE_ENV]?.trim() || generateObservabilityNonce();
+  const handoff = resolveObservabilityHandoff(env);
 
   const context = buildObservabilityContext({
-    sessionId,
+    sessionId: handoff.sessionId,
     installationId: consent.analyticsEnabled
       ? localState.installationId
       : undefined,
@@ -167,12 +257,12 @@ export async function beginObservabilitySession(
   });
 
   activeFakeRecorder = input.fakeRecorder;
-  configureTransports({ consent, fakeRecorder: input.fakeRecorder });
+  await configureTransports({ consent, fakeRecorder: input.fakeRecorder });
 
   activeSession = {
     workspaceDir: input.workspaceDir,
-    sessionId,
-    nonce,
+    sessionId: handoff.sessionId,
+    nonce: handoff.nonce,
     context,
     consent,
     localState,
@@ -203,6 +293,7 @@ export async function writeObservabilityPreferences(
   workspaceDir: string,
   input: UpdateObservabilityPreferencesInput,
 ): Promise<ObservabilitySession | null> {
+  const previousConsent = activeSession?.consent;
   let localState = await readObservabilityLocalState(workspaceDir);
 
   if (
@@ -238,10 +329,29 @@ export async function writeObservabilityPreferences(
     },
   };
 
-  configureTransports({
-    consent,
-    fakeRecorder: activeFakeRecorder,
-  });
+  const analyticsChanged =
+    previousConsent?.analyticsEnabled !== consent.analyticsEnabled;
+  const errorChanged =
+    previousConsent?.errorReportingEnabled !== consent.errorReportingEnabled;
+
+  try {
+    if (analyticsChanged) {
+      await configureTransports({
+        consent,
+        fakeRecorder: activeFakeRecorder,
+        analyticsOnly: true,
+      });
+    }
+    if (errorChanged) {
+      await configureTransports({
+        consent,
+        fakeRecorder: activeFakeRecorder,
+        errorOnly: true,
+      });
+    }
+  } catch {
+    // vendor failures must not fail preference persistence
+  }
 
   return activeSession;
 }
@@ -249,6 +359,11 @@ export async function writeObservabilityPreferences(
 export async function resetObservabilityState(
   workspaceDir: string,
 ): Promise<void> {
+  await Promise.all([
+    analyticsLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS),
+    errorLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS),
+  ]);
+
   await resetObservabilityLocalState(workspaceDir);
   if (activeSession?.workspaceDir === workspaceDir) {
     activeSession = {
@@ -263,15 +378,11 @@ export async function resetObservabilityState(
         installationId: undefined,
       },
     };
-    configureTransports({
-      consent: activeSession.consent,
-      fakeRecorder: activeFakeRecorder,
-    });
   }
 }
 
 export function captureAnalyticsEvent(event: AnalyticsEvent): void {
-  if (!activeSession?.consent.analyticsEnabled || !runtimeEligible) {
+  if (!isAnalyticsCaptureEnabled()) {
     return;
   }
 
@@ -280,7 +391,7 @@ export function captureAnalyticsEvent(event: AnalyticsEvent): void {
   assertAllowedPropertyKeys(eventProperties, allowedKeys);
 
   const properties = {
-    ...contextToCommonAnalyticsProperties(activeSession.context),
+    ...contextToCommonAnalyticsProperties(activeSession!.context),
     ...eventProperties,
   };
   assertAllowedPropertyKeys(properties, allowedKeys);
@@ -290,34 +401,34 @@ export function captureAnalyticsEvent(event: AnalyticsEvent): void {
     properties,
   };
   try {
-    analyticsTransport.capture(payload);
+    analyticsLifecycle.getAdapter().capture(payload);
   } catch {
     // best-effort
   }
 }
 
 export function captureProductError(input: ProductErrorCaptureInput): void {
-  if (!activeSession?.consent.errorReportingEnabled || !runtimeEligible) {
+  if (!isErrorReportingCaptureEnabled()) {
     return;
   }
 
   const context = contextToSentryTags(
-    activeSession.context,
+    activeSession!.context,
     input.lifecyclePhase,
   );
   try {
-    errorTransport.captureError(input, context);
+    errorLifecycle.getAdapter().captureError(input, context);
   } catch {
     // best-effort
   }
 }
 
 export function addObservabilityBreadcrumb(breadcrumb: TypedBreadcrumb): void {
-  if (!activeSession?.consent.errorReportingEnabled || !runtimeEligible) {
+  if (!isErrorReportingCaptureEnabled()) {
     return;
   }
   try {
-    errorTransport.addBreadcrumb(breadcrumb);
+    errorLifecycle.getAdapter().addBreadcrumb(breadcrumb);
   } catch {
     // best-effort
   }
@@ -327,18 +438,17 @@ export async function flushObservability(
   deadlineMs = OBSERVABILITY_FLUSH_DEADLINE_MS,
 ): Promise<void> {
   await Promise.allSettled([
-    analyticsTransport.flush(deadlineMs),
-    errorTransport.flush(deadlineMs),
+    analyticsLifecycle.getAdapter().flush(deadlineMs),
+    errorLifecycle.getAdapter().flush(deadlineMs),
   ]);
 }
 
 export async function shutdownObservability(
   deadlineMs = OBSERVABILITY_FLUSH_DEADLINE_MS,
 ): Promise<void> {
-  await flushObservability(deadlineMs);
-  await Promise.allSettled([
-    analyticsTransport.shutdown(),
-    errorTransport.shutdown(),
+  await Promise.all([
+    analyticsLifecycle.shutdown(deadlineMs, { flush: true }),
+    errorLifecycle.shutdown(deadlineMs, { flush: true }),
   ]);
   activeSession = null;
   activeFakeRecorder = undefined;
