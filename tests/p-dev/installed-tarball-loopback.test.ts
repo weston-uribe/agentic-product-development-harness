@@ -160,6 +160,7 @@ describe.skipIf(!isCleanEnoughForPackagePack())(
           captureProductError,
           flushObservability,
           shutdownObservability,
+          isErrorReportingCaptureEnabled,
         } = await import(facadeUrl);
 
         await beginObservabilitySession({
@@ -171,6 +172,7 @@ describe.skipIf(!isCleanEnoughForPackagePack())(
           errorReportingPreference: "enabled",
           disclosureShown: true,
         });
+        expect(isErrorReportingCaptureEnabled()).toBe(true);
         captureProductError({
           lifecyclePhase: "configure_route",
           productErrorCode: "installed_tarball_probe",
