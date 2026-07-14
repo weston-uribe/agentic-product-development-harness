@@ -12,6 +12,7 @@ import {
   updateObservabilityPreferences,
   type UpdateObservabilityPreferencesInput,
 } from "./local-state.js";
+import { readObservabilityPublicConfig } from "./package-config.js";
 import { isObservabilityRuntimeEligible } from "./runtime-eligibility.js";
 import {
   analyticsEventToProperties,
@@ -19,6 +20,10 @@ import {
   assertAllowedPropertyKeys,
 } from "./privacy-schema.js";
 import { resolveObservabilityHandoff } from "./session-handoff.js";
+import {
+  installObservabilityFatalHandlers,
+  removeObservabilityFatalHandlers,
+} from "./fatal-handlers.js";
 import {
   createAnalyticsLifecycle,
   createErrorLifecycle,
@@ -43,6 +48,7 @@ import {
   createFakeErrorTransport,
   createFakeTransportRecorder,
 } from "./adapters/fake.js";
+import { createSentryErrorTransport } from "./adapters/sentry.js";
 
 export interface BeginObservabilitySessionInput {
   workspaceDir: string;
@@ -69,7 +75,14 @@ const errorLifecycle: CategoryTransportLifecycle<ErrorTransport> =
 let runtimeEligible = false;
 let activeFakeRecorder: FakeTransportRecorder | undefined;
 let analyticsAdapterFactory: (() => AnalyticsTransport) | null = null;
-let errorAdapterFactory: (() => ErrorTransport) | null = null;
+let errorAdapterFactory:
+  | ((input: {
+      context: ObservabilityContext;
+      moduleUrl?: string;
+      env?: NodeJS.ProcessEnv;
+    }) => ErrorTransport)
+  | null = null;
+let parentOwnershipReleased = false;
 
 export function registerAnalyticsAdapterFactory(
   factory: () => AnalyticsTransport,
@@ -78,7 +91,11 @@ export function registerAnalyticsAdapterFactory(
 }
 
 export function registerErrorAdapterFactory(
-  factory: () => ErrorTransport,
+  factory: (input: {
+    context: ObservabilityContext;
+    moduleUrl?: string;
+    env?: NodeJS.ProcessEnv;
+  }) => ErrorTransport,
 ): void {
   errorAdapterFactory = factory;
 }
@@ -86,6 +103,7 @@ export function registerErrorAdapterFactory(
 export function isAnalyticsCaptureEnabled(): boolean {
   return (
     runtimeEligible &&
+    !parentOwnershipReleased &&
     analyticsLifecycle.isCaptureEnabled() &&
     Boolean(activeSession?.consent.analyticsEnabled)
   );
@@ -94,6 +112,7 @@ export function isAnalyticsCaptureEnabled(): boolean {
 export function isErrorReportingCaptureEnabled(): boolean {
   return (
     runtimeEligible &&
+    !parentOwnershipReleased &&
     errorLifecycle.isCaptureEnabled() &&
     Boolean(activeSession?.consent.errorReportingEnabled)
   );
@@ -150,14 +169,31 @@ function createAnalyticsAdapter(
   return null;
 }
 
-function createErrorAdapter(
-  fakeRecorder?: FakeTransportRecorder,
-): ErrorTransport | null {
-  if (fakeRecorder) {
-    return createFakeErrorTransport(fakeRecorder);
+function createErrorAdapter(input: {
+  fakeRecorder?: FakeTransportRecorder;
+  context: ObservabilityContext;
+  moduleUrl?: string;
+  env?: NodeJS.ProcessEnv;
+}): ErrorTransport | null {
+  if (input.fakeRecorder) {
+    return createFakeErrorTransport(input.fakeRecorder);
   }
   if (errorAdapterFactory) {
-    return errorAdapterFactory();
+    return errorAdapterFactory(input);
+  }
+  const publicConfig = readObservabilityPublicConfig(
+    input.moduleUrl,
+    input.env,
+  );
+  if (input.context && publicConfig?.sentryPublicDsn) {
+    try {
+      return createSentryErrorTransport({
+        dsn: publicConfig.sentryPublicDsn,
+        release: `p-dev-harness@${input.context.packageVersion}`,
+      });
+    } catch {
+      return null;
+    }
   }
   return null;
 }
@@ -180,13 +216,16 @@ async function syncAnalyticsTransport(input: {
 
 async function syncErrorTransport(input: {
   consent: EffectiveConsent;
+  context: ObservabilityContext;
+  moduleUrl?: string;
+  env?: NodeJS.ProcessEnv;
   fakeRecorder?: FakeTransportRecorder;
 }): Promise<void> {
   if (!input.consent.errorReportingEnabled) {
     await errorLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS);
     return;
   }
-  const adapter = createErrorAdapter(input.fakeRecorder);
+  const adapter = createErrorAdapter(input);
   if (!adapter) {
     await errorLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS);
     return;
@@ -196,6 +235,9 @@ async function syncErrorTransport(input: {
 
 async function configureTransports(input: {
   consent: EffectiveConsent;
+  context: ObservabilityContext;
+  moduleUrl?: string;
+  env?: NodeJS.ProcessEnv;
   fakeRecorder?: FakeTransportRecorder;
   analyticsOnly?: boolean;
   errorOnly?: boolean;
@@ -220,6 +262,7 @@ export async function beginObservabilitySession(
   input: BeginObservabilitySessionInput,
 ): Promise<ObservabilitySession | null> {
   const env = input.env ?? process.env;
+  parentOwnershipReleased = false;
   runtimeEligible = isObservabilityRuntimeEligible({
     env,
     allowFakeTransport: Boolean(input.fakeRecorder),
@@ -256,7 +299,13 @@ export async function beginObservabilitySession(
   });
 
   activeFakeRecorder = input.fakeRecorder;
-  await configureTransports({ consent, fakeRecorder: input.fakeRecorder });
+  await configureTransports({
+    consent,
+    context,
+    moduleUrl: input.moduleUrl,
+    env,
+    fakeRecorder: input.fakeRecorder,
+  });
 
   activeSession = {
     workspaceDir: input.workspaceDir,
@@ -337,6 +386,7 @@ export async function writeObservabilityPreferences(
     if (analyticsChanged) {
       await configureTransports({
         consent,
+        context: activeSession.context,
         fakeRecorder: activeFakeRecorder,
         analyticsOnly: true,
       });
@@ -344,6 +394,7 @@ export async function writeObservabilityPreferences(
     if (errorChanged) {
       await configureTransports({
         consent,
+        context: activeSession.context,
         fakeRecorder: activeFakeRecorder,
         errorOnly: true,
       });
@@ -378,6 +429,18 @@ export async function resetObservabilityState(
       },
     };
   }
+}
+
+export async function releaseParentObservabilityOwnership(): Promise<void> {
+  if (parentOwnershipReleased) {
+    return;
+  }
+  parentOwnershipReleased = true;
+  removeObservabilityFatalHandlers();
+  await Promise.all([
+    analyticsLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS),
+    errorLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS),
+  ]);
 }
 
 export function captureAnalyticsEvent(event: AnalyticsEvent): void {
@@ -445,18 +508,20 @@ export async function flushObservability(
 export async function shutdownObservability(
   deadlineMs = OBSERVABILITY_FLUSH_DEADLINE_MS,
 ): Promise<void> {
+  removeObservabilityFatalHandlers();
   await Promise.all([
     analyticsLifecycle.shutdown(deadlineMs, { flush: true }),
     errorLifecycle.shutdown(deadlineMs, { flush: true }),
   ]);
   activeSession = null;
   activeFakeRecorder = undefined;
+  parentOwnershipReleased = false;
 }
 
 export function createObservabilityTestRecorder(): FakeTransportRecorder {
   return createFakeTransportRecorder();
 }
 
-export function installObservabilityUncaughtHandlers(): void {
-  // Uncaught handler wiring arrives in the Sentry slice.
+export function installObservabilityUncaughtHandlers(): () => void {
+  return installObservabilityFatalHandlers(captureProductError);
 }

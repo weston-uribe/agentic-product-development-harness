@@ -10,6 +10,7 @@ export {
   readObservabilityPreferences,
   writeObservabilityPreferences,
   resetObservabilityState,
+  releaseParentObservabilityOwnership,
   createObservabilityTestRecorder,
   installObservabilityUncaughtHandlers,
   isAnalyticsCaptureEnabled,

@@ -14,7 +14,26 @@ vi.mock("../../src/p-dev/next-bin.js", () => ({
   resolveNextBin: vi.fn(() => "/tmp/next"),
 }));
 
+vi.mock("../../src/observability/facade.js", async () => {
+  const actual = await vi.importActual<
+    typeof import("../../src/observability/facade.js")
+  >("../../src/observability/facade.js");
+  return {
+    ...actual,
+    beginObservabilitySession: vi.fn(async () => null),
+    installObservabilityUncaughtHandlers: vi.fn(() => () => undefined),
+    releaseParentObservabilityOwnership: vi.fn(async () => undefined),
+    flushObservability: vi.fn(async () => undefined),
+    shutdownObservability: vi.fn(async () => undefined),
+    captureProductError: vi.fn(),
+  };
+});
+
 import { launchPDev } from "../../src/p-dev/launch.js";
+import {
+  installObservabilityUncaughtHandlers,
+  releaseParentObservabilityOwnership,
+} from "../../src/observability/facade.js";
 
 describe("p-dev launch", () => {
   let tempRoot = "";
@@ -105,6 +124,14 @@ describe("p-dev launch", () => {
     expect(spawnOptions.env.HARNESS_REPO_ROOT).toBe(workspaceDir);
     expect(spawnOptions.env.P_DEV_HOME).toBe(workspaceDir);
     expect(spawnOptions.env.P_DEV_PACKAGE_VERSION).toBe("0.3.0");
+    expect(spawnOptions.env.P_DEV_OBSERVABILITY_SESSION_ID).toMatch(
+      /^[0-9a-f-]{36}$/i,
+    );
+    expect(spawnOptions.env.P_DEV_OBSERVABILITY_NONCE).toMatch(
+      /^[0-9a-f-]{36}$/i,
+    );
+    expect(installObservabilityUncaughtHandlers).toHaveBeenCalled();
+    expect(releaseParentObservabilityOwnership).toHaveBeenCalled();
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 });

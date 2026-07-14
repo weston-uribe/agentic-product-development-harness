@@ -1,4 +1,6 @@
+import { access } from "node:fs/promises";
 import { spawn } from "node:child_process";
+import path from "node:path";
 import type { BrowserOpener } from "./browser.js";
 import { defaultBrowserOpener } from "./browser.js";
 import type { PDevCliOptions } from "./cli.js";
@@ -27,9 +29,18 @@ import {
   seedWorkspaceTemplates,
 } from "./workspace.js";
 import {
+  beginObservabilitySession,
+  captureProductError,
+  flushObservability,
+  installObservabilityUncaughtHandlers,
+  releaseParentObservabilityOwnership,
+  shutdownObservability,
+} from "../observability/facade.js";
+import {
   createObservabilityHandoff,
   observabilityHandoffEnv,
 } from "../observability/session-handoff.js";
+import { ENV_LOCAL, CONFIG_LOCAL } from "../setup/setup-state.js";
 
 export const STARTUP_TIMEOUT_MS = 90_000;
 
@@ -74,6 +85,33 @@ export async function launchPDev(
     );
   }
 
+  let workspaceKind: "new" | "existing" = "new";
+  try {
+    await access(path.join(workspace.workspaceDir, ENV_LOCAL));
+    workspaceKind = "existing";
+  } catch {
+    try {
+      await access(path.join(workspace.workspaceDir, CONFIG_LOCAL));
+      workspaceKind = "existing";
+    } catch {
+      workspaceKind = "new";
+    }
+  }
+
+  const handoff = createObservabilityHandoff();
+  const parentEnv = {
+    ...process.env,
+    ...observabilityHandoffEnv(handoff),
+  };
+
+  await beginObservabilitySession({
+    workspaceDir: workspace.workspaceDir,
+    workspaceKind,
+    moduleUrl: options.moduleUrl,
+    env: parentEnv,
+  });
+  const removeFatalHandlers = installObservabilityUncaughtHandlers();
+
   await seedWorkspaceTemplates({
     workspaceDir: workspace.workspaceDir,
     templatesDir,
@@ -87,7 +125,6 @@ export async function launchPDev(
   const url = buildConfigureUrl(host, port, cli.route);
   const nextBin = resolveNextBin(packageRoot);
   const packagedVersion = readPDevPackageVersionFromPackageRoot(packageRoot);
-  const handoff = createObservabilityHandoff();
 
   const spawnImpl = options.spawnImpl ?? spawn;
   const shutdown = createShutdownController();
@@ -123,27 +160,50 @@ export async function launchPDev(
   shutdown.register(child);
 
   child.on("exit", (code, signal) => {
-    if (signal) {
-      process.kill(process.pid, signal);
-      return;
-    }
-    process.exit(code ?? 0);
+    void flushObservability().finally(() => {
+      void shutdownObservability().finally(() => {
+        if (signal) {
+          process.kill(process.pid, signal);
+          return;
+        }
+        process.exit(code ?? 0);
+      });
+    });
   });
 
   child.on("error", (error) => {
+    captureProductError({
+      lifecyclePhase: "gui_startup",
+      productErrorCode: "configure_gui_spawn_error",
+      errorCategory: "unexpected",
+      cause: error,
+    });
     console.error(`p-dev failed to start Configure GUI: ${error.message}`);
-    process.exit(1);
+    void shutdownObservability().finally(() => {
+      process.exit(1);
+    });
   });
 
   const baseUrl = `http://${host}:${port}`;
   await waitForConfigureServer(baseUrl, STARTUP_TIMEOUT_MS);
   const health = await checkConfigurePageHealth(url);
   if (!health.ok) {
+    captureProductError({
+      lifecyclePhase: "gui_startup",
+      productErrorCode: "configure_gui_health_check_failed",
+      errorCategory: "unexpected",
+      message: health.reason,
+    });
     await shutdown.cleanup();
+    removeFatalHandlers();
+    await shutdownObservability();
     throw new Error(
       health.reason ?? "Configure GUI health check failed after startup.",
     );
   }
+
+  removeFatalHandlers();
+  await releaseParentObservabilityOwnership();
 
   console.log(`Configure GUI is ready at ${url}`);
 
