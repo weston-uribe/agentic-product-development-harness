@@ -1,15 +1,10 @@
 import {
   OBSERVABILITY_FLUSH_DEADLINE_MS,
   P_DEV_OBSERVABILITY_NONCE_ENV,
-  P_DEV_OBSERVABILITY_SESSION_ID_ENV,
 } from "./constants.js";
 import { resolveEffectiveConsent } from "./consent.js";
 import { buildObservabilityContext } from "./context.js";
-import {
-  generateInstallationId,
-  generateObservabilityNonce,
-  generateSessionId,
-} from "./identity.js";
+import { generateInstallationId } from "./identity.js";
 import {
   isFirstLaunchForPDevHome,
   readObservabilityLocalState,
@@ -24,6 +19,16 @@ import {
   allowedAnalyticsPropertyKeysForEvent,
   assertAllowedPropertyKeys,
 } from "./privacy-schema.js";
+import { resolveObservabilityHandoff } from "./session-handoff.js";
+import {
+  installObservabilityFatalHandlers,
+  removeObservabilityFatalHandlers,
+} from "./fatal-handlers.js";
+import {
+  createAnalyticsLifecycle,
+  createErrorLifecycle,
+  type CategoryTransportLifecycle,
+} from "./transport-lifecycle.js";
 import type {
   AllowedSentryContext,
   AnalyticsEvent,
@@ -43,10 +48,6 @@ import {
   createFakeErrorTransport,
   createFakeTransportRecorder,
 } from "./adapters/fake.js";
-import {
-  createNoopAnalyticsTransport,
-  createNoopErrorTransport,
-} from "./adapters/noop.js";
 import { createSentryErrorTransport } from "./adapters/sentry.js";
 
 export interface BeginObservabilitySessionInput {
@@ -67,10 +68,55 @@ export interface ObservabilitySession {
 }
 
 let activeSession: ObservabilitySession | null = null;
-let analyticsTransport: AnalyticsTransport = createNoopAnalyticsTransport();
-let errorTransport: ErrorTransport = createNoopErrorTransport();
+const analyticsLifecycle: CategoryTransportLifecycle<AnalyticsTransport> =
+  createAnalyticsLifecycle();
+const errorLifecycle: CategoryTransportLifecycle<ErrorTransport> =
+  createErrorLifecycle();
 let runtimeEligible = false;
 let activeFakeRecorder: FakeTransportRecorder | undefined;
+let analyticsAdapterFactory: (() => AnalyticsTransport) | null = null;
+let errorAdapterFactory:
+  | ((input: {
+      context: ObservabilityContext;
+      moduleUrl?: string;
+      env?: NodeJS.ProcessEnv;
+    }) => ErrorTransport)
+  | null = null;
+let parentOwnershipReleased = false;
+
+export function registerAnalyticsAdapterFactory(
+  factory: () => AnalyticsTransport,
+): void {
+  analyticsAdapterFactory = factory;
+}
+
+export function registerErrorAdapterFactory(
+  factory: (input: {
+    context: ObservabilityContext;
+    moduleUrl?: string;
+    env?: NodeJS.ProcessEnv;
+  }) => ErrorTransport,
+): void {
+  errorAdapterFactory = factory;
+}
+
+export function isAnalyticsCaptureEnabled(): boolean {
+  return (
+    runtimeEligible &&
+    !parentOwnershipReleased &&
+    analyticsLifecycle.isCaptureEnabled() &&
+    Boolean(activeSession?.consent.analyticsEnabled)
+  );
+}
+
+export function isErrorReportingCaptureEnabled(): boolean {
+  return (
+    runtimeEligible &&
+    !parentOwnershipReleased &&
+    errorLifecycle.isCaptureEnabled() &&
+    Boolean(activeSession?.consent.errorReportingEnabled)
+  );
+}
 
 function contextToCommonAnalyticsProperties(
   context: ObservabilityContext,
@@ -111,40 +157,104 @@ function contextToSentryTags(
   };
 }
 
-function configureTransports(input: {
+function createAnalyticsAdapter(
+  fakeRecorder?: FakeTransportRecorder,
+): AnalyticsTransport | null {
+  if (fakeRecorder) {
+    return createFakeAnalyticsTransport(fakeRecorder);
+  }
+  if (analyticsAdapterFactory) {
+    return analyticsAdapterFactory();
+  }
+  return null;
+}
+
+function createErrorAdapter(input: {
+  fakeRecorder?: FakeTransportRecorder;
+  context: ObservabilityContext;
+  moduleUrl?: string;
+  env?: NodeJS.ProcessEnv;
+}): ErrorTransport | null {
+  if (input.fakeRecorder) {
+    return createFakeErrorTransport(input.fakeRecorder);
+  }
+  if (errorAdapterFactory) {
+    return errorAdapterFactory(input);
+  }
+  const publicConfig = readObservabilityPublicConfig(
+    input.moduleUrl,
+    input.env,
+  );
+  if (input.context && publicConfig?.sentryPublicDsn) {
+    try {
+      return createSentryErrorTransport({
+        dsn: publicConfig.sentryPublicDsn,
+        release: `p-dev-harness@${input.context.packageVersion}`,
+      });
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+async function syncAnalyticsTransport(input: {
+  consent: EffectiveConsent;
+  fakeRecorder?: FakeTransportRecorder;
+}): Promise<void> {
+  if (!input.consent.analyticsEnabled) {
+    await analyticsLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS);
+    return;
+  }
+  const adapter = createAnalyticsAdapter(input.fakeRecorder);
+  if (!adapter) {
+    await analyticsLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS);
+    return;
+  }
+  await analyticsLifecycle.enable(() => adapter);
+}
+
+async function syncErrorTransport(input: {
   consent: EffectiveConsent;
   context: ObservabilityContext;
   moduleUrl?: string;
   env?: NodeJS.ProcessEnv;
   fakeRecorder?: FakeTransportRecorder;
-}): void {
-  analyticsTransport = createNoopAnalyticsTransport();
-  errorTransport = createNoopErrorTransport();
-
-  if (input.fakeRecorder) {
-    if (input.consent.analyticsEnabled) {
-      analyticsTransport = createFakeAnalyticsTransport(input.fakeRecorder);
-    }
-    if (input.consent.errorReportingEnabled) {
-      errorTransport = createFakeErrorTransport(input.fakeRecorder);
-    }
+}): Promise<void> {
+  if (!input.consent.errorReportingEnabled) {
+    await errorLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS);
     return;
   }
+  const adapter = createErrorAdapter(input);
+  if (!adapter) {
+    await errorLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS);
+    return;
+  }
+  await errorLifecycle.enable(() => adapter);
+}
 
-  const publicConfig = readObservabilityPublicConfig(
-    input.moduleUrl,
-    input.env,
-  );
-
-  if (input.consent.errorReportingEnabled && publicConfig?.sentryPublicDsn) {
-    try {
-      errorTransport = createSentryErrorTransport({
-        dsn: publicConfig.sentryPublicDsn,
-        release: `p-dev-harness@${input.context.packageVersion}`,
-      });
-    } catch {
-      errorTransport = createNoopErrorTransport();
-    }
+async function configureTransports(input: {
+  consent: EffectiveConsent;
+  context: ObservabilityContext;
+  moduleUrl?: string;
+  env?: NodeJS.ProcessEnv;
+  fakeRecorder?: FakeTransportRecorder;
+  analyticsOnly?: boolean;
+  errorOnly?: boolean;
+}): Promise<void> {
+  if (!input.analyticsOnly && !input.errorOnly) {
+    await Promise.all([
+      syncAnalyticsTransport(input),
+      syncErrorTransport(input),
+    ]);
+    return;
+  }
+  if (input.analyticsOnly) {
+    await syncAnalyticsTransport(input);
+    return;
+  }
+  if (input.errorOnly) {
+    await syncErrorTransport(input);
   }
 }
 
@@ -152,6 +262,7 @@ export async function beginObservabilitySession(
   input: BeginObservabilitySessionInput,
 ): Promise<ObservabilitySession | null> {
   const env = input.env ?? process.env;
+  parentOwnershipReleased = false;
   runtimeEligible = isObservabilityRuntimeEligible({
     env,
     allowFakeTransport: Boolean(input.fakeRecorder),
@@ -160,8 +271,10 @@ export async function beginObservabilitySession(
   if (!runtimeEligible) {
     activeSession = null;
     activeFakeRecorder = undefined;
-    analyticsTransport = createNoopAnalyticsTransport();
-    errorTransport = createNoopErrorTransport();
+    await Promise.all([
+      analyticsLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS),
+      errorLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS),
+    ]);
     return null;
   }
 
@@ -172,13 +285,10 @@ export async function beginObservabilitySession(
     env,
   });
 
-  const sessionId =
-    env[P_DEV_OBSERVABILITY_SESSION_ID_ENV]?.trim() || generateSessionId();
-  const nonce =
-    env[P_DEV_OBSERVABILITY_NONCE_ENV]?.trim() || generateObservabilityNonce();
+  const handoff = resolveObservabilityHandoff(env);
 
   const context = buildObservabilityContext({
-    sessionId,
+    sessionId: handoff.sessionId,
     installationId: consent.analyticsEnabled
       ? localState.installationId
       : undefined,
@@ -189,7 +299,7 @@ export async function beginObservabilitySession(
   });
 
   activeFakeRecorder = input.fakeRecorder;
-  configureTransports({
+  await configureTransports({
     consent,
     context,
     moduleUrl: input.moduleUrl,
@@ -199,8 +309,8 @@ export async function beginObservabilitySession(
 
   activeSession = {
     workspaceDir: input.workspaceDir,
-    sessionId,
-    nonce,
+    sessionId: handoff.sessionId,
+    nonce: handoff.nonce,
     context,
     consent,
     localState,
@@ -231,6 +341,7 @@ export async function writeObservabilityPreferences(
   workspaceDir: string,
   input: UpdateObservabilityPreferencesInput,
 ): Promise<ObservabilitySession | null> {
+  const previousConsent = activeSession?.consent;
   let localState = await readObservabilityLocalState(workspaceDir);
 
   if (
@@ -266,11 +377,31 @@ export async function writeObservabilityPreferences(
     },
   };
 
-  configureTransports({
-    consent,
-    context: activeSession.context,
-    fakeRecorder: activeFakeRecorder,
-  });
+  const analyticsChanged =
+    previousConsent?.analyticsEnabled !== consent.analyticsEnabled;
+  const errorChanged =
+    previousConsent?.errorReportingEnabled !== consent.errorReportingEnabled;
+
+  try {
+    if (analyticsChanged) {
+      await configureTransports({
+        consent,
+        context: activeSession.context,
+        fakeRecorder: activeFakeRecorder,
+        analyticsOnly: true,
+      });
+    }
+    if (errorChanged) {
+      await configureTransports({
+        consent,
+        context: activeSession.context,
+        fakeRecorder: activeFakeRecorder,
+        errorOnly: true,
+      });
+    }
+  } catch {
+    // vendor failures must not fail preference persistence
+  }
 
   return activeSession;
 }
@@ -278,6 +409,11 @@ export async function writeObservabilityPreferences(
 export async function resetObservabilityState(
   workspaceDir: string,
 ): Promise<void> {
+  await Promise.all([
+    analyticsLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS),
+    errorLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS),
+  ]);
+
   await resetObservabilityLocalState(workspaceDir);
   if (activeSession?.workspaceDir === workspaceDir) {
     activeSession = {
@@ -292,16 +428,23 @@ export async function resetObservabilityState(
         installationId: undefined,
       },
     };
-    configureTransports({
-      consent: activeSession.consent,
-      context: activeSession.context,
-      fakeRecorder: activeFakeRecorder,
-    });
   }
 }
 
+export async function releaseParentObservabilityOwnership(): Promise<void> {
+  if (parentOwnershipReleased) {
+    return;
+  }
+  parentOwnershipReleased = true;
+  removeObservabilityFatalHandlers();
+  await Promise.all([
+    analyticsLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS),
+    errorLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS),
+  ]);
+}
+
 export function captureAnalyticsEvent(event: AnalyticsEvent): void {
-  if (!activeSession?.consent.analyticsEnabled || !runtimeEligible) {
+  if (!isAnalyticsCaptureEnabled()) {
     return;
   }
 
@@ -310,7 +453,7 @@ export function captureAnalyticsEvent(event: AnalyticsEvent): void {
   assertAllowedPropertyKeys(eventProperties, allowedKeys);
 
   const properties = {
-    ...contextToCommonAnalyticsProperties(activeSession.context),
+    ...contextToCommonAnalyticsProperties(activeSession!.context),
     ...eventProperties,
   };
   assertAllowedPropertyKeys(properties, allowedKeys);
@@ -320,34 +463,34 @@ export function captureAnalyticsEvent(event: AnalyticsEvent): void {
     properties,
   };
   try {
-    analyticsTransport.capture(payload);
+    analyticsLifecycle.getAdapter().capture(payload);
   } catch {
     // best-effort
   }
 }
 
 export function captureProductError(input: ProductErrorCaptureInput): void {
-  if (!activeSession?.consent.errorReportingEnabled || !runtimeEligible) {
+  if (!isErrorReportingCaptureEnabled()) {
     return;
   }
 
   const context = contextToSentryTags(
-    activeSession.context,
+    activeSession!.context,
     input.lifecyclePhase,
   );
   try {
-    errorTransport.captureError(input, context);
+    errorLifecycle.getAdapter().captureError(input, context);
   } catch {
     // best-effort
   }
 }
 
 export function addObservabilityBreadcrumb(breadcrumb: TypedBreadcrumb): void {
-  if (!activeSession?.consent.errorReportingEnabled || !runtimeEligible) {
+  if (!isErrorReportingCaptureEnabled()) {
     return;
   }
   try {
-    errorTransport.addBreadcrumb(breadcrumb);
+    errorLifecycle.getAdapter().addBreadcrumb(breadcrumb);
   } catch {
     // best-effort
   }
@@ -357,42 +500,28 @@ export async function flushObservability(
   deadlineMs = OBSERVABILITY_FLUSH_DEADLINE_MS,
 ): Promise<void> {
   await Promise.allSettled([
-    analyticsTransport.flush(deadlineMs),
-    errorTransport.flush(deadlineMs),
+    analyticsLifecycle.getAdapter().flush(deadlineMs),
+    errorLifecycle.getAdapter().flush(deadlineMs),
   ]);
 }
 
 export async function shutdownObservability(
   deadlineMs = OBSERVABILITY_FLUSH_DEADLINE_MS,
 ): Promise<void> {
-  await flushObservability(deadlineMs);
-  await Promise.allSettled([
-    analyticsTransport.shutdown(),
-    errorTransport.shutdown(),
+  removeObservabilityFatalHandlers();
+  await Promise.all([
+    analyticsLifecycle.shutdown(deadlineMs, { flush: true }),
+    errorLifecycle.shutdown(deadlineMs, { flush: true }),
   ]);
   activeSession = null;
   activeFakeRecorder = undefined;
+  parentOwnershipReleased = false;
 }
 
 export function createObservabilityTestRecorder(): FakeTransportRecorder {
   return createFakeTransportRecorder();
 }
 
-export function installObservabilityUncaughtHandlers(): void {
-  process.on("uncaughtException", (error) => {
-    captureProductError({
-      lifecyclePhase: "launcher_startup",
-      productErrorCode: "uncaught_exception",
-      errorCategory: "unexpected",
-      cause: error,
-    });
-  });
-  process.on("unhandledRejection", (reason) => {
-    captureProductError({
-      lifecyclePhase: "launcher_startup",
-      productErrorCode: "unhandled_rejection",
-      errorCategory: "unexpected",
-      cause: reason,
-    });
-  });
+export function installObservabilityUncaughtHandlers(): () => void {
+  return installObservabilityFatalHandlers(captureProductError);
 }

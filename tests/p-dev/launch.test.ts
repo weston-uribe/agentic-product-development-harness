@@ -21,7 +21,8 @@ vi.mock("../../src/observability/facade.js", async () => {
   return {
     ...actual,
     beginObservabilitySession: vi.fn(async () => null),
-    installObservabilityUncaughtHandlers: vi.fn(),
+    installObservabilityUncaughtHandlers: vi.fn(() => () => undefined),
+    releaseParentObservabilityOwnership: vi.fn(async () => undefined),
     flushObservability: vi.fn(async () => undefined),
     shutdownObservability: vi.fn(async () => undefined),
     captureProductError: vi.fn(),
@@ -29,6 +30,10 @@ vi.mock("../../src/observability/facade.js", async () => {
 });
 
 import { launchPDev } from "../../src/p-dev/launch.js";
+import {
+  installObservabilityUncaughtHandlers,
+  releaseParentObservabilityOwnership,
+} from "../../src/observability/facade.js";
 
 describe("p-dev launch", () => {
   let tempRoot = "";
@@ -125,6 +130,8 @@ describe("p-dev launch", () => {
     expect(spawnOptions.env.P_DEV_OBSERVABILITY_NONCE).toMatch(
       /^[0-9a-f-]{36}$/i,
     );
+    expect(installObservabilityUncaughtHandlers).toHaveBeenCalled();
+    expect(releaseParentObservabilityOwnership).toHaveBeenCalled();
     expect(exitSpy).toHaveBeenCalledWith(0);
   });
 });

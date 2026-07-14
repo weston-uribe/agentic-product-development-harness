@@ -35,7 +35,6 @@ export async function onRequestError(
     lifecyclePhase: "configure_route",
     productErrorCode: "configure_request_error",
     errorCategory: "unexpected",
-    message: `${request.method} ${request.path}`,
     cause: error,
   });
 }

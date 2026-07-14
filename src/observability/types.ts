@@ -236,17 +236,26 @@ export interface SerializedSentryEvent {
   fingerprint?: string[];
 }
 
+export interface TransportShutdownOptions {
+  flush?: boolean;
+  deadlineMs?: number;
+}
+
 export interface AnalyticsTransport {
   capture(event: SerializedAnalyticsEvent): void;
   flush(deadlineMs: number): Promise<void>;
-  shutdown(): Promise<void>;
+  shutdown(options?: TransportShutdownOptions): Promise<void>;
+  disableAndDrop(deadlineMs: number): Promise<void>;
+  isActive(): boolean;
 }
 
 export interface ErrorTransport {
   captureError(input: ProductErrorCaptureInput, context: AllowedSentryContext): void;
   addBreadcrumb(breadcrumb: TypedBreadcrumb): void;
   flush(deadlineMs: number): Promise<void>;
-  shutdown(): Promise<void>;
+  shutdown(options?: TransportShutdownOptions): Promise<void>;
+  disableAndDrop(deadlineMs: number): Promise<void>;
+  isActive(): boolean;
 }
 
 export interface FakeTransportRecorder {
