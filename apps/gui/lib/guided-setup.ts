@@ -1,4 +1,5 @@
 import type { FirstRunStepId } from "@harness/setup/first-run-readiness";
+import type { FirstRunStep } from "@harness/setup/first-run-readiness";
 import type { SetupGuiViewModel } from "@/lib/setup-server";
 
 /** Number of guided setup steps before the "Ready for first run" completion state. */
@@ -39,6 +40,154 @@ export const GUIDED_DISPLAY_STEP_ORDER: readonly GuidedDisplayStepId[] = [
   "target-workflow",
   "ready-for-first-run",
 ] as const;
+
+/** Display-only progress stages shown in guided mode (excludes completion screen). */
+export type GuidedProgressStageId = Exclude<
+  GuidedDisplayStepId,
+  "ready-for-first-run"
+>;
+
+export type GuidedProgressStageState = "completed" | "current" | "upcoming";
+
+export interface GuidedProgressStageMetadata {
+  id: GuidedProgressStageId;
+  shortLabel: string;
+  accessibleLabel: string;
+}
+
+export interface GuidedProgressStage extends GuidedProgressStageMetadata {
+  state: GuidedProgressStageState;
+  stepNumber: number;
+}
+
+export const GUIDED_PROGRESS_STAGES: readonly GuidedProgressStageMetadata[] = [
+  {
+    id: "connect-services",
+    shortLabel: "Services",
+    accessibleLabel: "Connect services",
+  },
+  {
+    id: "linear-workspace",
+    shortLabel: "Linear",
+    accessibleLabel: "Set up Linear workspace",
+  },
+  {
+    id: "vercel-bridge",
+    shortLabel: "Vercel",
+    accessibleLabel: "Set up Vercel bridge",
+  },
+  {
+    id: "choose-target-repos",
+    shortLabel: "Repositories",
+    accessibleLabel: "Choose target repositories",
+  },
+  {
+    id: "local-readiness",
+    shortLabel: "Readiness",
+    accessibleLabel: "Check local readiness",
+  },
+  {
+    id: "cloud-secrets",
+    shortLabel: "Secrets",
+    accessibleLabel: "Connect cloud secrets",
+  },
+  {
+    id: "target-workflow",
+    shortLabel: "Workflow",
+    accessibleLabel: "Install target workflow",
+  },
+] as const;
+
+export function firstRunStepIdForProgressStage(
+  stageId: GuidedProgressStageId,
+): FirstRunStepId {
+  if (stageId === "choose-target-repos") {
+    return "local-setup";
+  }
+  return stageId;
+}
+
+export function progressStageForFirstRunStepId(
+  stepId: FirstRunStepId,
+): GuidedProgressStageId | "ready-for-first-run" {
+  if (stepId === "local-setup") {
+    return "choose-target-repos";
+  }
+  if (stepId === "ready-for-first-run") {
+    return "ready-for-first-run";
+  }
+  return stepId;
+}
+
+export function progressStageForDisplayStep(
+  step: GuidedDisplayStepId,
+): GuidedProgressStageId | null {
+  if (step === "ready-for-first-run") {
+    return null;
+  }
+  return step;
+}
+
+function isProgressStageObjectivelyComplete(
+  stageId: GuidedProgressStageId,
+  input: {
+    readinessCurrentStepId: FirstRunStepId;
+    readinessSteps: readonly FirstRunStep[];
+    readyForFirstRun: boolean;
+  },
+): boolean {
+  if (input.readyForFirstRun) {
+    return true;
+  }
+
+  const mappedStepId = firstRunStepIdForProgressStage(stageId);
+  const readinessStep = input.readinessSteps.find(
+    (step) => step.id === mappedStepId,
+  );
+
+  if (readinessStep?.status === "complete") {
+    return true;
+  }
+
+  return compareFirstRunStepIds(input.readinessCurrentStepId, mappedStepId) > 0;
+}
+
+export function deriveGuidedProgressStages(input: {
+  displayedStep: GuidedDisplayStepId;
+  readinessCurrentStepId: FirstRunStepId;
+  readinessSteps: readonly FirstRunStep[];
+  readyForFirstRun: boolean;
+}): GuidedProgressStage[] {
+  const displayStageId = progressStageForDisplayStep(input.displayedStep);
+  const allComplete =
+    input.readyForFirstRun || input.displayedStep === "ready-for-first-run";
+
+  return GUIDED_PROGRESS_STAGES.map((stage, index) => {
+    const objectivelyComplete = isProgressStageObjectivelyComplete(stage.id, {
+      readinessCurrentStepId: input.readinessCurrentStepId,
+      readinessSteps: input.readinessSteps,
+      readyForFirstRun: input.readyForFirstRun,
+    });
+    const isDisplayCurrent = !allComplete && displayStageId === stage.id;
+
+    let state: GuidedProgressStageState;
+    if (allComplete) {
+      state = "completed";
+    } else if (isDisplayCurrent) {
+      state = "current";
+    } else if (objectivelyComplete) {
+      state = "completed";
+    } else {
+      state = "upcoming";
+    }
+
+    return {
+      ...stage,
+      state,
+      stepNumber: index + 1,
+    };
+  });
+}
 
 export function guidedDisplayStepIndex(step: GuidedDisplayStepId): number {
   return GUIDED_DISPLAY_STEP_ORDER.indexOf(step);
