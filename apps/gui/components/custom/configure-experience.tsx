@@ -31,6 +31,8 @@ import {
   shouldShowGuidedBackButton,
   type GuidedDisplayStepId,
   type GuidedLocalSetupStep,
+  deriveGuidedProgressStages,
+  guidedDisplayStepIndex,
 } from "@/lib/guided-setup";
 import {
   syncLinearSummaryFromEnvPresence,
@@ -51,11 +53,9 @@ import { GuidedCloudSecretsCard } from "@/components/custom/guided-cloud-secrets
 import { GuidedTargetWorkflowCard } from "@/components/custom/guided-target-workflow-card";
 import { SectionCard } from "@/components/custom/section-card";
 import { ObservabilitySettingsCard } from "@/components/custom/observability-settings-card";
-import {
-  guidedDisplayStepIndex,
-} from "@/lib/guided-setup";
 import { postObservabilityAnalyticsEvent } from "@/lib/observability-client";
 import { bucketDurationMs } from "@harness/observability/privacy-schema.js";
+import { GuidedSetupProgress } from "@/components/custom/guided-setup-progress";
 
 type ConfigureMode = "guided" | "advanced";
 
@@ -545,6 +545,22 @@ export function ConfigureExperience({
   const showGuidedBackButton =
     mode === "guided" && shouldShowGuidedBackButton(displayedGuidedStep);
 
+  const guidedProgressStages = useMemo(
+    () =>
+      deriveGuidedProgressStages({
+        displayedStep: displayedGuidedStep,
+        readinessCurrentStepId: readiness.currentStepId,
+        readinessSteps: readiness.steps,
+        readyForFirstRun: readiness.readyForFirstRun,
+      }),
+    [
+      displayedGuidedStep,
+      readiness.currentStepId,
+      readiness.readyForFirstRun,
+      readiness.steps,
+    ],
+  );
+
   const actionPanelRef = useRef<HTMLDivElement | null>(null);
 
   const renderGuidedActionPanel = () => {
@@ -744,6 +760,12 @@ export function ConfigureExperience({
       />
 
       {mode === "advanced" ? <ReadinessBanner readiness={readiness} /> : null}
+
+      {mode === "guided" ? (
+        <section className={SPACING.section}>
+          <GuidedSetupProgress stages={guidedProgressStages} />
+        </section>
+      ) : null}
 
       {mode === "guided" ? (
         <div className={SPACING.section}>

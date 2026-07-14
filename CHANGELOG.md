@@ -6,22 +6,30 @@ V0.3.0 is a **GitHub source release** plus a **public npm CLI package** (`p-dev-
 
 ## Unreleased
 
-## [0.3.1] — Unreleased (release preparation only)
+### Changed
 
-Planned patch release: immutable package-owned workspace snapshots for `p-dev-harness` provisioning plus narrowly scoped release-impact agent-contract improvements.
+- Configure GUI application header: compact `PDev Harness` brand lockup, sticky background-matched header, and Settings dropdown with theme toggle and Configure navigation.
+- Guided Configure flow: seven-stage display-only progress indicator and refined Step 1 service setup copy and workspace button labels.
 
-**Release type (planned):** GitHub source release plus public npm package `p-dev-harness@0.3.1`.
+## [0.3.1] — 2026-07-14
+
+Patch release: immutable package-owned workspace snapshots for `p-dev-harness` provisioning plus narrowly scoped release-impact agent-contract improvements.
+
+**Release type:** GitHub source release plus public npm package `p-dev-harness@0.3.1`.
+
+**RELEASE_SHA:** `995387c74334ba85206d9d87d7d78d4ecbfa8361` (merge commit for PR #60)
 
 ### Added
 
 - Deterministic embedded `workspace-snapshot/` generation from immutable Git commits during `package:p-dev:prepare`
 - Package-owned GitHub provisioning (`auto_init`, snapshot commit, marker commit v3) without runtime dependency on `weston-uribe/p-dev-harness-template`
 - Conditional release-impact analysis in canonical planner skill and runtime planning prompt
-- Release contract draft [`docs/releases/v0.3.1.md`](docs/releases/v0.3.1.md)
+- Release contract [`docs/releases/v0.3.1.md`](docs/releases/v0.3.1.md) (published)
 
 ### Changed
 
-- Release process docs: snapshot/manifest/tarball validation replaces future template synchronization for 0.3.1+
+- Default snapshot blob-upload concurrency **2** with strict `HARNESS_SNAPSHOT_UPLOAD_CONCURRENCY` validation and shared GitHub rate-limit gate
+- Release process docs: snapshot/manifest/tarball validation replaces template synchronization for 0.3.1+
 - Architecture docs: embedded snapshot is provisioning source for 0.3.1+; public template frozen for 0.3.0 legacy compatibility
 - Implementation skill/prompt preserve planner release boundaries and report outstanding release preparation
 

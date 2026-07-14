@@ -57,7 +57,7 @@ describe("gui design-system boundaries", () => {
     expect(serviceIcons).toContain("SiCursor");
   });
 
-  it("uses minimal next-themes provider and top-nav theme toggle", async () => {
+  it("uses minimal next-themes provider and shared theme toggle hook", async () => {
     const layout = await readFile(
       path.join(process.cwd(), "apps/gui/app/layout.tsx"),
       "utf8",
@@ -66,8 +66,12 @@ describe("gui design-system boundaries", () => {
       path.join(process.cwd(), "apps/gui/components/custom/theme-provider.tsx"),
       "utf8",
     );
-    const themeToggle = await readFile(
-      path.join(process.cwd(), "apps/gui/components/custom/theme-toggle.tsx"),
+    const themeHook = await readFile(
+      path.join(process.cwd(), "apps/gui/lib/use-theme-toggle.ts"),
+      "utf8",
+    );
+    const settingsMenu = await readFile(
+      path.join(process.cwd(), "apps/gui/components/custom/settings-menu.tsx"),
       "utf8",
     );
     const globals = await readFile(
@@ -79,8 +83,31 @@ describe("gui design-system boundaries", () => {
     expect(layout).toContain("suppressHydrationWarning");
     expect(themeProvider).toContain('from "next-themes"');
     expect(themeProvider).toContain('attribute="class"');
-    expect(themeToggle).toContain('from "next-themes"');
-    expect(themeToggle).toContain("Button");
+    expect(themeHook).toContain('from "next-themes"');
+    expect(settingsMenu).toContain("useThemeToggle");
     expect(globals).toContain(".dark");
+  });
+
+  it("includes dropdown menu primitive for settings navigation", async () => {
+    const dropdownMenu = await readFile(
+      path.join(process.cwd(), "apps/gui/components/ui/dropdown-menu.tsx"),
+      "utf8",
+    );
+    const layout = await readFile(
+      path.join(process.cwd(), "apps/gui/lib/constants/layout.ts"),
+      "utf8",
+    );
+    const progress = await readFile(
+      path.join(
+        process.cwd(),
+        "apps/gui/components/custom/guided-setup-progress.tsx",
+      ),
+      "utf8",
+    );
+
+    expect(dropdownMenu).toContain('@radix-ui/react-dropdown-menu');
+    expect(layout).toContain("bg-background");
+    expect(layout).toContain("sticky top-0 z-50");
+    expect(progress).toContain('from "framer-motion"');
   });
 });

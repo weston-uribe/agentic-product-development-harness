@@ -363,7 +363,7 @@ export function ConfigureWorkflow({
   const continueWithHarnessProvisioning = useCallback(async () => {
     setProvisioningHarnessRepo(true);
     setProvisioningError(null);
-    setProvisioningMessage("Setting up your private p-dev workspace...");
+    setProvisioningMessage("Setting up workspace…");
 
     try {
       const previewResponse = await fetch(
@@ -1007,8 +1007,8 @@ export function ConfigureWorkflow({
                   disabled={!connectServicesReady || provisioningHarnessRepo}
                 >
                   {provisioningHarnessRepo
-                    ? "Setting up your private p-dev workspace..."
-                    : "Continue and set up private p-dev workspace"}
+                    ? "Setting up workspace…"
+                    : "Set up workspace"}
                 </Button>
               </div>
               {!connectServicesReady ? (
