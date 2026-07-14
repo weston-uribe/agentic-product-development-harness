@@ -66,6 +66,8 @@ describe("implementation prompt builder", () => {
     expect(prompt).toContain(branchName);
     expect(prompt).toContain("Do not merge the PR");
     expect(prompt).toContain("Do not create releases or tags");
+    expect(prompt).toContain("Do not publish npm packages or deploy");
+    expect(prompt).toContain("outstanding release preparation");
     expect(prompt).toContain("## Implementation plan");
     expect(prompt).toContain("npm run lint");
     expect(prompt).toContain("[WES-12]");

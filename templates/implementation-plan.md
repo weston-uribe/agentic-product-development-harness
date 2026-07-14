@@ -46,6 +46,12 @@ How the agent (and human) will verify the work:
 
 How to revert safely if the change is wrong (e.g. revert commit, feature flag, restore file).
 
+## Release impact (optional — include only when the plan identifies distributable surface)
+
+- Classification from plan:
+- Outstanding human-gated release preparation (if any):
+- Explicitly not authorized in this implementation run: publish, tag, deploy, create releases
+
 ## Approval
 
 - [ ] Plan reviewed by human before execution

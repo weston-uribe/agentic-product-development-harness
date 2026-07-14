@@ -9,14 +9,24 @@ Operator guide for harness releases: GitHub source release plus public npm packa
 The release process has distinct phases:
 
 1. **Release-preparation PR** — versions, docs, tests, release contract (no tag/npm/release mutations)
-2. **Template synchronization** — curated sync to `weston-uribe/p-dev-harness-template`
-3. **Exact tarball validation** — build and smoke-test `p-dev-harness-0.3.0.tgz` at `RELEASE_SHA`
-4. **npm publication** — publish the exact validated tarball
-5. **Annotated git tag** — primary `v0.3.0` at `RELEASE_SHA`
-6. **GitHub release** — curated notes from `docs/releases/v0.3.0.md`
-7. **Post-release finalization PR** — record immutable tag/npm/template evidence
+2. **Embedded workspace snapshot validation** — deterministic snapshot/manifest generation from `RELEASE_SHA`, tarball inspection
+3. **Exact tarball validation** — build and smoke-test `p-dev-harness-<version>.tgz` at `RELEASE_SHA`
+4. **npm publication** — publish the exact validated tarball (human-gated)
+5. **Annotated git tag** — primary `v<version>` at `RELEASE_SHA` (human-gated)
+6. **GitHub release** — curated notes from `docs/releases/v<version>.md` (human-gated)
+7. **Post-release finalization PR** — record immutable tag/npm evidence
 
 Do **not** push directly to `main`, force-push, overwrite tags, or republish npm versions.
+
+### Legacy template containment (v0.3.0 only)
+
+`weston-uribe/p-dev-harness-template` is a **frozen legacy compatibility artifact** for `p-dev-harness@0.3.0` template-based provisioning.
+
+For **0.3.1 and later**:
+
+- Do **not** advance, repurpose, or resync the template repository `main` branch for new package versions.
+- Do **not** move or recreate the existing template `v0.3.0` tag.
+- Snapshot transparency comes from the primary repository release commit plus the npm tarball `workspace-snapshot/manifest.json`.
 
 ---
 
@@ -38,25 +48,30 @@ Merge to `main`:
 
 ---
 
-## Phase 2 — Template synchronization
+## Phase 2 — Embedded workspace snapshot validation
 
 After primary release-prep PR merges:
 
 1. Record `RELEASE_SHA` (merge commit on `main`)
-2. In `weston-uribe/p-dev-harness-template`, branch `release/v0.3.0-template`
-3. Sync curated content from `RELEASE_SHA` (no secrets, local state, or tarballs)
-4. Update `.harness/p-dev-template.json`:
-   - `source.repository` = `weston-uribe/agentic-product-development-harness`
-   - `source.release` = `v0.3.0`
-   - `source.packageVersion` = `0.3.0`
-   - `templateContentId` deterministic from `RELEASE_SHA` + curated generation
-5. Merge template PR; record `TEMPLATE_SHA`
-6. Push annotated template tag if absent:
+2. From a clean checkout at `RELEASE_SHA`, run:
 
 ```bash
-git tag -a v0.3.0 TEMPLATE_SHA -m "p-dev harness template v0.3.0"
-git push origin v0.3.0
+npm ci
+npm run build
+P_DEV_SNAPSHOT_SOURCE_REF="$RELEASE_SHA" npm run package:p-dev:prepare
+npm run package:p-dev:pack
 ```
+
+3. Inspect `packages/p-dev/workspace-snapshot/manifest.json`:
+   - `packageVersion` matches `packages/p-dev/package.json`
+   - `sourceCommit` equals `RELEASE_SHA`
+   - `snapshotSha256`, `snapshotContentId`, and `gitRootTreeSha1` are present
+4. Inspect the packed tarball:
+   - Contains `package/workspace-snapshot/manifest.json` and curated `package/workspace-snapshot/files/**`
+   - Excludes local secrets, operator state, generated caches, and unrelated generated package outputs
+5. Record tarball byte size and SHA-256 for release evidence
+
+**Do not** mutate `weston-uribe/p-dev-harness-template` for 0.3.1+ releases.
 
 ---
 

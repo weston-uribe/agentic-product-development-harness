@@ -142,6 +142,8 @@ These remain templates, runner behavior, or references — not formal top-level 
 - PR-readiness review
 - Umbrella release-readiness audit
 
+A dedicated **release** skill is **not implemented**. Use conditional release-impact analysis in the canonical `planner` skill and aligned runtime planning prompt until a future human-owned decision explicitly promotes release orchestration into its own skill.
+
 ## Shared references and embedded standards
 
 Some cross-cutting concerns are embedded in skill boundaries rather than promoted to standalone skills:

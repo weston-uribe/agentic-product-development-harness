@@ -44,6 +44,10 @@ Execute exactly one approved implementation unit at a time, validate it, and rep
 - Silently ignore failing validation
 - Convert this skill into runner integration, provider automation, registry logic, or client adapter behavior
 - Decide whether work should be split into PRs or reprioritize planner slices
+- Publish npm packages, create git tags, create GitHub releases, or deploy without explicit human authorization
+- Override planner-supplied release boundaries when the plan marks release preparation as human-gated
+
+When the approved plan includes release-impact notes, preserve those boundaries and report any outstanding release preparation in the run report. Do not treat implementation completion as release readiness.
 
 ## Relationship to other roles
 
