@@ -15,14 +15,15 @@ describe("observability sentry adapter envelope", () => {
     const transport = createSentryErrorTransport({
       dsn: "http://public@127.0.0.1:9999/1",
       release: "p-dev-harness@0.3.1",
-      transport: {
-        send: async (envelope) => {
-          captured.push(envelope);
-          return { statusCode: 200 };
-        },
-        flush: async () => true,
-        close: async () => {},
-      } as never,
+      transport: () =>
+        ({
+          send: async (envelope: unknown) => {
+            captured.push(envelope);
+            return { statusCode: 200 };
+          },
+          flush: async () => true,
+          close: async () => undefined,
+        }) as never,
     });
 
     transport.captureError(

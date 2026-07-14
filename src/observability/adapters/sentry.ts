@@ -1,5 +1,5 @@
 import * as Sentry from "@sentry/node";
-import type { Event as SentryEvent } from "@sentry/node";
+import type { Breadcrumb, ErrorEvent } from "@sentry/node";
 import type {
   AllowedSentryContext,
   ErrorTransport,
@@ -20,7 +20,9 @@ export interface SentryAdapterOptions {
   dsn: string;
   release: string;
   environment?: string;
-  transport?: Sentry.Transport;
+  transport?: Parameters<typeof Sentry.init>[0] extends { transport?: infer T }
+    ? T
+    : never;
 }
 
 function filterAllowedTags(
@@ -56,62 +58,60 @@ function breadcrumbData(
 }
 
 function rebuildApprovedEvent(
-  event: SentryEvent,
+  event: ErrorEvent,
   productErrorCode: string,
-): SentryEvent | null {
-  const tags = filterAllowedTags(
+): ErrorEvent | null {
+  event.user = undefined;
+  event.request = undefined;
+  event.contexts = {};
+  event.extra = undefined;
+  event.server_name = undefined;
+  event.modules = undefined;
+  event.transaction = undefined;
+  event.spans = undefined;
+  event.measurements = undefined;
+  event.debug_meta = undefined;
+  event.sdkProcessingMetadata = undefined;
+  event.message = approvedProductErrorMessage(productErrorCode);
+  event.tags = filterAllowedTags(
     sanitizeTagRecord((event.tags ?? {}) as Record<string, string>),
   );
+  event.fingerprint = [
+    productErrorCode,
+    String(event.tags.lifecycle_phase ?? "unknown"),
+  ];
+  event.breadcrumbs = (event.breadcrumbs ?? [])
+    .filter((breadcrumb: Breadcrumb) => breadcrumb.category === "p-dev")
+    .map((breadcrumb: Breadcrumb) => ({
+      category: "p-dev",
+      message: breadcrumb.message,
+      level: breadcrumb.level,
+      data: breadcrumb.data,
+    }));
 
-  const rebuilt: SentryEvent = {
-    event_id: event.event_id,
-    timestamp: event.timestamp,
-    platform: event.platform,
-    level: "error",
-    release: event.release,
-    environment: event.environment,
-    message: approvedProductErrorMessage(productErrorCode),
-    tags,
-    fingerprint: [productErrorCode, String(tags.lifecycle_phase ?? "unknown")],
-    breadcrumbs: (event.breadcrumbs ?? [])
-      .filter((breadcrumb) => breadcrumb.category === "p-dev")
-      .map((breadcrumb) => ({
-        category: "p-dev",
-        message: breadcrumb.message,
-        level: breadcrumb.level,
-        data: breadcrumb.data,
-      })),
-  };
-
-  if (event.exception?.values?.[0]) {
-    const source = event.exception.values[0];
-    rebuilt.exception = {
-      values: [
-        {
-          type: sanitizeObservabilityString(source.type ?? "Error"),
-          value: approvedProductErrorMessage(productErrorCode),
-          stacktrace: source.stacktrace
-            ? {
-                frames: (source.stacktrace.frames ?? []).map((frame) => ({
-                  filename: frame.filename
-                    ? sanitizeObservabilityString(
-                        frame.filename.split("/").pop() ?? frame.filename,
-                      )
-                    : undefined,
-                  function: frame.function
-                    ? sanitizeObservabilityString(frame.function)
-                    : undefined,
-                  lineno: frame.lineno,
-                  colno: frame.colno,
-                })),
-              }
-            : undefined,
-        },
-      ],
-    };
+  if (event.exception?.values) {
+    for (const value of event.exception.values) {
+      value.value = approvedProductErrorMessage(productErrorCode);
+      if (value.type) {
+        value.type = sanitizeObservabilityString(value.type);
+      }
+      if (value.stacktrace?.frames) {
+        for (const frame of value.stacktrace.frames) {
+          if (frame.filename) {
+            frame.filename = sanitizeObservabilityString(
+              frame.filename.split("/").pop() ?? frame.filename,
+            );
+          }
+          frame.abs_path = undefined;
+          frame.context_line = undefined;
+          frame.pre_context = undefined;
+          frame.post_context = undefined;
+        }
+      }
+    }
   }
 
-  return rebuilt;
+  return event;
 }
 
 export function createSentryErrorTransport(
@@ -144,13 +144,13 @@ export function createSentryErrorTransport(
           integration.name !== "OnUncaughtException" &&
           integration.name !== "OnUnhandledRejection",
       ),
-    beforeSend(event) {
+    beforeSend(event: ErrorEvent) {
       if (!active) {
         return null;
       }
       return rebuildApprovedEvent(event, currentProductErrorCode);
     },
-    beforeBreadcrumb(breadcrumb) {
+    beforeBreadcrumb(breadcrumb: Breadcrumb) {
       if (!active || breadcrumb.category !== "p-dev") {
         return null;
       }
@@ -180,7 +180,7 @@ export function createSentryErrorTransport(
         }),
       );
 
-      Sentry.withScope((scope) => {
+      Sentry.withScope((scope: Sentry.Scope) => {
         scope.clear();
         scope.setTags(tags);
         scope.setFingerprint([input.productErrorCode, input.lifecyclePhase]);
