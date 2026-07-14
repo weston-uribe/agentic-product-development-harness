@@ -105,6 +105,12 @@ See [`ROADMAP.md`](ROADMAP.md) for deferred work: `performance-cost-audit`, skil
 - Full isolated npm-installed issue lifecycle (setup validated; issue run not yet)
 - Generic auto-merge for arbitrary product PRs
 
+## Optional observability (packaged runtime)
+
+Packaged `p-dev-harness` supports **optional, consent-gated** anonymous analytics and sanitized error reports. No telemetry is sent until you enable each category in Configure. Preferences are stored locally at `.harness/observability.local.json`.
+
+See [`docs/observability-and-privacy.md`](docs/observability-and-privacy.md).
+
 ## License
 
 MIT — see [`LICENSE`](LICENSE).

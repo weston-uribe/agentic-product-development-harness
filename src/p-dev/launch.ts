@@ -26,6 +26,14 @@ import {
   resolveWorkspaceDir,
   seedWorkspaceTemplates,
 } from "./workspace.js";
+import {
+  P_DEV_OBSERVABILITY_NONCE_ENV,
+  P_DEV_OBSERVABILITY_SESSION_ID_ENV,
+} from "../observability/constants.js";
+import {
+  generateObservabilityNonce,
+  generateSessionId,
+} from "../observability/identity.js";
 
 export const STARTUP_TIMEOUT_MS = 90_000;
 
@@ -83,6 +91,8 @@ export async function launchPDev(
   const url = buildConfigureUrl(host, port, cli.route);
   const nextBin = resolveNextBin(packageRoot);
   const packagedVersion = readPDevPackageVersionFromPackageRoot(packageRoot);
+  const sessionId = generateSessionId();
+  const nonce = generateObservabilityNonce();
 
   const spawnImpl = options.spawnImpl ?? spawn;
   const shutdown = createShutdownController();
@@ -108,6 +118,8 @@ export async function launchPDev(
         HARNESS_REPO_ROOT: workspace.workspaceDir,
         P_DEV_RUNTIME_MODE: "packaged",
         [P_DEV_PACKAGE_VERSION_ENV]: packagedVersion,
+        [P_DEV_OBSERVABILITY_SESSION_ID_ENV]: sessionId,
+        [P_DEV_OBSERVABILITY_NONCE_ENV]: nonce,
         HARNESS_GUI_HOST: host,
         HARNESS_GUI_PORT: String(port),
       },

@@ -55,6 +55,17 @@ The public template repository `weston-uribe/p-dev-harness-template` is a **froz
 - Setup completion is validated; a full real issue lifecycle from an isolated npm install is **not** yet validated
 - Early-stage operator tool — not production SaaS
 
+## Optional telemetry (consent-gated)
+
+The Configure GUI includes a **Privacy and optional telemetry** card. Nothing is transmitted until you opt in separately to:
+
+- anonymous product analytics, and/or
+- automated sanitized error reports
+
+Disable globally with `DO_NOT_TRACK=1` or `P_DEV_OBSERVABILITY_DISABLED=1`. Reset local identity by deleting `.harness/observability.local.json` or using the Configure reset action.
+
+Details: [`docs/observability-and-privacy.md`](https://github.com/weston-uribe/agentic-product-development-harness/blob/main/docs/observability-and-privacy.md)
+
 ## Full guide
 
 See the repository guide: [docs/p-dev.md](https://github.com/weston-uribe/agentic-product-development-harness/blob/main/docs/p-dev.md)

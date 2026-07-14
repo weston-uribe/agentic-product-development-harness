@@ -1,0 +1,6 @@
+{
+  "observabilitySchemaVersion": 1,
+  "sentryPublicDsn": "",
+  "posthogProjectToken": "",
+  "posthogIngestionHost": "https://us.i.posthog.com"
+}

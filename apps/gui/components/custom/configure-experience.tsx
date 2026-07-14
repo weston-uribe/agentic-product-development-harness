@@ -50,6 +50,7 @@ import { GuidedLocalReadinessCard } from "@/components/custom/guided-local-readi
 import { GuidedCloudSecretsCard } from "@/components/custom/guided-cloud-secrets-card";
 import { GuidedTargetWorkflowCard } from "@/components/custom/guided-target-workflow-card";
 import { SectionCard } from "@/components/custom/section-card";
+import { ObservabilitySettingsCard } from "@/components/custom/observability-settings-card";
 
 type ConfigureMode = "guided" | "advanced";
 
@@ -72,6 +73,7 @@ interface ConfigureExperienceProps {
     };
     config: LocalConfigFormInput;
   };
+  observabilityNonce: string | null;
 }
 
 function buildControlPlaneContext(input: {
@@ -95,6 +97,7 @@ export function ConfigureExperience({
   initialLinearSummary,
   initialVercelSummary,
   formDefaults,
+  observabilityNonce,
 }: ConfigureExperienceProps) {
   const [mode, setMode] = useState<ConfigureMode>("guided");
   const [summary, setSummary] = useState(initialSummary);
@@ -647,6 +650,8 @@ export function ConfigureExperience({
           )}
         </div>
       </section>
+
+      <ObservabilitySettingsCard nonce={observabilityNonce} />
 
       {mode === "advanced" ? <ReadinessBanner readiness={readiness} /> : null}
 

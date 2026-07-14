@@ -5,6 +5,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { generateWorkspaceSnapshot } from "../src/p-dev/workspace-snapshot-generator.js";
 import { assertCleanGitSource } from "../src/p-dev/workspace-snapshot-git.js";
+import { resolveObservabilityPublicConfigForPrepare } from "../src/observability/package-config.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -121,6 +122,14 @@ import "../dist/p-dev/main.js";
   await copyIfExists(
     path.join(repoRoot, "LICENSE"),
     path.join(packageDir, "LICENSE"),
+  );
+
+  console.log("Copying tracked public observability configuration…");
+  const observabilityConfig = resolveObservabilityPublicConfigForPrepare(repoRoot);
+  await writeFile(
+    path.join(packageDir, "observability.public.json"),
+    `${JSON.stringify(observabilityConfig, null, 2)}\n`,
+    "utf8",
   );
 
   const packageJson = JSON.parse(
