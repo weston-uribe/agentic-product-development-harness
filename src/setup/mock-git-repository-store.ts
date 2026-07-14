@@ -8,6 +8,12 @@ import {
 } from "../p-dev/git-object-plumbing.js";
 import type { GitHubGitCommitAuthor } from "../github/client.js";
 
+const MOCK_GIT_COMMIT_IDENTITY: GitHubGitCommitAuthor = {
+  name: "p-dev-mock-git",
+  email: "mock-git@p-dev-harness.local",
+  date: "1970-01-01T00:00:00+0000",
+};
+
 export interface MockGitCommitRecord {
   sha: string;
   treeSha: string;
@@ -34,6 +40,8 @@ export class MockGitRepositoryStore {
       message: "Initial commit",
       treeSha,
       parents: [],
+      author: MOCK_GIT_COMMIT_IDENTITY,
+      committer: MOCK_GIT_COMMIT_IDENTITY,
     });
     this.headSha = commitSha;
   }
@@ -195,22 +203,16 @@ export class MockGitRepositoryStore {
     for (const parent of input.parents) {
       args.push("-p", parent);
     }
+    const author = input.author ?? MOCK_GIT_COMMIT_IDENTITY;
+    const committer = input.committer ?? author;
     const env = {
       ...worktree.env,
-      ...(input.author
-        ? {
-            GIT_AUTHOR_NAME: input.author.name,
-            GIT_AUTHOR_EMAIL: input.author.email,
-            GIT_AUTHOR_DATE: input.author.date,
-          }
-        : {}),
-      ...(input.committer
-        ? {
-            GIT_COMMITTER_NAME: input.committer.name,
-            GIT_COMMITTER_EMAIL: input.committer.email,
-            GIT_COMMITTER_DATE: input.committer.date,
-          }
-        : {}),
+      GIT_AUTHOR_NAME: author.name,
+      GIT_AUTHOR_EMAIL: author.email,
+      GIT_AUTHOR_DATE: author.date,
+      GIT_COMMITTER_NAME: committer.name,
+      GIT_COMMITTER_EMAIL: committer.email,
+      GIT_COMMITTER_DATE: committer.date,
     };
     const result = spawnSync("git", args, { cwd: worktree.root, env });
     if (result.status !== 0) {
