@@ -1,5 +1,17 @@
-import * as Sentry from "@sentry/node";
-import type { Breadcrumb, ErrorEvent } from "@sentry/node";
+import {
+  defaultStackParser,
+  makeNodeTransport,
+  NodeClient,
+} from "@sentry/node";
+import type {
+  ErrorEvent,
+  StackFrame,
+} from "@sentry/node";
+import type {
+  Envelope,
+  Transport,
+  TransportMakeRequestResponse,
+} from "@sentry/core";
 import type {
   AllowedSentryContext,
   ErrorTransport,
@@ -10,6 +22,7 @@ import { ALLOWED_SENTRY_TAG_KEYS } from "../privacy-schema.js";
 import { approvedProductErrorMessage } from "../product-error-messages.js";
 import {
   sanitizeExceptionCause,
+  sanitizeFilename,
   sanitizeObservabilityString,
   sanitizeStackTrace,
   sanitizeTagRecord,
@@ -20,7 +33,7 @@ export interface SentryAdapterOptions {
   dsn: string;
   release: string;
   environment?: string;
-  transport?: Parameters<typeof Sentry.init>[0] extends { transport?: infer T }
+  transport?: ConstructorParameters<typeof NodeClient>[0] extends { transport?: infer T }
     ? T
     : never;
 }
@@ -38,80 +51,82 @@ function filterAllowedTags(
   return filtered;
 }
 
-function breadcrumbData(
-  breadcrumb: TypedBreadcrumb,
-): Record<string, string> {
-  switch (breadcrumb.kind) {
-    case "lifecycle_phase":
-      return { phase: breadcrumb.phase };
-    case "configure_step":
-      return { step_id: breadcrumb.stepId };
-    case "provisioning_checkpoint":
-      return { checkpoint: breadcrumb.checkpoint };
-    case "retry_bucket":
-      return { bucket: breadcrumb.bucket };
-    default: {
-      const exhaustive: never = breadcrumb;
-      return { kind: String(exhaustive) };
-    }
+function safeStackFrames(stack: string | undefined): StackFrame[] | undefined {
+  const sanitized = sanitizeStackTrace(stack);
+  if (!sanitized) {
+    return undefined;
   }
+  return defaultStackParser(sanitized)
+    .slice(-20)
+    .map((frame) => ({
+      filename: sanitizeFilename(frame.filename),
+      function: frame.function
+        ? sanitizeObservabilityString(frame.function)
+        : undefined,
+      module: frame.module ? sanitizeObservabilityString(frame.module) : undefined,
+      lineno: frame.lineno,
+      colno: frame.colno,
+      in_app: frame.in_app,
+    }));
 }
 
-function rebuildApprovedEvent(
-  event: ErrorEvent,
-  productErrorCode: string,
-): ErrorEvent | null {
-  event.user = undefined;
-  event.request = undefined;
-  event.contexts = {};
-  event.extra = undefined;
-  event.server_name = undefined;
-  event.modules = undefined;
-  event.transaction = undefined;
-  event.spans = undefined;
-  event.measurements = undefined;
-  event.debug_meta = undefined;
-  event.sdkProcessingMetadata = undefined;
-  event.message = approvedProductErrorMessage(productErrorCode);
-  event.tags = filterAllowedTags(
-    sanitizeTagRecord((event.tags ?? {}) as Record<string, string>),
+function buildApprovedEvent(
+  input: ProductErrorCaptureInput,
+  context: AllowedSentryContext,
+): ErrorEvent {
+  const productErrorCode = sanitizeObservabilityString(input.productErrorCode);
+  const lifecyclePhase = input.lifecyclePhase;
+  const approvedMessage = approvedProductErrorMessage(productErrorCode);
+  const sanitizedCause = sanitizeExceptionCause(input.cause);
+  const tags = filterAllowedTags(
+    sanitizeTagRecord({
+      ...context,
+      product_error_code: productErrorCode,
+      error_category: input.errorCategory,
+      lifecycle_phase: lifecyclePhase,
+      configure_step_id: input.configureStepId,
+      operation_resumed: input.operationResumed,
+      remote_mutation_begun: input.remoteMutationBegun,
+      durable_recovery_state_exists: input.durableRecoveryStateExists,
+      duration_bucket: input.durationBucket,
+      retry_count_bucket: input.retryCountBucket,
+      rate_limit_pause_count_bucket: input.rateLimitPauseCountBucket,
+    }),
   );
-  event.fingerprint = [
-    productErrorCode,
-    String(event.tags.lifecycle_phase ?? "unknown"),
-  ];
-  event.breadcrumbs = (event.breadcrumbs ?? [])
-    .filter((breadcrumb: Breadcrumb) => breadcrumb.category === "p-dev")
-    .map((breadcrumb: Breadcrumb) => ({
-      category: "p-dev",
-      message: breadcrumb.message,
-      level: breadcrumb.level,
-      data: breadcrumb.data,
-    }));
 
-  if (event.exception?.values) {
-    for (const value of event.exception.values) {
-      value.value = approvedProductErrorMessage(productErrorCode);
-      if (value.type) {
-        value.type = sanitizeObservabilityString(value.type);
-      }
-      if (value.stacktrace?.frames) {
-        for (const frame of value.stacktrace.frames) {
-          if (frame.filename) {
-            frame.filename = sanitizeObservabilityString(
-              frame.filename.split("/").pop() ?? frame.filename,
-            );
-          }
-          frame.abs_path = undefined;
-          frame.context_line = undefined;
-          frame.pre_context = undefined;
-          frame.post_context = undefined;
-        }
-      }
-    }
+  return {
+    type: undefined,
+    platform: "node",
+    level: "error",
+    message: approvedMessage,
+    tags,
+    fingerprint: [productErrorCode, lifecyclePhase],
+    exception: {
+      values: [
+        {
+          type: sanitizeObservabilityString(sanitizedCause.type || "Error"),
+          value: approvedMessage,
+          stacktrace: {
+            frames: safeStackFrames(sanitizedCause.stack),
+          },
+        },
+      ],
+    },
+  };
+}
+
+async function waitForInFlight(
+  inFlight: Set<Promise<void>>,
+  deadlineMs: number,
+): Promise<void> {
+  const started = Date.now();
+  while (inFlight.size > 0 && Date.now() - started < deadlineMs) {
+    const remaining = Math.max(0, deadlineMs - (Date.now() - started));
+    await Promise.race([
+      Promise.allSettled([...inFlight]),
+      new Promise((resolve) => setTimeout(resolve, Math.min(10, remaining))),
+    ]);
   }
-
-  return event;
 }
 
 export function createSentryErrorTransport(
@@ -122,114 +137,116 @@ export function createSentryErrorTransport(
   }
 
   let active = true;
-  let currentProductErrorCode = "unexpected_error";
-
-  Sentry.init({
+  let drainScheduled = false;
+  const pending: ErrorEvent[] = [];
+  const inFlight = new Set<Promise<void>>();
+  const baseTransportFactory = options.transport ?? makeNodeTransport;
+  const trackingTransportFactory: typeof baseTransportFactory = (
+    transportOptions,
+  ) => {
+    const base = baseTransportFactory(transportOptions);
+    return {
+      send(envelope: Envelope) {
+        let tracked: Promise<void>;
+        const operation = Promise.resolve(base.send(envelope))
+          .catch(() => ({ statusCode: 0 }))
+          .then((response: TransportMakeRequestResponse) => response)
+          .finally(() => {
+            inFlight.delete(tracked);
+          });
+        tracked = operation.then(() => undefined);
+        inFlight.add(tracked);
+        return operation;
+      },
+      flush(timeout?: number) {
+        return base.flush(timeout);
+      },
+    } satisfies Transport;
+  };
+  const client = new NodeClient({
     dsn: options.dsn,
     release: options.release,
     environment:
       options.environment ??
       process.env[P_DEV_SENTRY_ENVIRONMENT_ENV]?.trim() ??
       "packaged",
-    transport: options.transport,
+    transport: trackingTransportFactory,
     sendDefaultPii: false,
+    sendClientReports: false,
+    includeServerName: false,
+    stackParser: defaultStackParser,
     tracesSampleRate: 0,
     profilesSampleRate: 0,
+    profileSessionSampleRate: 0,
     enableLogs: false,
-    integrations: (defaults) =>
-      defaults.filter(
-        (integration) =>
-          integration.name !== "Http" &&
-          integration.name !== "Console" &&
-          integration.name !== "OnUncaughtException" &&
-          integration.name !== "OnUnhandledRejection",
-      ),
-    beforeSend(event: ErrorEvent) {
-      if (!active) {
-        return null;
-      }
-      return rebuildApprovedEvent(event, currentProductErrorCode);
-    },
-    beforeBreadcrumb(breadcrumb: Breadcrumb) {
-      if (!active || breadcrumb.category !== "p-dev") {
-        return null;
-      }
-      return breadcrumb;
-    },
+    integrations: [],
+    registerEsmLoaderHooks: false,
   });
+  client.init();
+
+  function drainPending(): void {
+    drainScheduled = false;
+    while (active && pending.length > 0) {
+      const event = pending.shift();
+      if (event) {
+        client.sendEvent(event);
+      }
+    }
+    if (!active) {
+      pending.length = 0;
+    }
+  }
+
+  function scheduleDrain(): void {
+    if (drainScheduled) {
+      return;
+    }
+    drainScheduled = true;
+    queueMicrotask(drainPending);
+  }
 
   return {
     captureError(input: ProductErrorCaptureInput, context: AllowedSentryContext) {
       if (!active) {
         return;
       }
-      currentProductErrorCode = input.productErrorCode;
-      const tags = filterAllowedTags(
-        sanitizeTagRecord({
-          ...context,
-          product_error_code: input.productErrorCode,
-          error_category: input.errorCategory,
-          lifecycle_phase: input.lifecyclePhase,
-          configure_step_id: input.configureStepId,
-          operation_resumed: input.operationResumed,
-          remote_mutation_begun: input.remoteMutationBegun,
-          durable_recovery_state_exists: input.durableRecoveryStateExists,
-          duration_bucket: input.durationBucket,
-          retry_count_bucket: input.retryCountBucket,
-          rate_limit_pause_count_bucket: input.rateLimitPauseCountBucket,
-        }),
-      );
-
-      Sentry.withScope((scope: Sentry.Scope) => {
-        scope.clear();
-        scope.setTags(tags);
-        scope.setFingerprint([input.productErrorCode, input.lifecyclePhase]);
-        if (input.cause instanceof Error) {
-          const sanitized = sanitizeExceptionCause(input.cause);
-          const error = new Error(approvedProductErrorMessage(input.productErrorCode));
-          error.name = sanitized.type;
-          if (sanitized.stack) {
-            error.stack = sanitizeStackTrace(sanitized.stack);
-          }
-          Sentry.captureException(error);
-          return;
-        }
-        Sentry.captureMessage(
-          approvedProductErrorMessage(input.productErrorCode),
-          "error",
-        );
-      });
+      pending.push(buildApprovedEvent(input, context));
+      scheduleDrain();
     },
-    addBreadcrumb(breadcrumb: TypedBreadcrumb) {
+    addBreadcrumb(_breadcrumb: TypedBreadcrumb) {
       if (!active) {
         return;
       }
-      Sentry.addBreadcrumb({
-        category: "p-dev",
-        message: breadcrumb.kind,
-        data: breadcrumbData(breadcrumb),
-        level: "info",
-      });
+      // Sentry events are allowlist-only and intentionally omit breadcrumbs.
     },
     async flush(deadlineMs: number) {
       if (!active) {
         return;
       }
-      await Sentry.flush(deadlineMs);
+      drainPending();
+      await client.flush(deadlineMs);
+      await waitForInFlight(inFlight, deadlineMs);
     },
     async shutdown(options) {
       if (!active) {
         return;
       }
       if (options?.flush !== false) {
-        await Sentry.flush(options?.deadlineMs ?? 1_000);
+        await this.flush(options?.deadlineMs ?? 1_000);
       }
       active = false;
-      await Sentry.close(options?.deadlineMs ?? 1_000);
+      pending.length = 0;
+      await client.close(options?.deadlineMs ?? 1_000);
     },
     async disableAndDrop(deadlineMs: number) {
       active = false;
-      await Sentry.close(Math.min(deadlineMs, 1_000));
+      // Sentry Client.close() drains pending work before disabling. Consent
+      // withdrawal must instead drop adapter-queued events first, then wait
+      // only for sends already initiated through the transport wrapper.
+      pending.length = 0;
+      await waitForInFlight(inFlight, Math.min(deadlineMs, 1_000));
+      client.getOptions().enabled = false;
+      await client.close(0);
     },
     isActive() {
       return active;
