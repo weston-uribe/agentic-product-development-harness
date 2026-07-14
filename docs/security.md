@@ -1,4 +1,4 @@
-# Security baseline (V0.2)
+# Security baseline (v0.3.0)
 
 Operator guide for secrets, tokens, logging, and accepted automation risks for the public harness repo.
 
@@ -142,13 +142,13 @@ Dependabot opens PRs for npm and GitHub Actions updates weekly.
 
 ## Known transitive vulnerabilities
 
-`npm audit --audit-level=moderate` may report **high** severity issues in `undici` (transitive via `@cursor/sdk` → `@connectrpc/connect-node`). As of V0.2 implementation, **no fix is available** upstream. Accepted risk — track `@cursor/sdk` releases; do not add force-resolutions without upstream guidance.
+`npm audit --audit-level=moderate` may report **high** severity issues in `undici` (transitive via `@cursor/sdk` → `@connectrpc/connect-node`). As of v0.3.0, **no fix is available** upstream. Accepted risk — track `@cursor/sdk` releases; do not add force-resolutions without upstream guidance.
 
 ---
 
 ## OpenSSF Scorecard
 
-**Deferred.** Scorecard uses third-party `ossf/scorecard-action`, which would require expanding the Actions allowlist and adds release noise. CodeQL + CI are the V0.2 baseline.
+**Deferred.** Scorecard uses third-party `ossf/scorecard-action`, which would require expanding the Actions allowlist and adds release noise. CodeQL + CI are the current baseline.
 
 ---
 
@@ -183,7 +183,7 @@ Turn on required GitHub approvals and enforce CODEOWNER review when:
 
 At that point, update the ruleset to require approvals and enable CODEOWNER review for `.github/workflows/**` changes.
 
-### Optional (not required for V0.2.0)
+### Optional (not required for v0.3.0)
 
 - `harness-manual` environment for `workflow_dispatch` — adds an approval gate for manual cloud runs if desired later.
 

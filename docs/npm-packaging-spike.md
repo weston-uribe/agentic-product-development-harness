@@ -7,7 +7,7 @@ The canonical end-user guide is [`docs/p-dev.md`](p-dev.md).
 ## What this spike proved (now shipped)
 
 - A dedicated npm package boundary at [`packages/p-dev/`](../packages/p-dev/)
-- `npx p-dev` launch without cloning the source repository
+- `npx --yes p-dev-harness@0.3.0` launch without cloning the source repository
 - Durable operator workspace under `P_DEV_HOME`, `--workspace`, or `~/.p-dev`
 - macOS browser auto-launch for the Configure GUI
 - Packaged guided setup through private harness workspace provisioning
