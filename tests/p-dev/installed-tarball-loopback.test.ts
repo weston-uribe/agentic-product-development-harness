@@ -180,7 +180,7 @@ const workspaceDir = ${JSON.stringify(workspaceDir)};
 
 await beginObservabilitySession({
   workspaceDir,
-  moduleUrl: ${JSON.stringify(path.join(packageRoot, "observability.public.json"))},
+  moduleUrl: ${JSON.stringify(facadePath)},
   env: process.env,
 });
 captureAnalyticsEvent({ type: "p_dev_setup_completed" });
