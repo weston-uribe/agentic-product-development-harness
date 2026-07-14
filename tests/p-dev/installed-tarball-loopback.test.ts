@@ -39,6 +39,50 @@ function isCleanEnoughForPackagePack(): boolean {
     .every((line) => isIgnorableDirtyPackagePath(line.slice(3).trim()));
 }
 
+function withPackagedRuntimeValidationEnv<T>(
+  run: (env: NodeJS.ProcessEnv) => Promise<T>,
+): Promise<T> {
+  const previousEnv = {
+    P_DEV_RUNTIME_MODE: process.env.P_DEV_RUNTIME_MODE,
+    P_DEV_PACKAGE_VERSION: process.env.P_DEV_PACKAGE_VERSION,
+    P_DEV_HOME: process.env.P_DEV_HOME,
+    P_DEV_SENTRY_DSN: process.env.P_DEV_SENTRY_DSN,
+    P_DEV_POSTHOG_PROJECT_TOKEN: process.env.P_DEV_POSTHOG_PROJECT_TOKEN,
+    P_DEV_POSTHOG_HOST: process.env.P_DEV_POSTHOG_HOST,
+    VITEST: process.env.VITEST,
+    NODE_ENV: process.env.NODE_ENV,
+    CI: process.env.CI,
+    GITHUB_ACTIONS: process.env.GITHUB_ACTIONS,
+    VERCEL: process.env.VERCEL,
+  };
+
+  const validationEnv: NodeJS.ProcessEnv = { ...process.env };
+  delete validationEnv.VITEST;
+  delete validationEnv.CI;
+  delete validationEnv.GITHUB_ACTIONS;
+  delete validationEnv.VERCEL;
+  if (validationEnv.NODE_ENV === "test") {
+    validationEnv.NODE_ENV = "production";
+  }
+
+  Object.assign(process.env, validationEnv);
+
+  return run(validationEnv).finally(() => {
+    process.env.P_DEV_RUNTIME_MODE = previousEnv.P_DEV_RUNTIME_MODE;
+    process.env.P_DEV_PACKAGE_VERSION = previousEnv.P_DEV_PACKAGE_VERSION;
+    process.env.P_DEV_HOME = previousEnv.P_DEV_HOME;
+    process.env.P_DEV_SENTRY_DSN = previousEnv.P_DEV_SENTRY_DSN;
+    process.env.P_DEV_POSTHOG_PROJECT_TOKEN =
+      previousEnv.P_DEV_POSTHOG_PROJECT_TOKEN;
+    process.env.P_DEV_POSTHOG_HOST = previousEnv.P_DEV_POSTHOG_HOST;
+    process.env.VITEST = previousEnv.VITEST;
+    process.env.NODE_ENV = previousEnv.NODE_ENV;
+    process.env.CI = previousEnv.CI;
+    process.env.GITHUB_ACTIONS = previousEnv.GITHUB_ACTIONS;
+    process.env.VERCEL = previousEnv.VERCEL;
+  });
+}
+
 function listen(
   onRequest: (body: string, url: string) => void,
 ): Promise<{ server: Server; port: number }> {
@@ -69,6 +113,7 @@ describe.skipIf(!isCleanEnoughForPackagePack())(
     let tarballPath = "";
     let installDir = "";
     let packageRoot = "";
+    let facadePath = "";
     let facadeUrl = "";
     let posthogAdapterUrl = "";
     let sentryRequests: string[] = [];
@@ -102,9 +147,8 @@ describe.skipIf(!isCleanEnoughForPackagePack())(
         },
       );
       packageRoot = path.join(installDir, "node_modules", "p-dev-harness");
-      facadeUrl = pathToFileURL(
-        path.join(packageRoot, "dist/observability/facade.js"),
-      ).href;
+      facadePath = path.join(packageRoot, "dist/observability/facade.js");
+      facadeUrl = pathToFileURL(facadePath).href;
       posthogAdapterUrl = pathToFileURL(
         path.join(packageRoot, "dist/observability/adapters/posthog.js"),
       ).href;
@@ -143,48 +187,40 @@ describe.skipIf(!isCleanEnoughForPackagePack())(
         );
         sentryRequests = [];
 
-        const previousEnv = {
-          P_DEV_RUNTIME_MODE: process.env.P_DEV_RUNTIME_MODE,
-          P_DEV_PACKAGE_VERSION: process.env.P_DEV_PACKAGE_VERSION,
-          P_DEV_HOME: process.env.P_DEV_HOME,
-          P_DEV_SENTRY_DSN: process.env.P_DEV_SENTRY_DSN,
-        };
-        process.env.P_DEV_RUNTIME_MODE = "packaged";
-        process.env.P_DEV_PACKAGE_VERSION = "0.3.1";
-        process.env.P_DEV_HOME = workspaceDir;
-        process.env.P_DEV_SENTRY_DSN = `http://public@127.0.0.1:${sentryPort}/1`;
+        await withPackagedRuntimeValidationEnv(async (validationEnv) => {
+          validationEnv.P_DEV_RUNTIME_MODE = "packaged";
+          validationEnv.P_DEV_PACKAGE_VERSION = "0.3.1";
+          validationEnv.P_DEV_HOME = workspaceDir;
+          validationEnv.P_DEV_SENTRY_DSN = `http://public@127.0.0.1:${sentryPort}/1`;
+          Object.assign(process.env, validationEnv);
 
-        const {
-          beginObservabilitySession,
-          writeObservabilityPreferences,
-          captureProductError,
-          flushObservability,
-          shutdownObservability,
-          isErrorReportingCaptureEnabled,
-        } = await import(facadeUrl);
+          const {
+            beginObservabilitySession,
+            writeObservabilityPreferences,
+            captureProductError,
+            flushObservability,
+            shutdownObservability,
+            isErrorReportingCaptureEnabled,
+          } = await import(facadeUrl);
 
-        await beginObservabilitySession({
-          workspaceDir,
-          moduleUrl: facadeUrl,
-          env: process.env,
+          await beginObservabilitySession({
+            workspaceDir,
+            moduleUrl: facadePath,
+            env: validationEnv,
+          });
+          await writeObservabilityPreferences(workspaceDir, {
+            errorReportingPreference: "enabled",
+            disclosureShown: true,
+          });
+          expect(isErrorReportingCaptureEnabled()).toBe(true);
+          captureProductError({
+            lifecyclePhase: "configure_route",
+            productErrorCode: "installed_tarball_probe",
+            errorCategory: "server",
+          });
+          await flushObservability(2_000);
+          await shutdownObservability();
         });
-        await writeObservabilityPreferences(workspaceDir, {
-          errorReportingPreference: "enabled",
-          disclosureShown: true,
-        });
-        expect(isErrorReportingCaptureEnabled()).toBe(true);
-        captureProductError({
-          lifecyclePhase: "configure_route",
-          productErrorCode: "installed_tarball_probe",
-          errorCategory: "server",
-        });
-        await flushObservability(2_000);
-        await shutdownObservability();
-
-        process.env.P_DEV_RUNTIME_MODE = previousEnv.P_DEV_RUNTIME_MODE;
-        process.env.P_DEV_PACKAGE_VERSION = previousEnv.P_DEV_PACKAGE_VERSION;
-        process.env.P_DEV_HOME = previousEnv.P_DEV_HOME;
-        process.env.P_DEV_SENTRY_DSN = previousEnv.P_DEV_SENTRY_DSN;
 
         await rm(workspaceDir, { recursive: true, force: true });
 
