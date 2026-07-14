@@ -559,6 +559,7 @@ function buildSnapshotPendingState(input: {
   pending?: HarnessProvisioningPendingState | null;
   phase?: HarnessProvisioningPhase;
   repositoryId?: number;
+  defaultBranch?: string;
   initializedCommitSha?: string;
   snapshotCommitSha?: string;
   markerCommitSha?: string;
@@ -582,6 +583,7 @@ function buildSnapshotPendingState(input: {
     startedAt: input.pending?.startedAt ?? new Date().toISOString(),
     phase: input.phase ?? input.pending?.phase,
     repositoryId: input.repositoryId ?? input.pending?.repositoryId,
+    defaultBranch: input.defaultBranch ?? input.pending?.defaultBranch,
     initializedCommitSha:
       input.initializedCommitSha ?? input.pending?.initializedCommitSha,
     snapshotCommitSha: input.snapshotCommitSha ?? input.pending?.snapshotCommitSha,
@@ -1432,6 +1434,7 @@ async function applyHarnessRepoProvisioningLocked(options: {
                 pending: activePending,
                 phase: checkpoint.phase,
                 repositoryId: checkpoint.repositoryId,
+                defaultBranch: checkpoint.defaultBranch,
                 initializedCommitSha: checkpoint.initializedCommitSha,
                 snapshotCommitSha: checkpoint.snapshotCommitSha,
                 markerCommitSha: checkpoint.markerCommitSha,
@@ -1544,16 +1547,18 @@ async function applyHarnessRepoProvisioningLocked(options: {
 
       if (provisionResult) {
         if (!provisionResult.ok) {
+          const markerPending =
+            provisionResult.code === "marker-commit-failed" ||
+            provisionResult.code === "description-finalization-failed" ||
+            activePending?.phase === "marker-pending" ||
+            activePending?.phase === "description-pending" ||
+            Boolean(activePending?.snapshotCommitSha);
           return {
-            state:
-              provisionResult.recoverable &&
-              (activePending?.phase === "marker-pending" ||
-                activePending?.snapshotCommitSha ||
-                /marker/i.test(provisionResult.message))
-                ? "marker-write-pending"
-                : provisionResult.recoverable
-                  ? "repo-created-pending-verification"
-                  : "api-timeout-unknown",
+            state: markerPending
+              ? "marker-write-pending"
+              : provisionResult.recoverable
+                ? "repo-created-pending-verification"
+                : "api-timeout-unknown",
             harnessDispatchRepo: destinationSlug(user.login),
             message: provisionResult.message,
             recoverable: provisionResult.recoverable,
@@ -1573,6 +1578,7 @@ async function applyHarnessRepoProvisioningLocked(options: {
             pending: activePending,
             phase: "persistence-pending",
             repositoryId: provisionResult.repositoryId,
+            defaultBranch: provisionResult.defaultBranch,
             initializedCommitSha: provisionResult.initializedCommitSha,
             snapshotCommitSha: provisionResult.snapshotCommitSha,
             markerCommitSha: provisionResult.markerCommitSha,

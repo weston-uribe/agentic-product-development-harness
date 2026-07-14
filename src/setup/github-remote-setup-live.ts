@@ -137,6 +137,16 @@ export function sanitizeGitHubSetupError(error: unknown): string {
   return redactSecretsString(String(error));
 }
 
+export function preserveGitHubSetupError(error: unknown): Error {
+  if (error instanceof GitHubApiError) {
+    return new GitHubApiError(
+      error.status,
+      formatGitHubApiErrorMessage(error.status, error.message),
+    );
+  }
+  return new Error(sanitizeGitHubSetupError(error));
+}
+
 export function sanitizeGitHubWorkflowSetupError(error: unknown): string {
   if (error instanceof GitHubApiError) {
     const message = formatGitHubApiErrorMessage(error.status, error.message, {
@@ -515,7 +525,7 @@ export class LiveGitHubHarnessProvisioningProvider
       if (error instanceof GitHubApiError && error.status === 404) {
         return null;
       }
-      throw new Error(sanitizeGitHubSetupError(error));
+      throw preserveGitHubSetupError(error);
     }
   }
 
@@ -541,7 +551,7 @@ export class LiveGitHubHarnessProvisioningProvider
       if (error instanceof GitHubApiError && error.status === 404) {
         return null;
       }
-      throw new Error(sanitizeGitHubSetupError(error));
+      throw preserveGitHubSetupError(error);
     }
   }
 
@@ -588,7 +598,7 @@ export class LiveGitHubHarnessProvisioningProvider
         defaultBranch: created.default_branch,
       };
     } catch (error) {
-      throw new Error(sanitizeGitHubSetupError(error));
+      throw preserveGitHubSetupError(error);
     }
   }
 
@@ -608,7 +618,7 @@ export class LiveGitHubHarnessProvisioningProvider
         defaultBranch: created.default_branch,
       };
     } catch (error) {
-      throw new Error(sanitizeGitHubSetupError(error));
+      throw preserveGitHubSetupError(error);
     }
   }
 
@@ -620,7 +630,7 @@ export class LiveGitHubHarnessProvisioningProvider
     try {
       return await this.client.createGitBlob(input);
     } catch (error) {
-      throw new Error(sanitizeGitHubSetupError(error));
+      throw preserveGitHubSetupError(error);
     }
   }
 
@@ -634,7 +644,7 @@ export class LiveGitHubHarnessProvisioningProvider
       const tree = await this.client.createGitTree(input);
       return { sha: tree.sha };
     } catch (error) {
-      throw new Error(sanitizeGitHubSetupError(error));
+      throw preserveGitHubSetupError(error);
     }
   }
 
@@ -655,7 +665,7 @@ export class LiveGitHubHarnessProvisioningProvider
         parents: commit.parents,
       };
     } catch (error) {
-      throw new Error(sanitizeGitHubSetupError(error));
+      throw preserveGitHubSetupError(error);
     }
   }
 
@@ -672,7 +682,7 @@ export class LiveGitHubHarnessProvisioningProvider
         parents: commit.parents,
       };
     } catch (error) {
-      throw new Error(sanitizeGitHubSetupError(error));
+      throw preserveGitHubSetupError(error);
     }
   }
 
@@ -684,7 +694,7 @@ export class LiveGitHubHarnessProvisioningProvider
         object: { sha: gitRef.object.sha },
       };
     } catch (error) {
-      throw new Error(sanitizeGitHubSetupError(error));
+      throw preserveGitHubSetupError(error);
     }
   }
 
@@ -717,7 +727,7 @@ export class LiveGitHubHarnessProvisioningProvider
         object: { sha: gitRef.object.sha },
       };
     } catch (error) {
-      throw new Error(sanitizeGitHubSetupError(error));
+      throw preserveGitHubSetupError(error);
     }
   }
 
@@ -729,7 +739,7 @@ export class LiveGitHubHarnessProvisioningProvider
     try {
       await this.client.updateUserRepository(input);
     } catch (error) {
-      throw new Error(sanitizeGitHubSetupError(error));
+      throw preserveGitHubSetupError(error);
     }
   }
 
@@ -747,7 +757,7 @@ export class LiveGitHubHarnessProvisioningProvider
         sha: input.sha,
       });
     } catch (error) {
-      throw new Error(sanitizeGitHubSetupError(error));
+      throw preserveGitHubSetupError(error);
     }
   }
 }

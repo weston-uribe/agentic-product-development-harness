@@ -34,6 +34,7 @@ export interface HarnessPackageSnapshotProvenance {
   snapshotGitTreeSha1: string;
   snapshotCommitSha: string;
   generationFormatVersion: number;
+  defaultBranch?: string;
 }
 
 export interface HarnessManagedRepoMarker {
@@ -565,6 +566,7 @@ export function buildHarnessSnapshotManagedRepoMarker(input: {
       snapshotGitTreeSha1: input.manifest.gitRootTreeSha1,
       snapshotCommitSha: input.snapshotCommitSha,
       generationFormatVersion: input.manifest.generation.version,
+      defaultBranch: input.defaultBranch,
     },
   };
 }

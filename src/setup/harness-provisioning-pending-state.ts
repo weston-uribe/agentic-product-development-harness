@@ -12,6 +12,7 @@ export type HarnessProvisioningPhase =
   | "snapshot-objects-uploading"
   | "snapshot-commit-created"
   | "marker-pending"
+  | "description-pending"
   | "persistence-pending";
 
 export interface HarnessProvisioningPendingState {
@@ -32,6 +33,7 @@ export interface HarnessProvisioningPendingState {
   startedAt: string;
   phase?: HarnessProvisioningPhase;
   repositoryId?: number;
+  defaultBranch?: string;
   initializedCommitSha?: string;
   snapshotCommitSha?: string;
   markerCommitSha?: string;
@@ -52,6 +54,7 @@ export interface PendingProvisioningValidationContext {
   targetOwner: string;
   targetRepo: string;
   previewFingerprint?: string;
+  defaultBranch?: string;
 }
 
 const workspaceMutexes = new Map<string, Promise<void>>();
@@ -219,6 +222,26 @@ export function validatePendingProvisioningState(
       reason: "Pending provisioning creation fingerprint does not match.",
     };
   }
+  if (
+    context.defaultBranch !== undefined &&
+    pending.defaultBranch !== undefined &&
+    pending.defaultBranch !== context.defaultBranch
+  ) {
+    return {
+      ok: false,
+      reason: "Pending provisioning default branch does not match.",
+    };
+  }
+  if (
+    pending.repositoryId !== undefined &&
+    pending.defaultBranch === undefined &&
+    context.defaultBranch !== undefined
+  ) {
+    return {
+      ok: false,
+      reason: "Pending provisioning state is missing default branch.",
+    };
+  }
   return { ok: true };
 }
 
@@ -237,6 +260,7 @@ export function buildPendingValidationContext(input: {
   snapshotSha256: string;
   snapshotGitTreeSha1: string;
   previewFingerprint?: string;
+  defaultBranch?: string;
 }): PendingProvisioningValidationContext {
   return {
     operationId: input.operationId,
@@ -253,5 +277,6 @@ export function buildPendingValidationContext(input: {
     snapshotSha256: input.snapshotSha256,
     snapshotGitTreeSha1: input.snapshotGitTreeSha1,
     previewFingerprint: input.previewFingerprint,
+    defaultBranch: input.defaultBranch,
   };
 }

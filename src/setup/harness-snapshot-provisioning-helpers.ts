@@ -68,10 +68,12 @@ export function deriveDeterministicCommitSha(input: {
 
 export type SnapshotProvisioningErrorCode =
   | "repository-create-ambiguous"
+  | "repository-create-reconciliation-failed"
   | "repository-identity-mismatch"
   | "ref-update-unexpected-head"
   | "commit-create-ambiguous"
   | "marker-commit-failed"
+  | "description-finalization-failed"
   | "snapshot-tree-mismatch";
 
 export class SnapshotProvisioningError extends Error {

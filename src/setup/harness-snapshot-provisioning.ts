@@ -24,12 +24,31 @@ const DEFAULT_UPLOAD_CONCURRENCY = Number(
   process.env.HARNESS_SNAPSHOT_UPLOAD_CONCURRENCY ?? 4,
 );
 const MAX_UPLOAD_RETRIES = Number(process.env.HARNESS_SNAPSHOT_UPLOAD_RETRIES ?? 3);
+const RECONCILE_REPOSITORY_ATTEMPTS_DEFAULT = 5;
+const RECONCILE_REPOSITORY_INITIAL_DELAY_MS_DEFAULT = 500;
+
+function reconcilePollingConfig(): {
+  attempts: number;
+  initialDelayMs: number;
+} {
+  return {
+    attempts: Number(
+      process.env.HARNESS_SNAPSHOT_RECONCILE_ATTEMPTS ??
+        RECONCILE_REPOSITORY_ATTEMPTS_DEFAULT,
+    ),
+    initialDelayMs: Number(
+      process.env.HARNESS_SNAPSHOT_RECONCILE_DELAY_MS ??
+        RECONCILE_REPOSITORY_INITIAL_DELAY_MS_DEFAULT,
+    ),
+  };
+}
 
 export type SnapshotProvisioningPhase =
   | "repository-created"
   | "snapshot-objects-uploading"
   | "snapshot-commit-created"
   | "marker-pending"
+  | "description-pending"
   | "persistence-pending";
 
 export interface SnapshotProvisioningProgress {
@@ -49,7 +68,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function isRetryableGitHubError(error: unknown): boolean {
+export function isRetryableGitHubError(error: unknown): boolean {
   if (!(error instanceof GitHubApiError)) {
     return false;
   }
@@ -275,7 +294,7 @@ export async function createMarkerCommit(input: {
   return markerCommit.sha;
 }
 
-async function reconcileCreatedRepository(input: {
+async function reconcileCreatedRepositoryOnce(input: {
   provider: GitHubHarnessProvisioningProvider;
   owner: string;
   repoName: string;
@@ -313,6 +332,86 @@ async function reconcileCreatedRepository(input: {
     defaultBranch: metadata.defaultBranch,
     initializedCommitSha: headSha,
   };
+}
+
+async function reconcileCreatedRepository(input: {
+  provider: GitHubHarnessProvisioningProvider;
+  owner: string;
+  repoName: string;
+  operationId: string;
+}): Promise<{
+  repositoryId: number;
+  defaultBranch: string;
+  initializedCommitSha: string;
+} | null> {
+  const { attempts, initialDelayMs } = reconcilePollingConfig();
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const reconciled = await reconcileCreatedRepositoryOnce(input);
+    if (reconciled) {
+      return reconciled;
+    }
+    if (attempt < attempts - 1) {
+      const delayMs =
+        initialDelayMs * 2 ** attempt + Math.floor(Math.random() * 100);
+      await sleep(delayMs);
+    }
+  }
+  return null;
+}
+
+async function finalizeProvisioningRepositoryDescription(input: {
+  provider: GitHubHarnessProvisioningProvider;
+  owner: string;
+  repo: string;
+  operationId: string;
+  normalDescription: string;
+  markerCommitSha: string;
+  defaultBranch: string;
+}): Promise<void> {
+  const metadata = await input.provider.getRepositoryMetadata(input.owner, input.repo);
+  if (!metadata) {
+    throw new SnapshotProvisioningError(
+      "description-finalization-failed",
+      "Destination repository is not accessible for description finalization.",
+      true,
+    );
+  }
+  const headSha = await input.provider.getRepositoryDefaultBranchHead(
+    input.owner,
+    input.repo,
+    input.defaultBranch,
+  );
+  if (headSha !== input.markerCommitSha) {
+    throw new SnapshotProvisioningError(
+      "description-finalization-failed",
+      "Marker commit is not at branch HEAD; refusing to finalize repository description.",
+      true,
+    );
+  }
+  const currentDescription = metadata.description ?? "";
+  if (currentDescription === input.normalDescription) {
+    return;
+  }
+  if (!isProvisioningOperationDescription(currentDescription, input.operationId)) {
+    throw new SnapshotProvisioningError(
+      "description-finalization-failed",
+      "Repository description does not match the expected operation ownership marker.",
+      false,
+    );
+  }
+  try {
+    await input.provider.updateUserRepositoryDescription({
+      owner: input.owner,
+      repo: input.repo,
+      description: input.normalDescription,
+    });
+  } catch (error) {
+    throw new SnapshotProvisioningError(
+      "description-finalization-failed",
+      error instanceof Error ? error.message : "Description finalization failed.",
+      true,
+    );
+  }
 }
 
 export async function verifyPendingRepositoryIdentity(input: {
@@ -354,10 +453,20 @@ export async function verifyPendingRepositoryIdentity(input: {
       message: "Pending destination repository is not private/admin-accessible.",
     };
   }
+  if (
+    input.pending.defaultBranch &&
+    metadata.defaultBranch !== input.pending.defaultBranch
+  ) {
+    return {
+      ok: false,
+      message: "Pending destination repository default branch does not match remote repository.",
+    };
+  }
+  const defaultBranch = input.pending.defaultBranch ?? metadata.defaultBranch;
   const headSha = await input.provider.getRepositoryDefaultBranchHead(
     metadata.owner,
     metadata.repo,
-    metadata.defaultBranch,
+    defaultBranch,
   );
   if (input.pending.markerCommitSha && headSha !== input.pending.markerCommitSha) {
     if (
@@ -432,7 +541,7 @@ export async function provisionHarnessWorkspaceFromSnapshot(input: {
       snapshotCommitSha: string;
       markerCommitSha: string;
     }
-  | { ok: false; message: string; recoverable: boolean }
+  | { ok: false; message: string; recoverable: boolean; code?: SnapshotProvisioningError["code"] }
 > {
   const owner = input.user.login;
   const { repo } = parseRepoSlug(`${owner}/${input.repoName}`);
@@ -444,13 +553,20 @@ export async function provisionHarnessWorkspaceFromSnapshot(input: {
       manifest: input.manifest,
     });
     if (!identity.ok) {
-      return { ok: false, message: identity.message, recoverable: false };
+      return { ok: false, message: identity.message, recoverable: false, code: "repository-identity-mismatch" };
     }
   }
 
   let repositoryId = input.pending?.repositoryId;
-  let defaultBranch = input.pending?.targetRepo ? "main" : "main";
+  let defaultBranch = input.pending?.defaultBranch;
   let initializedCommitSha = input.pending?.initializedCommitSha;
+
+  if (repositoryId && initializedCommitSha && !defaultBranch) {
+    const metadata = await input.provider.getRepositoryMetadata(owner, repo);
+    if (metadata) {
+      defaultBranch = metadata.defaultBranch;
+    }
+  }
 
   if (!repositoryId || !initializedCommitSha) {
     const operationDescription = buildProvisioningRepositoryDescription(
@@ -503,6 +619,7 @@ export async function provisionHarnessWorkspaceFromSnapshot(input: {
             message:
               "Repository creation returned an ambiguous result and no matching operation-owned repository was found.",
             recoverable: true,
+            code: "repository-create-ambiguous",
           };
         }
         created = reconciled;
@@ -516,6 +633,7 @@ export async function provisionHarnessWorkspaceFromSnapshot(input: {
     await input.onCheckpoint?.({
       phase: "repository-created",
       repositoryId,
+      defaultBranch,
       initializedCommitSha,
     });
     input.onProgress?.({
@@ -560,6 +678,7 @@ export async function provisionHarnessWorkspaceFromSnapshot(input: {
     await input.onCheckpoint?.({
       phase: "snapshot-commit-created",
       repositoryId,
+      defaultBranch,
       initializedCommitSha,
       snapshotCommitSha,
       snapshotGitTreeSha1: input.manifest.gitRootTreeSha1,
@@ -598,13 +717,19 @@ export async function provisionHarnessWorkspaceFromSnapshot(input: {
       });
     } catch (error) {
       if (error instanceof SnapshotProvisioningError && error.code === "marker-commit-failed") {
-        return { ok: false, message: error.message, recoverable: true };
+        return {
+          ok: false,
+          message: error.message,
+          recoverable: true,
+          code: error.code,
+        };
       }
       throw error;
     }
     await input.onCheckpoint?.({
       phase: "marker-pending",
       repositoryId,
+      defaultBranch,
       initializedCommitSha,
       snapshotCommitSha,
       markerCommitSha,
@@ -615,11 +740,49 @@ export async function provisionHarnessWorkspaceFromSnapshot(input: {
       uploadedBlobs: input.manifest.fileCount,
       totalBlobs: input.manifest.fileCount,
     });
-    await input.provider.updateUserRepositoryDescription({
+  }
+
+  if (!defaultBranch) {
+    return {
+      ok: false,
+      message: "Provisioning state is missing the repository default branch.",
+      recoverable: false,
+      code: "repository-identity-mismatch",
+    };
+  }
+
+  try {
+    await finalizeProvisioningRepositoryDescription({
+      provider: input.provider,
       owner,
       repo,
-      description: input.description,
+      operationId: input.operationId,
+      normalDescription: input.description,
+      markerCommitSha: markerCommitSha!,
+      defaultBranch,
     });
+  } catch (error) {
+    if (
+      error instanceof SnapshotProvisioningError &&
+      error.code === "description-finalization-failed"
+    ) {
+      await input.onCheckpoint?.({
+        phase: "description-pending",
+        repositoryId,
+        defaultBranch,
+        initializedCommitSha,
+        snapshotCommitSha,
+        markerCommitSha,
+        snapshotGitTreeSha1: input.manifest.gitRootTreeSha1,
+      });
+      return {
+        ok: false,
+        message: error.message,
+        recoverable: error.recoverable,
+        code: error.code,
+      };
+    }
+    throw error;
   }
 
   return {

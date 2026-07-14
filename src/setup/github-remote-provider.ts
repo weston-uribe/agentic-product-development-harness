@@ -23,6 +23,7 @@ import {
   createMockGitRepositoryStore,
 } from "./mock-git-repository-store.js";
 import type { GitHubGitCommitAuthor } from "../github/client.js";
+import { GitHubApiError } from "../github/client.js";
 
 export interface GitCommitIdentity {
   name: string;
@@ -461,6 +462,11 @@ export interface MockGitHubHarnessProvisioningProviderState {
   markerCommitError?: Error | null;
   markerCommitErrorsRemaining?: number;
   writeRepositoryFileError?: Error | null;
+  createdRepositoryDefaultBranch?: string;
+  updateUserRepositoryDescriptionError?: Error | null;
+  updateUserRepositoryDescriptionErrorsRemaining?: number;
+  getRepositoryMetadataAttemptsBeforeVisible?: number;
+  createUserRepositoryAmbiguous?: boolean;
   fileWrites?: Array<RepositoryFileWriteInput & { commitSha: string }>;
 }
 
@@ -506,6 +512,7 @@ export class MockGitHubHarnessProvisioningProvider
     }
   >;
   private readonly gitStores = new Map<string, MockGitRepositoryStore>();
+  private repositoryMetadataVisibilityAttempts = 0;
 
   constructor(
     private readonly state: MockGitHubHarnessProvisioningProviderState = {},
@@ -541,6 +548,14 @@ export class MockGitHubHarnessProvisioningProvider
     );
   }
 
+  clearProvisioningFaults(): void {
+    this.state.markerCommitError = null;
+    this.state.markerCommitErrorsRemaining = undefined;
+    this.state.updateUserRepositoryDescriptionError = null;
+    this.state.updateUserRepositoryDescriptionErrorsRemaining = undefined;
+    this.repositoryMetadataVisibilityAttempts = 0;
+  }
+
   async getRepositoryMetadata(
     owner: string,
     repo: string,
@@ -551,9 +566,24 @@ export class MockGitHubHarnessProvisioningProvider
     if (!entry) {
       return null;
     }
-    const { templateIdentityContent: _t, managedMarkerContent: _m, branchHeadSha: _b, ...metadata } =
-      entry;
-    return metadata;
+    const requiredAttempts = this.state.getRepositoryMetadataAttemptsBeforeVisible ?? 0;
+    if (requiredAttempts > 0) {
+      this.repositoryMetadataVisibilityAttempts += 1;
+      if (this.repositoryMetadataVisibilityAttempts < requiredAttempts) {
+        return null;
+      }
+    }
+    return {
+      repositoryId: entry.repositoryId,
+      owner: entry.owner,
+      repo: entry.repo,
+      description: entry.description ?? null,
+      private: entry.private,
+      visibility: entry.visibility,
+      isTemplate: entry.isTemplate,
+      defaultBranch: entry.defaultBranch,
+      permissions: entry.permissions,
+    };
   }
 
   async getRepositoryMetadataById(
@@ -683,6 +713,17 @@ export class MockGitHubHarnessProvisioningProvider
     description: string;
   }): Promise<void> {
     this.calls.push({ method: "updateUserRepositoryDescription", args: [input] });
+    if (this.state.updateUserRepositoryDescriptionError) {
+      if (
+        this.state.updateUserRepositoryDescriptionErrorsRemaining === undefined ||
+        this.state.updateUserRepositoryDescriptionErrorsRemaining > 0
+      ) {
+        if (this.state.updateUserRepositoryDescriptionErrorsRemaining !== undefined) {
+          this.state.updateUserRepositoryDescriptionErrorsRemaining -= 1;
+        }
+        throw this.state.updateUserRepositoryDescriptionError;
+      }
+    }
     const key = `${input.owner}/${input.repo}`;
     const entry = this.repositories[key];
     if (entry) {
@@ -697,6 +738,7 @@ export class MockGitHubHarnessProvisioningProvider
     const fullName = `test-user/${input.name}`;
     const key = fullName;
     const repositoryId = deterministicMockRepositoryId(key);
+    const defaultBranch = this.state.createdRepositoryDefaultBranch ?? "main";
     this.repositories[key] = withRepositoryId(key, {
       owner: "test-user",
       repo: input.name,
@@ -705,7 +747,7 @@ export class MockGitHubHarnessProvisioningProvider
       private: input.private,
       visibility: input.private ? "private" : "public",
       isTemplate: false,
-      defaultBranch: "main",
+      defaultBranch,
       permissions: { admin: true, maintain: true, push: true },
       templateIdentityContent: null,
       managedMarkerContent: null,
@@ -714,10 +756,13 @@ export class MockGitHubHarnessProvisioningProvider
     if (input.autoInit) {
       await this.ensureGitStore(key);
     }
+    if (this.state.createUserRepositoryAmbiguous) {
+      throw new GitHubApiError(422, "Repository creation returned an ambiguous result.");
+    }
     return {
       repositoryId,
       fullName: key,
-      defaultBranch: "main",
+      defaultBranch,
     };
   }
 
