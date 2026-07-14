@@ -1,4 +1,5 @@
 import * as Sentry from "@sentry/node";
+import type { Breadcrumb, ErrorEvent } from "@sentry/node";
 import type {
   AllowedSentryContext,
   ErrorTransport,
@@ -6,6 +7,7 @@ import type {
   TypedBreadcrumb,
 } from "../types.js";
 import { ALLOWED_SENTRY_TAG_KEYS } from "../privacy-schema.js";
+import { approvedProductErrorMessage } from "../product-error-messages.js";
 import {
   sanitizeExceptionCause,
   sanitizeObservabilityString,
@@ -18,6 +20,9 @@ export interface SentryAdapterOptions {
   dsn: string;
   release: string;
   environment?: string;
+  transport?: Parameters<typeof Sentry.init>[0] extends { transport?: infer T }
+    ? T
+    : never;
 }
 
 function filterAllowedTags(
@@ -27,10 +32,86 @@ function filterAllowedTags(
   const filtered: Record<string, string> = {};
   for (const [key, value] of Object.entries(tags)) {
     if (allowed.has(key)) {
-      filtered[key] = value;
+      filtered[key] = sanitizeObservabilityString(value);
     }
   }
   return filtered;
+}
+
+function breadcrumbData(
+  breadcrumb: TypedBreadcrumb,
+): Record<string, string> {
+  switch (breadcrumb.kind) {
+    case "lifecycle_phase":
+      return { phase: breadcrumb.phase };
+    case "configure_step":
+      return { step_id: breadcrumb.stepId };
+    case "provisioning_checkpoint":
+      return { checkpoint: breadcrumb.checkpoint };
+    case "retry_bucket":
+      return { bucket: breadcrumb.bucket };
+    default: {
+      const exhaustive: never = breadcrumb;
+      return { kind: String(exhaustive) };
+    }
+  }
+}
+
+function rebuildApprovedEvent(
+  event: ErrorEvent,
+  productErrorCode: string,
+): ErrorEvent | null {
+  event.user = undefined;
+  event.request = undefined;
+  event.contexts = {};
+  event.extra = undefined;
+  event.server_name = undefined;
+  event.modules = undefined;
+  event.transaction = undefined;
+  event.spans = undefined;
+  event.measurements = undefined;
+  event.debug_meta = undefined;
+  event.sdkProcessingMetadata = undefined;
+  event.message = approvedProductErrorMessage(productErrorCode);
+  event.tags = filterAllowedTags(
+    sanitizeTagRecord((event.tags ?? {}) as Record<string, string>),
+  );
+  event.fingerprint = [
+    productErrorCode,
+    String(event.tags.lifecycle_phase ?? "unknown"),
+  ];
+  event.breadcrumbs = (event.breadcrumbs ?? [])
+    .filter((breadcrumb: Breadcrumb) => breadcrumb.category === "p-dev")
+    .map((breadcrumb: Breadcrumb) => ({
+      category: "p-dev",
+      message: breadcrumb.message,
+      level: breadcrumb.level,
+      data: breadcrumb.data,
+    }));
+
+  if (event.exception?.values) {
+    for (const value of event.exception.values) {
+      value.value = approvedProductErrorMessage(productErrorCode);
+      if (value.type) {
+        value.type = sanitizeObservabilityString(value.type);
+      }
+      if (value.stacktrace?.frames) {
+        for (const frame of value.stacktrace.frames) {
+          if (frame.filename) {
+            frame.filename = sanitizeObservabilityString(
+              frame.filename.split("/").pop() ?? frame.filename,
+            );
+          }
+          frame.abs_path = undefined;
+          frame.context_line = undefined;
+          frame.pre_context = undefined;
+          frame.post_context = undefined;
+        }
+      }
+    }
+  }
+
+  return event;
 }
 
 export function createSentryErrorTransport(
@@ -40,6 +121,9 @@ export function createSentryErrorTransport(
     throw new Error("Sentry adapter requires a non-empty DSN.");
   }
 
+  let active = true;
+  let currentProductErrorCode = "unexpected_error";
+
   Sentry.init({
     dsn: options.dsn,
     release: options.release,
@@ -47,9 +131,11 @@ export function createSentryErrorTransport(
       options.environment ??
       process.env[P_DEV_SENTRY_ENVIRONMENT_ENV]?.trim() ??
       "packaged",
+    transport: options.transport,
     sendDefaultPii: false,
     tracesSampleRate: 0,
     profilesSampleRate: 0,
+    enableLogs: false,
     integrations: (defaults) =>
       defaults.filter(
         (integration) =>
@@ -58,41 +144,14 @@ export function createSentryErrorTransport(
           integration.name !== "OnUncaughtException" &&
           integration.name !== "OnUnhandledRejection",
       ),
-    beforeSend(event) {
-      event.user = undefined;
-      event.request = undefined;
-      event.breadcrumbs = event.breadcrumbs?.filter(
-        (breadcrumb) => breadcrumb.category === "p-dev",
-      );
-      if (event.tags) {
-        event.tags = filterAllowedTags(
-          sanitizeTagRecord(event.tags as Record<string, string>),
-        );
+    beforeSend(event: ErrorEvent) {
+      if (!active) {
+        return null;
       }
-      if (event.exception?.values) {
-        for (const value of event.exception.values) {
-          if (value.value) {
-            value.value = sanitizeObservabilityString(value.value);
-          }
-          if (value.stacktrace?.frames) {
-            for (const frame of value.stacktrace.frames) {
-              if (frame.filename) {
-                frame.filename = sanitizeObservabilityString(
-                  frame.filename.split("/").pop() ?? frame.filename,
-                );
-              }
-              frame.abs_path = undefined;
-              frame.context_line = undefined;
-              frame.pre_context = undefined;
-              frame.post_context = undefined;
-            }
-          }
-        }
-      }
-      return event;
+      return rebuildApprovedEvent(event, currentProductErrorCode);
     },
-    beforeBreadcrumb(breadcrumb) {
-      if (breadcrumb.category !== "p-dev") {
+    beforeBreadcrumb(breadcrumb: Breadcrumb) {
+      if (!active || breadcrumb.category !== "p-dev") {
         return null;
       }
       return breadcrumb;
@@ -101,6 +160,10 @@ export function createSentryErrorTransport(
 
   return {
     captureError(input: ProductErrorCaptureInput, context: AllowedSentryContext) {
+      if (!active) {
+        return;
+      }
+      currentProductErrorCode = input.productErrorCode;
       const tags = filterAllowedTags(
         sanitizeTagRecord({
           ...context,
@@ -117,12 +180,13 @@ export function createSentryErrorTransport(
         }),
       );
 
-      Sentry.withScope((scope) => {
+      Sentry.withScope((scope: Sentry.Scope) => {
+        scope.clear();
         scope.setTags(tags);
         scope.setFingerprint([input.productErrorCode, input.lifecyclePhase]);
         if (input.cause instanceof Error) {
           const sanitized = sanitizeExceptionCause(input.cause);
-          const error = new Error(sanitized.value);
+          const error = new Error(approvedProductErrorMessage(input.productErrorCode));
           error.name = sanitized.type;
           if (sanitized.stack) {
             error.stack = sanitizeStackTrace(sanitized.stack);
@@ -131,26 +195,44 @@ export function createSentryErrorTransport(
           return;
         }
         Sentry.captureMessage(
-          sanitizeObservabilityString(
-            input.message ?? input.productErrorCode,
-          ),
+          approvedProductErrorMessage(input.productErrorCode),
           "error",
         );
       });
     },
     addBreadcrumb(breadcrumb: TypedBreadcrumb) {
+      if (!active) {
+        return;
+      }
       Sentry.addBreadcrumb({
         category: "p-dev",
         message: breadcrumb.kind,
-        data: breadcrumb as unknown as Record<string, unknown>,
+        data: breadcrumbData(breadcrumb),
         level: "info",
       });
     },
     async flush(deadlineMs: number) {
+      if (!active) {
+        return;
+      }
       await Sentry.flush(deadlineMs);
     },
-    async shutdown() {
-      await Sentry.close(1_000);
+    async shutdown(options) {
+      if (!active) {
+        return;
+      }
+      if (options?.flush !== false) {
+        await Sentry.flush(options?.deadlineMs ?? 1_000);
+      }
+      active = false;
+      await Sentry.close(options?.deadlineMs ?? 1_000);
+    },
+    async disableAndDrop(deadlineMs: number) {
+      active = false;
+      await Sentry.close(Math.min(deadlineMs, 1_000));
+    },
+    isActive() {
+      return active;
     },
   };
 }

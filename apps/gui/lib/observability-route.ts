@@ -42,7 +42,6 @@ export function handleObservabilityRouteFailure(
       lifecyclePhase: input.lifecyclePhase,
       productErrorCode: input.productErrorCode,
       errorCategory: input.errorCategory ?? "unexpected",
-      message,
       cause: error,
       configureStepId: input.configureStepId,
     });

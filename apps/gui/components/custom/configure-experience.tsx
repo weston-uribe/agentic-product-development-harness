@@ -154,9 +154,6 @@ export function ConfigureExperience({
 
   const recordStepViewed = useCallback(
     (stepId: GuidedDisplayStepId) => {
-      if (lastRecordedStepViewRef.current === stepId) {
-        return;
-      }
       lastRecordedStepViewRef.current = stepId;
       const visitOrdinal = stepVisitCountsRef.current[stepId] ?? 0;
       stepVisitCountsRef.current[stepId] = visitOrdinal + 1;
@@ -166,8 +163,8 @@ export function ConfigureExperience({
         type: "p_dev_configure_step_viewed" as const,
         stepId,
         stepNumber,
-        resumed: false,
-        revisited: visitOrdinal > 0,
+        resumed: false as const,
+        revisited: false as const,
       };
       if (observabilityNonce) {
         void postObservabilityAnalyticsEvent(payload, observabilityNonce);
@@ -199,8 +196,8 @@ export function ConfigureExperience({
           type: "p_dev_configure_step_completed",
           stepId,
           stepNumber,
-          resumed: false,
-          revisited: (stepVisitCountsRef.current[stepId] ?? 0) > 1,
+          resumed: false as const,
+          revisited: false as const,
           durationBucket,
           completionOutcome: outcome,
         },
@@ -738,7 +735,13 @@ export function ConfigureExperience({
         </div>
       </section>
 
-      <ObservabilitySettingsCard nonce={observabilityNonce} />
+      <ObservabilitySettingsCard
+        nonce={observabilityNonce}
+        onAnalyticsEnabled={() => {
+          lastRecordedStepViewRef.current = null;
+          recordStepViewed(displayedGuidedStep);
+        }}
+      />
 
       {mode === "advanced" ? <ReadinessBanner readiness={readiness} /> : null}
 

@@ -1,47 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { captureAnalyticsEvent } from "@harness/observability/facade.js";
-import type {
-  AnalyticsEvent,
-  CompletionOutcome,
-  DurationBucket,
-} from "@harness/observability/types.js";
+import {
+  captureAnalyticsEvent,
+  registerDisplayedConfigureStep,
+} from "@harness/observability/facade.js";
+import {
+  parseClientAnalyticsEventBody,
+  toAnalyticsEvent,
+} from "@harness/observability/analytics-schemas.js";
 import { guardObservabilityRequest } from "@/lib/observability-request-guard";
 
 export const dynamic = "force-dynamic";
-
-function parseAnalyticsEvent(body: Record<string, unknown>): AnalyticsEvent {
-  const type = body.type;
-  if (typeof type !== "string") {
-    throw new Error("Event type is required.");
-  }
-
-  switch (type) {
-    case "p_dev_configure_step_viewed":
-      return {
-        type,
-        stepId: String(body.stepId ?? ""),
-        stepNumber: Number(body.stepNumber ?? 0),
-        resumed: body.resumed === true,
-        revisited: body.revisited === true,
-      };
-    case "p_dev_configure_step_completed":
-      return {
-        type,
-        stepId: String(body.stepId ?? ""),
-        stepNumber: Number(body.stepNumber ?? 0),
-        resumed: body.resumed === true,
-        revisited: body.revisited === true,
-        durationBucket: String(body.durationBucket ?? "unknown") as DurationBucket,
-        completionOutcome: String(
-          body.completionOutcome ?? "unknown",
-        ) as CompletionOutcome,
-      };
-    case "p_dev_setup_completed":
-      return { type };
-    default:
-      throw new Error(`Unsupported client analytics event: ${type}`);
-  }
-}
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const guard = await guardObservabilityRequest(request);
@@ -50,13 +18,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    const body = guard.body as Record<string, unknown>;
-    const event = parseAnalyticsEvent(body);
-    captureAnalyticsEvent(event);
+    const event = parseClientAnalyticsEventBody(guard.body);
+    if (
+      event.type === "p_dev_configure_step_viewed" ||
+      event.type === "p_dev_configure_step_completed"
+    ) {
+      registerDisplayedConfigureStep(event.stepId);
+    }
+    captureAnalyticsEvent(toAnalyticsEvent(event));
     return NextResponse.json({ ok: true });
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Invalid analytics event.";
-    return NextResponse.json({ error: message }, { status: 400 });
+  } catch {
+    return NextResponse.json(
+      { error: "Invalid analytics event payload." },
+      { status: 400 },
+    );
   }
 }

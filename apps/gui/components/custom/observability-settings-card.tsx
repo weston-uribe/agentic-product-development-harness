@@ -47,10 +47,12 @@ async function writePreferences(
 
 interface ObservabilitySettingsCardProps {
   nonce: string | null;
+  onAnalyticsEnabled?: () => void;
 }
 
 export function ObservabilitySettingsCard({
   nonce,
+  onAnalyticsEnabled,
 }: ObservabilitySettingsCardProps) {
   const [preferences, setPreferences] = useState<PreferencesResponse | null>(
     null,
@@ -81,6 +83,9 @@ export function ObservabilitySettingsCard({
       try {
         const next = await writePreferences(body, nonce);
         setPreferences(next);
+        if (body.analyticsPreference === "enabled") {
+          onAnalyticsEnabled?.();
+        }
       } catch (saveError: unknown) {
         setError(
           saveError instanceof Error
@@ -91,7 +96,7 @@ export function ObservabilitySettingsCard({
         setSaving(false);
       }
     },
-    [nonce],
+    [nonce, onAnalyticsEnabled],
   );
 
   const analyticsEnabled = preferences?.analyticsPreference === "enabled";
