@@ -12,25 +12,42 @@ import {
   registerHarnessTestProvisioningProviderFactory,
 } from "../../src/setup/test-only-provisioning-provider.js";
 import { MockGitHubHarnessProvisioningProvider } from "../../src/setup/github-remote-provider.js";
+import {
+  createTestWorkspaceSnapshotRoot,
+} from "../setup/test-workspace-snapshot-fixture.js";
 
-const TEMPLATE_IDENTITY = {
-  schemaVersion: 1,
-  product: "p-dev",
-  role: "harness-template",
-  templateIdentity: "p-dev-harness-template",
-  templateVersion: 1,
-  compatibilityVersion: 1,
-  templateContentId: "template-content-v1",
-  source: {
-    repository: "weston-uribe/p-dev-harness-template",
-    release: "v1",
-  },
-};
+const snapshotFixture = vi.hoisted(() => ({
+  snapshotRoot: "",
+  packageRoot: "",
+  manifest: null as Awaited<
+    ReturnType<typeof createTestWorkspaceSnapshotRoot>
+  >["manifest"] | null,
+  fingerprint: "",
+}));
 
-const TEMPLATE_IDENTITY_JSON = `${JSON.stringify(TEMPLATE_IDENTITY, null, 2)}\n`;
+vi.mock("../../src/setup/harness-workspace-snapshot-loader.js", () => ({
+  loadEmbeddedWorkspaceSnapshot: vi.fn(async () => {
+    if (!snapshotFixture.manifest) {
+      return {
+        ok: false as const,
+        state: "snapshot-unavailable" as const,
+        message: "Test snapshot fixture is not initialized.",
+      };
+    }
+    return {
+      ok: true as const,
+      packageRoot: snapshotFixture.packageRoot,
+      snapshotRoot: snapshotFixture.snapshotRoot,
+      packageVersion: "0.3.0",
+      manifest: snapshotFixture.manifest,
+      fingerprint: snapshotFixture.fingerprint,
+    };
+  }),
+}));
 
 describe("packaged harness provisioning route regression", () => {
   let workspaceDir = "";
+  let snapshotTempDir = "";
   let provider: MockGitHubHarnessProvisioningProvider;
   const originalRepoRoot = process.env.HARNESS_REPO_ROOT;
   const originalRuntimeMode = process.env.P_DEV_RUNTIME_MODE;
@@ -63,23 +80,16 @@ describe("packaged harness provisioning route regression", () => {
       "utf8",
     );
 
+    const fixture = await createTestWorkspaceSnapshotRoot("0.3.0");
+    snapshotTempDir = fixture.packageRoot;
+    snapshotFixture.snapshotRoot = fixture.snapshotRoot;
+    snapshotFixture.packageRoot = fixture.packageRoot;
+    snapshotFixture.manifest = fixture.manifest;
+    snapshotFixture.fingerprint = fixture.fingerprint;
+
     registerHarnessTestProvisioningProviderFactory(() => {
       provider = new MockGitHubHarnessProvisioningProvider({
         authenticatedUser: { id: 1, login: "test-user" },
-        repositories: {
-          "weston-uribe/p-dev-harness-template": {
-            repositoryId: 900_001,
-            owner: "weston-uribe",
-            repo: "p-dev-harness-template",
-            private: false,
-            visibility: "public",
-            isTemplate: true,
-            defaultBranch: "main",
-            permissions: { admin: true, maintain: true, push: true },
-            templateIdentityContent: TEMPLATE_IDENTITY_JSON,
-            branchHeadSha: "abc123templatehead",
-          },
-        },
       });
       return provider;
     });
@@ -108,6 +118,11 @@ describe("packaged harness provisioning route regression", () => {
       process.env.HARNESS_VITEST_PROVISIONING_MOCK = originalTestSeam;
     }
     await rm(workspaceDir, { recursive: true, force: true });
+    if (snapshotTempDir) {
+      await rm(snapshotTempDir, { recursive: true, force: true });
+      snapshotTempDir = "";
+    }
+    snapshotFixture.manifest = null;
   });
 
   it("accepts preview fingerprint through separate preview and apply routes once", async () => {
@@ -123,12 +138,17 @@ describe("packaged harness provisioning route regression", () => {
       state: string;
       fingerprint: string;
       operationId: string;
+      snapshotContentId: string | null;
+      templateContentId: string | null;
     };
     expect(preview.state).toBe("repo-absent");
     const fingerprintPayload = JSON.parse(preview.fingerprint) as {
       pDevVersion: string;
+      snapshotContentId: string;
     };
     expect(fingerprintPayload.pDevVersion).toBe("0.3.0");
+    expect(preview.snapshotContentId).toBe(fingerprintPayload.snapshotContentId);
+    expect(preview.templateContentId).toBe(preview.snapshotContentId);
 
     const applyResponse = await applyRoute(
       new Request("http://localhost/api/setup/apply-harness-repo-provisioning", {
@@ -151,8 +171,11 @@ describe("packaged harness provisioning route regression", () => {
       "Template metadata changed before apply",
     );
     expect(
-      provider.calls.filter((call) => call.method === "createRepositoryFromTemplate"),
+      provider.calls.filter((call) => call.method === "createUserRepository"),
     ).toHaveLength(1);
+    expect(
+      provider.calls.filter((call) => call.method === "createRepositoryFromTemplate"),
+    ).toHaveLength(0);
   });
 });
 

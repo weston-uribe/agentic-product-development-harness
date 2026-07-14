@@ -5,27 +5,19 @@ import {
   diagnoseHarnessProvisioningFingerprintMismatch,
   serializeHarnessProvisioningPreviewContext,
 } from "../../src/setup/harness-provisioning-context.js";
-
-const TEMPLATE_IDENTITY = {
-  schemaVersion: 1,
-  product: "p-dev",
-  role: "harness-template",
-  templateIdentity: "p-dev-harness-template",
-  templateVersion: 1,
-  compatibilityVersion: 1,
-  templateContentId: "template-content-v1",
-};
+import { buildTestWorkspaceSnapshotManifest } from "./test-workspace-snapshot-fixture.js";
+import { fingerprintWorkspaceSnapshotManifest } from "../../src/p-dev/workspace-snapshot-manifest.js";
 
 function buildContext(
   overrides: Partial<Parameters<typeof buildHarnessProvisioningPreviewContext>[0]> = {},
 ) {
+  const manifest = buildTestWorkspaceSnapshotManifest("0.3.0");
   return buildHarnessProvisioningPreviewContext({
     operationId: "op-1",
     user: { id: 1, login: "Test-User" },
     destination: "Test-User/p-dev-harness",
-    templateDefaultBranch: "main",
-    templateHeadSha: "abc123templatehead",
-    templateIdentity: TEMPLATE_IDENTITY,
+    manifest,
+    snapshotFingerprint: fingerprintWorkspaceSnapshotManifest(manifest),
     classification: "absent",
     envBaseline: "",
     pDevVersion: "0.3.0",
@@ -57,16 +49,22 @@ describe("harness provisioning context", () => {
     expect(diagnosis.ok).toBe(true);
   });
 
-  it("rejects genuine template HEAD changes with a redacted field name", () => {
+  it("rejects genuine source commit changes with a redacted field name", () => {
     const submitted = serializeHarnessProvisioningPreviewContext(buildContext());
-    const current = buildContext({ templateHeadSha: "different-head" });
+    const manifest = buildTestWorkspaceSnapshotManifest("0.3.0");
+    const current = buildContext({
+      manifest: {
+        ...manifest,
+        sourceCommit: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      },
+    });
     const diagnosis = diagnoseHarnessProvisioningFingerprintMismatch({
       submittedFingerprint: submitted,
       currentContext: current,
     });
     expect(diagnosis.ok).toBe(false);
     if (!diagnosis.ok) {
-      expect(diagnosis.mismatchedField).toBe("templateHeadSha");
+      expect(diagnosis.mismatchedField).toBe("sourceCommit");
       expect(diagnosis.message).not.toContain("ghp_");
     }
   });

@@ -52,6 +52,42 @@ export interface GitHubAuthenticatedUser {
   login: string;
 }
 
+export interface GitHubCreateUserRepositoryInput {
+  name: string;
+  description: string;
+  private: boolean;
+  autoInit: boolean;
+}
+
+export interface GitHubCreateUserRepositoryResult {
+  id: number;
+  full_name: string;
+  default_branch: string;
+}
+
+export interface GitHubGitBlob {
+  sha: string;
+}
+
+export interface GitHubGitTreeEntry {
+  path?: string;
+  mode: string;
+  type: "blob" | "tree";
+  sha: string;
+}
+
+export interface GitHubGitTree {
+  sha: string;
+  tree: GitHubGitTreeEntry[];
+  truncated?: boolean;
+}
+
+export interface GitHubGitCommit {
+  sha: string;
+  tree: { sha: string };
+  parents: Array<{ sha: string }>;
+}
+
 export interface GitHubCreateRepositoryFromTemplateInput {
   templateOwner: string;
   templateRepo: string;
@@ -516,6 +552,125 @@ export class GitHubClient {
         sha,
       },
     });
+  }
+
+  async createUserRepository(
+    input: GitHubCreateUserRepositoryInput,
+  ): Promise<GitHubCreateUserRepositoryResult> {
+    return this.request<GitHubCreateUserRepositoryResult>("/user/repos", {
+      method: "POST",
+      body: {
+        name: input.name,
+        description: input.description,
+        private: input.private,
+        auto_init: input.autoInit,
+      },
+    });
+  }
+
+  async createGitBlob(input: {
+    owner: string;
+    repo: string;
+    content: Buffer;
+  }): Promise<GitHubGitBlob> {
+    return this.request<GitHubGitBlob>(`/repos/${input.owner}/${input.repo}/git/blobs`, {
+      method: "POST",
+      body: {
+        content: input.content.toString("base64"),
+        encoding: "base64",
+      },
+    });
+  }
+
+  async createGitTree(input: {
+    owner: string;
+    repo: string;
+    tree: GitHubGitTreeEntry[];
+  }): Promise<GitHubGitTree> {
+    return this.request<GitHubGitTree>(`/repos/${input.owner}/${input.repo}/git/trees`, {
+      method: "POST",
+      body: {
+        tree: input.tree,
+      },
+    });
+  }
+
+  async createGitCommit(input: {
+    owner: string;
+    repo: string;
+    message: string;
+    tree: string;
+    parents: string[];
+  }): Promise<GitHubGitCommit> {
+    return this.request<GitHubGitCommit>(`/repos/${input.owner}/${input.repo}/git/commits`, {
+      method: "POST",
+      body: {
+        message: input.message,
+        tree: input.tree,
+        parents: input.parents,
+      },
+    });
+  }
+
+  async getGitCommit(
+    owner: string,
+    repo: string,
+    sha: string,
+  ): Promise<GitHubGitCommit> {
+    return this.request<GitHubGitCommit>(
+      `/repos/${owner}/${repo}/git/commits/${sha}`,
+    );
+  }
+
+  async getGitTree(input: {
+    owner: string;
+    repo: string;
+    treeSha: string;
+    recursive?: boolean;
+  }): Promise<GitHubGitTree> {
+    const params = input.recursive ? "?recursive=1" : "";
+    return this.request<GitHubGitTree>(
+      `/repos/${input.owner}/${input.repo}/git/trees/${input.treeSha}${params}`,
+    );
+  }
+
+  async getGitRef(
+    owner: string,
+    repo: string,
+    ref: string,
+  ): Promise<GitHubGitRef> {
+    const normalized = ref.startsWith("refs/heads/")
+      ? ref.slice("refs/heads/".length)
+      : ref.startsWith("refs/")
+        ? ref.slice("refs/".length)
+        : ref;
+    return this.request<GitHubGitRef>(
+      `/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(normalized)}`,
+    );
+  }
+
+  async updateGitRef(input: {
+    owner: string;
+    repo: string;
+    ref: string;
+    sha: string;
+    force?: boolean;
+  }): Promise<GitHubGitRef> {
+    const branch = input.ref.startsWith("refs/heads/")
+      ? input.ref.slice("refs/heads/".length)
+      : input.ref.startsWith("refs/")
+        ? input.ref.slice("refs/".length)
+        : input.ref;
+    return this.request<GitHubGitRef>(
+      `/repos/${input.owner}/${input.repo}/git/refs/heads/${encodeURIComponent(branch)}`,
+      {
+        method: "PATCH",
+        body: {
+          sha: input.sha,
+          force: input.force ?? false,
+        },
+      },
+    );
   }
 
   async createRepositoryFromTemplate(

@@ -23,6 +23,13 @@ import {
   type AuthenticatedGitHubUser,
   type CreateRepositoryFromTemplateInput,
   type CreateRepositoryFromTemplateResult,
+  type CreateUserRepositoryInput,
+  type CreateUserRepositoryResult,
+  type GitBlobResult,
+  type GitCommitResult,
+  type GitRefResult,
+  type GitTreeEntryInput,
+  type GitTreeResult,
   type GitHubRepositoryMetadata,
   type GitHubTokenCapabilitySummary,
   type HarnessSecretWriteRequest,
@@ -578,6 +585,117 @@ export class LiveGitHubHarnessProvisioningProvider
         repositoryId: created.id,
         fullName: created.full_name,
         defaultBranch: created.default_branch,
+      };
+    } catch (error) {
+      throw new Error(sanitizeGitHubSetupError(error));
+    }
+  }
+
+  async createUserRepository(
+    input: CreateUserRepositoryInput,
+  ): Promise<CreateUserRepositoryResult> {
+    try {
+      const created = await this.client.createUserRepository({
+        name: input.name,
+        description: input.description,
+        private: input.private,
+        autoInit: input.autoInit,
+      });
+      return {
+        repositoryId: created.id,
+        fullName: created.full_name,
+        defaultBranch: created.default_branch,
+      };
+    } catch (error) {
+      throw new Error(sanitizeGitHubSetupError(error));
+    }
+  }
+
+  async createGitBlob(input: {
+    owner: string;
+    repo: string;
+    content: Buffer;
+  }): Promise<GitBlobResult> {
+    try {
+      return await this.client.createGitBlob(input);
+    } catch (error) {
+      throw new Error(sanitizeGitHubSetupError(error));
+    }
+  }
+
+  async createGitTree(input: {
+    owner: string;
+    repo: string;
+    tree: GitTreeEntryInput[];
+  }): Promise<GitTreeResult> {
+    try {
+      const tree = await this.client.createGitTree(input);
+      return { sha: tree.sha };
+    } catch (error) {
+      throw new Error(sanitizeGitHubSetupError(error));
+    }
+  }
+
+  async createGitCommit(input: {
+    owner: string;
+    repo: string;
+    message: string;
+    tree: string;
+    parents: string[];
+  }): Promise<GitCommitResult> {
+    try {
+      const commit = await this.client.createGitCommit(input);
+      return {
+        sha: commit.sha,
+        tree: commit.tree,
+        parents: commit.parents,
+      };
+    } catch (error) {
+      throw new Error(sanitizeGitHubSetupError(error));
+    }
+  }
+
+  async getGitCommit(
+    owner: string,
+    repo: string,
+    sha: string,
+  ): Promise<GitCommitResult> {
+    try {
+      const commit = await this.client.getGitCommit(owner, repo, sha);
+      return {
+        sha: commit.sha,
+        tree: commit.tree,
+        parents: commit.parents,
+      };
+    } catch (error) {
+      throw new Error(sanitizeGitHubSetupError(error));
+    }
+  }
+
+  async getGitRef(owner: string, repo: string, ref: string): Promise<GitRefResult> {
+    try {
+      const gitRef = await this.client.getGitRef(owner, repo, ref);
+      return {
+        ref: gitRef.ref,
+        object: { sha: gitRef.object.sha },
+      };
+    } catch (error) {
+      throw new Error(sanitizeGitHubSetupError(error));
+    }
+  }
+
+  async updateGitRef(input: {
+    owner: string;
+    repo: string;
+    ref: string;
+    sha: string;
+    force?: boolean;
+  }): Promise<GitRefResult> {
+    try {
+      const gitRef = await this.client.updateGitRef(input);
+      return {
+        ref: gitRef.ref,
+        object: { sha: gitRef.object.sha },
       };
     } catch (error) {
       throw new Error(sanitizeGitHubSetupError(error));
