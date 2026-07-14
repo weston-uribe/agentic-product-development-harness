@@ -141,7 +141,11 @@ export function createPostHogAnalyticsTransport(
       active = false;
       pending.length = 0;
       if (client) {
-        await client._shutdown(deadlineMs);
+        try {
+          await client.shutdown(deadlineMs);
+        } catch {
+          // vendor timeout/rejection must not fail product shutdown
+        }
         client = null;
       }
       await waitForInFlight(deadlineMs);
