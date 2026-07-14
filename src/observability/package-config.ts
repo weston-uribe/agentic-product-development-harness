@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { resolvePackageRootFromModule } from "../p-dev/package-paths.js";
+import { resolvePackageRootFromModule, normalizeModuleReferenceToPath } from "../p-dev/package-paths.js";
 import {
   OBSERVABILITY_PUBLIC_CONFIG_FILENAME,
   OBSERVABILITY_SCHEMA_VERSION,
@@ -106,10 +105,8 @@ export function readObservabilityPublicConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): ResolvedObservabilityPublicConfig | null {
   const candidates: string[] = [];
-  const repoRoot = path.resolve(
-    path.dirname(fileURLToPath(moduleUrl)),
-    "../..",
-  );
+  const modulePath = normalizeModuleReferenceToPath(moduleUrl);
+  const repoRoot = path.resolve(path.dirname(modulePath), "../..");
   candidates.push(resolveTrackedObservabilityPublicConfigPath(repoRoot));
 
   try {
