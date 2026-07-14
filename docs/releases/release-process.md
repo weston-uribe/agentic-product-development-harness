@@ -270,3 +270,20 @@ V0.3.0 used public-template provisioning. See [`v0.3.0.md`](v0.3.0.md) for the h
 - Live `harness:run` against production issues
 - Linear writes
 - Secret inspection, printing, or rotation in reports
+
+---
+
+## Current example — v0.3.1 (published 2026-07-14)
+
+| Variable | Value |
+|----------|-------|
+| `VERSION` | `0.3.1` |
+| `TAG` | `v0.3.1` |
+| `RELEASE_SHA` | `995387c74334ba85206d9d87d7d78d4ecbfa8361` |
+| `TARBALL` | `packages/p-dev/p-dev-harness-0.3.1.tgz` |
+| Merge PR | https://github.com/weston-uribe/agentic-product-development-harness/pull/60 |
+| npm | https://www.npmjs.com/package/p-dev-harness/v/0.3.1 |
+| GitHub release | https://github.com/weston-uribe/agentic-product-development-harness/releases/tag/v0.3.1 |
+| registry shasum | `d71a6f4a71a9913f51232cfcd066826c1045f36b` |
+
+Post-release evidence PR records immutable validation fixtures and finalization merge SHA. The `v0.3.1` tag remains pinned to `RELEASE_SHA`, not the finalization merge.
