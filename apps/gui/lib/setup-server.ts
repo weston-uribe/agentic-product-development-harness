@@ -42,6 +42,26 @@ import {
   type HarnessRepoProvisioningPreview,
   type HarnessRepoProvisioningSummary,
 } from "@harness/setup/harness-repo-provisioning";
+import { loadEmbeddedWorkspaceSnapshot } from "@harness/setup/harness-workspace-snapshot-loader.js";
+import {
+  captureAnalyticsEvent,
+  captureProductError,
+  isAnalyticsCaptureEnabled,
+  registerProvisioningOperationId,
+} from "@harness/observability/facade.js";
+import {
+  deriveConnectedToExistingManagedWorkspace,
+  deriveCreatedSnapshotBackedWorkspace,
+} from "@harness/observability/provisioning-analytics.js";
+import {
+  bucketProvisioningDurationMs,
+  bucketSnapshotFileCount,
+} from "@harness/observability/privacy-schema.js";
+import {
+  mapHarnessProvisioningStateToFailureCategory,
+  productErrorCodeFromProvisioningState,
+  shouldCaptureProvisioningStateAsProductError,
+} from "@harness/observability/product-errors.js";
 import {
   MockGitHubRemoteSetupProvider,
   type GitHubRemoteSetupProvider,
@@ -718,6 +738,24 @@ export async function applyHarnessRepoProvisioningRemote(options: {
     provider,
     operationId: options.operationId,
   });
+
+  registerProvisioningOperationId(options.operationId);
+
+  let snapshotFileCountBucket = "unknown";
+  if (isAnalyticsCaptureEnabled()) {
+    const snapshotPreview = await loadEmbeddedWorkspaceSnapshot(import.meta.url);
+    snapshotFileCountBucket = snapshotPreview.ok
+      ? bucketSnapshotFileCount(snapshotPreview.manifest.fileCount)
+      : "unknown";
+
+    captureAnalyticsEvent({
+      type: "p_dev_workspace_provision_started",
+      snapshotFileCountBucket,
+      resumedFromDurablePendingState: provisioning.resumedFromPending,
+    });
+  }
+
+  const startedAt = Date.now();
   const apply = await applyHarnessRepoProvisioning({
     cwd: resolveCwd(),
     provider,
@@ -725,6 +763,63 @@ export async function applyHarnessRepoProvisioningRemote(options: {
     fingerprint: options.fingerprint,
     operationId: options.operationId,
   });
+
+  if (isAnalyticsCaptureEnabled()) {
+    const durationBucket = bucketProvisioningDurationMs(Date.now() - startedAt);
+
+    if (apply.persisted) {
+      captureAnalyticsEvent({
+        type: "p_dev_workspace_provision_completed",
+        snapshotFileCountBucket,
+        durationBucket,
+        retryCountBucket: "unknown",
+        rateLimitPauseCountBucket: "unknown",
+        outcome: "success",
+        resumedFromDurablePendingState: provisioning.resumedFromPending,
+        connectedToExistingLegacyWorkspace:
+          deriveConnectedToExistingManagedWorkspace({
+            persisted: apply.persisted,
+            previewState: provisioning.state,
+          }),
+        createdSnapshotBackedWorkspace: deriveCreatedSnapshotBackedWorkspace({
+          persisted: apply.persisted,
+          applyState: apply.state,
+          preview: provisioning,
+        }),
+      });
+    } else {
+      const failureCategory = mapHarnessProvisioningStateToFailureCategory(
+        apply.state,
+      );
+      captureAnalyticsEvent({
+        type: "p_dev_workspace_provision_failed",
+        snapshotFileCountBucket,
+        durationBucket,
+        retryCountBucket: "unknown",
+        rateLimitPauseCountBucket: "unknown",
+        failureCategory,
+        resumedFromDurablePendingState: provisioning.resumedFromPending,
+        recoveryStateRemainedAfterFailure: apply.recoverable,
+      });
+      if (shouldCaptureProvisioningStateAsProductError(apply.state)) {
+        captureProductError({
+          lifecyclePhase: "provisioning",
+          productErrorCode: productErrorCodeFromProvisioningState(apply.state),
+          errorCategory: failureCategory,
+        });
+      }
+    }
+  } else if (shouldCaptureProvisioningStateAsProductError(apply.state)) {
+    const failureCategory = mapHarnessProvisioningStateToFailureCategory(
+      apply.state,
+    );
+    captureProductError({
+      lifecyclePhase: "provisioning",
+      productErrorCode: productErrorCodeFromProvisioningState(apply.state),
+      errorCategory: failureCategory,
+    });
+  }
+
   const summary = await getSetupStateSummary({ cwd: resolveCwd() });
   return { apply, summary, provisioning };
 }

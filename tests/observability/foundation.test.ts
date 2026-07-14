@@ -125,7 +125,11 @@ describe("observability consent and identity", () => {
       productErrorCode: "should_not_send",
       errorCategory: "unexpected",
     });
-    expect(analyticsRecorder.analyticsEvents).toHaveLength(1);
+    expect(
+      analyticsRecorder.analyticsEvents.filter(
+        (entry) => entry.event !== "p_dev_session_started",
+      ),
+    ).toHaveLength(1);
     expect(analyticsRecorder.sentryEvents).toHaveLength(0);
     await shutdownObservability();
 

@@ -94,7 +94,11 @@ describe("observability transport lifecycle", () => {
       productErrorCode: "before_disable",
       errorCategory: "unexpected",
     });
-    expect(recorder.analyticsEvents).toHaveLength(1);
+    expect(
+      recorder.analyticsEvents.filter(
+        (entry) => entry.event !== "p_dev_session_started",
+      ),
+    ).toHaveLength(1);
     expect(recorder.sentryEvents).toHaveLength(1);
 
     await writeObservabilityPreferences(workspaceDir, {
@@ -107,7 +111,11 @@ describe("observability transport lifecycle", () => {
       productErrorCode: "after_analytics_disable",
       errorCategory: "unexpected",
     });
-    expect(recorder.analyticsEvents).toHaveLength(1);
+    expect(
+      recorder.analyticsEvents.filter(
+        (entry) => entry.event !== "p_dev_session_started",
+      ),
+    ).toHaveLength(1);
     expect(recorder.sentryEvents).toHaveLength(2);
   });
 
@@ -135,7 +143,11 @@ describe("observability transport lifecycle", () => {
       productErrorCode: "should_not_send",
       errorCategory: "unexpected",
     });
-    expect(recorder.analyticsEvents).toHaveLength(1);
+    expect(
+      recorder.analyticsEvents.filter(
+        (entry) => entry.event !== "p_dev_session_started",
+      ),
+    ).toHaveLength(1);
     expect(recorder.sentryEvents).toHaveLength(0);
   });
 
@@ -155,14 +167,16 @@ describe("observability transport lifecycle", () => {
 
     await resetObservabilityState(workspaceDir);
 
+    const analyticsCountBefore = recorder.analyticsEvents.length;
+    const sentryCountBefore = recorder.sentryEvents.length;
     captureAnalyticsEvent({ type: "p_dev_setup_completed" });
     captureProductError({
       lifecyclePhase: "configure_route",
       productErrorCode: "after_reset",
       errorCategory: "unexpected",
     });
-    expect(recorder.analyticsEvents).toHaveLength(0);
-    expect(recorder.sentryEvents).toHaveLength(0);
+    expect(recorder.analyticsEvents).toHaveLength(analyticsCountBefore);
+    expect(recorder.sentryEvents).toHaveLength(sentryCountBefore);
   });
 
   it("closes the analytics gate before disposal and blocks new initiations", async () => {

@@ -30,8 +30,9 @@ import {
   shouldReadinessAdvanceGuidedDisplay,
   shouldShowGuidedBackButton,
   type GuidedDisplayStepId,
-  type   GuidedLocalSetupStep,
+  type GuidedLocalSetupStep,
   deriveGuidedProgressStages,
+  guidedDisplayStepIndex,
 } from "@/lib/guided-setup";
 import {
   syncLinearSummaryFromEnvPresence,
@@ -52,6 +53,8 @@ import { GuidedCloudSecretsCard } from "@/components/custom/guided-cloud-secrets
 import { GuidedTargetWorkflowCard } from "@/components/custom/guided-target-workflow-card";
 import { SectionCard } from "@/components/custom/section-card";
 import { ObservabilitySettingsCard } from "@/components/custom/observability-settings-card";
+import { postObservabilityAnalyticsEvent } from "@/lib/observability-client";
+import { bucketDurationMs } from "@harness/observability/privacy-schema.js";
 import { GuidedSetupProgress } from "@/components/custom/guided-setup-progress";
 
 type ConfigureMode = "guided" | "advanced";
@@ -141,6 +144,72 @@ export function ConfigureExperience({
   >({});
   const [workflowAwaitingMerge, setWorkflowAwaitingMerge] = useState(false);
   const previousReadinessStepRef = useRef<FirstRunStepId | null>(null);
+  const stepVisitCountsRef = useRef<Partial<Record<GuidedDisplayStepId, number>>>(
+    {},
+  );
+  const lastRecordedStepViewRef = useRef<GuidedDisplayStepId | null>(null);
+  const stepStartedAtRef = useRef<Partial<Record<GuidedDisplayStepId, number>>>(
+    {},
+  );
+
+  const recordStepViewed = useCallback(
+    (stepId: GuidedDisplayStepId) => {
+      lastRecordedStepViewRef.current = stepId;
+      const visitOrdinal = stepVisitCountsRef.current[stepId] ?? 0;
+      stepVisitCountsRef.current[stepId] = visitOrdinal + 1;
+      stepStartedAtRef.current[stepId] = Date.now();
+      const stepNumber = guidedDisplayStepIndex(stepId) + 1;
+      const payload = {
+        type: "p_dev_configure_step_viewed" as const,
+        stepId,
+        stepNumber,
+        resumed: false as const,
+        revisited: false as const,
+      };
+      if (observabilityNonce) {
+        void postObservabilityAnalyticsEvent(payload, observabilityNonce);
+      }
+    },
+    [observabilityNonce],
+  );
+
+  const recordStepCompleted = useCallback(
+    (
+      stepId: GuidedDisplayStepId,
+      outcome:
+        | "success"
+        | "skipped_already_complete"
+        | "user_correctable_blocked"
+        | "operational_failure"
+        | "unknown" = "success",
+    ) => {
+      if (!observabilityNonce) {
+        return;
+      }
+      const startedAt = stepStartedAtRef.current[stepId];
+      const durationBucket = bucketDurationMs(
+        startedAt ? Date.now() - startedAt : -1,
+      );
+      const stepNumber = guidedDisplayStepIndex(stepId) + 1;
+      void postObservabilityAnalyticsEvent(
+        {
+          type: "p_dev_configure_step_completed",
+          stepId,
+          stepNumber,
+          resumed: false as const,
+          revisited: false as const,
+          durationBucket,
+          completionOutcome: outcome,
+        },
+        observabilityNonce,
+      );
+    },
+    [observabilityNonce],
+  );
+
+  useEffect(() => {
+    recordStepViewed(displayedGuidedStep);
+  }, [displayedGuidedStep, recordStepViewed]);
 
   const readiness = useMemo(
     () =>
@@ -310,6 +379,7 @@ export function ConfigureExperience({
   );
 
   const handleConnectServicesComplete = useCallback(async () => {
+    recordStepCompleted("connect-services");
     setDisplayedGuidedStep(GUIDED_DISPLAY_STEP_AFTER_CONNECT_SERVICES);
     try {
       const response = await fetch("/api/setup/linear-summary");
@@ -320,31 +390,35 @@ export function ConfigureExperience({
     } catch {
       // Fall back to env presence synced via handleSummaryUpdated after Step 1 save.
     }
-  }, []);
+  }, [recordStepCompleted]);
 
   const handleLinearWorkspaceContinue = useCallback(() => {
+    recordStepCompleted("linear-workspace");
     setDisplayedGuidedStep("vercel-bridge");
-  }, []);
+  }, [recordStepCompleted]);
 
   const handleVercelBridgeContinue = useCallback(() => {
+    recordStepCompleted("vercel-bridge");
     setDisplayedGuidedStep("choose-target-repos");
-  }, []);
+  }, [recordStepCompleted]);
 
   const handleLocalReadinessReviewed = useCallback(() => {
+    recordStepCompleted("local-readiness");
     setUiState((current) => ({
       ...current,
       localReadinessReviewed: true,
     }));
     setDisplayedGuidedStep(GUIDED_DISPLAY_STEP_AFTER_LOCAL_READINESS);
-  }, []);
+  }, [recordStepCompleted]);
 
   const handleCloudSecretsReviewed = useCallback(() => {
+    recordStepCompleted("cloud-secrets");
     setUiState((current) => ({
       ...current,
       cloudSecretsReviewed: true,
     }));
     setDisplayedGuidedStep(GUIDED_DISPLAY_STEP_AFTER_CLOUD_SECRETS);
-  }, []);
+  }, [recordStepCompleted]);
 
   const handleSummaryUpdated = useCallback((nextSummary: SetupGuiViewModel) => {
     setSummary(nextSummary);
@@ -384,12 +458,20 @@ export function ConfigureExperience({
   }, [linearSummary, remoteSummary.harnessDispatchRepo, vercelSummary]);
 
   const handleGuidedWorkflowSetupComplete = useCallback(() => {
+    recordStepCompleted("target-workflow");
+    if (observabilityNonce) {
+      void postObservabilityAnalyticsEvent(
+        { type: "p_dev_setup_completed" },
+        observabilityNonce,
+      );
+    }
     setWorkflowAwaitingMerge(false);
     setWorkflowInstallPendingByRepo({});
     setWorkflowFinalizationByRepo({});
-  }, []);
+  }, [observabilityNonce, recordStepCompleted]);
 
   const handleGuidedLocalApplySuccess = useCallback(() => {
+    recordStepCompleted("choose-target-repos");
     setUiState((current) => ({
       ...current,
       localReadinessReviewed: false,
@@ -399,7 +481,7 @@ export function ConfigureExperience({
       localPreviewStale: false,
     }));
     setDisplayedGuidedStep(GUIDED_DISPLAY_STEP_AFTER_LOCAL_APPLY);
-  }, []);
+  }, [recordStepCompleted]);
 
   const handleGuidedLocalStepChange = useCallback((step: GuidedLocalSetupStep) => {
     setDisplayedGuidedStep(step);
@@ -669,7 +751,13 @@ export function ConfigureExperience({
         </div>
       </section>
 
-      <ObservabilitySettingsCard nonce={observabilityNonce} />
+      <ObservabilitySettingsCard
+        nonce={observabilityNonce}
+        onAnalyticsEnabled={() => {
+          lastRecordedStepViewRef.current = null;
+          recordStepViewed(displayedGuidedStep);
+        }}
+      />
 
       {mode === "advanced" ? <ReadinessBanner readiness={readiness} /> : null}
 

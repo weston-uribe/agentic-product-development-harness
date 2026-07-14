@@ -19,7 +19,15 @@ import {
   allowedAnalyticsPropertyKeysForEvent,
   assertAllowedPropertyKeys,
 } from "./privacy-schema.js";
+import {
+  guidedDisplayStepNumber,
+  type GuidedDisplayStepId,
+} from "./analytics-schemas.js";
 import { resolveObservabilityHandoff } from "./session-handoff.js";
+import {
+  recordAnalyticsEventEmission,
+  shouldDedupeAnalyticsEvent,
+} from "./session-dedupe.js";
 import {
   installObservabilityFatalHandlers,
   removeObservabilityFatalHandlers,
@@ -48,6 +56,7 @@ import {
   createFakeErrorTransport,
   createFakeTransportRecorder,
 } from "./adapters/fake.js";
+import { createPostHogAnalyticsTransport } from "./adapters/posthog.js";
 import { createSentryErrorTransport } from "./adapters/sentry.js";
 
 export interface BeginObservabilitySessionInput {
@@ -83,6 +92,8 @@ let errorAdapterFactory:
     }) => ErrorTransport)
   | null = null;
 let parentOwnershipReleased = false;
+let displayedConfigureStepId: GuidedDisplayStepId | null = null;
+let activeProvisioningOperationId: string | null = null;
 
 export function registerAnalyticsAdapterFactory(
   factory: () => AnalyticsTransport,
@@ -98,6 +109,14 @@ export function registerErrorAdapterFactory(
   }) => ErrorTransport,
 ): void {
   errorAdapterFactory = factory;
+}
+
+export function registerDisplayedConfigureStep(stepId: GuidedDisplayStepId): void {
+  displayedConfigureStepId = stepId;
+}
+
+export function registerProvisioningOperationId(operationId: string): void {
+  activeProvisioningOperationId = operationId;
 }
 
 export function isAnalyticsCaptureEnabled(): boolean {
@@ -157,14 +176,30 @@ function contextToSentryTags(
   };
 }
 
-function createAnalyticsAdapter(
-  fakeRecorder?: FakeTransportRecorder,
-): AnalyticsTransport | null {
-  if (fakeRecorder) {
-    return createFakeAnalyticsTransport(fakeRecorder);
+function createAnalyticsAdapter(input: {
+  fakeRecorder?: FakeTransportRecorder;
+  moduleUrl?: string;
+  env?: NodeJS.ProcessEnv;
+}): AnalyticsTransport | null {
+  if (input.fakeRecorder) {
+    return createFakeAnalyticsTransport(input.fakeRecorder);
   }
   if (analyticsAdapterFactory) {
     return analyticsAdapterFactory();
+  }
+  const publicConfig = readObservabilityPublicConfig(
+    input.moduleUrl,
+    input.env,
+  );
+  if (publicConfig?.posthogProjectToken) {
+    try {
+      return createPostHogAnalyticsTransport({
+        projectToken: publicConfig.posthogProjectToken,
+        host: publicConfig.posthogIngestionHost,
+      });
+    } catch {
+      return null;
+    }
   }
   return null;
 }
@@ -200,13 +235,15 @@ function createErrorAdapter(input: {
 
 async function syncAnalyticsTransport(input: {
   consent: EffectiveConsent;
+  moduleUrl?: string;
+  env?: NodeJS.ProcessEnv;
   fakeRecorder?: FakeTransportRecorder;
 }): Promise<void> {
   if (!input.consent.analyticsEnabled) {
     await analyticsLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS);
     return;
   }
-  const adapter = createAnalyticsAdapter(input.fakeRecorder);
+  const adapter = createAnalyticsAdapter(input);
   if (!adapter) {
     await analyticsLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS);
     return;
@@ -256,6 +293,33 @@ async function configureTransports(input: {
   if (input.errorOnly) {
     await syncErrorTransport(input);
   }
+}
+
+function emitSessionStartedIfNeeded(): void {
+  if (!activeSession || !isAnalyticsCaptureEnabled()) {
+    return;
+  }
+  const event: AnalyticsEvent = { type: "p_dev_session_started" };
+  if (
+    shouldDedupeAnalyticsEvent(activeSession.sessionId, event)
+  ) {
+    return;
+  }
+  captureAnalyticsEvent(event);
+}
+
+function emitDisplayedConfigureStepViewIfNeeded(): void {
+  if (!activeSession || !displayedConfigureStepId || !isAnalyticsCaptureEnabled()) {
+    return;
+  }
+  const stepId = displayedConfigureStepId;
+  captureAnalyticsEvent({
+    type: "p_dev_configure_step_viewed",
+    stepId,
+    stepNumber: guidedDisplayStepNumber(stepId),
+    resumed: false,
+    revisited: false,
+  });
 }
 
 export async function beginObservabilitySession(
@@ -315,6 +379,9 @@ export async function beginObservabilitySession(
     consent,
     localState,
   };
+
+  emitSessionStartedIfNeeded();
+  emitDisplayedConfigureStepViewIfNeeded();
 
   return activeSession;
 }
@@ -390,6 +457,10 @@ export async function writeObservabilityPreferences(
         fakeRecorder: activeFakeRecorder,
         analyticsOnly: true,
       });
+      if (consent.analyticsEnabled) {
+        emitSessionStartedIfNeeded();
+        emitDisplayedConfigureStepViewIfNeeded();
+      }
     }
     if (errorChanged) {
       await configureTransports({
@@ -444,7 +515,18 @@ export async function releaseParentObservabilityOwnership(): Promise<void> {
 }
 
 export function captureAnalyticsEvent(event: AnalyticsEvent): void {
-  if (!isAnalyticsCaptureEnabled()) {
+  if (!isAnalyticsCaptureEnabled() || !activeSession) {
+    return;
+  }
+
+  const operationId =
+    event.type === "p_dev_workspace_provision_started" ||
+    event.type === "p_dev_workspace_provision_completed" ||
+    event.type === "p_dev_workspace_provision_failed"
+      ? activeProvisioningOperationId ?? undefined
+      : undefined;
+
+  if (shouldDedupeAnalyticsEvent(activeSession.sessionId, event, operationId)) {
     return;
   }
 
@@ -453,7 +535,7 @@ export function captureAnalyticsEvent(event: AnalyticsEvent): void {
   assertAllowedPropertyKeys(eventProperties, allowedKeys);
 
   const properties = {
-    ...contextToCommonAnalyticsProperties(activeSession!.context),
+    ...contextToCommonAnalyticsProperties(activeSession.context),
     ...eventProperties,
   };
   assertAllowedPropertyKeys(properties, allowedKeys);
@@ -464,6 +546,11 @@ export function captureAnalyticsEvent(event: AnalyticsEvent): void {
   };
   try {
     analyticsLifecycle.getAdapter().capture(payload);
+    recordAnalyticsEventEmission(
+      activeSession.sessionId,
+      event,
+      operationId,
+    );
   } catch {
     // best-effort
   }
@@ -516,6 +603,8 @@ export async function shutdownObservability(
   activeSession = null;
   activeFakeRecorder = undefined;
   parentOwnershipReleased = false;
+  displayedConfigureStepId = null;
+  activeProvisioningOperationId = null;
 }
 
 export function createObservabilityTestRecorder(): FakeTransportRecorder {
