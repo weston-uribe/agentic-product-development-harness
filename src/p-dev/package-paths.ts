@@ -4,8 +4,17 @@ import { fileURLToPath } from "node:url";
 
 export const P_DEV_PACKAGE_NAME = "p-dev-harness";
 
+export function normalizeModuleReferenceToPath(moduleUrl: string): string {
+  if (moduleUrl.startsWith("file://")) {
+    return fileURLToPath(moduleUrl);
+  }
+  return path.resolve(moduleUrl);
+}
+
 export function resolvePackageRootFromModule(moduleUrl: string): string {
-  let current = path.resolve(path.dirname(fileURLToPath(moduleUrl)));
+  let current = path.resolve(
+    path.dirname(normalizeModuleReferenceToPath(moduleUrl)),
+  );
 
   while (true) {
     const packageJsonPath = path.join(current, "package.json");
