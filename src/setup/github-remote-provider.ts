@@ -959,11 +959,6 @@ export class MockGitHubHarnessProvisioningProvider
   ): void {
     this.repositories[slug] = withRepositoryId(slug, metadata);
   }
-
-  clearProvisioningFaults(): void {
-    this.state.markerCommitError = null;
-    this.state.markerCommitErrorsRemaining = 0;
-  }
 }
 
 export function mapGitHubSecretMetadataToStatus(

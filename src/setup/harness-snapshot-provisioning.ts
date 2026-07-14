@@ -643,6 +643,16 @@ export async function provisionHarnessWorkspaceFromSnapshot(input: {
     });
   }
 
+  if (!defaultBranch) {
+    return {
+      ok: false,
+      message: "Provisioning state is missing the repository default branch.",
+      recoverable: false,
+      code: "repository-identity-mismatch",
+    };
+  }
+  const resolvedDefaultBranch = defaultBranch;
+
   let snapshotCommitSha = input.pending?.snapshotCommitSha;
   if (!snapshotCommitSha) {
     const blobShaByPath = await uploadSnapshotBlobs({
@@ -662,13 +672,13 @@ export async function provisionHarnessWorkspaceFromSnapshot(input: {
       operationId: input.operationId,
       blobShaByPath,
     });
-    const currentRef = await input.provider.getGitRef(owner, repo, defaultBranch);
+    const currentRef = await input.provider.getGitRef(owner, repo, resolvedDefaultBranch);
     if (currentRef.object.sha !== snapshotCommitSha) {
       await withRetries(() =>
         input.provider.updateGitRef({
           owner,
           repo,
-          ref: defaultBranch,
+          ref: resolvedDefaultBranch,
           sha: snapshotCommitSha!,
           force: false,
           expectedSha: initializedCommitSha,
@@ -678,7 +688,7 @@ export async function provisionHarnessWorkspaceFromSnapshot(input: {
     await input.onCheckpoint?.({
       phase: "snapshot-commit-created",
       repositoryId,
-      defaultBranch,
+      defaultBranch: resolvedDefaultBranch,
       initializedCommitSha,
       snapshotCommitSha,
       snapshotGitTreeSha1: input.manifest.gitRootTreeSha1,
@@ -701,14 +711,14 @@ export async function provisionHarnessWorkspaceFromSnapshot(input: {
       createdByGithubUserId: input.user.id,
       createdByLogin: input.user.login,
       pDevVersion: input.packageVersion,
-      defaultBranch,
+      defaultBranch: resolvedDefaultBranch,
     });
     try {
       markerCommitSha = await createMarkerCommit({
         provider: input.provider,
         owner,
         repo,
-        defaultBranch,
+        defaultBranch: resolvedDefaultBranch,
         parentCommitSha: snapshotCommitSha!,
         snapshotTreeSha: input.manifest.gitRootTreeSha1,
         markerContent: `${JSON.stringify(marker, null, 2)}\n`,
@@ -729,7 +739,7 @@ export async function provisionHarnessWorkspaceFromSnapshot(input: {
     await input.onCheckpoint?.({
       phase: "marker-pending",
       repositoryId,
-      defaultBranch,
+      defaultBranch: resolvedDefaultBranch,
       initializedCommitSha,
       snapshotCommitSha,
       markerCommitSha,
@@ -742,15 +752,6 @@ export async function provisionHarnessWorkspaceFromSnapshot(input: {
     });
   }
 
-  if (!defaultBranch) {
-    return {
-      ok: false,
-      message: "Provisioning state is missing the repository default branch.",
-      recoverable: false,
-      code: "repository-identity-mismatch",
-    };
-  }
-
   try {
     await finalizeProvisioningRepositoryDescription({
       provider: input.provider,
@@ -759,7 +760,7 @@ export async function provisionHarnessWorkspaceFromSnapshot(input: {
       operationId: input.operationId,
       normalDescription: input.description,
       markerCommitSha: markerCommitSha!,
-      defaultBranch,
+      defaultBranch: resolvedDefaultBranch,
     });
   } catch (error) {
     if (
@@ -769,7 +770,7 @@ export async function provisionHarnessWorkspaceFromSnapshot(input: {
       await input.onCheckpoint?.({
         phase: "description-pending",
         repositoryId,
-        defaultBranch,
+        defaultBranch: resolvedDefaultBranch,
         initializedCommitSha,
         snapshotCommitSha,
         markerCommitSha,
@@ -789,7 +790,7 @@ export async function provisionHarnessWorkspaceFromSnapshot(input: {
     ok: true,
     fullName: `${owner}/${input.repoName}`,
     repositoryId: repositoryId!,
-    defaultBranch,
+    defaultBranch: resolvedDefaultBranch,
     initializedCommitSha: initializedCommitSha!,
     snapshotCommitSha: snapshotCommitSha!,
     markerCommitSha: markerCommitSha!,
