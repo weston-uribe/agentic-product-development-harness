@@ -20,12 +20,44 @@ import {
   deterministicMockRepositoryId,
 } from "../../src/setup/github-remote-provider.js";
 import {
-  HARNESS_TEMPLATE_IDENTITY_FILE,
   parseHarnessTemplateIdentityJson,
 } from "../../src/setup/harness-template-identity.js";
 import * as localApplyActions from "../../src/setup/local-apply-actions.js";
 import { persistGithubDispatchRepository } from "../../src/setup/local-apply-actions.js";
 import { SETUP_PERMISSIONS } from "../../src/setup/permission-model.js";
+import {
+  buildTestSnapshotPendingState,
+  createTestWorkspaceSnapshotRoot,
+} from "./test-workspace-snapshot-fixture.js";
+
+const snapshotFixture = vi.hoisted(() => ({
+  snapshotRoot: "",
+  packageRoot: "",
+  manifest: null as Awaited<
+    ReturnType<typeof createTestWorkspaceSnapshotRoot>
+  >["manifest"] | null,
+  fingerprint: "",
+}));
+
+vi.mock("../../src/setup/harness-workspace-snapshot-loader.js", () => ({
+  loadEmbeddedWorkspaceSnapshot: vi.fn(async () => {
+    if (!snapshotFixture.manifest) {
+      return {
+        ok: false as const,
+        state: "snapshot-unavailable" as const,
+        message: "Test snapshot fixture is not initialized.",
+      };
+    }
+    return {
+      ok: true as const,
+      packageRoot: snapshotFixture.packageRoot,
+      snapshotRoot: snapshotFixture.snapshotRoot,
+      packageVersion: "0.3.0",
+      manifest: snapshotFixture.manifest,
+      fingerprint: snapshotFixture.fingerprint,
+    };
+  }),
+}));
 
 const TEMPLATE_IDENTITY = {
   schemaVersion: 1,
@@ -57,20 +89,6 @@ function buildManagedMarker(repoSlug: string) {
   });
 }
 
-function templateRepoMetadata() {
-  return {
-    owner: "weston-uribe",
-    repo: "p-dev-harness-template",
-    private: false,
-    visibility: "public",
-    isTemplate: true,
-    defaultBranch: "main",
-    permissions: { admin: true, maintain: true, push: true },
-    templateIdentityContent: TEMPLATE_IDENTITY_JSON,
-    branchHeadSha: "abc123templatehead",
-  };
-}
-
 function destinationRepoMetadata(input: {
   managedMarkerContent?: string | null;
   templateIdentityContent?: string | null;
@@ -90,41 +108,23 @@ function destinationRepoMetadata(input: {
 }
 
 function validPendingState(
-  overrides: Partial<Parameters<typeof writeHarnessProvisioningPendingStateAtomic>[0]> = {},
+  overrides: Record<string, unknown> = {},
 ) {
-  return {
-    operationId: "op-pending",
-    authenticatedUserId: 1,
-    authenticatedLogin: "test-user",
-    targetOwner: "test-user",
-    targetRepo: "p-dev-harness",
-    templateOwner: "weston-uribe",
-    templateRepo: "p-dev-harness-template",
-    templateIdentity: "p-dev-harness-template",
-    templateVersion: 1,
-    compatibilityVersion: 1,
-    templateContentId: "template-content-v1",
-    templateDefaultBranch: "main",
-    templateHeadSha: "abc123templatehead",
-    previewFingerprint: "creation-fingerprint",
-    startedAt: new Date().toISOString(),
-    ...overrides,
-  };
+  if (!snapshotFixture.manifest) {
+    throw new Error("Snapshot fixture is not initialized.");
+  }
+  return buildTestSnapshotPendingState(snapshotFixture.manifest, overrides);
 }
 
 describe("harness-repo-provisioning", () => {
   let workspaceDir = "";
+  let snapshotTempDir = "";
   const originalRuntimeMode = process.env.P_DEV_RUNTIME_MODE;
   const originalPackagedVersion = process.env.P_DEV_PACKAGE_VERSION;
-  const originalPollTimeout = process.env.HARNESS_PROVISIONING_POLL_TIMEOUT_MS;
-  const originalPollInitialDelay =
-    process.env.HARNESS_PROVISIONING_POLL_INITIAL_DELAY_MS;
 
   beforeEach(async () => {
     process.env.P_DEV_RUNTIME_MODE = "packaged";
     process.env.P_DEV_PACKAGE_VERSION = "0.3.0";
-    delete process.env.HARNESS_PROVISIONING_POLL_TIMEOUT_MS;
-    delete process.env.HARNESS_PROVISIONING_POLL_INITIAL_DELAY_MS;
     workspaceDir = await mkdtemp(path.join(tmpdir(), "harness-provision-"));
     await mkdir(path.join(workspaceDir, ".harness"), { recursive: true });
     await writeFile(
@@ -134,6 +134,13 @@ describe("harness-repo-provisioning", () => {
       ),
       "utf8",
     );
+
+    const fixture = await createTestWorkspaceSnapshotRoot("0.3.0");
+    snapshotTempDir = fixture.packageRoot;
+    snapshotFixture.snapshotRoot = fixture.snapshotRoot;
+    snapshotFixture.packageRoot = fixture.packageRoot;
+    snapshotFixture.manifest = fixture.manifest;
+    snapshotFixture.fingerprint = fixture.fingerprint;
   });
 
   afterEach(async () => {
@@ -147,18 +154,12 @@ describe("harness-repo-provisioning", () => {
     } else {
       process.env.P_DEV_PACKAGE_VERSION = originalPackagedVersion;
     }
-    if (originalPollTimeout === undefined) {
-      delete process.env.HARNESS_PROVISIONING_POLL_TIMEOUT_MS;
-    } else {
-      process.env.HARNESS_PROVISIONING_POLL_TIMEOUT_MS = originalPollTimeout;
-    }
-    if (originalPollInitialDelay === undefined) {
-      delete process.env.HARNESS_PROVISIONING_POLL_INITIAL_DELAY_MS;
-    } else {
-      process.env.HARNESS_PROVISIONING_POLL_INITIAL_DELAY_MS =
-        originalPollInitialDelay;
-    }
     await rm(workspaceDir, { recursive: true, force: true });
+    if (snapshotTempDir) {
+      await rm(snapshotTempDir, { recursive: true, force: true });
+      snapshotTempDir = "";
+    }
+    snapshotFixture.manifest = null;
   });
 
   it("skips provisioning when packaged runtime mode is not active", async () => {
@@ -181,19 +182,6 @@ describe("harness-repo-provisioning", () => {
         hasWorkflowScope: true,
         scopeAmbiguous: false,
       },
-      repositories: {
-        "weston-uribe/p-dev-harness-template": {
-          owner: "weston-uribe",
-          repo: "p-dev-harness-template",
-          private: false,
-          visibility: "public",
-          isTemplate: true,
-          defaultBranch: "main",
-          permissions: { admin: true, maintain: true, push: true },
-          templateIdentityContent: TEMPLATE_IDENTITY_JSON,
-          branchHeadSha: "abc123templatehead",
-        },
-      },
     });
 
     const preview = await previewHarnessRepoProvisioning({
@@ -202,27 +190,36 @@ describe("harness-repo-provisioning", () => {
       operationId: "op-fg",
     });
     expect(preview.state).toBe("token-unsupported");
-    expect(provider.calls.some((call) => call.method === "createRepositoryFromTemplate")).toBe(
+    expect(provider.calls.some((call) => call.method === "createUserRepository")).toBe(
       false,
     );
+  });
+
+  it("uploads fixture snapshot through mock git APIs", async () => {
+    const fixture = await createTestWorkspaceSnapshotRoot("0.3.0");
+    const provider = new MockGitHubHarnessProvisioningProvider({
+      authenticatedUser: { id: 1, login: "test-user" },
+    });
+    const { provisionHarnessWorkspaceFromSnapshot } = await import(
+      "../../src/setup/harness-snapshot-provisioning.js"
+    );
+    const result = await provisionHarnessWorkspaceFromSnapshot({
+      provider,
+      user: { id: 1, login: "test-user" },
+      repoName: "p-dev-harness",
+      description: "test",
+      snapshotRoot: fixture.snapshotRoot,
+      manifest: fixture.manifest,
+      packageVersion: "0.3.0",
+      operationId: "op-upload",
+    });
+    expect(result.ok).toBe(true);
+    await rm(fixture.packageRoot, { recursive: true, force: true });
   });
 
   it("provisions login/p-dev-harness for a fresh packaged workspace", async () => {
     const provider = new MockGitHubHarnessProvisioningProvider({
       authenticatedUser: { id: 1, login: "test-user" },
-      repositories: {
-        "weston-uribe/p-dev-harness-template": {
-          owner: "weston-uribe",
-          repo: "p-dev-harness-template",
-          private: false,
-          visibility: "public",
-          isTemplate: true,
-          defaultBranch: "main",
-          permissions: { admin: true, maintain: true, push: true },
-          templateIdentityContent: TEMPLATE_IDENTITY_JSON,
-          branchHeadSha: "abc123templatehead",
-        },
-      },
     });
 
     const preview = await previewHarnessRepoProvisioning({
@@ -243,9 +240,21 @@ describe("harness-repo-provisioning", () => {
 
     expect(apply.state).toBe("verified-and-persisted");
     expect(apply.harnessDispatchRepo).toBe("test-user/p-dev-harness");
-    expect(provider.calls.some((call) => call.method === "createRepositoryFromTemplate")).toBe(
+    expect(provider.calls.some((call) => call.method === "createUserRepository")).toBe(
       true,
     );
+    expect(
+      provider.calls.some(
+        (call) =>
+          call.method === "createGitCommit" &&
+          /managed harness workspace marker/i.test(
+            String((call.args[0] as { message?: string }).message ?? ""),
+          ),
+      ),
+    ).toBe(true);
+    expect(
+      provider.calls.some((call) => call.method === "createRepositoryFromTemplate"),
+    ).toBe(false);
 
     const env = await readFile(path.join(workspaceDir, ".env.local"), "utf8");
     expect(env).toContain("GITHUB_DISPATCH_REPOSITORY=test-user/p-dev-harness");
@@ -261,17 +270,6 @@ describe("harness-repo-provisioning", () => {
     const provider = new MockGitHubHarnessProvisioningProvider({
       authenticatedUser: { id: 1, login: "test-user" },
       repositories: {
-        "weston-uribe/p-dev-harness-template": {
-          owner: "weston-uribe",
-          repo: "p-dev-harness-template",
-          private: false,
-          visibility: "public",
-          isTemplate: true,
-          defaultBranch: "main",
-          permissions: { admin: true, maintain: true, push: true },
-          templateIdentityContent: TEMPLATE_IDENTITY_JSON,
-          branchHeadSha: "abc123templatehead",
-        },
         "test-user/p-dev-harness": {
           owner: "test-user",
           repo: "p-dev-harness",
@@ -304,26 +302,13 @@ describe("harness-repo-provisioning", () => {
 
     expect(apply.state).toBe("verified-and-persisted");
     expect(
-      provider.calls.filter((call) => call.method === "createRepositoryFromTemplate"),
+      provider.calls.filter((call) => call.method === "createUserRepository"),
     ).toHaveLength(0);
   });
 
   it("rejects stale preview fingerprint before mutation", async () => {
     const provider = new MockGitHubHarnessProvisioningProvider({
       authenticatedUser: { id: 1, login: "test-user" },
-      repositories: {
-        "weston-uribe/p-dev-harness-template": {
-          owner: "weston-uribe",
-          repo: "p-dev-harness-template",
-          private: false,
-          visibility: "public",
-          isTemplate: true,
-          defaultBranch: "main",
-          permissions: { admin: true, maintain: true, push: true },
-          templateIdentityContent: TEMPLATE_IDENTITY_JSON,
-          branchHeadSha: "abc123templatehead",
-        },
-      },
     });
 
     const preview = await previewHarnessRepoProvisioning({
@@ -340,10 +325,10 @@ describe("harness-repo-provisioning", () => {
       operationId: preview.operationId,
     });
 
-    expect(apply.state).toBe("template-preview-stale");
-    expect(
-      provider.calls.some((call) => call.method === "createRepositoryFromTemplate"),
-    ).toBe(false);
+    expect(apply.state).toBe("snapshot-preview-stale");
+    expect(provider.calls.some((call) => call.method === "createUserRepository")).toBe(
+      false,
+    );
   });
 
   it("persists dispatch repo without leaking secrets", async () => {
@@ -360,9 +345,6 @@ describe("harness-repo-provisioning", () => {
   it("writes pending state atomically before create", async () => {
     const provider = new MockGitHubHarnessProvisioningProvider({
       authenticatedUser: { id: 1, login: "test-user" },
-      repositories: {
-        "weston-uribe/p-dev-harness-template": templateRepoMetadata(),
-      },
     });
 
     const preview = await previewHarnessRepoProvisioning({
@@ -383,15 +365,10 @@ describe("harness-repo-provisioning", () => {
     expect(pending).toBeNull();
   });
 
-  it("resumes the same operation after post-create polling times out", async () => {
-    process.env.HARNESS_PROVISIONING_POLL_TIMEOUT_MS = "1";
-    process.env.HARNESS_PROVISIONING_POLL_INITIAL_DELAY_MS = "0";
+  it("resumes the same operation after marker commit failure", async () => {
     const provider = new MockGitHubHarnessProvisioningProvider({
       authenticatedUser: { id: 1, login: "test-user" },
-      deferDestinationTemplateIdentity: true,
-      repositories: {
-        "weston-uribe/p-dev-harness-template": templateRepoMetadata(),
-      },
+      markerCommitError: new Error("marker commit failed"),
     });
 
     const firstPreview = await previewHarnessRepoProvisioning({
@@ -407,16 +384,11 @@ describe("harness-repo-provisioning", () => {
       fingerprint: firstPreview.fingerprint,
       operationId: firstPreview.operationId,
     });
-    expect(firstApply.state).toBe("api-timeout-unknown");
+    expect(firstApply.state).toBe("marker-write-pending");
     expect(firstApply.recoverable).toBe(true);
 
     const pending = await readHarnessProvisioningPendingState(workspaceDir);
     expect(pending?.operationId).toBe(firstPreview.operationId);
-
-    provider.revealDestinationTemplateIdentity(
-      "test-user/p-dev-harness",
-      TEMPLATE_IDENTITY_JSON,
-    );
 
     const resumePreview = await previewHarnessRepoProvisioning({
       cwd: workspaceDir,
@@ -428,6 +400,8 @@ describe("harness-repo-provisioning", () => {
       pending?.previewFingerprint,
     );
 
+    provider.clearProvisioningFaults();
+
     const resumeApply = await applyHarnessRepoProvisioning({
       cwd: workspaceDir,
       provider,
@@ -437,16 +411,15 @@ describe("harness-repo-provisioning", () => {
     });
     expect(resumeApply.state).toBe("verified-and-persisted");
     expect(
-      provider.calls.filter((call) => call.method === "createRepositoryFromTemplate"),
+      provider.calls.filter((call) => call.method === "createUserRepository"),
     ).toHaveLength(1);
   });
 
-  it("resumes marker finalization without recreating after marker write failure", async () => {
+  it("resumes legacy marker finalization without recreating after marker write failure", async () => {
     const provider = new MockGitHubHarnessProvisioningProvider({
       authenticatedUser: { id: 1, login: "test-user" },
       writeRepositoryFileError: new Error("marker write failed"),
       repositories: {
-        "weston-uribe/p-dev-harness-template": templateRepoMetadata(),
         "test-user/p-dev-harness": destinationRepoMetadata({
           templateIdentityContent: TEMPLATE_IDENTITY_JSON,
         }),
@@ -454,23 +427,7 @@ describe("harness-repo-provisioning", () => {
     });
 
     await writeHarnessProvisioningPendingStateAtomic(
-      {
-        operationId: "op-marker-retry",
-        authenticatedUserId: 1,
-        authenticatedLogin: "test-user",
-        targetOwner: "test-user",
-        targetRepo: "p-dev-harness",
-        templateOwner: "weston-uribe",
-        templateRepo: "p-dev-harness-template",
-        templateIdentity: "p-dev-harness-template",
-        templateVersion: 1,
-        compatibilityVersion: 1,
-        templateContentId: "template-content-v1",
-        templateDefaultBranch: "main",
-        templateHeadSha: "abc123templatehead",
-        previewFingerprint: "creation-fingerprint",
-        startedAt: new Date().toISOString(),
-      },
+      validPendingState({ operationId: "op-marker-retry" }),
       workspaceDir,
     );
 
@@ -478,7 +435,7 @@ describe("harness-repo-provisioning", () => {
       cwd: workspaceDir,
       provider,
     });
-    expect(preview.state).toBe("same-name-template-only-with-pending");
+    expect(preview.state).toBe("same-name-snapshot-only-with-pending");
     expect(preview.resumedFromPending).toBe(true);
 
     const failedApply = await applyHarnessRepoProvisioning({
@@ -499,7 +456,7 @@ describe("harness-repo-provisioning", () => {
     });
     expect(retryApply.state).toBe("verified-and-persisted");
     expect(
-      provider.calls.filter((call) => call.method === "createRepositoryFromTemplate"),
+      provider.calls.filter((call) => call.method === "createUserRepository"),
     ).toHaveLength(0);
   });
 
@@ -507,7 +464,6 @@ describe("harness-repo-provisioning", () => {
     const provider = new MockGitHubHarnessProvisioningProvider({
       authenticatedUser: { id: 1, login: "test-user" },
       repositories: {
-        "weston-uribe/p-dev-harness-template": templateRepoMetadata(),
         "test-user/p-dev-harness": destinationRepoMetadata({
           templateIdentityContent: TEMPLATE_IDENTITY_JSON,
         }),
@@ -557,7 +513,7 @@ describe("harness-repo-provisioning", () => {
     });
     expect(retryApply.state).toBe("verified-and-persisted");
     expect(
-      provider.calls.filter((call) => call.method === "createRepositoryFromTemplate"),
+      provider.calls.filter((call) => call.method === "createUserRepository"),
     ).toHaveLength(0);
     expect(
       provider.calls.filter((call) => call.method === "writeRepositoryFile"),
@@ -565,11 +521,10 @@ describe("harness-repo-provisioning", () => {
     persistSpy.mockRestore();
   });
 
-  it("rejects pending record with wrong template HEAD SHA", async () => {
+  it("rejects pending record with wrong source commit", async () => {
     const provider = new MockGitHubHarnessProvisioningProvider({
       authenticatedUser: { id: 1, login: "test-user" },
       repositories: {
-        "weston-uribe/p-dev-harness-template": templateRepoMetadata(),
         "test-user/p-dev-harness": destinationRepoMetadata({
           templateIdentityContent: TEMPLATE_IDENTITY_JSON,
         }),
@@ -577,7 +532,7 @@ describe("harness-repo-provisioning", () => {
     });
 
     await writeHarnessProvisioningPendingStateAtomic(
-      validPendingState({ templateHeadSha: "stale-template-head" }),
+      validPendingState({ sourceCommit: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }),
       workspaceDir,
     );
 
@@ -588,11 +543,10 @@ describe("harness-repo-provisioning", () => {
     expect(preview.state).toBe("same-name-unmanaged-collision");
   });
 
-  it("rejects pending record with wrong template content ID", async () => {
+  it("rejects pending record with wrong snapshot content ID", async () => {
     const provider = new MockGitHubHarnessProvisioningProvider({
       authenticatedUser: { id: 1, login: "test-user" },
       repositories: {
-        "weston-uribe/p-dev-harness-template": templateRepoMetadata(),
         "test-user/p-dev-harness": destinationRepoMetadata({
           templateIdentityContent: TEMPLATE_IDENTITY_JSON,
         }),
@@ -600,7 +554,7 @@ describe("harness-repo-provisioning", () => {
     });
 
     await writeHarnessProvisioningPendingStateAtomic(
-      validPendingState({ templateContentId: "wrong-content-id" }),
+      validPendingState({ snapshotContentId: "0".repeat(64) }),
       workspaceDir,
     );
 
@@ -615,7 +569,6 @@ describe("harness-repo-provisioning", () => {
     const provider = new MockGitHubHarnessProvisioningProvider({
       authenticatedUser: { id: 1, login: "test-user" },
       repositories: {
-        "weston-uribe/p-dev-harness-template": templateRepoMetadata(),
         "test-user/p-dev-harness": destinationRepoMetadata({
           templateIdentityContent: TEMPLATE_IDENTITY_JSON,
         }),
@@ -644,36 +597,22 @@ describe("harness-repo-provisioning", () => {
     });
     expect(apply.state).toBe("verified-and-persisted");
     expect(
-      provider.calls.filter((call) => call.method === "createRepositoryFromTemplate"),
+      provider.calls.filter((call) => call.method === "createUserRepository"),
     ).toHaveLength(0);
   });
 
   it("rejects pending record with matching operationId but wrong user", async () => {
     const provider = new MockGitHubHarnessProvisioningProvider({
       authenticatedUser: { id: 1, login: "test-user" },
-      repositories: {
-        "weston-uribe/p-dev-harness-template": templateRepoMetadata(),
-      },
     });
 
     await writeHarnessProvisioningPendingStateAtomic(
-      {
+      validPendingState({
         operationId: "op-wrong-user",
         authenticatedUserId: 99,
         authenticatedLogin: "other-user",
         targetOwner: "other-user",
-        targetRepo: "p-dev-harness",
-        templateOwner: "weston-uribe",
-        templateRepo: "p-dev-harness-template",
-        templateIdentity: "p-dev-harness-template",
-        templateVersion: 1,
-        compatibilityVersion: 1,
-        templateContentId: "template-content-v1",
-        templateDefaultBranch: "main",
-        templateHeadSha: "abc123templatehead",
-        previewFingerprint: "creation-fingerprint",
-        startedAt: new Date().toISOString(),
-      },
+      }),
       workspaceDir,
     );
 
@@ -684,11 +623,100 @@ describe("harness-repo-provisioning", () => {
     expect(preview.state).toBe("same-name-unmanaged-collision");
   });
 
+  const provisioningMutationMethods = new Set([
+    "createUserRepository",
+    "createGitBlob",
+    "createGitTree",
+    "createGitCommit",
+    "updateRepositoryRef",
+    "writeRepositoryFile",
+    "updateUserRepositoryDescription",
+  ]);
+
+  function countProvisioningMutations(provider: MockGitHubHarnessProvisioningProvider) {
+    return provider.calls.filter((call) => provisioningMutationMethods.has(call.method));
+  }
+
+  it("does not mutate GitHub when pending repository ID differs from remote slug identity", async () => {
+    const repoSlug = "test-user/p-dev-harness";
+    const actualRepositoryId = deterministicMockRepositoryId(repoSlug);
+    const provider = new MockGitHubHarnessProvisioningProvider({
+      authenticatedUser: { id: 1, login: "test-user" },
+      repositories: {
+        [repoSlug]: {
+          ...destinationRepoMetadata({}),
+          repositoryId: actualRepositoryId,
+        },
+      },
+    });
+
+    await writeHarnessProvisioningPendingStateAtomic(
+      validPendingState({
+        operationId: "op-repo-id-mismatch",
+        repositoryId: actualRepositoryId + 1,
+        phase: "snapshot-objects-uploading",
+        initializedCommitSha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      }),
+      workspaceDir,
+    );
+
+    const preview = await previewHarnessRepoProvisioning({
+      cwd: workspaceDir,
+      provider,
+    });
+    expect(preview.state).toBe("same-name-snapshot-only-with-pending");
+
+    const apply = await applyHarnessRepoProvisioning({
+      cwd: workspaceDir,
+      provider,
+      confirmed: true,
+      fingerprint: preview.fingerprint,
+      operationId: preview.operationId,
+    });
+
+    expect(apply.recoverable).toBe(false);
+    expect(apply.message).toMatch(/repository ID does not match/i);
+    expect(countProvisioningMutations(provider)).toHaveLength(0);
+  });
+
+  it("does not mutate GitHub when embedded snapshot validation fails preflight", async () => {
+    const loaderSpy = vi
+      .spyOn(
+        await import("../../src/setup/harness-workspace-snapshot-loader.js"),
+        "loadEmbeddedWorkspaceSnapshot",
+      )
+      .mockResolvedValue({
+        ok: false,
+        state: "snapshot-tampered",
+        message: "Snapshot file README.md SHA-256 mismatch.",
+      });
+
+    const provider = new MockGitHubHarnessProvisioningProvider({
+      authenticatedUser: { id: 1, login: "test-user" },
+    });
+
+    const preview = await previewHarnessRepoProvisioning({
+      cwd: workspaceDir,
+      provider,
+    });
+    expect(preview.state).toBe("snapshot-tampered");
+
+    const apply = await applyHarnessRepoProvisioning({
+      cwd: workspaceDir,
+      provider,
+      confirmed: true,
+      fingerprint: preview.fingerprint,
+      operationId: preview.operationId,
+    });
+    expect(["snapshot-tampered", "snapshot-preview-stale"]).toContain(apply.state);
+    expect(countProvisioningMutations(provider)).toHaveLength(0);
+    loaderSpy.mockRestore();
+  });
+
   it("does not finalize markerless repo from a clean workspace", async () => {
     const provider = new MockGitHubHarnessProvisioningProvider({
       authenticatedUser: { id: 1, login: "test-user" },
       repositories: {
-        "weston-uribe/p-dev-harness-template": templateRepoMetadata(),
         "test-user/p-dev-harness": destinationRepoMetadata({
           templateIdentityContent: TEMPLATE_IDENTITY_JSON,
         }),
@@ -699,7 +727,7 @@ describe("harness-repo-provisioning", () => {
       cwd: workspaceDir,
       provider,
     });
-    expect(preview.state).toBe("same-name-template-only-without-pending");
+    expect(preview.state).toBe("same-name-snapshot-only-without-pending");
   });
 
   it("validates saved managed repo on reload summary and rejects legacy public source", async () => {
@@ -715,9 +743,6 @@ describe("harness-repo-provisioning", () => {
 
     const provider = new MockGitHubHarnessProvisioningProvider({
       authenticatedUser: { id: 1, login: "test-user" },
-      repositories: {
-        "weston-uribe/p-dev-harness-template": templateRepoMetadata(),
-      },
     });
 
     const legacySummary = await loadHarnessRepoProvisioningSummary({
@@ -757,9 +782,6 @@ describe("harness-repo-provisioning", () => {
   it("includes packaged pDevVersion in preview fingerprint", async () => {
     const provider = new MockGitHubHarnessProvisioningProvider({
       authenticatedUser: { id: 1, login: "test-user" },
-      repositories: {
-        "weston-uribe/p-dev-harness-template": templateRepoMetadata(),
-      },
     });
 
     const preview = await previewHarnessRepoProvisioning({
@@ -780,7 +802,6 @@ describe("harness-repo-provisioning", () => {
     const provider = new MockGitHubHarnessProvisioningProvider({
       authenticatedUser: { id: 1, login: "test-user" },
       repositories: {
-        "weston-uribe/p-dev-harness-template": templateRepoMetadata(),
         "test-user/p-dev-harness": destinationRepoMetadata({
           managedMarkerContent: `${JSON.stringify(legacyMarker, null, 2)}\n`,
         }),
@@ -811,7 +832,6 @@ describe("harness-repo-provisioning", () => {
     const provider = new MockGitHubHarnessProvisioningProvider({
       authenticatedUser: { id: 1, login: "test-user" },
       repositories: {
-        "weston-uribe/p-dev-harness-template": templateRepoMetadata(),
         [renamedSlug]: {
           repositoryId,
           owner: "test-user",

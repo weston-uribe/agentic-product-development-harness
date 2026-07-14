@@ -26,6 +26,7 @@ import {
   withHarnessProvisioningMutex,
   writeHarnessProvisioningPendingStateAtomic,
   type HarnessProvisioningPendingState,
+  type HarnessProvisioningPhase,
 } from "./harness-provisioning-pending-state.js";
 import { parseRepoSlug } from "./github-remote-setup-live.js";
 import type { GitHubHarnessProvisioningProvider } from "./github-remote-provider.js";
@@ -38,10 +39,16 @@ import {
   HARNESS_DEFAULT_DESTINATION_REPO_NAME,
   HARNESS_LEGACY_PUBLIC_SOURCE_REPO,
   HARNESS_TEMPLATE_IDENTITY_FILE,
-  HARNESS_TEMPLATE_OWNER,
-  HARNESS_TEMPLATE_REPO,
   parseHarnessTemplateIdentityJson,
 } from "./harness-template-identity.js";
+import {
+  SnapshotProvisioningError,
+} from "./harness-snapshot-provisioning-helpers.js";
+import {
+  provisionHarnessWorkspaceFromSnapshot,
+  verifyProvisionedHarnessWorkspace,
+} from "./harness-snapshot-provisioning.js";
+import { loadEmbeddedWorkspaceSnapshot } from "./harness-workspace-snapshot-loader.js";
 import { persistGithubDispatchRepository } from "./local-apply-actions.js";
 import { resolveLocalFilePaths } from "./setup-state.js";
 
@@ -56,19 +63,20 @@ export type HarnessProvisioningState =
   | "explicit-repo-present"
   | "explicit-packaged-repo-invalid"
   | "explicit-packaged-repo-legacy-source"
-  | "template-unavailable"
-  | "template-identity-missing"
-  | "template-identity-invalid"
-  | "template-incompatible"
-  | "template-preview-ready"
-  | "template-preview-stale"
+  | "snapshot-unavailable"
+  | "snapshot-manifest-missing"
+  | "snapshot-manifest-invalid"
+  | "snapshot-incompatible"
+  | "snapshot-tampered"
+  | "snapshot-preview-ready"
+  | "snapshot-preview-stale"
   | "repo-absent"
   | "valid-existing-managed-repo"
   | "same-name-public-collision"
   | "same-name-unmanaged-collision"
   | "same-name-malformed-marker"
-  | "same-name-template-only-without-pending"
-  | "same-name-template-only-with-pending"
+  | "same-name-snapshot-only-without-pending"
+  | "same-name-snapshot-only-with-pending"
   | "repo-created-pending-verification"
   | "marker-write-pending"
   | "verified-and-persisted"
@@ -96,10 +104,13 @@ export interface HarnessRepoProvisioningPreview {
   resumedFromPending: boolean;
   harnessDispatchRepo: string | null;
   authenticatedLogin: string | null;
-  templateOwner: string;
-  templateRepo: string;
-  templateDefaultBranch: string;
-  templateHeadSha: string;
+  packageName: string;
+  packageVersion: string;
+  sourceRepository: string;
+  sourceCommit: string;
+  snapshotContentId: string | null;
+  snapshotFingerprint: string | null;
+  /** @deprecated Use snapshotContentId. */
   templateContentId: string | null;
   message: string;
   recoverable: boolean;
@@ -120,29 +131,6 @@ export interface HarnessRepoProvisioningApplyResult {
   persisted: boolean;
 }
 
-const POST_CREATE_POLL_MAX_DELAY_MS = 8_000;
-
-function resolvePostCreatePollConfig(): {
-  timeoutMs: number;
-  initialDelayMs: number;
-  maxDelayMs: number;
-} {
-  return {
-    timeoutMs: Number(process.env.HARNESS_PROVISIONING_POLL_TIMEOUT_MS ?? 60_000),
-    initialDelayMs: Number(
-      process.env.HARNESS_PROVISIONING_POLL_INITIAL_DELAY_MS ?? 1_000,
-    ),
-    maxDelayMs: Number(
-      process.env.HARNESS_PROVISIONING_POLL_MAX_DELAY_MS ??
-        POST_CREATE_POLL_MAX_DELAY_MS,
-    ),
-  };
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 function buildFingerprint(input: Record<string, unknown>): string {
   return JSON.stringify(input);
 }
@@ -151,10 +139,59 @@ function destinationSlug(login: string): string {
   return `${login}/${HARNESS_DEFAULT_DESTINATION_REPO_NAME}`;
 }
 
-type TemplatePreviewOk = Extract<
-  Awaited<ReturnType<typeof loadTemplatePreview>>,
+type SnapshotPreviewOk = Extract<
+  Awaited<ReturnType<typeof loadEmbeddedWorkspaceSnapshot>>,
   { ok: true }
 >;
+
+function emptySnapshotPreviewFields(): Pick<
+  HarnessRepoProvisioningPreview,
+  | "packageName"
+  | "packageVersion"
+  | "sourceRepository"
+  | "sourceCommit"
+  | "snapshotContentId"
+  | "snapshotFingerprint"
+  | "templateContentId"
+> {
+  return {
+    packageName: "p-dev-harness",
+    packageVersion: "",
+    sourceRepository: "",
+    sourceCommit: "",
+    snapshotContentId: null,
+    snapshotFingerprint: null,
+    templateContentId: null,
+  };
+}
+
+function snapshotPreviewFields(
+  snapshot: SnapshotPreviewOk | null,
+  templateContentIdOverride?: string | null,
+): Pick<
+  HarnessRepoProvisioningPreview,
+  | "packageName"
+  | "packageVersion"
+  | "sourceRepository"
+  | "sourceCommit"
+  | "snapshotContentId"
+  | "snapshotFingerprint"
+  | "templateContentId"
+> {
+  if (!snapshot) {
+    return emptySnapshotPreviewFields();
+  }
+  const snapshotContentId = snapshot.manifest.snapshotContentId;
+  return {
+    packageName: snapshot.manifest.packageName,
+    packageVersion: snapshot.manifest.packageVersion,
+    sourceRepository: snapshot.manifest.sourceRepository,
+    sourceCommit: snapshot.manifest.sourceCommit,
+    snapshotContentId,
+    snapshotFingerprint: snapshot.fingerprint,
+    templateContentId: templateContentIdOverride ?? snapshotContentId,
+  };
+}
 
 function readSavedRepositoryId(
   existingEnv: Awaited<ReturnType<typeof readExistingEnvFile>>,
@@ -170,12 +207,41 @@ function readSavedRepositoryId(
   return parsed;
 }
 
+function buildSnapshotPendingValidationContext(
+  snapshot: SnapshotPreviewOk,
+  input: {
+    operationId?: string;
+    authenticatedUserId: number;
+    authenticatedLogin: string;
+    targetOwner: string;
+    targetRepo: string;
+    previewFingerprint?: string;
+  },
+) {
+  return buildPendingValidationContext({
+    operationId: input.operationId,
+    authenticatedUserId: input.authenticatedUserId,
+    authenticatedLogin: input.authenticatedLogin,
+    targetOwner: input.targetOwner,
+    targetRepo: input.targetRepo,
+    packageName: snapshot.manifest.packageName,
+    packageVersion: snapshot.manifest.packageVersion,
+    sourceRepository: snapshot.manifest.sourceRepository,
+    sourceCommit: snapshot.manifest.sourceCommit,
+    manifestSchemaVersion: snapshot.manifest.schemaVersion,
+    snapshotContentId: snapshot.manifest.snapshotContentId,
+    snapshotSha256: snapshot.manifest.snapshotSha256,
+    snapshotGitTreeSha1: snapshot.manifest.gitRootTreeSha1,
+    previewFingerprint: input.previewFingerprint,
+  });
+}
+
 function buildProvisioningPreviewFingerprint(input: {
   operationId: string;
   user: { id: number; login: string };
   destination: string;
-  templatePreview: TemplatePreviewOk;
-  classification: DestinationClassification["kind"];
+  snapshotPreview: SnapshotPreviewOk;
+  classification: HarnessProvisioningClassification;
   envBaseline: string;
   pDevVersion: string;
   resumedFromPending: boolean;
@@ -185,9 +251,8 @@ function buildProvisioningPreviewFingerprint(input: {
     operationId: input.operationId,
     user: input.user,
     destination: input.destination,
-    templateDefaultBranch: input.templatePreview.defaultBranch,
-    templateHeadSha: input.templatePreview.headSha,
-    templateIdentity: input.templatePreview.identity.identity,
+    manifest: input.snapshotPreview.manifest,
+    snapshotFingerprint: input.snapshotPreview.fingerprint,
     classification: input.classification,
     envBaseline: input.envBaseline,
     pDevVersion: input.pDevVersion,
@@ -201,7 +266,7 @@ async function resolveProvisioningOperation(input: {
   cwd?: string;
   requestedOperationId?: string;
   user: { id: number; login: string };
-  templatePreview: TemplatePreviewOk;
+  snapshotPreview: SnapshotPreviewOk;
 }): Promise<
   | {
       ok: true;
@@ -212,6 +277,16 @@ async function resolveProvisioningOperation(input: {
     }
   | { ok: false; state: HarnessProvisioningState; message: string }
 > {
+  const validationContext = buildSnapshotPendingValidationContext(
+    input.snapshotPreview,
+    {
+      authenticatedUserId: input.user.id,
+      authenticatedLogin: input.user.login,
+      targetOwner: input.user.login,
+      targetRepo: HARNESS_DEFAULT_DESTINATION_REPO_NAME,
+    },
+  );
+
   if (input.requestedOperationId) {
     const pending = await readHarnessProvisioningPendingState(input.cwd);
     if (pending && pending.operationId !== input.requestedOperationId) {
@@ -242,22 +317,7 @@ async function resolveProvisioningOperation(input: {
     };
   }
 
-  const validation = validatePendingProvisioningState(
-    pending,
-    buildPendingValidationContext({
-      authenticatedUserId: input.user.id,
-      authenticatedLogin: input.user.login,
-      targetOwner: input.user.login,
-      targetRepo: HARNESS_DEFAULT_DESTINATION_REPO_NAME,
-      templateIdentity: input.templatePreview.identity.identity.templateIdentity,
-      templateVersion: input.templatePreview.identity.identity.templateVersion,
-      compatibilityVersion:
-        input.templatePreview.identity.identity.compatibilityVersion,
-      templateContentId: input.templatePreview.identity.identity.templateContentId,
-      templateDefaultBranch: input.templatePreview.defaultBranch,
-      templateHeadSha: input.templatePreview.headSha,
-    }),
-  );
+  const validation = validatePendingProvisioningState(pending, validationContext);
   if (!validation.ok) {
     return {
       ok: false,
@@ -272,87 +332,6 @@ async function resolveProvisioningOperation(input: {
     resumedFromPending: true,
     creationPreviewFingerprint: pending.previewFingerprint,
     pending,
-  };
-}
-
-function pendingMatchesDestinationTemplateIdentity(
-  pending: HarnessProvisioningPendingState,
-  templateIdentity: {
-    templateIdentity: string;
-    templateVersion: number;
-    compatibilityVersion: number;
-    templateContentId: string;
-  },
-): boolean {
-  return (
-    pending.templateIdentity === templateIdentity.templateIdentity &&
-    pending.templateVersion === templateIdentity.templateVersion &&
-    pending.compatibilityVersion === templateIdentity.compatibilityVersion &&
-    pending.templateContentId === templateIdentity.templateContentId
-  );
-}
-
-async function loadTemplatePreview(
-  provider: GitHubHarnessProvisioningProvider,
-): Promise<
-  | {
-      ok: true;
-      defaultBranch: string;
-      headSha: string;
-      identityRaw: string;
-      identity: ReturnType<typeof parseHarnessTemplateIdentityJson> & {
-        ok: true;
-      };
-    }
-  | { ok: false; state: HarnessProvisioningState; message: string }
-> {
-  const template = await provider.getRepositoryMetadata(
-    HARNESS_TEMPLATE_OWNER,
-    HARNESS_TEMPLATE_REPO,
-  );
-  if (!template || !template.isTemplate) {
-    return {
-      ok: false,
-      state: "template-unavailable",
-      message:
-        "The approved p-dev harness template is missing or not marked as a GitHub template.",
-    };
-  }
-
-  const headSha = await provider.getRepositoryDefaultBranchHead(
-    HARNESS_TEMPLATE_OWNER,
-    HARNESS_TEMPLATE_REPO,
-    template.defaultBranch,
-  );
-  const identityRaw = await provider.readRepositoryFileContent(
-    HARNESS_TEMPLATE_OWNER,
-    HARNESS_TEMPLATE_REPO,
-    HARNESS_TEMPLATE_IDENTITY_FILE,
-    headSha,
-  );
-  if (!identityRaw) {
-    return {
-      ok: false,
-      state: "template-identity-missing",
-      message: "Template identity file is missing from the approved template.",
-    };
-  }
-
-  const parsed = parseHarnessTemplateIdentityJson(identityRaw);
-  if (!parsed.ok) {
-    return {
-      ok: false,
-      state: "template-identity-invalid",
-      message: parsed.reason,
-    };
-  }
-
-  return {
-    ok: true,
-    defaultBranch: template.defaultBranch,
-    headSha,
-    identityRaw,
-    identity: parsed,
   };
 }
 
@@ -487,14 +466,14 @@ type DestinationClassification =
   | { kind: "public-collision" }
   | { kind: "unmanaged-collision" }
   | { kind: "malformed-marker"; reason: string }
-  | { kind: "template-only-without-pending" }
-  | { kind: "template-only-with-pending" };
+  | { kind: "snapshot-only-without-pending" }
+  | { kind: "snapshot-only-with-pending" };
 
 async function classifyDestinationRepo(
   provider: GitHubHarnessProvisioningProvider,
   user: { id: number; login: string },
   cwd?: string,
-  templatePreview?: TemplatePreviewOk,
+  snapshotPreview?: SnapshotPreviewOk,
 ): Promise<DestinationClassification> {
   const repoSlug = destinationSlug(user.login);
   const { owner, repo } = parseRepoSlug(repoSlug);
@@ -533,6 +512,25 @@ async function classifyDestinationRepo(
     };
   }
 
+  const pending = await readHarnessProvisioningPendingState(cwd);
+  if (pending && snapshotPreview) {
+    const validation = validatePendingProvisioningState(
+      pending,
+      buildSnapshotPendingValidationContext(snapshotPreview, {
+        authenticatedUserId: user.id,
+        authenticatedLogin: user.login,
+        targetOwner: user.login,
+        targetRepo: HARNESS_DEFAULT_DESTINATION_REPO_NAME,
+      }),
+    );
+    if (validation.ok) {
+      return { kind: "snapshot-only-with-pending" };
+    }
+    if (!validation.ok) {
+      return { kind: "unmanaged-collision" };
+    }
+  }
+
   const templateRaw = await provider.readRepositoryFileContent(
     owner,
     repo,
@@ -547,101 +545,53 @@ async function classifyDestinationRepo(
         reason: `Generated repository template identity is invalid: ${parsedTemplate.reason}`,
       };
     }
-
-    const pending = await readHarnessProvisioningPendingState(cwd);
-    if (pending && templatePreview) {
-      const validation = validatePendingProvisioningState(
-        pending,
-        buildPendingValidationContext({
-          authenticatedUserId: user.id,
-          authenticatedLogin: user.login,
-          targetOwner: user.login,
-          targetRepo: HARNESS_DEFAULT_DESTINATION_REPO_NAME,
-          templateIdentity: templatePreview.identity.identity.templateIdentity,
-          templateVersion: templatePreview.identity.identity.templateVersion,
-          compatibilityVersion:
-            templatePreview.identity.identity.compatibilityVersion,
-          templateContentId: templatePreview.identity.identity.templateContentId,
-          templateDefaultBranch: templatePreview.defaultBranch,
-          templateHeadSha: templatePreview.headSha,
-        }),
-      );
-      if (
-        validation.ok &&
-        pendingMatchesDestinationTemplateIdentity(
-          pending,
-          parsedTemplate.identity,
-        )
-      ) {
-        return { kind: "template-only-with-pending" };
-      }
-      if (!validation.ok) {
-        return { kind: "unmanaged-collision" };
-      }
-    }
-    return { kind: "template-only-without-pending" };
+    return { kind: "snapshot-only-without-pending" };
   }
 
   return { kind: "unmanaged-collision" };
 }
 
-async function pollGeneratedRepository(
-  provider: GitHubHarnessProvisioningProvider,
-  repoSlug: string,
-  expectedContentId: string,
-): Promise<
-  | {
-      ok: true;
-      defaultBranch: string;
-      repositoryId: number;
-      identity: ReturnType<typeof parseHarnessTemplateIdentityJson> & {
-        ok: true;
-      };
-    }
-  | { ok: false; timedOut: boolean; message: string }
-> {
-  const { owner, repo } = parseRepoSlug(repoSlug);
-  const { timeoutMs, initialDelayMs, maxDelayMs } = resolvePostCreatePollConfig();
-  const started = Date.now();
-  let delay = initialDelayMs;
-
-  while (Date.now() - started < timeoutMs) {
-    const metadata = await provider.getRepositoryMetadata(owner, repo);
-    if (metadata?.private && metadata.permissions.admin) {
-      const identityRaw = await provider.readRepositoryFileContent(
-        owner,
-        repo,
-        HARNESS_TEMPLATE_IDENTITY_FILE,
-        metadata.defaultBranch,
-      );
-      if (identityRaw) {
-        const parsed = parseHarnessTemplateIdentityJson(identityRaw);
-        if (
-          parsed.ok &&
-          parsed.identity.templateContentId === expectedContentId
-        ) {
-          return {
-            ok: true,
-            defaultBranch: metadata.defaultBranch,
-            repositoryId: metadata.repositoryId,
-            identity: parsed,
-          };
-        }
-      }
-    }
-    await sleep(delay);
-    delay = Math.min(delay * 2, maxDelayMs);
-  }
-
+function buildSnapshotPendingState(input: {
+  operationId: string;
+  user: { id: number; login: string };
+  snapshotPreview: SnapshotPreviewOk;
+  previewFingerprint: string;
+  pending?: HarnessProvisioningPendingState | null;
+  phase?: HarnessProvisioningPhase;
+  repositoryId?: number;
+  defaultBranch?: string;
+  initializedCommitSha?: string;
+  snapshotCommitSha?: string;
+  markerCommitSha?: string;
+}): HarnessProvisioningPendingState {
+  const manifest = input.snapshotPreview.manifest;
   return {
-    ok: false,
-    timedOut: true,
-    message:
-      "Timed out waiting for the generated harness workspace to become ready. Retry Step 1 Continue.",
+    operationId: input.operationId,
+    authenticatedUserId: input.user.id,
+    authenticatedLogin: input.user.login,
+    packageName: manifest.packageName,
+    packageVersion: manifest.packageVersion,
+    sourceRepository: manifest.sourceRepository,
+    sourceCommit: manifest.sourceCommit,
+    manifestSchemaVersion: manifest.schemaVersion,
+    snapshotContentId: manifest.snapshotContentId,
+    snapshotSha256: manifest.snapshotSha256,
+    snapshotGitTreeSha1: manifest.gitRootTreeSha1,
+    targetOwner: input.user.login,
+    targetRepo: HARNESS_DEFAULT_DESTINATION_REPO_NAME,
+    previewFingerprint: input.previewFingerprint,
+    startedAt: input.pending?.startedAt ?? new Date().toISOString(),
+    phase: input.phase ?? input.pending?.phase,
+    repositoryId: input.repositoryId ?? input.pending?.repositoryId,
+    defaultBranch: input.defaultBranch ?? input.pending?.defaultBranch,
+    initializedCommitSha:
+      input.initializedCommitSha ?? input.pending?.initializedCommitSha,
+    snapshotCommitSha: input.snapshotCommitSha ?? input.pending?.snapshotCommitSha,
+    markerCommitSha: input.markerCommitSha ?? input.pending?.markerCommitSha,
   };
 }
 
-async function finalizeManagedMarker(
+async function finalizeLegacyTemplateManagedMarker(
   provider: GitHubHarnessProvisioningProvider,
   input: {
     repoSlug: string;
@@ -726,6 +676,52 @@ async function finalizeManagedMarker(
     };
   }
   return { ok: true };
+}
+
+async function readLegacyTemplateIdentityAtHead(
+  provider: GitHubHarnessProvisioningProvider,
+  repoSlug: string,
+): Promise<
+  | {
+      ok: true;
+      defaultBranch: string;
+      repositoryId: number;
+      identity: ReturnType<typeof parseHarnessTemplateIdentityJson> & {
+        ok: true;
+      };
+    }
+  | { ok: false; message: string }
+> {
+  const { owner, repo } = parseRepoSlug(repoSlug);
+  const metadata = await provider.getRepositoryMetadata(owner, repo);
+  if (!metadata) {
+    return {
+      ok: false,
+      message: `Harness workspace ${repoSlug} is not accessible.`,
+    };
+  }
+  const identityRaw = await provider.readRepositoryFileContent(
+    owner,
+    repo,
+    HARNESS_TEMPLATE_IDENTITY_FILE,
+    metadata.defaultBranch,
+  );
+  if (!identityRaw) {
+    return {
+      ok: false,
+      message: "Legacy generated repository template identity is missing.",
+    };
+  }
+  const parsed = parseHarnessTemplateIdentityJson(identityRaw);
+  if (!parsed.ok) {
+    return { ok: false, message: parsed.reason };
+  }
+  return {
+    ok: true,
+    defaultBranch: metadata.defaultBranch,
+    repositoryId: metadata.repositoryId,
+    identity: parsed,
+  };
 }
 
 export async function loadHarnessRepoProvisioningSummary(options: {
@@ -835,30 +831,31 @@ export async function previewHarnessRepoProvisioning(options: {
   cwd?: string;
   provider: GitHubHarnessProvisioningProvider;
   operationId?: string;
+  moduleUrl?: string;
 }): Promise<HarnessRepoProvisioningPreview> {
+  const basePreview = {
+    creationPreviewFingerprint: null as string | null,
+    resumedFromPending: false,
+    harnessDispatchRepo: null as string | null,
+    authenticatedLogin: null as string | null,
+    recoverable: false,
+    willCreateRepository: false,
+    tokenCapabilities: {
+      tokenType: "unknown" as GitHubTokenMetadata["tokenType"],
+      hasRepoScope: false,
+      hasWorkflowScope: false,
+      scopeAmbiguous: true,
+    },
+  };
+
   if (!isPackagedPDevRuntime()) {
     return {
       state: "skipped-not-packaged",
       fingerprint: buildFingerprint({ action: "preview", skipped: true }),
       operationId: options.operationId ?? randomUUID(),
-      creationPreviewFingerprint: null,
-      resumedFromPending: false,
-      harnessDispatchRepo: null,
-      authenticatedLogin: null,
-      templateOwner: HARNESS_TEMPLATE_OWNER,
-      templateRepo: HARNESS_TEMPLATE_REPO,
-      templateDefaultBranch: "main",
-      templateHeadSha: "",
-      templateContentId: null,
       message: "Packaged runtime mode is not active.",
-      recoverable: false,
-      willCreateRepository: false,
-      tokenCapabilities: {
-        tokenType: "unknown",
-        hasRepoScope: false,
-        hasWorkflowScope: false,
-        scopeAmbiguous: true,
-      },
+      ...basePreview,
+      ...emptySnapshotPreviewFields(),
     };
   }
 
@@ -892,20 +889,14 @@ export async function previewHarnessRepoProvisioning(options: {
       state: "token-scope-ambiguous",
       fingerprint: buildFingerprint({ action: "preview", operationId }),
       operationId,
-      creationPreviewFingerprint: null,
-      resumedFromPending: false,
-      harnessDispatchRepo: explicitRepo ?? null,
-      authenticatedLogin: capabilities.login,
-      templateOwner: HARNESS_TEMPLATE_OWNER,
-      templateRepo: HARNESS_TEMPLATE_REPO,
-      templateDefaultBranch: "main",
-      templateHeadSha: "",
-      templateContentId: null,
       message: capabilityCheck.ok
         ? "Token scope metadata is ambiguous."
         : capabilityCheck.message,
+      ...basePreview,
       recoverable: true,
-      willCreateRepository: false,
+      harnessDispatchRepo: explicitRepo ?? null,
+      authenticatedLogin: capabilities.login,
+      ...emptySnapshotPreviewFields(),
       tokenCapabilities: {
         tokenType: capabilities.tokenType,
         hasRepoScope: capabilities.hasRepoScope,
@@ -927,18 +918,12 @@ export async function previewHarnessRepoProvisioning(options: {
       state,
       fingerprint: buildFingerprint({ action: "preview", operationId }),
       operationId,
-      creationPreviewFingerprint: null,
-      resumedFromPending: false,
+      message: capabilityCheck.message,
+      ...basePreview,
+      recoverable: true,
       harnessDispatchRepo: explicitRepo ?? null,
       authenticatedLogin: capabilities.login,
-      templateOwner: HARNESS_TEMPLATE_OWNER,
-      templateRepo: HARNESS_TEMPLATE_REPO,
-      templateDefaultBranch: "main",
-      templateHeadSha: "",
-      templateContentId: null,
-      message: capabilityCheck.message,
-      recoverable: true,
-      willCreateRepository: false,
+      ...emptySnapshotPreviewFields(),
       tokenCapabilities: {
         tokenType: capabilities.tokenType,
         hasRepoScope: capabilities.hasRepoScope,
@@ -969,18 +954,12 @@ export async function previewHarnessRepoProvisioning(options: {
         state: explicit.state,
         fingerprint,
         operationId,
-        creationPreviewFingerprint: null,
-        resumedFromPending: false,
+        message: explicit.message,
+        ...basePreview,
+        recoverable: true,
         harnessDispatchRepo: explicitRepo,
         authenticatedLogin: user.login,
-        templateOwner: HARNESS_TEMPLATE_OWNER,
-        templateRepo: HARNESS_TEMPLATE_REPO,
-        templateDefaultBranch: "main",
-        templateHeadSha: "",
-        templateContentId: null,
-        message: explicit.message,
-        recoverable: true,
-        willCreateRepository: false,
+        ...emptySnapshotPreviewFields(),
         tokenCapabilities: {
           tokenType: capabilities.tokenType,
           hasRepoScope: capabilities.hasRepoScope,
@@ -990,22 +969,18 @@ export async function previewHarnessRepoProvisioning(options: {
       };
     }
 
+    const legacyTemplateContentId =
+      explicit.marker.marker.createdFromTemplate?.templateContentId ?? null;
+
     return {
       state: "explicit-repo-present",
       fingerprint,
       operationId,
-      creationPreviewFingerprint: null,
-      resumedFromPending: false,
+      message: `Reconnecting to saved harness workspace ${explicitRepo}.`,
+      ...basePreview,
       harnessDispatchRepo: explicitRepo,
       authenticatedLogin: user.login,
-      templateOwner: HARNESS_TEMPLATE_OWNER,
-      templateRepo: HARNESS_TEMPLATE_REPO,
-      templateDefaultBranch: "main",
-      templateHeadSha: "",
-      templateContentId: explicit.marker.marker.createdFromTemplate.templateContentId,
-      message: `Reconnecting to saved harness workspace ${explicitRepo}.`,
-      recoverable: false,
-      willCreateRepository: false,
+      ...snapshotPreviewFields(null, legacyTemplateContentId),
       tokenCapabilities: {
         tokenType: capabilities.tokenType,
         hasRepoScope: capabilities.hasRepoScope,
@@ -1015,25 +990,19 @@ export async function previewHarnessRepoProvisioning(options: {
     };
   }
 
-  const templatePreview = await loadTemplatePreview(options.provider);
-  if (!templatePreview.ok) {
+  const snapshotPreview = await loadEmbeddedWorkspaceSnapshot(
+    options.moduleUrl ?? import.meta.url,
+  );
+  if (!snapshotPreview.ok) {
     const operationId = options.operationId ?? randomUUID();
     return {
-      state: templatePreview.state,
+      state: snapshotPreview.state,
       fingerprint: buildFingerprint({ action: "preview", operationId }),
       operationId,
-      creationPreviewFingerprint: null,
-      resumedFromPending: false,
-      harnessDispatchRepo: null,
+      message: snapshotPreview.message,
+      ...basePreview,
       authenticatedLogin: user.login,
-      templateOwner: HARNESS_TEMPLATE_OWNER,
-      templateRepo: HARNESS_TEMPLATE_REPO,
-      templateDefaultBranch: "main",
-      templateHeadSha: "",
-      templateContentId: null,
-      message: templatePreview.message,
-      recoverable: false,
-      willCreateRepository: false,
+      ...emptySnapshotPreviewFields(),
       tokenCapabilities: {
         tokenType: capabilities.tokenType,
         hasRepoScope: capabilities.hasRepoScope,
@@ -1047,7 +1016,7 @@ export async function previewHarnessRepoProvisioning(options: {
     cwd: options.cwd,
     requestedOperationId: options.operationId,
     user,
-    templatePreview,
+    snapshotPreview,
   });
   if (!resolvedOperation.ok) {
     return {
@@ -1057,18 +1026,11 @@ export async function previewHarnessRepoProvisioning(options: {
         conflict: resolvedOperation.message,
       }),
       operationId: options.operationId ?? randomUUID(),
-      creationPreviewFingerprint: null,
-      resumedFromPending: false,
-      harnessDispatchRepo: null,
-      authenticatedLogin: user.login,
-      templateOwner: HARNESS_TEMPLATE_OWNER,
-      templateRepo: HARNESS_TEMPLATE_REPO,
-      templateDefaultBranch: templatePreview.defaultBranch,
-      templateHeadSha: templatePreview.headSha,
-      templateContentId: templatePreview.identity.identity.templateContentId,
       message: resolvedOperation.message,
+      ...basePreview,
       recoverable: true,
-      willCreateRepository: false,
+      authenticatedLogin: user.login,
+      ...snapshotPreviewFields(snapshotPreview),
       tokenCapabilities: {
         tokenType: capabilities.tokenType,
         hasRepoScope: capabilities.hasRepoScope,
@@ -1089,10 +1051,10 @@ export async function previewHarnessRepoProvisioning(options: {
     options.provider,
     user,
     options.cwd,
-    templatePreview,
+    snapshotPreview,
   );
 
-  let state: HarnessProvisioningState = "template-preview-ready";
+  let state: HarnessProvisioningState = "snapshot-preview-ready";
   let message = `p-dev will create or reconnect ${destination} as your private harness workspace.`;
   let willCreateRepository = false;
 
@@ -1100,7 +1062,7 @@ export async function previewHarnessRepoProvisioning(options: {
     case "absent":
       state = "repo-absent";
       willCreateRepository = true;
-      message = `p-dev will create private harness workspace ${destination} from the approved template.`;
+      message = `p-dev will create private harness workspace ${destination} from the packaged workspace snapshot.`;
       break;
     case "valid-managed":
       state = "valid-existing-managed-repo";
@@ -1118,13 +1080,13 @@ export async function previewHarnessRepoProvisioning(options: {
       state = "same-name-malformed-marker";
       message = classification.reason;
       break;
-    case "template-only-without-pending":
-      state = "same-name-template-only-without-pending";
+    case "snapshot-only-without-pending":
+      state = "same-name-snapshot-only-without-pending";
       message = `${destination} looks like an unmanaged generated repo.`;
       break;
-    case "template-only-with-pending":
-      state = "same-name-template-only-with-pending";
-      message = `Resuming marker finalization for ${destination}.`;
+    case "snapshot-only-with-pending":
+      state = "same-name-snapshot-only-with-pending";
+      message = `Resuming snapshot provisioning for ${destination}.`;
       break;
   }
 
@@ -1132,7 +1094,7 @@ export async function previewHarnessRepoProvisioning(options: {
     operationId,
     user,
     destination,
-    templatePreview,
+    snapshotPreview,
     classification: classification.kind,
     envBaseline: existingEnv?.values.GITHUB_DISPATCH_REPOSITORY ?? "",
     pDevVersion,
@@ -1149,17 +1111,13 @@ export async function previewHarnessRepoProvisioning(options: {
     harnessDispatchRepo:
       classification.kind === "valid-managed" ? destination : null,
     authenticatedLogin: user.login,
-    templateOwner: HARNESS_TEMPLATE_OWNER,
-    templateRepo: HARNESS_TEMPLATE_REPO,
-    templateDefaultBranch: templatePreview.defaultBranch,
-    templateHeadSha: templatePreview.headSha,
-    templateContentId: templatePreview.identity.identity.templateContentId,
     message,
     recoverable:
       state === "repo-absent" ||
       state === "valid-existing-managed-repo" ||
-      state === "same-name-template-only-with-pending",
+      state === "same-name-snapshot-only-with-pending",
     willCreateRepository,
+    ...snapshotPreviewFields(snapshotPreview),
     tokenCapabilities: {
       tokenType: capabilities.tokenType,
       hasRepoScope: capabilities.hasRepoScope,
@@ -1175,6 +1133,7 @@ export async function applyHarnessRepoProvisioning(options: {
   confirmed: boolean;
   fingerprint: string;
   operationId: string;
+  moduleUrl?: string;
 }): Promise<HarnessRepoProvisioningApplyResult> {
   return withHarnessProvisioningMutex(
     resolveLocalFilePaths(options.cwd).cwd,
@@ -1188,11 +1147,13 @@ async function applyHarnessRepoProvisioningLocked(options: {
   confirmed: boolean;
   fingerprint: string;
   operationId: string;
+  moduleUrl?: string;
 }): Promise<HarnessRepoProvisioningApplyResult> {
   const preview = await previewHarnessRepoProvisioning({
     cwd: options.cwd,
     provider: options.provider,
     operationId: options.operationId,
+    moduleUrl: options.moduleUrl,
   });
 
   if (!options.confirmed) {
@@ -1207,7 +1168,7 @@ async function applyHarnessRepoProvisioningLocked(options: {
 
   if (preview.fingerprint !== options.fingerprint) {
     return {
-      state: "template-preview-stale",
+      state: "snapshot-preview-stale",
       harnessDispatchRepo: preview.harnessDispatchRepo,
       message: "Provisioning preview is stale. Retry Step 1 Continue.",
       recoverable: true,
@@ -1220,14 +1181,15 @@ async function applyHarnessRepoProvisioningLocked(options: {
     preview.state === "token-unsupported" ||
     preview.state === "token-insufficient" ||
     preview.state === "token-scope-ambiguous" ||
-    preview.state === "template-unavailable" ||
-    preview.state === "template-identity-missing" ||
-    preview.state === "template-identity-invalid" ||
-    preview.state === "template-incompatible" ||
+    preview.state === "snapshot-unavailable" ||
+    preview.state === "snapshot-manifest-missing" ||
+    preview.state === "snapshot-manifest-invalid" ||
+    preview.state === "snapshot-incompatible" ||
+    preview.state === "snapshot-tampered" ||
     preview.state === "same-name-public-collision" ||
     preview.state === "same-name-unmanaged-collision" ||
     preview.state === "same-name-malformed-marker" ||
-    preview.state === "same-name-template-only-without-pending" ||
+    preview.state === "same-name-snapshot-only-without-pending" ||
     preview.state === "explicit-packaged-repo-invalid" ||
     preview.state === "explicit-packaged-repo-legacy-source"
   ) {
@@ -1245,8 +1207,6 @@ async function applyHarnessRepoProvisioningLocked(options: {
   const paths = resolveLocalFilePaths(options.cwd);
   const existingEnv = await readExistingEnvFile(paths);
   const explicitRepo = existingEnv?.values.GITHUB_DISPATCH_REPOSITORY?.trim();
-
-  let targetRepo = explicitRepo ?? destinationSlug(user.login);
 
   if (explicitRepo) {
     const explicit = await validateExplicitPackagedRepo(
@@ -1288,12 +1248,14 @@ async function applyHarnessRepoProvisioningLocked(options: {
     };
   }
 
-  const templatePreview = await loadTemplatePreview(options.provider);
-  if (!templatePreview.ok) {
+  const snapshotPreview = await loadEmbeddedWorkspaceSnapshot(
+    options.moduleUrl ?? import.meta.url,
+  );
+  if (!snapshotPreview.ok) {
     return {
-      state: templatePreview.state,
+      state: snapshotPreview.state,
       harnessDispatchRepo: null,
-      message: templatePreview.message,
+      message: snapshotPreview.message,
       recoverable: false,
       persisted: false,
     };
@@ -1303,16 +1265,15 @@ async function applyHarnessRepoProvisioningLocked(options: {
     options.provider,
     user,
     options.cwd,
-    templatePreview,
+    snapshotPreview,
   );
 
   const currentContext = buildHarnessProvisioningPreviewContext({
     operationId: options.operationId,
     user,
     destination: destinationSlug(user.login),
-    templateDefaultBranch: templatePreview.defaultBranch,
-    templateHeadSha: templatePreview.headSha,
-    templateIdentity: templatePreview.identity.identity,
+    manifest: snapshotPreview.manifest,
+    snapshotFingerprint: snapshotPreview.fingerprint,
     classification: classification.kind as HarnessProvisioningClassification,
     envBaseline: existingEnv?.values.GITHUB_DISPATCH_REPOSITORY ?? "",
     pDevVersion,
@@ -1325,7 +1286,7 @@ async function applyHarnessRepoProvisioningLocked(options: {
   });
   if (!contextValidation.ok) {
     return {
-      state: "template-preview-stale",
+      state: "snapshot-preview-stale",
       harnessDispatchRepo: null,
       message: contextValidation.message,
       recoverable: true,
@@ -1333,6 +1294,7 @@ async function applyHarnessRepoProvisioningLocked(options: {
     };
   }
 
+  let targetRepo = destinationSlug(user.login);
   let targetRepositoryId: number | undefined =
     classification.kind === "valid-managed"
       ? classification.repositoryId
@@ -1342,7 +1304,7 @@ async function applyHarnessRepoProvisioningLocked(options: {
   if (preview.resumedFromPending) {
     if (!pending || !preview.creationPreviewFingerprint) {
       return {
-        state: "same-name-template-only-without-pending",
+        state: "same-name-snapshot-only-without-pending",
         harnessDispatchRepo: destinationSlug(user.login),
         message:
           "Matching local pending provisioning evidence is required to resume.",
@@ -1352,19 +1314,12 @@ async function applyHarnessRepoProvisioningLocked(options: {
     }
     const pendingValidation = validatePendingProvisioningState(
       pending,
-      buildPendingValidationContext({
+      buildSnapshotPendingValidationContext(snapshotPreview, {
         operationId: options.operationId,
         authenticatedUserId: user.id,
         authenticatedLogin: user.login,
         targetOwner: user.login,
         targetRepo: HARNESS_DEFAULT_DESTINATION_REPO_NAME,
-        templateIdentity: templatePreview.identity.identity.templateIdentity,
-        templateVersion: templatePreview.identity.identity.templateVersion,
-        compatibilityVersion:
-          templatePreview.identity.identity.compatibilityVersion,
-        templateContentId: templatePreview.identity.identity.templateContentId,
-        templateDefaultBranch: templatePreview.defaultBranch,
-        templateHeadSha: templatePreview.headSha,
         previewFingerprint: preview.creationPreviewFingerprint,
       }),
     );
@@ -1392,93 +1347,246 @@ async function applyHarnessRepoProvisioningLocked(options: {
     };
   }
 
+  const creationFingerprint =
+    preview.creationPreviewFingerprint ?? options.fingerprint;
+  let activePending = pending;
+  let requiresSnapshotVerification = false;
+
   if (classification.kind === "valid-managed") {
     targetRepo = classification.repoSlug;
   } else if (
-    classification.kind === "absent" &&
-    !preview.resumedFromPending
+    classification.kind === "absent" ||
+    classification.kind === "snapshot-only-with-pending"
   ) {
-    const creationFingerprint =
-      preview.creationPreviewFingerprint ?? options.fingerprint;
-    await writeHarnessProvisioningPendingStateAtomic(
-      {
-        operationId: options.operationId,
-        authenticatedUserId: user.id,
-        authenticatedLogin: user.login,
-        targetOwner: user.login,
-        targetRepo: HARNESS_DEFAULT_DESTINATION_REPO_NAME,
-        templateOwner: HARNESS_TEMPLATE_OWNER,
-        templateRepo: HARNESS_TEMPLATE_REPO,
-        templateIdentity: templatePreview.identity.identity.templateIdentity,
-        templateVersion: templatePreview.identity.identity.templateVersion,
-        compatibilityVersion:
-          templatePreview.identity.identity.compatibilityVersion,
-        templateContentId: templatePreview.identity.identity.templateContentId,
-        templateDefaultBranch: templatePreview.defaultBranch,
-        templateHeadSha: templatePreview.headSha,
-        previewFingerprint: creationFingerprint,
-        startedAt: new Date().toISOString(),
-      },
-      options.cwd,
-    );
+    const legacyTemplateIdentity =
+      classification.kind === "snapshot-only-with-pending"
+        ? await readLegacyTemplateIdentityAtHead(options.provider, targetRepo)
+        : null;
 
-    try {
-      const created = await options.provider.createRepositoryFromTemplate({
-        templateOwner: HARNESS_TEMPLATE_OWNER,
-        templateRepo: HARNESS_TEMPLATE_REPO,
-        owner: user.login,
-        name: HARNESS_DEFAULT_DESTINATION_REPO_NAME,
-        description: HARNESS_DEFAULT_DESTINATION_DESCRIPTION,
-        private: true,
-        includeAllBranches: false,
-      });
-      targetRepo = created.fullName;
-      targetRepositoryId = created.repositoryId;
-    } catch (error) {
-      const recovered = await classifyDestinationRepo(
-        options.provider,
-        user,
-        options.cwd,
-        templatePreview,
+    if (
+      classification.kind === "snapshot-only-with-pending" &&
+      legacyTemplateIdentity?.ok
+    ) {
+      const { owner, repo } = parseRepoSlug(targetRepo);
+      const legacyHeadSha = await options.provider.getRepositoryDefaultBranchHead(
+        owner,
+        repo,
+        legacyTemplateIdentity.defaultBranch,
       );
-      if (
-        recovered.kind === "valid-managed" ||
-        recovered.kind === "template-only-with-pending"
-      ) {
-        targetRepo = destinationSlug(user.login);
-      } else if (error instanceof GitHubApiError && error.status === 422) {
-        const retryClassification = await classifyDestinationRepo(
-          options.provider,
+      const markerResult = await finalizeLegacyTemplateManagedMarker(
+        options.provider,
+        {
+          repoSlug: targetRepo,
+          repositoryId: legacyTemplateIdentity.repositoryId,
+          defaultBranch: legacyTemplateIdentity.defaultBranch,
+          templateIdentity: legacyTemplateIdentity.identity,
+          templateHeadSha: legacyHeadSha,
+          operationId: options.operationId,
           user,
-          options.cwd,
-          templatePreview,
-        );
-        if (retryClassification.kind === "absent") {
-          return {
-            state: "api-timeout-unknown",
-            harnessDispatchRepo: destinationSlug(user.login),
-            message:
-              "Repository creation returned an ambiguous result. Retry Step 1 Continue.",
-            recoverable: true,
-            persisted: false,
-          };
-        }
-        targetRepo = destinationSlug(user.login);
-      } else {
+          pDevVersion,
+        },
+      );
+      if (!markerResult.ok) {
         return {
-          state: "api-timeout-unknown",
-          harnessDispatchRepo: destinationSlug(user.login),
-          message:
-            error instanceof Error
-              ? error.message
-              : "Repository creation failed unexpectedly.",
+          state: "marker-write-pending",
+          harnessDispatchRepo: targetRepo,
+          message: markerResult.message,
           recoverable: true,
           persisted: false,
         };
       }
+      targetRepositoryId = legacyTemplateIdentity.repositoryId;
+    } else {
+      if (classification.kind === "absent" && !preview.resumedFromPending) {
+        await writeHarnessProvisioningPendingStateAtomic(
+          buildSnapshotPendingState({
+            operationId: options.operationId,
+            user,
+            snapshotPreview,
+            previewFingerprint: creationFingerprint,
+          }),
+          options.cwd,
+        );
+        activePending = await readHarnessProvisioningPendingState(options.cwd);
+      }
+
+      let provisionResult:
+        | Awaited<ReturnType<typeof provisionHarnessWorkspaceFromSnapshot>>
+        | undefined;
+      try {
+        provisionResult = await provisionHarnessWorkspaceFromSnapshot({
+          provider: options.provider,
+          user,
+          repoName: HARNESS_DEFAULT_DESTINATION_REPO_NAME,
+          description: HARNESS_DEFAULT_DESTINATION_DESCRIPTION,
+          snapshotRoot: snapshotPreview.snapshotRoot,
+          manifest: snapshotPreview.manifest,
+          packageVersion: snapshotPreview.packageVersion,
+          operationId: options.operationId,
+          pending: activePending,
+          onCheckpoint: async (checkpoint) => {
+            await writeHarnessProvisioningPendingStateAtomic(
+              buildSnapshotPendingState({
+                operationId: options.operationId,
+                user,
+                snapshotPreview,
+                previewFingerprint: creationFingerprint,
+                pending: activePending,
+                phase: checkpoint.phase,
+                repositoryId: checkpoint.repositoryId,
+                defaultBranch: checkpoint.defaultBranch,
+                initializedCommitSha: checkpoint.initializedCommitSha,
+                snapshotCommitSha: checkpoint.snapshotCommitSha,
+                markerCommitSha: checkpoint.markerCommitSha,
+              }),
+              options.cwd,
+            );
+            activePending = await readHarnessProvisioningPendingState(options.cwd);
+          },
+        });
+      } catch (error) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Repository provisioning failed unexpectedly.";
+        if (
+          error instanceof SnapshotProvisioningError &&
+          error.code === "marker-commit-failed"
+        ) {
+          const { owner, repo } = parseRepoSlug(destinationSlug(user.login));
+          const metadata = await options.provider.getRepositoryMetadata(owner, repo);
+          if (metadata) {
+            const headSha = await options.provider.getRepositoryDefaultBranchHead(
+              owner,
+              repo,
+              metadata.defaultBranch,
+            );
+            let initializedCommitSha = activePending?.initializedCommitSha;
+            try {
+              const headCommit = await options.provider.getGitCommit(owner, repo, headSha);
+              initializedCommitSha =
+                headCommit.parents[0]?.sha ?? initializedCommitSha;
+            } catch {
+              // keep best-effort pending evidence
+            }
+            await writeHarnessProvisioningPendingStateAtomic(
+              buildSnapshotPendingState({
+                operationId: options.operationId,
+                user,
+                snapshotPreview,
+                previewFingerprint: creationFingerprint,
+                pending: activePending,
+                phase: "marker-pending",
+                repositoryId: metadata.repositoryId,
+                initializedCommitSha,
+                snapshotCommitSha: headSha,
+              }),
+              options.cwd,
+            );
+          }
+          return {
+            state: "marker-write-pending",
+            harnessDispatchRepo: destinationSlug(user.login),
+            message,
+            recoverable: true,
+            persisted: false,
+          };
+        }
+
+        const recovered = await classifyDestinationRepo(
+          options.provider,
+          user,
+          options.cwd,
+          snapshotPreview,
+        );
+        if (
+          recovered.kind === "valid-managed" ||
+          recovered.kind === "snapshot-only-with-pending"
+        ) {
+          return {
+            state: "repo-created-pending-verification",
+            harnessDispatchRepo: destinationSlug(user.login),
+            message,
+            recoverable: true,
+            persisted: false,
+          };
+        } else if (error instanceof GitHubApiError && error.status === 422) {
+          const retryClassification = await classifyDestinationRepo(
+            options.provider,
+            user,
+            options.cwd,
+            snapshotPreview,
+          );
+          if (retryClassification.kind === "absent") {
+            return {
+              state: "api-timeout-unknown",
+              harnessDispatchRepo: destinationSlug(user.login),
+              message:
+                "Repository creation returned an ambiguous result. Retry Step 1 Continue.",
+              recoverable: true,
+              persisted: false,
+            };
+          }
+          return {
+            state: "repo-created-pending-verification",
+            harnessDispatchRepo: destinationSlug(user.login),
+            message,
+            recoverable: true,
+            persisted: false,
+          };
+        } else {
+          return {
+            state: "api-timeout-unknown",
+            harnessDispatchRepo: destinationSlug(user.login),
+            message,
+            recoverable: true,
+            persisted: false,
+          };
+        }
+      }
+
+      if (provisionResult) {
+        if (!provisionResult.ok) {
+          const markerPending =
+            provisionResult.code === "marker-commit-failed" ||
+            provisionResult.code === "description-finalization-failed" ||
+            activePending?.phase === "marker-pending" ||
+            activePending?.phase === "description-pending" ||
+            Boolean(activePending?.snapshotCommitSha);
+          return {
+            state: markerPending
+              ? "marker-write-pending"
+              : provisionResult.recoverable
+                ? "repo-created-pending-verification"
+                : "api-timeout-unknown",
+            harnessDispatchRepo: destinationSlug(user.login),
+            message: provisionResult.message,
+            recoverable: provisionResult.recoverable,
+            persisted: false,
+          };
+        }
+
+        targetRepo = provisionResult.fullName;
+        targetRepositoryId = provisionResult.repositoryId;
+        requiresSnapshotVerification = true;
+        await writeHarnessProvisioningPendingStateAtomic(
+          buildSnapshotPendingState({
+            operationId: options.operationId,
+            user,
+            snapshotPreview,
+            previewFingerprint: creationFingerprint,
+            pending: activePending,
+            phase: "persistence-pending",
+            repositoryId: provisionResult.repositoryId,
+            defaultBranch: provisionResult.defaultBranch,
+            initializedCommitSha: provisionResult.initializedCommitSha,
+            snapshotCommitSha: provisionResult.snapshotCommitSha,
+            markerCommitSha: provisionResult.markerCommitSha,
+          }),
+          options.cwd,
+        );
+      }
     }
-  } else if (classification.kind === "template-only-with-pending") {
-    targetRepo = destinationSlug(user.login);
   } else {
     return {
       state: preview.state,
@@ -1489,59 +1597,43 @@ async function applyHarnessRepoProvisioningLocked(options: {
     };
   }
 
-  const poll = await pollGeneratedRepository(
-    options.provider,
-    targetRepo,
-    templatePreview.identity.identity.templateContentId,
-  );
-  if (!poll.ok) {
-    return {
-      state: poll.timedOut ? "api-timeout-unknown" : "repo-created-pending-verification",
-      harnessDispatchRepo: targetRepo,
-      message: poll.message,
-      recoverable: true,
-      persisted: false,
-    };
+  if (targetRepositoryId === undefined) {
+    const { owner, repo } = parseRepoSlug(targetRepo);
+    const metadata = await options.provider.getRepositoryMetadata(owner, repo);
+    if (!metadata) {
+      return {
+        state: "repo-created-pending-verification",
+        harnessDispatchRepo: targetRepo,
+        message: `Harness workspace ${targetRepo} is not accessible for verification.`,
+        recoverable: true,
+        persisted: false,
+      };
+    }
+    targetRepositoryId = metadata.repositoryId;
   }
 
-  const resolvedRepositoryId = targetRepositoryId ?? poll.repositoryId;
-  if (
-    targetRepositoryId !== undefined &&
-    targetRepositoryId !== poll.repositoryId
-  ) {
-    return {
-      state: "repo-created-pending-verification",
-      harnessDispatchRepo: targetRepo,
-      message: `Generated harness workspace repository ID mismatch for ${targetRepo}.`,
-      recoverable: true,
-      persisted: false,
-    };
-  }
-
-  const markerResult = await finalizeManagedMarker(options.provider, {
-    repoSlug: targetRepo,
-    repositoryId: resolvedRepositoryId,
-    defaultBranch: poll.defaultBranch,
-    templateIdentity: poll.identity,
-    templateHeadSha: pending?.templateHeadSha ?? templatePreview.headSha,
-    operationId: options.operationId,
-    user,
-    pDevVersion,
-  });
-  if (!markerResult.ok) {
-    return {
-      state: "marker-write-pending",
-      harnessDispatchRepo: targetRepo,
-      message: markerResult.message,
-      recoverable: true,
-      persisted: false,
-    };
+  if (requiresSnapshotVerification) {
+    const verification = await verifyProvisionedHarnessWorkspace({
+      provider: options.provider,
+      repoSlug: targetRepo,
+      repositoryId: targetRepositoryId,
+      manifest: snapshotPreview.manifest,
+    });
+    if (!verification.ok) {
+      return {
+        state: "repo-created-pending-verification",
+        harnessDispatchRepo: targetRepo,
+        message: verification.message,
+        recoverable: true,
+        persisted: false,
+      };
+    }
   }
 
   const persist = await persistGithubDispatchRepository({
     cwd: options.cwd,
     githubDispatchRepository: targetRepo,
-    githubDispatchRepositoryId: resolvedRepositoryId,
+    githubDispatchRepositoryId: targetRepositoryId,
   });
   if (persist.outcome !== "changed" && persist.outcome !== "skipped") {
     return {

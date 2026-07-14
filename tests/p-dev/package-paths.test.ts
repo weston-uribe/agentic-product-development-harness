@@ -6,6 +6,7 @@ import {
   resolveGuiDirectory,
   resolvePackageRootFromModule,
   resolveTemplatesDirectory,
+  resolveWorkspaceSnapshotDirectory,
 } from "../../src/p-dev/package-paths.js";
 
 describe("p-dev package paths", () => {
@@ -34,6 +35,9 @@ describe("p-dev package paths", () => {
     expect(resolveGuiDirectory(packageRoot)).toBe(path.join(tempRoot, "gui"));
     expect(resolveTemplatesDirectory(packageRoot)).toBe(
       path.join(tempRoot, "templates"),
+    );
+    expect(resolveWorkspaceSnapshotDirectory(packageRoot)).toBe(
+      path.join(tempRoot, "workspace-snapshot"),
     );
   });
 });

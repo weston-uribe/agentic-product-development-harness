@@ -1,9 +1,5 @@
-import { fingerprintHarnessTemplateIdentity } from "./harness-template-identity.js";
-import type { HarnessTemplateIdentity } from "./harness-template-identity.js";
-import {
-  HARNESS_TEMPLATE_OWNER,
-  HARNESS_TEMPLATE_REPO,
-} from "./harness-template-identity.js";
+import { P_DEV_PACKAGE_NAME } from "../p-dev/package-paths.js";
+import type { WorkspaceSnapshotManifest } from "../p-dev/workspace-snapshot-types.js";
 
 export type HarnessProvisioningClassification =
   | "absent"
@@ -11,20 +7,23 @@ export type HarnessProvisioningClassification =
   | "public-collision"
   | "unmanaged-collision"
   | "malformed-marker"
-  | "template-only-without-pending"
-  | "template-only-with-pending";
+  | "snapshot-only-without-pending"
+  | "snapshot-only-with-pending";
 
 export interface HarnessProvisioningPreviewContext {
   operationId: string;
   authenticatedUserId: number;
   authenticatedLogin: string;
   destination: string;
-  templateOwner: string;
-  templateRepo: string;
-  templateDefaultBranch: string;
-  templateHeadSha: string;
-  templateIdentityFingerprint: string;
-  templateContentId: string;
+  packageName: string;
+  packageVersion: string;
+  sourceRepository: string;
+  sourceCommit: string;
+  manifestSchemaVersion: number;
+  snapshotFingerprint: string;
+  snapshotContentId: string;
+  snapshotSha256: string;
+  snapshotGitTreeSha1: string;
   classification: HarnessProvisioningClassification;
   envBaseline: string;
   pDevVersion: string;
@@ -37,12 +36,15 @@ export type HarnessProvisioningContextField =
   | "authenticatedUserId"
   | "authenticatedLogin"
   | "destination"
-  | "templateOwner"
-  | "templateRepo"
-  | "templateDefaultBranch"
-  | "templateHeadSha"
-  | "templateIdentityFingerprint"
-  | "templateContentId"
+  | "packageName"
+  | "packageVersion"
+  | "sourceRepository"
+  | "sourceCommit"
+  | "manifestSchemaVersion"
+  | "snapshotFingerprint"
+  | "snapshotContentId"
+  | "snapshotSha256"
+  | "snapshotGitTreeSha1"
   | "classification"
   | "envBaseline"
   | "pDevVersion"
@@ -78,9 +80,8 @@ export function buildHarnessProvisioningPreviewContext(input: {
   operationId: string;
   user: { id: number; login: string };
   destination: string;
-  templateDefaultBranch: string;
-  templateHeadSha: string;
-  templateIdentity: HarnessTemplateIdentity;
+  manifest: WorkspaceSnapshotManifest;
+  snapshotFingerprint: string;
   classification: HarnessProvisioningClassification;
   envBaseline: string;
   pDevVersion: string;
@@ -92,14 +93,15 @@ export function buildHarnessProvisioningPreviewContext(input: {
     authenticatedUserId: input.user.id,
     authenticatedLogin: normalizeGitHubLogin(input.user.login),
     destination: normalizeRepoSlug(input.destination),
-    templateOwner: HARNESS_TEMPLATE_OWNER,
-    templateRepo: HARNESS_TEMPLATE_REPO,
-    templateDefaultBranch: input.templateDefaultBranch.trim(),
-    templateHeadSha: input.templateHeadSha.trim(),
-    templateIdentityFingerprint: fingerprintHarnessTemplateIdentity(
-      input.templateIdentity,
-    ),
-    templateContentId: input.templateIdentity.templateContentId.trim(),
+    packageName: input.manifest.packageName,
+    packageVersion: input.manifest.packageVersion,
+    sourceRepository: input.manifest.sourceRepository,
+    sourceCommit: input.manifest.sourceCommit,
+    manifestSchemaVersion: input.manifest.schemaVersion,
+    snapshotFingerprint: input.snapshotFingerprint,
+    snapshotContentId: input.manifest.snapshotContentId.trim(),
+    snapshotSha256: input.manifest.snapshotSha256,
+    snapshotGitTreeSha1: input.manifest.gitRootTreeSha1,
     classification: input.classification,
     envBaseline: normalizeRepoSlug(input.envBaseline || ""),
     pDevVersion: input.pDevVersion.trim(),
@@ -117,12 +119,15 @@ export function serializeHarnessProvisioningPreviewContext(
     authenticatedUserId: context.authenticatedUserId,
     authenticatedLogin: context.authenticatedLogin,
     destination: context.destination,
-    templateOwner: context.templateOwner,
-    templateRepo: context.templateRepo,
-    templateDefaultBranch: context.templateDefaultBranch,
-    templateHeadSha: context.templateHeadSha,
-    templateIdentityFingerprint: context.templateIdentityFingerprint,
-    templateContentId: context.templateContentId,
+    packageName: context.packageName,
+    packageVersion: context.packageVersion,
+    sourceRepository: context.sourceRepository,
+    sourceCommit: context.sourceCommit,
+    manifestSchemaVersion: context.manifestSchemaVersion,
+    snapshotFingerprint: context.snapshotFingerprint,
+    snapshotContentId: context.snapshotContentId,
+    snapshotSha256: context.snapshotSha256,
+    snapshotGitTreeSha1: context.snapshotGitTreeSha1,
     classification: context.classification,
     envBaseline: context.envBaseline,
     pDevVersion: context.pDevVersion,
@@ -165,17 +170,18 @@ export function parseHarnessProvisioningPreviewContextFingerprint(
   if (typeof record.destination !== "string") {
     return null;
   }
-  if (record.templateOwner !== HARNESS_TEMPLATE_OWNER) {
-    return null;
-  }
-  if (record.templateRepo !== HARNESS_TEMPLATE_REPO) {
+  if (record.packageName !== P_DEV_PACKAGE_NAME) {
     return null;
   }
   if (
-    typeof record.templateDefaultBranch !== "string" ||
-    typeof record.templateHeadSha !== "string" ||
-    typeof record.templateIdentityFingerprint !== "string" ||
-    typeof record.templateContentId !== "string" ||
+    typeof record.packageVersion !== "string" ||
+    typeof record.sourceRepository !== "string" ||
+    typeof record.sourceCommit !== "string" ||
+    typeof record.manifestSchemaVersion !== "number" ||
+    typeof record.snapshotFingerprint !== "string" ||
+    typeof record.snapshotContentId !== "string" ||
+    typeof record.snapshotSha256 !== "string" ||
+    typeof record.snapshotGitTreeSha1 !== "string" ||
     typeof record.classification !== "string" ||
     typeof record.envBaseline !== "string" ||
     typeof record.pDevVersion !== "string" ||
@@ -195,15 +201,18 @@ export function parseHarnessProvisioningPreviewContextFingerprint(
     authenticatedUserId: record.authenticatedUserId,
     authenticatedLogin: normalizeGitHubLogin(record.authenticatedLogin),
     destination: normalizeRepoSlug(record.destination),
-    templateOwner: HARNESS_TEMPLATE_OWNER,
-    templateRepo: HARNESS_TEMPLATE_REPO,
-    templateDefaultBranch: record.templateDefaultBranch.trim(),
-    templateHeadSha: record.templateHeadSha.trim(),
-    templateIdentityFingerprint: record.templateIdentityFingerprint,
-    templateContentId: record.templateContentId.trim(),
+    packageName: P_DEV_PACKAGE_NAME,
+    packageVersion: String(record.packageVersion).trim(),
+    sourceRepository: String(record.sourceRepository),
+    sourceCommit: String(record.sourceCommit),
+    manifestSchemaVersion: record.manifestSchemaVersion,
+    snapshotFingerprint: String(record.snapshotFingerprint),
+    snapshotContentId: String(record.snapshotContentId).trim(),
+    snapshotSha256: String(record.snapshotSha256),
+    snapshotGitTreeSha1: String(record.snapshotGitTreeSha1),
     classification: record.classification as HarnessProvisioningClassification,
-    envBaseline: normalizeRepoSlug(record.envBaseline),
-    pDevVersion: record.pDevVersion.trim(),
+    envBaseline: normalizeRepoSlug(String(record.envBaseline)),
+    pDevVersion: String(record.pDevVersion).trim(),
     resumedFromPending: record.resumedFromPending,
     creationPreviewFingerprint:
       record.creationPreviewFingerprint === null
@@ -246,23 +255,26 @@ export function compareHarnessProvisioningPreviewContexts(
       current.authenticatedLogin,
     ],
     ["destination", submitted.destination, current.destination],
-    ["templateOwner", submitted.templateOwner, current.templateOwner],
-    ["templateRepo", submitted.templateRepo, current.templateRepo],
+    ["packageName", submitted.packageName, current.packageName],
+    ["packageVersion", submitted.packageVersion, current.packageVersion],
+    ["sourceRepository", submitted.sourceRepository, current.sourceRepository],
+    ["sourceCommit", submitted.sourceCommit, current.sourceCommit],
     [
-      "templateDefaultBranch",
-      submitted.templateDefaultBranch,
-      current.templateDefaultBranch,
-    ],
-    ["templateHeadSha", submitted.templateHeadSha, current.templateHeadSha],
-    [
-      "templateIdentityFingerprint",
-      submitted.templateIdentityFingerprint,
-      current.templateIdentityFingerprint,
+      "manifestSchemaVersion",
+      submitted.manifestSchemaVersion,
+      current.manifestSchemaVersion,
     ],
     [
-      "templateContentId",
-      submitted.templateContentId,
-      current.templateContentId,
+      "snapshotFingerprint",
+      submitted.snapshotFingerprint,
+      current.snapshotFingerprint,
+    ],
+    ["snapshotContentId", submitted.snapshotContentId, current.snapshotContentId],
+    ["snapshotSha256", submitted.snapshotSha256, current.snapshotSha256],
+    [
+      "snapshotGitTreeSha1",
+      submitted.snapshotGitTreeSha1,
+      current.snapshotGitTreeSha1,
     ],
     ["classification", submitted.classification, current.classification],
     ["envBaseline", submitted.envBaseline, current.envBaseline],

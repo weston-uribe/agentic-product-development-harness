@@ -9,16 +9,45 @@ const repoRoot = path.resolve(
   "../..",
 );
 const packageDir = path.join(repoRoot, "packages", "p-dev");
-const tarballPath = path.join(packageDir, "p-dev-harness-0.3.0.tgz");
+let tarballPath = "";
 
-describe("p-dev packed artifact", () => {
+const GENERATED_PACKAGE_OUTPUT_PREFIXES = [
+  "packages/p-dev/bin/",
+  "packages/p-dev/dist/",
+  "packages/p-dev/gui/",
+  "packages/p-dev/templates/",
+  "packages/p-dev/workspace-snapshot/",
+] as const;
+
+function isIgnorableDirtyPackagePath(filePath: string): boolean {
+  return GENERATED_PACKAGE_OUTPUT_PREFIXES.some((prefix) =>
+    filePath.startsWith(prefix),
+  );
+}
+
+function isCleanEnoughForPackagePack(): boolean {
+  const status = execFileSync("git", ["status", "--porcelain"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+  return status
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter(Boolean)
+    .every((line) => isIgnorableDirtyPackagePath(line.slice(3).trim()));
+}
+
+describe.skipIf(!isCleanEnoughForPackagePack())("p-dev packed artifact", () => {
   beforeAll(() => {
     execFileSync("npm", ["run", "package:p-dev:pack"], {
       cwd: repoRoot,
       stdio: "pipe",
-      env: process.env,
     });
-  }, 120_000);
+    const packageJson = JSON.parse(
+      readFileSync(path.join(packageDir, "package.json"), "utf8"),
+    ) as { version: string };
+    tarballPath = path.join(packageDir, `p-dev-harness-${packageJson.version}.tgz`);
+  }, 180_000);
 
   afterAll(() => {
     // keep tarball for PR validation evidence
@@ -31,20 +60,54 @@ describe("p-dev packed artifact", () => {
     });
     expect(listing).toContain("package/LICENSE");
     expect(listing).toContain("package/README.md");
+    expect(listing).toContain("package/workspace-snapshot/manifest.json");
+    expect(listing).toMatch(/package\/workspace-snapshot\/files\/src\//);
     expect(listing).not.toMatch(/\.env\.local/);
     expect(listing).not.toMatch(/config\.local\.json/);
     expect(listing).not.toMatch(/\.tgz$/);
   });
 
-  it("declares version 0.3.0 in packed package.json", () => {
+  it("declares the current package version in packed package.json", () => {
     const raw = execFileSync(
       "tar",
       ["-xOf", tarballPath, "package/package.json"],
       { encoding: "utf8" },
     );
     const manifest = JSON.parse(raw) as { version: string; private?: boolean };
-    expect(manifest.version).toBe("0.3.0");
+    const sourcePackageJson = JSON.parse(
+      readFileSync(path.join(packageDir, "package.json"), "utf8"),
+    ) as { version: string };
+    expect(manifest.version).toBe(sourcePackageJson.version);
     expect(manifest.private).toBeUndefined();
+  });
+
+  it("ships a valid workspace snapshot manifest", () => {
+    const raw = execFileSync(
+      "tar",
+      ["-xOf", tarballPath, "package/workspace-snapshot/manifest.json"],
+      { encoding: "utf8" },
+    );
+    const parsed = JSON.parse(raw) as {
+      snapshotContentId: string;
+      snapshotSha256: string;
+      fileCount: number;
+      files: unknown[];
+    };
+    expect(parsed.snapshotContentId).toMatch(/^[0-9a-f]{64}$/);
+    expect(parsed.snapshotSha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(parsed.fileCount).toBeGreaterThan(100);
+    expect(parsed.files.length).toBe(parsed.fileCount);
+  });
+
+  it("ships npm README describing embedded snapshot provisioning for 0.3.1", () => {
+    const raw = execFileSync("tar", ["-xOf", tarballPath, "package/README.md"], {
+      encoding: "utf8",
+    });
+    expect(raw).toContain("p-dev-harness@0.3.1");
+    expect(raw).toContain("immutable embedded workspace snapshot");
+    expect(raw).not.toMatch(/public template.*provisioning source/i);
+    expect(raw).not.toMatch(/template must remain/i);
+    expect(raw).toContain("frozen legacy compatibility artifact");
   });
 
   it("records tarball metadata for release evidence", () => {

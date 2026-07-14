@@ -1,13 +1,45 @@
 import { redactSecretsString } from "../artifacts/redact.js";
+import {
+  extractGitHubRateLimitMetadata,
+  type GitHubRateLimitMetadata,
+} from "./rate-limit-metadata.js";
+
+export type { GitHubRateLimitMetadata };
 
 export class GitHubApiError extends Error {
   readonly status: number;
+  readonly retryAfterSeconds?: number;
+  readonly rateLimitRemaining?: number;
+  readonly rateLimitResetEpochSeconds?: number;
+  readonly requestId?: string;
 
-  constructor(status: number, message: string) {
+  constructor(
+    status: number,
+    message: string,
+    metadata?: GitHubRateLimitMetadata,
+  ) {
     super(message);
     this.name = "GitHubApiError";
     this.status = status;
+    if (metadata) {
+      this.retryAfterSeconds = metadata.retryAfterSeconds;
+      this.rateLimitRemaining = metadata.rateLimitRemaining;
+      this.rateLimitResetEpochSeconds = metadata.rateLimitResetEpochSeconds;
+      this.requestId = metadata.requestId;
+    }
   }
+}
+
+function createGitHubApiError(
+  status: number,
+  rawBody: string,
+  headers?: Headers,
+): GitHubApiError {
+  const message = redactSecretsString(
+    rawBody || `GitHub API request failed: ${status}`,
+  );
+  const metadata = headers ? extractGitHubRateLimitMetadata(headers) : undefined;
+  return new GitHubApiError(status, message, metadata);
 }
 
 export interface GitHubClientOptions {
@@ -34,6 +66,7 @@ export interface GitHubRepository {
   id?: number;
   name?: string;
   full_name?: string;
+  description?: string | null;
   private?: boolean;
   visibility?: string;
   is_template?: boolean;
@@ -50,6 +83,48 @@ export interface GitHubRepository {
 export interface GitHubAuthenticatedUser {
   id: number;
   login: string;
+}
+
+export interface GitHubCreateUserRepositoryInput {
+  name: string;
+  description: string;
+  private: boolean;
+  autoInit: boolean;
+}
+
+export interface GitHubCreateUserRepositoryResult {
+  id: number;
+  full_name: string;
+  default_branch: string;
+}
+
+export interface GitHubGitBlob {
+  sha: string;
+}
+
+export interface GitHubGitTreeEntry {
+  path?: string;
+  mode: string;
+  type: "blob" | "tree";
+  sha: string;
+}
+
+export interface GitHubGitTree {
+  sha: string;
+  tree: GitHubGitTreeEntry[];
+  truncated?: boolean;
+}
+
+export interface GitHubGitCommitAuthor {
+  name: string;
+  email: string;
+  date: string;
+}
+
+export interface GitHubGitCommit {
+  sha: string;
+  tree: { sha: string };
+  parents: Array<{ sha: string }>;
 }
 
 export interface GitHubCreateRepositoryFromTemplateInput {
@@ -182,10 +257,7 @@ export class GitHubClient {
 
     if (!response.ok) {
       const text = await response.text();
-      const message = redactSecretsString(
-        text || `GitHub API request failed: ${response.status}`,
-      );
-      throw new GitHubApiError(response.status, message);
+      throw createGitHubApiError(response.status, text, response.headers);
     }
 
     const text = await response.text();
@@ -213,10 +285,7 @@ export class GitHubClient {
 
     if (!response.ok) {
       const text = await response.text();
-      const message = redactSecretsString(
-        text || `GitHub GraphQL request failed: ${response.status}`,
-      );
-      throw new GitHubApiError(response.status, message);
+      throw createGitHubApiError(response.status, text, response.headers);
     }
 
     const payload = (await response.json()) as GraphQLResponse<T>;
@@ -253,10 +322,7 @@ export class GitHubClient {
 
     const text = await response.text();
     if (!response.ok) {
-      const message = redactSecretsString(
-        text || `GitHub API request failed: ${response.status}`,
-      );
-      throw new GitHubApiError(response.status, message);
+      throw createGitHubApiError(response.status, text, response.headers);
     }
 
     const payload = JSON.parse(text) as { login: string };
@@ -516,6 +582,144 @@ export class GitHubClient {
         sha,
       },
     });
+  }
+
+  async createUserRepository(
+    input: GitHubCreateUserRepositoryInput,
+  ): Promise<GitHubCreateUserRepositoryResult> {
+    return this.request<GitHubCreateUserRepositoryResult>("/user/repos", {
+      method: "POST",
+      body: {
+        name: input.name,
+        description: input.description,
+        private: input.private,
+        auto_init: input.autoInit,
+      },
+    });
+  }
+
+  async updateUserRepository(input: {
+    owner: string;
+    repo: string;
+    description: string;
+  }): Promise<GitHubRepository> {
+    return this.request<GitHubRepository>(`/repos/${input.owner}/${input.repo}`, {
+      method: "PATCH",
+      body: {
+        description: input.description,
+      },
+    });
+  }
+
+  async createGitBlob(input: {
+    owner: string;
+    repo: string;
+    content: Buffer;
+  }): Promise<GitHubGitBlob> {
+    return this.request<GitHubGitBlob>(`/repos/${input.owner}/${input.repo}/git/blobs`, {
+      method: "POST",
+      body: {
+        content: input.content.toString("base64"),
+        encoding: "base64",
+      },
+    });
+  }
+
+  async createGitTree(input: {
+    owner: string;
+    repo: string;
+    baseTree?: string;
+    tree: GitHubGitTreeEntry[];
+  }): Promise<GitHubGitTree> {
+    return this.request<GitHubGitTree>(`/repos/${input.owner}/${input.repo}/git/trees`, {
+      method: "POST",
+      body: {
+        ...(input.baseTree ? { base_tree: input.baseTree } : {}),
+        tree: input.tree,
+      },
+    });
+  }
+
+  async createGitCommit(input: {
+    owner: string;
+    repo: string;
+    message: string;
+    tree: string;
+    parents: string[];
+    author?: GitHubGitCommitAuthor;
+    committer?: GitHubGitCommitAuthor;
+  }): Promise<GitHubGitCommit> {
+    return this.request<GitHubGitCommit>(`/repos/${input.owner}/${input.repo}/git/commits`, {
+      method: "POST",
+      body: {
+        message: input.message,
+        tree: input.tree,
+        parents: input.parents,
+        ...(input.author ? { author: input.author } : {}),
+        ...(input.committer ? { committer: input.committer } : {}),
+      },
+    });
+  }
+
+  async getGitCommit(
+    owner: string,
+    repo: string,
+    sha: string,
+  ): Promise<GitHubGitCommit> {
+    return this.request<GitHubGitCommit>(
+      `/repos/${owner}/${repo}/git/commits/${sha}`,
+    );
+  }
+
+  async getGitTree(input: {
+    owner: string;
+    repo: string;
+    treeSha: string;
+    recursive?: boolean;
+  }): Promise<GitHubGitTree> {
+    const params = input.recursive ? "?recursive=1" : "";
+    return this.request<GitHubGitTree>(
+      `/repos/${input.owner}/${input.repo}/git/trees/${input.treeSha}${params}`,
+    );
+  }
+
+  async getGitRef(
+    owner: string,
+    repo: string,
+    ref: string,
+  ): Promise<GitHubGitRef> {
+    const normalized = ref.startsWith("refs/heads/")
+      ? ref.slice("refs/heads/".length)
+      : ref.startsWith("refs/")
+        ? ref.slice("refs/".length)
+        : ref;
+    return this.request<GitHubGitRef>(
+      `/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(normalized)}`,
+    );
+  }
+
+  async updateGitRef(input: {
+    owner: string;
+    repo: string;
+    ref: string;
+    sha: string;
+    force?: boolean;
+  }): Promise<GitHubGitRef> {
+    const branch = input.ref.startsWith("refs/heads/")
+      ? input.ref.slice("refs/heads/".length)
+      : input.ref.startsWith("refs/")
+        ? input.ref.slice("refs/".length)
+        : input.ref;
+    return this.request<GitHubGitRef>(
+      `/repos/${input.owner}/${input.repo}/git/refs/heads/${encodeURIComponent(branch)}`,
+      {
+        method: "PATCH",
+        body: {
+          sha: input.sha,
+          force: input.force ?? false,
+        },
+      },
+    );
   }
 
   async createRepositoryFromTemplate(

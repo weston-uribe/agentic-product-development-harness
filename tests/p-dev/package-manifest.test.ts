@@ -9,7 +9,7 @@ const repoRoot = path.resolve(
 );
 
 describe("p-dev package manifest", () => {
-  it("declares publishable package metadata for v0.3.0", () => {
+  it("declares publishable package metadata for the current package version", () => {
     const manifest = JSON.parse(
       readFileSync(path.join(repoRoot, "packages/p-dev/package.json"), "utf8"),
     ) as {
@@ -25,7 +25,7 @@ describe("p-dev package manifest", () => {
     };
 
     expect(manifest.name).toBe("p-dev-harness");
-    expect(manifest.version).toBe("0.3.0");
+    expect(manifest.version).toBe("0.3.1");
     expect(manifest.private).toBeUndefined();
     expect(manifest.license).toBe("MIT");
     expect(manifest.bin["p-dev-harness"]).toBe("./bin/p-dev.js");
@@ -33,7 +33,15 @@ describe("p-dev package manifest", () => {
     expect(manifest.publishConfig.access).toBe("public");
     expect(manifest.repository.directory).toBe("packages/p-dev");
     expect(manifest.files).toEqual(
-      expect.arrayContaining(["bin", "dist", "gui", "templates", "README.md", "LICENSE"]),
+      expect.arrayContaining([
+        "bin",
+        "dist",
+        "gui",
+        "templates",
+        "workspace-snapshot",
+        "README.md",
+        "LICENSE",
+      ]),
     );
   });
 });

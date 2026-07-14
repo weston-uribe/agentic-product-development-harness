@@ -2,14 +2,14 @@
 
 Operator guide for the Product Development Harness.
 
-**Current release:** v0.3.0 — see [`docs/releases/v0.3.0.md`](releases/v0.3.0.md)
+**Current release:** v0.3.1 — see [`docs/releases/v0.3.1.md`](releases/v0.3.1.md)
 
 ## Choose your path
 
 ### Product managers — use p-dev (recommended)
 
 ```bash
-npx --yes p-dev-harness@0.3.0
+npx --yes p-dev-harness@0.3.1
 ```
 
 - Node.js **22+** required

@@ -4,7 +4,7 @@ Modular design for an agentic product development harness. The architecture is *
 
 ## p-dev packaged operator shell
 
-**Status:** **Implemented** in v0.3.0 — public npm package `p-dev-harness@0.3.0`.
+**Status:** **Implemented** in v0.3.1 — public npm package `p-dev-harness@0.3.1`.
 
 **Purpose:** Launch the guided Configure GUI without cloning the source repository. Operators use a durable workspace (`~/.p-dev`, `P_DEV_HOME`, or `--workspace`) separate from the npm install directory.
 
@@ -14,7 +14,8 @@ Modular design for an agentic product development harness. The architecture is *
 |----------|------|
 | `packages/p-dev` | Published npm artifact and launcher |
 | Operator workspace | Local secrets and config (`.env.local`, `.harness/config.local.json`) |
-| Public template (`weston-uribe/p-dev-harness-template`) | Provisioning source |
+| Embedded `workspace-snapshot/` in `p-dev-harness` | **Implemented (0.3.1+)** — immutable provisioning source bound to package version |
+| Public template (`weston-uribe/p-dev-harness-template`) | **Legacy (0.3.0 only)** — frozen compatibility artifact; not used for 0.3.1+ provisioning |
 | Private `OWNER/p-dev-harness` | Managed harness workspace for cloud automation |
 | Target repos | Product codebases |
 

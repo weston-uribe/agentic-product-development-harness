@@ -47,4 +47,12 @@ describe("buildPlanningPrompt", () => {
     expect(prompt).toContain(resolved.targetRepo);
     expect(prompt).toContain(parsed.task);
   });
+
+  it("includes conditional release-impact requirements without authorizing release execution", async () => {
+    const { prompt } = await buildPlanningPrompt(issue, parsed, resolved);
+
+    expect(prompt).toContain("Release impact (conditional)");
+    expect(prompt).toContain("Do not** authorize publishing, tagging, deployment");
+    expect(prompt).toContain("human decision required");
+  });
 });

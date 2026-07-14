@@ -18,11 +18,26 @@ import { previewTargetWorkflowSetup } from "./target-workflow-setup.js";
 import {
   type HarnessDispatchRepoResolution,
 } from "./harness-dispatch-repo.js";
+import {
+  type MockGitRepositoryStore,
+  createMockGitRepositoryStore,
+} from "./mock-git-repository-store.js";
+import type { GitHubGitCommitAuthor } from "../github/client.js";
+import { GitHubApiError } from "../github/client.js";
+
+export interface GitCommitIdentity {
+  name: string;
+  email: string;
+  date: string;
+}
+
+export { type GitHubGitCommitAuthor as GitCommitAuthor };
 
 export interface GitHubRepositoryMetadata {
   repositoryId: number;
   owner: string;
   repo: string;
+  description?: string | null;
   private: boolean;
   visibility: string;
   isTemplate: boolean;
@@ -45,6 +60,45 @@ export interface GitHubTokenCapabilitySummary {
   hasRepoScope: boolean;
   hasWorkflowScope: boolean;
   scopeAmbiguous: boolean;
+}
+
+export interface CreateUserRepositoryInput {
+  name: string;
+  description: string;
+  private: boolean;
+  autoInit: boolean;
+}
+
+export interface CreateUserRepositoryResult {
+  repositoryId: number;
+  fullName: string;
+  defaultBranch: string;
+}
+
+export interface GitBlobResult {
+  sha: string;
+}
+
+export interface GitTreeEntryInput {
+  path?: string;
+  mode: string;
+  type: "blob" | "tree";
+  sha: string;
+}
+
+export interface GitTreeResult {
+  sha: string;
+}
+
+export interface GitCommitResult {
+  sha: string;
+  tree: { sha: string };
+  parents: Array<{ sha: string }>;
+}
+
+export interface GitRefResult {
+  ref: string;
+  object: { sha: string };
 }
 
 export interface CreateRepositoryFromTemplateInput {
@@ -97,6 +151,48 @@ export interface GitHubHarnessProvisioningProvider {
   createRepositoryFromTemplate(
     input: CreateRepositoryFromTemplateInput,
   ): Promise<CreateRepositoryFromTemplateResult>;
+  createUserRepository(
+    input: CreateUserRepositoryInput,
+  ): Promise<CreateUserRepositoryResult>;
+  createGitBlob(input: {
+    owner: string;
+    repo: string;
+    content: Buffer;
+  }): Promise<GitBlobResult>;
+  createGitTree(input: {
+    owner: string;
+    repo: string;
+    baseTree?: string;
+    tree: GitTreeEntryInput[];
+  }): Promise<GitTreeResult>;
+  createGitCommit(input: {
+    owner: string;
+    repo: string;
+    message: string;
+    tree: string;
+    parents: string[];
+    author?: GitCommitIdentity;
+    committer?: GitCommitIdentity;
+  }): Promise<GitCommitResult>;
+  getGitCommit(
+    owner: string,
+    repo: string,
+    sha: string,
+  ): Promise<GitCommitResult>;
+  getGitRef(owner: string, repo: string, ref: string): Promise<GitRefResult>;
+  updateGitRef(input: {
+    owner: string;
+    repo: string;
+    ref: string;
+    sha: string;
+    force?: boolean;
+    expectedSha?: string;
+  }): Promise<GitRefResult>;
+  updateUserRepositoryDescription(input: {
+    owner: string;
+    repo: string;
+    description: string;
+  }): Promise<void>;
   writeRepositoryFile(
     input: RepositoryFileWriteInput,
   ): Promise<{ commitSha: string }>;
@@ -363,7 +459,14 @@ export interface MockGitHubHarnessProvisioningProviderState {
   createRepositoryFromTemplateResult?: CreateRepositoryFromTemplateResult;
   createRepositoryFromTemplateError?: Error;
   deferDestinationTemplateIdentity?: boolean;
+  markerCommitError?: Error | null;
+  markerCommitErrorsRemaining?: number;
   writeRepositoryFileError?: Error | null;
+  createdRepositoryDefaultBranch?: string;
+  updateUserRepositoryDescriptionError?: Error | null;
+  updateUserRepositoryDescriptionErrorsRemaining?: number;
+  getRepositoryMetadataAttemptsBeforeVisible?: number;
+  createUserRepositoryAmbiguous?: boolean;
   fileWrites?: Array<RepositoryFileWriteInput & { commitSha: string }>;
 }
 
@@ -408,6 +511,8 @@ export class MockGitHubHarnessProvisioningProvider
       branchHeadSha?: string;
     }
   >;
+  private readonly gitStores = new Map<string, MockGitRepositoryStore>();
+  private repositoryMetadataVisibilityAttempts = 0;
 
   constructor(
     private readonly state: MockGitHubHarnessProvisioningProviderState = {},
@@ -443,6 +548,14 @@ export class MockGitHubHarnessProvisioningProvider
     );
   }
 
+  clearProvisioningFaults(): void {
+    this.state.markerCommitError = null;
+    this.state.markerCommitErrorsRemaining = undefined;
+    this.state.updateUserRepositoryDescriptionError = null;
+    this.state.updateUserRepositoryDescriptionErrorsRemaining = undefined;
+    this.repositoryMetadataVisibilityAttempts = 0;
+  }
+
   async getRepositoryMetadata(
     owner: string,
     repo: string,
@@ -453,9 +566,24 @@ export class MockGitHubHarnessProvisioningProvider
     if (!entry) {
       return null;
     }
-    const { templateIdentityContent: _t, managedMarkerContent: _m, branchHeadSha: _b, ...metadata } =
-      entry;
-    return metadata;
+    const requiredAttempts = this.state.getRepositoryMetadataAttemptsBeforeVisible ?? 0;
+    if (requiredAttempts > 0) {
+      this.repositoryMetadataVisibilityAttempts += 1;
+      if (this.repositoryMetadataVisibilityAttempts < requiredAttempts) {
+        return null;
+      }
+    }
+    return {
+      repositoryId: entry.repositoryId,
+      owner: entry.owner,
+      repo: entry.repo,
+      description: entry.description ?? null,
+      private: entry.private,
+      visibility: entry.visibility,
+      isTemplate: entry.isTemplate,
+      defaultBranch: entry.defaultBranch,
+      permissions: entry.permissions,
+    };
   }
 
   async getRepositoryMetadataById(
@@ -489,6 +617,10 @@ export class MockGitHubHarnessProvisioningProvider
       args: [owner, repo, branch],
     });
     const key = `${owner}/${repo}`;
+    const store = this.gitStores.get(key);
+    if (store) {
+      return store.getHeadSha();
+    }
     return this.repositories[key]?.branchHeadSha ?? "abc123templatehead";
   }
 
@@ -507,13 +639,22 @@ export class MockGitHubHarnessProvisioningProvider
     if (!entry) {
       return null;
     }
+
+    const store = this.gitStores.get(key);
+    if (store) {
+      const commit = store.getCommit(ref);
+      if (commit) {
+        const content = store.readFileAtCommit(ref, path);
+        return content ? content.toString("utf8") : null;
+      }
+    }
+
     if (path.endsWith("p-dev-template.json")) {
       return entry.templateIdentityContent ?? null;
     }
     if (path.endsWith("p-dev-managed-repo.json")) {
       return entry.managedMarkerContent ?? null;
     }
-    void ref;
     return null;
   }
 
@@ -552,6 +693,227 @@ export class MockGitHubHarnessProvisioningProvider
     return result;
   }
 
+  private async ensureGitStore(key: string): Promise<MockGitRepositoryStore> {
+    const existing = this.gitStores.get(key);
+    if (existing) {
+      return existing;
+    }
+    const store = await createMockGitRepositoryStore();
+    this.gitStores.set(key, store);
+    const entry = this.repositories[key];
+    if (entry) {
+      entry.branchHeadSha = store.getHeadSha();
+    }
+    return store;
+  }
+
+  async updateUserRepositoryDescription(input: {
+    owner: string;
+    repo: string;
+    description: string;
+  }): Promise<void> {
+    this.calls.push({ method: "updateUserRepositoryDescription", args: [input] });
+    if (this.state.updateUserRepositoryDescriptionError) {
+      if (
+        this.state.updateUserRepositoryDescriptionErrorsRemaining === undefined ||
+        this.state.updateUserRepositoryDescriptionErrorsRemaining > 0
+      ) {
+        if (this.state.updateUserRepositoryDescriptionErrorsRemaining !== undefined) {
+          this.state.updateUserRepositoryDescriptionErrorsRemaining -= 1;
+        }
+        throw this.state.updateUserRepositoryDescriptionError;
+      }
+    }
+    const key = `${input.owner}/${input.repo}`;
+    const entry = this.repositories[key];
+    if (entry) {
+      entry.description = input.description;
+    }
+  }
+
+  async createUserRepository(
+    input: CreateUserRepositoryInput,
+  ): Promise<CreateUserRepositoryResult> {
+    this.calls.push({ method: "createUserRepository", args: [input] });
+    const fullName = `test-user/${input.name}`;
+    const key = fullName;
+    const repositoryId = deterministicMockRepositoryId(key);
+    const defaultBranch = this.state.createdRepositoryDefaultBranch ?? "main";
+    this.repositories[key] = withRepositoryId(key, {
+      owner: "test-user",
+      repo: input.name,
+      repositoryId,
+      description: input.description,
+      private: input.private,
+      visibility: input.private ? "private" : "public",
+      isTemplate: false,
+      defaultBranch,
+      permissions: { admin: true, maintain: true, push: true },
+      templateIdentityContent: null,
+      managedMarkerContent: null,
+      branchHeadSha: "",
+    });
+    if (input.autoInit) {
+      await this.ensureGitStore(key);
+    }
+    if (this.state.createUserRepositoryAmbiguous) {
+      throw new GitHubApiError(422, "Repository creation returned an ambiguous result.");
+    }
+    return {
+      repositoryId,
+      fullName: key,
+      defaultBranch,
+    };
+  }
+
+  async createGitBlob(input: {
+    owner: string;
+    repo: string;
+    content: Buffer;
+  }): Promise<GitBlobResult> {
+    this.calls.push({
+      method: "createGitBlob",
+      args: [{ owner: input.owner, repo: input.repo, bytes: input.content.byteLength }],
+    });
+    const key = `${input.owner}/${input.repo}`;
+    const store = await this.ensureGitStore(key);
+    const sha = store.createBlob(input.content);
+    return { sha };
+  }
+
+  async createGitTree(input: {
+    owner: string;
+    repo: string;
+    baseTree?: string;
+    tree: GitTreeEntryInput[];
+  }): Promise<GitTreeResult> {
+    this.calls.push({ method: "createGitTree", args: [input] });
+    const key = `${input.owner}/${input.repo}`;
+    const store = await this.ensureGitStore(key);
+    const entries = input.tree.map((treeEntry) => ({
+      path: treeEntry.path ?? "",
+      mode: treeEntry.mode,
+      sha: treeEntry.sha,
+    }));
+    const sha = input.baseTree
+      ? store.createTreeWithBase(entries, input.baseTree)
+      : store.createTreeFromFlatEntries(entries);
+    return { sha };
+  }
+
+  async createGitCommit(input: {
+    owner: string;
+    repo: string;
+    message: string;
+    tree: string;
+    parents: string[];
+    author?: GitCommitIdentity;
+    committer?: GitCommitIdentity;
+  }): Promise<GitCommitResult> {
+    this.calls.push({ method: "createGitCommit", args: [input] });
+    if (/managed harness workspace marker/i.test(input.message)) {
+      if (this.state.markerCommitError) {
+        throw this.state.markerCommitError;
+      }
+      if (
+        this.state.markerCommitErrorsRemaining !== undefined &&
+        this.state.markerCommitErrorsRemaining > 0
+      ) {
+        this.state.markerCommitErrorsRemaining -= 1;
+        throw new Error("marker commit failed");
+      }
+    }
+    const key = `${input.owner}/${input.repo}`;
+    const store = await this.ensureGitStore(key);
+    const sha = store.createCommitRecord({
+      message: input.message,
+      treeSha: input.tree,
+      parents: input.parents,
+      author: input.author,
+      committer: input.committer,
+    });
+    return {
+      sha,
+      tree: { sha: input.tree },
+      parents: input.parents.map((parent) => ({ sha: parent })),
+    };
+  }
+
+  async getGitCommit(
+    owner: string,
+    repo: string,
+    sha: string,
+  ): Promise<GitCommitResult> {
+    this.calls.push({ method: "getGitCommit", args: [owner, repo, sha] });
+    const key = `${owner}/${repo}`;
+    const store = await this.ensureGitStore(key);
+    const commit = store.getCommit(sha);
+    if (!commit) {
+      throw new Error(`Mock git commit ${sha} not found.`);
+    }
+    return {
+      sha,
+      tree: { sha: commit.treeSha },
+      parents: commit.parents.map((parent) => ({ sha: parent })),
+    };
+  }
+
+  async getGitRef(owner: string, repo: string, ref: string): Promise<GitRefResult> {
+    this.calls.push({ method: "getGitRef", args: [owner, repo, ref] });
+    const key = `${owner}/${repo}`;
+    const store = await this.ensureGitStore(key);
+    return {
+      ref: `refs/heads/${ref}`,
+      object: { sha: store.getHeadSha() },
+    };
+  }
+
+  async updateGitRef(input: {
+    owner: string;
+    repo: string;
+    ref: string;
+    sha: string;
+    force?: boolean;
+    expectedSha?: string;
+  }): Promise<GitRefResult> {
+    this.calls.push({ method: "updateGitRef", args: [input] });
+    if (input.force) {
+      throw new Error("Force ref updates are not allowed in mock provisioning.");
+    }
+    const key = `${input.owner}/${input.repo}`;
+    const entry = this.repositories[key];
+    const store = await this.ensureGitStore(key);
+    const currentHead = store.getHeadSha();
+    if (currentHead === input.sha) {
+      return {
+        ref: `refs/heads/${input.ref}`,
+        object: { sha: input.sha },
+      };
+    }
+    if (input.expectedSha && currentHead !== input.expectedSha) {
+      throw new Error(
+        `Ref update rejected: expected HEAD ${input.expectedSha}, found ${currentHead}.`,
+      );
+    }
+    const commit = store.getCommit(input.sha);
+    if (!commit) {
+      throw new Error(`Cannot fast-forward to unknown commit ${input.sha}.`);
+    }
+    if (currentHead !== input.sha && !commit.parents.includes(currentHead)) {
+      throw new Error(
+        `Ref update rejected: ${input.sha} is not a descendant of ${currentHead}.`,
+      );
+    }
+    store.updateRef(input.sha, input.expectedSha);
+    if (entry) {
+      entry.branchHeadSha = input.sha;
+    }
+    return {
+      ref: `refs/heads/${input.ref}`,
+      object: { sha: input.sha },
+    };
+  }
+
   revealDestinationTemplateIdentity(
     slug: string,
     templateIdentityContent: string,
@@ -575,6 +937,9 @@ export class MockGitHubHarnessProvisioningProvider
     const entry = this.repositories[key];
     if (entry && input.path.endsWith("p-dev-managed-repo.json")) {
       entry.managedMarkerContent = input.content;
+      const extended = entry as typeof entry & { fileContents?: Record<string, string> };
+      extended.fileContents ??= {};
+      extended.fileContents[input.path] = input.content;
     }
     const commitSha = `commit-${this.state.fileWrites?.length ?? 0}`;
     this.state.fileWrites = [

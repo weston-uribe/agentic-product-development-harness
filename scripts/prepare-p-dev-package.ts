@@ -1,8 +1,10 @@
-import { cp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { generateWorkspaceSnapshot } from "../src/p-dev/workspace-snapshot-generator.js";
+import { assertCleanGitSource } from "../src/p-dev/workspace-snapshot-git.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -46,6 +48,11 @@ async function copyIfExists(source: string, destination: string): Promise<void> 
 }
 
 async function main(): Promise<void> {
+  const sourceCommit = await assertCleanGitSource(repoRoot, "HEAD", {
+    requireHeadMatch: true,
+    requireCleanWorkingTree: true,
+  });
+
   console.log("Building harness TypeScript and Configure GUI…");
   await run("npm", ["run", "build"]);
 
@@ -54,6 +61,7 @@ async function main(): Promise<void> {
     path.join(packageDir, "dist"),
     path.join(packageDir, "gui"),
     path.join(packageDir, "templates"),
+    path.join(packageDir, "workspace-snapshot"),
   ];
 
   for (const generatedPath of generatedPaths) {
@@ -113,6 +121,28 @@ import "../dist/p-dev/main.js";
   await copyIfExists(
     path.join(repoRoot, "LICENSE"),
     path.join(packageDir, "LICENSE"),
+  );
+
+  const packageJson = JSON.parse(
+    await readFile(path.join(packageDir, "package.json"), "utf8"),
+  ) as { version: string };
+  const snapshotOutputDir = path.join(packageDir, "workspace-snapshot");
+  console.log(
+    `Generating immutable workspace snapshot from checked-out HEAD ${sourceCommit}…`,
+  );
+  const snapshot = await generateWorkspaceSnapshot({
+    repoRoot,
+    packageVersion: packageJson.version,
+    sourceRef: "HEAD",
+    outputDir: snapshotOutputDir,
+  });
+  if (snapshot.sourceCommit !== sourceCommit) {
+    throw new Error(
+      `Snapshot source commit mismatch (expected ${sourceCommit}, got ${snapshot.sourceCommit}).`,
+    );
+  }
+  console.log(
+    `Workspace snapshot ready (${snapshot.manifest.fileCount} files, source ${snapshot.sourceCommit.slice(0, 7)}, content ${snapshot.manifest.snapshotContentId.slice(0, 12)}…).`,
   );
 
   console.log(`Prepared p-dev package at packages/p-dev`);

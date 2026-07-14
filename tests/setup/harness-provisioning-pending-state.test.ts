@@ -4,6 +4,7 @@ import {
   validatePendingProvisioningState,
   withHarnessProvisioningMutex,
 } from "../../src/setup/harness-provisioning-pending-state.js";
+import { buildTestSnapshotPendingState, buildTestWorkspaceSnapshotManifest } from "./test-workspace-snapshot-fixture.js";
 
 describe("harness provisioning pending state", () => {
   it("serializes workspace mutex calls and releases afterward", async () => {
@@ -40,23 +41,11 @@ describe("harness provisioning pending state", () => {
   });
 
   it("validates the full pending provisioning context strictly", () => {
-    const pending = {
+    const manifest = buildTestWorkspaceSnapshotManifest("0.3.0");
+    const pending = buildTestSnapshotPendingState(manifest, {
       operationId: "op-1",
-      authenticatedUserId: 1,
-      authenticatedLogin: "test-user",
-      targetOwner: "test-user",
-      targetRepo: "p-dev-harness",
-      templateOwner: "weston-uribe",
-      templateRepo: "p-dev-harness-template",
-      templateIdentity: "p-dev-harness-template",
-      templateVersion: 1,
-      compatibilityVersion: 1,
-      templateContentId: "template-content-v1",
-      templateDefaultBranch: "main",
-      templateHeadSha: "abc123",
       previewFingerprint: "creation-fingerprint",
-      startedAt: new Date().toISOString(),
-    };
+    });
 
     const valid = validatePendingProvisioningState(
       pending,
@@ -66,12 +55,12 @@ describe("harness provisioning pending state", () => {
         authenticatedLogin: "test-user",
         targetOwner: "test-user",
         targetRepo: "p-dev-harness",
-        templateIdentity: "p-dev-harness-template",
-        templateVersion: 1,
-        compatibilityVersion: 1,
-        templateContentId: "template-content-v1",
-        templateDefaultBranch: "main",
-        templateHeadSha: "abc123",
+        packageVersion: manifest.packageVersion,
+        sourceCommit: manifest.sourceCommit,
+        manifestSchemaVersion: manifest.schemaVersion,
+        snapshotContentId: manifest.snapshotContentId,
+        snapshotSha256: manifest.snapshotSha256,
+        snapshotGitTreeSha1: manifest.gitRootTreeSha1,
         previewFingerprint: "creation-fingerprint",
       }),
     );
@@ -85,12 +74,12 @@ describe("harness provisioning pending state", () => {
         authenticatedLogin: "other-user",
         targetOwner: "test-user",
         targetRepo: "p-dev-harness",
-        templateIdentity: "p-dev-harness-template",
-        templateVersion: 1,
-        compatibilityVersion: 1,
-        templateContentId: "template-content-v1",
-        templateDefaultBranch: "main",
-        templateHeadSha: "abc123",
+        packageVersion: manifest.packageVersion,
+        sourceCommit: manifest.sourceCommit,
+        manifestSchemaVersion: manifest.schemaVersion,
+        snapshotContentId: manifest.snapshotContentId,
+        snapshotSha256: manifest.snapshotSha256,
+        snapshotGitTreeSha1: manifest.gitRootTreeSha1,
         previewFingerprint: "creation-fingerprint",
       }),
     );

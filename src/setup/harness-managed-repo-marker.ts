@@ -9,11 +9,33 @@ import {
   HARNESS_WORKSPACE_ROLE,
   type HarnessTemplateIdentity,
 } from "./harness-template-identity.js";
+import {
+  WORKSPACE_SNAPSHOT_FORMAT_VERSION,
+  WORKSPACE_SNAPSHOT_SCHEMA_VERSION,
+  WORKSPACE_SNAPSHOT_SOURCE_REPOSITORY,
+  type WorkspaceSnapshotManifest,
+} from "../p-dev/workspace-snapshot-types.js";
+import { P_DEV_PACKAGE_NAME } from "../p-dev/package-paths.js";
 
 export { HARNESS_MANAGED_REPO_MARKER_FILE };
 
 export const HARNESS_LEGACY_MANAGED_REPO_MARKER_VERSION = 1;
 export const HARNESS_MANAGED_REPO_MARKER_VERSION = 2;
+export const HARNESS_SNAPSHOT_MANAGED_REPO_MARKER_VERSION = 3;
+
+export interface HarnessPackageSnapshotProvenance {
+  packageName: string;
+  packageVersion: string;
+  sourceRepository: string;
+  sourceCommit: string;
+  manifestSchemaVersion: number;
+  snapshotContentId: string;
+  snapshotSha256: string;
+  snapshotGitTreeSha1: string;
+  snapshotCommitSha: string;
+  generationFormatVersion: number;
+  defaultBranch?: string;
+}
 
 export interface HarnessManagedRepoMarker {
   schemaVersion: number;
@@ -27,7 +49,7 @@ export interface HarnessManagedRepoMarker {
   createdByGithubUserId?: number;
   createdByLogin?: string;
   pDevVersion?: string;
-  createdFromTemplate: {
+  createdFromTemplate?: {
     templateRepository: string;
     defaultBranch: string;
     templateIdentity: string;
@@ -36,6 +58,7 @@ export interface HarnessManagedRepoMarker {
     templateContentId: string;
     sourceHeadSha: string;
   };
+  createdFromPackageSnapshot?: HarnessPackageSnapshotProvenance;
 }
 
 export type HarnessManagedRepoMarkerValidationResult =
@@ -121,8 +144,11 @@ export function parseHarnessManagedRepoMarkerJson(
   if (!markerVersion.ok) {
     return { ok: false, reason: markerVersion.reason };
   }
-  if (markerVersion.value !== HARNESS_LEGACY_MANAGED_REPO_MARKER_VERSION &&
-    markerVersion.value !== HARNESS_MANAGED_REPO_MARKER_VERSION) {
+  if (
+    markerVersion.value !== HARNESS_LEGACY_MANAGED_REPO_MARKER_VERSION &&
+    markerVersion.value !== HARNESS_MANAGED_REPO_MARKER_VERSION &&
+    markerVersion.value !== HARNESS_SNAPSHOT_MANAGED_REPO_MARKER_VERSION
+  ) {
     return {
       ok: false,
       reason: `Unsupported managed marker version ${String(markerVersion.value)}.`,
@@ -130,7 +156,10 @@ export function parseHarnessManagedRepoMarkerJson(
   }
 
   let repositoryId: number | undefined;
-  if (markerVersion.value === HARNESS_MANAGED_REPO_MARKER_VERSION) {
+  if (
+    markerVersion.value === HARNESS_MANAGED_REPO_MARKER_VERSION ||
+    markerVersion.value === HARNESS_SNAPSHOT_MANAGED_REPO_MARKER_VERSION
+  ) {
     const parsedRepositoryId = readRequiredNumber(
       record,
       "repositoryId",
@@ -159,6 +188,142 @@ export function parseHarnessManagedRepoMarkerJson(
       return { ok: false, reason: parsedRepositoryId.reason };
     }
     repositoryId = parsedRepositoryId.value;
+  }
+
+  const createdFromPackageSnapshot = record.createdFromPackageSnapshot;
+  if (
+    markerVersion.value === HARNESS_SNAPSHOT_MANAGED_REPO_MARKER_VERSION
+  ) {
+    if (!createdFromPackageSnapshot || typeof createdFromPackageSnapshot !== "object") {
+      return {
+        ok: false,
+        reason: "Managed marker is missing createdFromPackageSnapshot metadata.",
+      };
+    }
+    const snapshot = createdFromPackageSnapshot as Record<string, unknown>;
+    const packageName = readRequiredString(snapshot, "packageName", "packageName");
+    if (!packageName.ok) {
+      return { ok: false, reason: packageName.reason };
+    }
+    if (packageName.value !== P_DEV_PACKAGE_NAME) {
+      return {
+        ok: false,
+        reason: `Unexpected package name ${packageName.value}.`,
+      };
+    }
+    const packageVersion = readRequiredString(snapshot, "packageVersion", "packageVersion");
+    if (!packageVersion.ok) {
+      return { ok: false, reason: packageVersion.reason };
+    }
+    const sourceRepository = readRequiredString(
+      snapshot,
+      "sourceRepository",
+      "sourceRepository",
+    );
+    if (!sourceRepository.ok) {
+      return { ok: false, reason: sourceRepository.reason };
+    }
+    if (sourceRepository.value !== WORKSPACE_SNAPSHOT_SOURCE_REPOSITORY) {
+      return {
+        ok: false,
+        reason: `Unexpected source repository ${sourceRepository.value}.`,
+      };
+    }
+    const sourceCommit = readRequiredString(snapshot, "sourceCommit", "sourceCommit");
+    if (!sourceCommit.ok) {
+      return { ok: false, reason: sourceCommit.reason };
+    }
+    const manifestSchemaVersion = readRequiredNumber(
+      snapshot,
+      "manifestSchemaVersion",
+      "manifestSchemaVersion",
+    );
+    if (!manifestSchemaVersion.ok) {
+      return { ok: false, reason: manifestSchemaVersion.reason };
+    }
+    if (manifestSchemaVersion.value !== WORKSPACE_SNAPSHOT_SCHEMA_VERSION) {
+      return {
+        ok: false,
+        reason: `Unsupported manifest schema version ${String(manifestSchemaVersion.value)}.`,
+      };
+    }
+    const snapshotContentId = readRequiredString(
+      snapshot,
+      "snapshotContentId",
+      "snapshotContentId",
+    );
+    if (!snapshotContentId.ok) {
+      return { ok: false, reason: snapshotContentId.reason };
+    }
+    const snapshotSha256 = readRequiredString(snapshot, "snapshotSha256", "snapshotSha256");
+    if (!snapshotSha256.ok) {
+      return { ok: false, reason: snapshotSha256.reason };
+    }
+    const snapshotGitTreeSha1 = readRequiredString(
+      snapshot,
+      "snapshotGitTreeSha1",
+      "snapshotGitTreeSha1",
+    );
+    if (!snapshotGitTreeSha1.ok) {
+      return { ok: false, reason: snapshotGitTreeSha1.reason };
+    }
+    const snapshotCommitSha = readRequiredString(
+      snapshot,
+      "snapshotCommitSha",
+      "snapshotCommitSha",
+    );
+    if (!snapshotCommitSha.ok) {
+      return { ok: false, reason: snapshotCommitSha.reason };
+    }
+    const generationFormatVersion = readRequiredNumber(
+      snapshot,
+      "generationFormatVersion",
+      "generationFormatVersion",
+    );
+    if (!generationFormatVersion.ok) {
+      return { ok: false, reason: generationFormatVersion.reason };
+    }
+    if (generationFormatVersion.value !== WORKSPACE_SNAPSHOT_FORMAT_VERSION) {
+      return {
+        ok: false,
+        reason: `Unsupported generation format version ${String(generationFormatVersion.value)}.`,
+      };
+    }
+
+    return {
+      ok: true,
+      marker: {
+        schemaVersion: HARNESS_SCHEMA_VERSION,
+        product: HARNESS_PRODUCT,
+        role: HARNESS_WORKSPACE_ROLE,
+        managedBy: "p-dev",
+        repository: repository.value,
+        repositoryId,
+        markerVersion: markerVersion.value,
+        operationId:
+          typeof record.operationId === "string" ? record.operationId : undefined,
+        createdByGithubUserId:
+          typeof record.createdByGithubUserId === "number"
+            ? record.createdByGithubUserId
+            : undefined,
+        createdByLogin:
+          typeof record.createdByLogin === "string" ? record.createdByLogin : undefined,
+        pDevVersion:
+          typeof record.pDevVersion === "string" ? record.pDevVersion : undefined,
+        createdFromPackageSnapshot: {
+          packageName: packageName.value,
+          packageVersion: packageVersion.value,
+          sourceRepository: sourceRepository.value,
+          sourceCommit: sourceCommit.value,
+          manifestSchemaVersion: manifestSchemaVersion.value,
+          snapshotContentId: snapshotContentId.value,
+          snapshotSha256: snapshotSha256.value,
+          snapshotGitTreeSha1: snapshotGitTreeSha1.value,
+          snapshotCommitSha: snapshotCommitSha.value,
+          generationFormatVersion: generationFormatVersion.value,
+        },
+      },
+    };
   }
 
   const createdFromTemplate = record.createdFromTemplate;
@@ -326,6 +491,15 @@ export function validateManagedMarkerForReconnect(
       reason: `Managed marker repository mismatch for ${repoSlug}.`,
     };
   }
+  if (marker.createdFromPackageSnapshot) {
+    return { ok: true };
+  }
+  if (!marker.createdFromTemplate) {
+    return {
+      ok: false,
+      reason: "Managed marker is missing workspace provenance metadata.",
+    };
+  }
   if (marker.createdFromTemplate.templateRepository !== HARNESS_TEMPLATE_SLUG) {
     return {
       ok: false,
@@ -353,6 +527,48 @@ export function validateManagedMarkerForReconnect(
     };
   }
   return { ok: true };
+}
+
+export function buildHarnessSnapshotManagedRepoMarker(input: {
+  repository: string;
+  repositoryId: number;
+  manifest: WorkspaceSnapshotManifest;
+  snapshotCommitSha: string;
+  defaultBranch: string;
+  operationId?: string;
+  createdByGithubUserId?: number;
+  createdByLogin?: string;
+  pDevVersion?: string;
+}): HarnessManagedRepoMarker {
+  if (!Number.isInteger(input.repositoryId) || input.repositoryId <= 0) {
+    throw new Error("Managed marker requires a positive integer repositoryId.");
+  }
+  return {
+    schemaVersion: HARNESS_SCHEMA_VERSION,
+    product: HARNESS_PRODUCT,
+    role: HARNESS_WORKSPACE_ROLE,
+    managedBy: "p-dev",
+    repository: input.repository,
+    repositoryId: input.repositoryId,
+    markerVersion: HARNESS_SNAPSHOT_MANAGED_REPO_MARKER_VERSION,
+    operationId: input.operationId,
+    createdByGithubUserId: input.createdByGithubUserId,
+    createdByLogin: input.createdByLogin,
+    pDevVersion: input.pDevVersion,
+    createdFromPackageSnapshot: {
+      packageName: input.manifest.packageName,
+      packageVersion: input.manifest.packageVersion,
+      sourceRepository: input.manifest.sourceRepository,
+      sourceCommit: input.manifest.sourceCommit,
+      manifestSchemaVersion: input.manifest.schemaVersion,
+      snapshotContentId: input.manifest.snapshotContentId,
+      snapshotSha256: input.manifest.snapshotSha256,
+      snapshotGitTreeSha1: input.manifest.gitRootTreeSha1,
+      snapshotCommitSha: input.snapshotCommitSha,
+      generationFormatVersion: input.manifest.generation.version,
+      defaultBranch: input.defaultBranch,
+    },
+  };
 }
 
 export function buildHarnessManagedRepoMarker(input: {
@@ -397,6 +613,22 @@ export function markersAreEquivalentForOperation(
   existing: HarnessManagedRepoMarker,
   expected: HarnessManagedRepoMarker,
 ): boolean {
+  if (existing.createdFromPackageSnapshot && expected.createdFromPackageSnapshot) {
+    return (
+      existing.repository === expected.repository &&
+      existing.repositoryId === expected.repositoryId &&
+      existing.operationId === expected.operationId &&
+      existing.createdFromPackageSnapshot.snapshotContentId ===
+        expected.createdFromPackageSnapshot.snapshotContentId &&
+      existing.createdFromPackageSnapshot.snapshotSha256 ===
+        expected.createdFromPackageSnapshot.snapshotSha256 &&
+      existing.createdFromPackageSnapshot.snapshotCommitSha ===
+        expected.createdFromPackageSnapshot.snapshotCommitSha
+    );
+  }
+  if (!existing.createdFromTemplate || !expected.createdFromTemplate) {
+    return false;
+  }
   return (
     existing.repository === expected.repository &&
     existing.repositoryId === expected.repositoryId &&

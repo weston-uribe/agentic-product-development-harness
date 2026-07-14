@@ -2,9 +2,9 @@
 
 Guided remote setup for harness repo GitHub Actions secrets and target-repo production sync workflow install PRs.
 
-**v0.3.0:** The seven-step Configure GUI includes remote setup in Steps 2–3, 6–7. Step 7 **automatically** validates, merges, and verifies system-owned workflow install PRs when checks pass — it does not leave manual merge as the only path. Ordinary product implementation PRs remain governed by Linear status gates.
+**v0.3.1:** The seven-step Configure GUI includes remote setup in Steps 2–3, 6–7. Step 7 **automatically** validates, merges, and verifies system-owned workflow install PRs when checks pass — it does not leave manual merge as the only path. Ordinary product implementation PRs remain governed by Linear status gates.
 
-Packaged launch: `npx --yes p-dev-harness@0.3.0` — see [`docs/p-dev.md`](p-dev.md).
+Packaged launch: `npx --yes p-dev-harness@0.3.1` — see [`docs/p-dev.md`](p-dev.md).
 
 **Related:** [`docs/gui-local.md`](gui-local.md), [`docs/security.md`](security.md), [`docs/operator-config.md`](operator-config.md), [`docs/production-sync-automation.md`](production-sync-automation.md)
 

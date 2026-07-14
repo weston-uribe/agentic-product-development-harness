@@ -4,7 +4,7 @@ Instructions for AI agents working in **agentic-product-development-harness**. R
 
 ## What this repo is
 
-v0.3.0 harness repo: SDK runners (M1–M8), templates, eval contracts, event-driven Linear auto-run, guided Configure GUI, and public `p-dev-harness` npm package. Read this before making changes.
+v0.3.1 harness repo: SDK runners (M1–M8), templates, eval contracts, event-driven Linear auto-run, guided Configure GUI, and public `p-dev-harness` npm package. Read this before making changes.
 
 The harness has **M1–M8 SDK runners and tooling** (planning through merge, issue intake validation, and event-driven auto-run via Linear webhook + GitHub Actions).
 
@@ -108,7 +108,7 @@ These are distinct artifacts. Do not conflate them in docs or reports.
 ## File map
 
 ```text
-README.md           → Public overview and v0.3.0 release positioning
+README.md           → Public overview and v0.3.1 release positioning
 docs/p-dev.md       → Canonical p-dev end-user guide
 ROADMAP.md          → Phased delivery plan
 docs/releases/      → Release contract and tag/release process

@@ -31,7 +31,7 @@ describe("p-dev package version resolution", () => {
   it("reads the source harness package version outside packaged runtime", () => {
     const version = resolveHarnessPackageVersion();
     expect(version).toBe(readHarnessPackageVersion());
-    expect(version).toBe("0.3.0");
+    expect(version).toBe("0.3.1");
   });
 
   it("requires packaged runtime version context", () => {

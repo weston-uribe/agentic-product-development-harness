@@ -102,6 +102,21 @@ Ask for or infer:
 - Keep security, performance/cost, and product/design findings out of code-health or architecture-evolution remediation unless the operator explicitly routes them to the appropriate audit/planning workflow
 - If findings require product or architecture judgment, mark them as `needs human decision` rather than planning implementation
 
+## Conditional release-impact analysis
+
+When the work touches a **published artifact**, deployment contract, persisted data contract, public API, installer, template/package surface, compatibility boundary, or versioned distribution:
+
+1. Inspect repo-specific release docs, manifests, package config, changelog, and versioning conventions before recommending a version increment.
+2. Do **not** assume npm or SemVer for every target repository.
+3. Classify release impact as one of:
+   - **No release impact** — safe to land without release preparation
+   - **Later release preparation required** — code/docs can merge, but a human-gated release step remains
+   - **Human decision required** — release policy, version bump, or distribution channel is unclear
+4. When relevant, identify compatibility, migration, rollback, and release-validation implications.
+5. Do **not** authorize publishing, tagging, deployment, or final release execution in the plan.
+
+For prototype or internal-only work with no distributable surface, omit release-impact analysis unless the operator asks for it.
+
 ## Output package
 
 Produce this artifact when planning is complete. Do not create files unless the operator explicitly asks to save the plan.
@@ -144,6 +159,14 @@ Use the format matching the planner mode:
 - Implementation-agent handoff notes:
 
 ## Risks / Open Questions
+
+## Release impact (include only when relevant)
+
+- Classification: no release impact / later release preparation required / human decision required
+- Affected artifacts:
+- Compatibility / migration notes:
+- Release validation expectations:
+- Explicitly not authorized: publish, tag, deploy, or create GitHub/npm releases
 
 ## Overall Validation Plan
 

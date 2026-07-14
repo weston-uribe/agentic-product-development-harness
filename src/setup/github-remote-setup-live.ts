@@ -23,6 +23,13 @@ import {
   type AuthenticatedGitHubUser,
   type CreateRepositoryFromTemplateInput,
   type CreateRepositoryFromTemplateResult,
+  type CreateUserRepositoryInput,
+  type CreateUserRepositoryResult,
+  type GitBlobResult,
+  type GitCommitResult,
+  type GitRefResult,
+  type GitTreeEntryInput,
+  type GitTreeResult,
   type GitHubRepositoryMetadata,
   type GitHubTokenCapabilitySummary,
   type HarnessSecretWriteRequest,
@@ -128,6 +135,22 @@ export function sanitizeGitHubSetupError(error: unknown): string {
     return redactSecretsString(error.message);
   }
   return redactSecretsString(String(error));
+}
+
+export function preserveGitHubSetupError(error: unknown): Error {
+  if (error instanceof GitHubApiError) {
+    return new GitHubApiError(
+      error.status,
+      formatGitHubApiErrorMessage(error.status, error.message),
+      {
+        retryAfterSeconds: error.retryAfterSeconds,
+        rateLimitRemaining: error.rateLimitRemaining,
+        rateLimitResetEpochSeconds: error.rateLimitResetEpochSeconds,
+        requestId: error.requestId,
+      },
+    );
+  }
+  return new Error(sanitizeGitHubSetupError(error));
 }
 
 export function sanitizeGitHubWorkflowSetupError(error: unknown): string {
@@ -461,6 +484,7 @@ export class LiveGitHubHarnessProvisioningProvider
       repositoryId: repository.id,
       owner,
       repo,
+      description: repository.description ?? null,
       private: repository.private === true,
       visibility:
         repository.visibility ?? (repository.private ? "private" : "public"),
@@ -507,7 +531,7 @@ export class LiveGitHubHarnessProvisioningProvider
       if (error instanceof GitHubApiError && error.status === 404) {
         return null;
       }
-      throw new Error(sanitizeGitHubSetupError(error));
+      throw preserveGitHubSetupError(error);
     }
   }
 
@@ -533,7 +557,7 @@ export class LiveGitHubHarnessProvisioningProvider
       if (error instanceof GitHubApiError && error.status === 404) {
         return null;
       }
-      throw new Error(sanitizeGitHubSetupError(error));
+      throw preserveGitHubSetupError(error);
     }
   }
 
@@ -580,7 +604,148 @@ export class LiveGitHubHarnessProvisioningProvider
         defaultBranch: created.default_branch,
       };
     } catch (error) {
-      throw new Error(sanitizeGitHubSetupError(error));
+      throw preserveGitHubSetupError(error);
+    }
+  }
+
+  async createUserRepository(
+    input: CreateUserRepositoryInput,
+  ): Promise<CreateUserRepositoryResult> {
+    try {
+      const created = await this.client.createUserRepository({
+        name: input.name,
+        description: input.description,
+        private: input.private,
+        autoInit: input.autoInit,
+      });
+      return {
+        repositoryId: created.id,
+        fullName: created.full_name,
+        defaultBranch: created.default_branch,
+      };
+    } catch (error) {
+      throw preserveGitHubSetupError(error);
+    }
+  }
+
+  async createGitBlob(input: {
+    owner: string;
+    repo: string;
+    content: Buffer;
+  }): Promise<GitBlobResult> {
+    try {
+      return await this.client.createGitBlob(input);
+    } catch (error) {
+      throw preserveGitHubSetupError(error);
+    }
+  }
+
+  async createGitTree(input: {
+    owner: string;
+    repo: string;
+    baseTree?: string;
+    tree: GitTreeEntryInput[];
+  }): Promise<GitTreeResult> {
+    try {
+      const tree = await this.client.createGitTree(input);
+      return { sha: tree.sha };
+    } catch (error) {
+      throw preserveGitHubSetupError(error);
+    }
+  }
+
+  async createGitCommit(input: {
+    owner: string;
+    repo: string;
+    message: string;
+    tree: string;
+    parents: string[];
+    author?: { name: string; email: string; date: string };
+    committer?: { name: string; email: string; date: string };
+  }): Promise<GitCommitResult> {
+    try {
+      const commit = await this.client.createGitCommit(input);
+      return {
+        sha: commit.sha,
+        tree: commit.tree,
+        parents: commit.parents,
+      };
+    } catch (error) {
+      throw preserveGitHubSetupError(error);
+    }
+  }
+
+  async getGitCommit(
+    owner: string,
+    repo: string,
+    sha: string,
+  ): Promise<GitCommitResult> {
+    try {
+      const commit = await this.client.getGitCommit(owner, repo, sha);
+      return {
+        sha: commit.sha,
+        tree: commit.tree,
+        parents: commit.parents,
+      };
+    } catch (error) {
+      throw preserveGitHubSetupError(error);
+    }
+  }
+
+  async getGitRef(owner: string, repo: string, ref: string): Promise<GitRefResult> {
+    try {
+      const gitRef = await this.client.getGitRef(owner, repo, ref);
+      return {
+        ref: gitRef.ref,
+        object: { sha: gitRef.object.sha },
+      };
+    } catch (error) {
+      throw preserveGitHubSetupError(error);
+    }
+  }
+
+  async updateGitRef(input: {
+    owner: string;
+    repo: string;
+    ref: string;
+    sha: string;
+    force?: boolean;
+    expectedSha?: string;
+  }): Promise<GitRefResult> {
+    try {
+      if (input.expectedSha) {
+        const current = await this.client.getGitRef(input.owner, input.repo, input.ref);
+        if (current.object.sha === input.sha) {
+          return {
+            ref: current.ref,
+            object: { sha: input.sha },
+          };
+        }
+        if (current.object.sha !== input.expectedSha) {
+          throw new Error(
+            `Ref update rejected: expected parent HEAD ${input.expectedSha}, found ${current.object.sha}.`,
+          );
+        }
+      }
+      const gitRef = await this.client.updateGitRef(input);
+      return {
+        ref: gitRef.ref,
+        object: { sha: gitRef.object.sha },
+      };
+    } catch (error) {
+      throw preserveGitHubSetupError(error);
+    }
+  }
+
+  async updateUserRepositoryDescription(input: {
+    owner: string;
+    repo: string;
+    description: string;
+  }): Promise<void> {
+    try {
+      await this.client.updateUserRepository(input);
+    } catch (error) {
+      throw preserveGitHubSetupError(error);
     }
   }
 
@@ -598,7 +763,7 @@ export class LiveGitHubHarnessProvisioningProvider
         sha: input.sha,
       });
     } catch (error) {
-      throw new Error(sanitizeGitHubSetupError(error));
+      throw preserveGitHubSetupError(error);
     }
   }
 }

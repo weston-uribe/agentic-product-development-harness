@@ -41,3 +41,7 @@ export function resolveGuiDirectory(packageRoot: string): string {
 export function resolveTemplatesDirectory(packageRoot: string): string {
   return path.join(packageRoot, "templates");
 }
+
+export function resolveWorkspaceSnapshotDirectory(packageRoot: string): string {
+  return path.join(packageRoot, "workspace-snapshot");
+}

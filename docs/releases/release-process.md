@@ -2,21 +2,42 @@
 
 Operator guide for harness releases: GitHub source release plus public npm package `p-dev-harness`.
 
-**Related:** [`v0.3.0.md`](v0.3.0.md) (current release contract), [`v0.2.0.md`](v0.2.0.md) (historical), [`CHANGELOG.md`](../../CHANGELOG.md), [`docs/p-dev.md`](../p-dev.md)
+**Related:** [`v0.3.1.md`](v0.3.1.md) (current release contract), [`v0.3.0.md`](v0.3.0.md) (historical), [`CHANGELOG.md`](../../CHANGELOG.md), [`docs/p-dev.md`](../p-dev.md)
+
+## Variables
+
+Use these placeholders throughout:
+
+| Variable | Example | Meaning |
+|----------|---------|---------|
+| `VERSION` | `0.3.1` | SemVer package/root version |
+| `TAG` | `v0.3.1` | Annotated git tag |
+| `RELEASE_SHA` | merge commit on `main` | Exact post-merge release commit |
+| `TARBALL` | `packages/p-dev/p-dev-harness-0.3.1.tgz` | Exact npm publish artifact |
 
 ## Summary
 
 The release process has distinct phases:
 
 1. **Release-preparation PR** — versions, docs, tests, release contract (no tag/npm/release mutations)
-2. **Template synchronization** — curated sync to `weston-uribe/p-dev-harness-template`
-3. **Exact tarball validation** — build and smoke-test `p-dev-harness-0.3.0.tgz` at `RELEASE_SHA`
+2. **Embedded workspace snapshot validation** — deterministic snapshot/manifest generation from clean `RELEASE_SHA` checkout
+3. **Exact tarball validation** — build and smoke-test `TARBALL` at `RELEASE_SHA`
 4. **npm publication** — publish the exact validated tarball
-5. **Annotated git tag** — primary `v0.3.0` at `RELEASE_SHA`
-6. **GitHub release** — curated notes from `docs/releases/v0.3.0.md`
-7. **Post-release finalization PR** — record immutable tag/npm/template evidence
+5. **Annotated git tag** — primary `TAG` at `RELEASE_SHA`
+6. **GitHub release** — curated notes from `docs/releases/v<VERSION>.md`
+7. **Post-release finalization PR** — record immutable tag/npm evidence
 
 Do **not** push directly to `main`, force-push, overwrite tags, or republish npm versions.
+
+### Legacy template containment (v0.3.0 only)
+
+`weston-uribe/p-dev-harness-template` is a **frozen legacy compatibility artifact** for `p-dev-harness@0.3.0` template-based provisioning.
+
+For **0.3.1 and later**:
+
+- Do **not** advance, repurpose, or resync the template repository `main` branch for new package versions.
+- Do **not** move or recreate the existing template `v0.3.0` tag.
+- Snapshot transparency comes from the primary repository release commit plus the npm tarball `workspace-snapshot/manifest.json`.
 
 ---
 
@@ -24,8 +45,8 @@ Do **not** push directly to `main`, force-push, overwrite tags, or republish npm
 
 Merge to `main`:
 
-- Version bumps (`0.3.0` root, `p-dev-harness@0.3.0`)
-- `CHANGELOG.md`, `docs/releases/v0.3.0.md`, truth-audit docs
+- Version bumps (`VERSION` root, `p-dev-harness@VERSION`)
+- `CHANGELOG.md`, `docs/releases/v<VERSION>.md`, truth-audit docs
 - Package publication metadata and tests
 - Validation on the PR branch
 
@@ -34,29 +55,37 @@ Merge to `main`:
 - `git tag`, `git push` (tags)
 - `npm publish`
 - `gh release create`
-- Live remote setup mutations
+- Live remote setup mutations against production destinations
 
 ---
 
-## Phase 2 — Template synchronization
+## Phase 2 — Embedded workspace snapshot validation
 
 After primary release-prep PR merges:
 
 1. Record `RELEASE_SHA` (merge commit on `main`)
-2. In `weston-uribe/p-dev-harness-template`, branch `release/v0.3.0-template`
-3. Sync curated content from `RELEASE_SHA` (no secrets, local state, or tarballs)
-4. Update `.harness/p-dev-template.json`:
-   - `source.repository` = `weston-uribe/agentic-product-development-harness`
-   - `source.release` = `v0.3.0`
-   - `source.packageVersion` = `0.3.0`
-   - `templateContentId` deterministic from `RELEASE_SHA` + curated generation
-5. Merge template PR; record `TEMPLATE_SHA`
-6. Push annotated template tag if absent:
+2. From a **clean checkout** at `RELEASE_SHA`, run:
 
 ```bash
-git tag -a v0.3.0 TEMPLATE_SHA -m "p-dev harness template v0.3.0"
-git push origin v0.3.0
+git checkout "$RELEASE_SHA"
+npm ci
+npm run build
+npm run package:p-dev:prepare
+npm run package:p-dev:pack
 ```
+
+Package preparation requires a clean working tree with `HEAD` equal to `RELEASE_SHA`. Do **not** use `P_DEV_SNAPSHOT_SOURCE_REF`.
+
+3. Inspect `packages/p-dev/workspace-snapshot/manifest.json`:
+   - `packageVersion` matches `packages/p-dev/package.json`
+   - `sourceCommit` equals `RELEASE_SHA`
+   - `snapshotSha256`, `snapshotContentId`, and `gitRootTreeSha1` are present
+4. Inspect the packed tarball:
+   - Contains `package/workspace-snapshot/manifest.json` and curated `package/workspace-snapshot/files/**`
+   - Excludes local secrets, operator state, generated caches, and unrelated generated package outputs
+5. Record tarball byte size and SHA-256 for release evidence
+
+**Do not** mutate `weston-uribe/p-dev-harness-template` for 0.3.1+ releases.
 
 ---
 
@@ -68,14 +97,16 @@ Before publication:
 npm config get registry
 npm whoami --registry=https://registry.npmjs.org/
 npm view p-dev-harness --registry=https://registry.npmjs.org/ --json
-npm view p-dev-harness@0.3.0 --registry=https://registry.npmjs.org/ --json
+npm view p-dev-harness@VERSION --registry=https://registry.npmjs.org/ --json
 ```
 
 **Stop** if:
 
 - Not authenticated or not authorized to publish
-- `p-dev-harness@0.3.0` already exists
+- `p-dev-harness@VERSION` already exists with **different bytes** than the intended `TARBALL`
 - Package name is owned by someone else
+
+If `p-dev-harness@VERSION` already exists with **identical bytes**, treat npm publication as complete and reconcile tag/release against the same `RELEASE_SHA`.
 
 Never print tokens, OTPs, or secrets.
 
@@ -86,21 +117,22 @@ Never print tokens, OTPs, or secrets.
 At `RELEASE_SHA` in a clean working tree:
 
 ```bash
-git checkout RELEASE_SHA
+git checkout "$RELEASE_SHA"
 npm ci
 npm run build
 npm test
 npm run test:webhook
+npm run package:p-dev:prepare
 npm run package:p-dev:pack
 npm run package:p-dev:inspect
 ```
 
 Record tarball bytes, SHA-1, SHA-256, manifest, unpacked size, file count.
 
-Tarball smoke:
+Tarball launcher smoke (fresh `P_DEV_HOME`):
 
 ```bash
-TARBALL="packages/p-dev/p-dev-harness-0.3.0.tgz"
+TARBALL="packages/p-dev/p-dev-harness-VERSION.tgz"
 WORKDIR=$(mktemp -d)
 export P_DEV_HOME="$WORKDIR/workspace"
 cd "$WORKDIR"
@@ -111,7 +143,7 @@ npx --yes "file:/absolute/path/to/$TARBALL" --no-open
 Dry-run publish:
 
 ```bash
-npm publish packages/p-dev/p-dev-harness-0.3.0.tgz --dry-run --access public --registry=https://registry.npmjs.org/
+npm publish "$TARBALL" --dry-run --access public --registry=https://registry.npmjs.org/
 ```
 
 ---
@@ -121,7 +153,7 @@ npm publish packages/p-dev/p-dev-harness-0.3.0.tgz --dry-run --access public --r
 Publish the **exact already-tested tarball** (do not rebuild between smoke and publish):
 
 ```bash
-npm publish packages/p-dev/p-dev-harness-0.3.0.tgz --access public --registry=https://registry.npmjs.org/
+npm publish "$TARBALL" --access public --registry=https://registry.npmjs.org/
 ```
 
 If npm requests OTP, enter it interactively. **Never** place OTP or token in files, commands reported in PRs, or logs.
@@ -129,7 +161,7 @@ If npm requests OTP, enter it interactively. **Never** place OTP or token in fil
 Verify:
 
 ```bash
-npm view p-dev-harness@0.3.0 name version dist-tags.latest dist.shasum dist.integrity engines bin repository license
+npm view p-dev-harness@VERSION name version dist-tags.latest dist.shasum dist.integrity engines bin repository license
 ```
 
 Registry smoke from fresh directory:
@@ -138,7 +170,7 @@ Registry smoke from fresh directory:
 WORKDIR=$(mktemp -d)
 export P_DEV_HOME="$WORKDIR/workspace"
 cd "$WORKDIR"
-npx --yes p-dev-harness@0.3.0 --no-open
+npx --yes p-dev-harness@VERSION --no-open
 ```
 
 ---
@@ -148,9 +180,9 @@ npx --yes p-dev-harness@0.3.0 --no-open
 **After** npm publication verification:
 
 ```bash
-git tag -a v0.3.0 RELEASE_SHA -m "v0.3.0"
-git rev-parse v0.3.0^{}   # must equal RELEASE_SHA
-git push origin v0.3.0
+git tag -a "$TAG" "$RELEASE_SHA" -m "$TAG"
+git rev-parse "$TAG^{}"   # must equal RELEASE_SHA
+git push origin "$TAG"
 ```
 
 Verify remote tag resolves to `RELEASE_SHA`.
@@ -158,9 +190,9 @@ Verify remote tag resolves to `RELEASE_SHA`.
 Create GitHub release:
 
 ```bash
-gh release create v0.3.0 \
-  --title "v0.3.0 — Guided setup, canonical skills, and p-dev" \
-  --notes-file docs/releases/v0.3.0.md \
+gh release create "$TAG" \
+  --title "$TAG — Immutable workspace provisioning" \
+  --notes-file "docs/releases/v$VERSION.md" \
   --latest
 ```
 
@@ -174,46 +206,50 @@ If npm succeeds but GitHub release fails: **do not republish**. Recover tag/rele
 
 ## Phase 7 — Post-release finalization PR
 
-Branch `docs/finalize-v0.3.0-release`:
+Branch `docs/finalize-v<VERSION>-release`:
 
-- Update `docs/releases/v0.3.0.md` with tagged/published status, URLs, SHAs, registry shasum/integrity, tarball metadata, template SHA, registry smoke result, timestamp
+- Update `docs/releases/v<VERSION>.md` with tagged/published status, URLs, SHAs, registry shasum/integrity, tarball metadata, live validation evidence, registry smoke result, timestamp
 - Do **not** change released package contents or version
 
 Merge after checks pass.
 
 ---
 
-## V0.3.0 — exact commands (reference)
+## V0.3.1 — exact commands (current example)
 
 ```bash
+VERSION=0.3.1
+TAG=v0.3.1
+
 # After release-prep PR merge
 RELEASE_SHA=$(git rev-parse origin/main)
 git checkout main && git pull --ff-only origin main
+git checkout "$RELEASE_SHA"
 
 # Validate at release commit
-git checkout "$RELEASE_SHA"
 npm ci && npm run build && npm test && npm run test:webhook
-npm run package:p-dev:pack && npm run package:p-dev:inspect
+npm run package:p-dev:prepare && npm run package:p-dev:pack && npm run package:p-dev:inspect
+TARBALL="packages/p-dev/p-dev-harness-${VERSION}.tgz"
 
 # npm preflight + publish (interactive OTP if required)
 npm whoami --registry=https://registry.npmjs.org/
-npm view p-dev-harness@0.3.0 --registry=https://registry.npmjs.org/
-npm publish packages/p-dev/p-dev-harness-0.3.0.tgz --access public --registry=https://registry.npmjs.org/
+npm view p-dev-harness@${VERSION} --registry=https://registry.npmjs.org/
+npm publish "$TARBALL" --access public --registry=https://registry.npmjs.org/
 
 # Tag and release
-git tag -a v0.3.0 "$RELEASE_SHA" -m "v0.3.0"
-git push origin v0.3.0
-gh release create v0.3.0 \
-  --title "v0.3.0 — Guided setup, canonical skills, and p-dev" \
-  --notes-file docs/releases/v0.3.0.md \
+git tag -a "$TAG" "$RELEASE_SHA" -m "$TAG"
+git push origin "$TAG"
+gh release create "$TAG" \
+  --title "$TAG — Immutable workspace provisioning" \
+  --notes-file "docs/releases/v${VERSION}.md" \
   --latest
 ```
 
 ---
 
-## V0.2.0 — historical commands
+## V0.3.0 — historical commands
 
-V0.2.0 was source-release only (no npm). See [`v0.2.0.md`](v0.2.0.md) for the historical contract.
+V0.3.0 used public-template provisioning. See [`v0.3.0.md`](v0.3.0.md) for the historical contract.
 
 ---
 

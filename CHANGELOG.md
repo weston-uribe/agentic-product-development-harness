@@ -6,6 +6,30 @@ V0.3.0 is a **GitHub source release** plus a **public npm CLI package** (`p-dev-
 
 ## Unreleased
 
+## [0.3.1] — Unreleased (release preparation only)
+
+Planned patch release: immutable package-owned workspace snapshots for `p-dev-harness` provisioning plus narrowly scoped release-impact agent-contract improvements.
+
+**Release type (planned):** GitHub source release plus public npm package `p-dev-harness@0.3.1`.
+
+### Added
+
+- Deterministic embedded `workspace-snapshot/` generation from immutable Git commits during `package:p-dev:prepare`
+- Package-owned GitHub provisioning (`auto_init`, snapshot commit, marker commit v3) without runtime dependency on `weston-uribe/p-dev-harness-template`
+- Conditional release-impact analysis in canonical planner skill and runtime planning prompt
+- Release contract draft [`docs/releases/v0.3.1.md`](docs/releases/v0.3.1.md)
+
+### Changed
+
+- Release process docs: snapshot/manifest/tarball validation replaces future template synchronization for 0.3.1+
+- Architecture docs: embedded snapshot is provisioning source for 0.3.1+; public template frozen for 0.3.0 legacy compatibility
+- Implementation skill/prompt preserve planner release boundaries and report outstanding release preparation
+
+### Compatibility
+
+- Existing valid `p-dev-harness@0.3.0` managed workspaces reconnect without content rewrite
+- `weston-uribe/p-dev-harness-template` remains frozen legacy artifact for 0.3.0; not used by 0.3.1+ provisioning
+
 ## [0.3.0] — 2026-07-13
 
 V0.3.0 is the guided-onboarding and distribution release: seven-step Configure GUI, six canonical skills, and public `p-dev-harness` npm package.
