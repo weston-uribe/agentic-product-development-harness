@@ -1,10 +1,14 @@
 "use client";
 
-import { Check } from "lucide-react";
+import { useEffect, useRef } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 
-import type { GuidedProgressStage } from "@/lib/guided-setup";
+import type {
+  GuidedProgressStage,
+  GuidedProgressStageState,
+} from "@/lib/guided-setup";
 import { GUIDED_SETUP_STEP_COUNT } from "@/lib/guided-setup";
+import { GuidedProgressCheck } from "@/components/custom/guided-progress-check";
 import { cn } from "@/lib/utils";
 
 type GuidedSetupProgressProps = {
@@ -13,7 +17,25 @@ type GuidedSetupProgressProps = {
 
 export function GuidedSetupProgress({ stages }: GuidedSetupProgressProps) {
   const prefersReducedMotion = useReducedMotion();
+  const priorStatesRef = useRef<Map<string, GuidedProgressStageState>>(new Map());
+  const isInitialMountRef = useRef(true);
   const currentStage = stages.find((stage) => stage.state === "current");
+
+  useEffect(() => {
+    isInitialMountRef.current = false;
+    priorStatesRef.current = new Map(
+      stages.map((stage) => [stage.id, stage.state]),
+    );
+  }, [stages]);
+
+  const shouldAnimateCheck = (stage: GuidedProgressStage): boolean => {
+    if (prefersReducedMotion || isInitialMountRef.current) {
+      return false;
+    }
+
+    const priorState = priorStatesRef.current.get(stage.id);
+    return stage.state === "completed" && priorState !== "completed";
+  };
 
   return (
     <nav aria-label="Guided setup progress" className="w-full">
@@ -52,7 +74,9 @@ export function GuidedSetupProgress({ stages }: GuidedSetupProgressProps) {
                   }
                 >
                   {isCompleted ? (
-                    <Check className="size-3.5 sm:size-4" aria-hidden />
+                    <GuidedProgressCheck
+                      animateDraw={shouldAnimateCheck(stage)}
+                    />
                   ) : (
                     <span aria-hidden>{stage.stepNumber}</span>
                   )}

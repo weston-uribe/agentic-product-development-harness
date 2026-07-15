@@ -310,6 +310,26 @@ export function compareGuidedDisplaySteps(
   return guidedDisplayStepIndex(left) - guidedDisplayStepIndex(right);
 }
 
+export type GuidedTransitionDirection = "forward" | "backward" | "none";
+
+export function getGuidedTransitionDirection(
+  previous: GuidedDisplayStepId | null,
+  next: GuidedDisplayStepId,
+): GuidedTransitionDirection {
+  if (previous === null || previous === next) {
+    return "none";
+  }
+
+  const comparison = compareGuidedDisplaySteps(previous, next);
+  if (comparison < 0) {
+    return "forward";
+  }
+  if (comparison > 0) {
+    return "backward";
+  }
+  return "none";
+}
+
 export function compareFirstRunStepIds(
   left: FirstRunStepId,
   right: FirstRunStepId,

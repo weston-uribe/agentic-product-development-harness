@@ -149,6 +149,10 @@ describe("M6 configure GUI boundaries", () => {
       path.join(repoRoot, "apps/gui/components/custom/configure-workflow.tsx"),
       "utf8",
     );
+    const experienceSource = readFileSync(
+      path.join(repoRoot, "apps/gui/components/custom/configure-experience.tsx"),
+      "utf8",
+    );
     const transitionSource = readFileSync(
       path.join(
         repoRoot,
@@ -156,9 +160,18 @@ describe("M6 configure GUI boundaries", () => {
       ),
       "utf8",
     );
+    const progressSource = readFileSync(
+      path.join(
+        repoRoot,
+        "apps/gui/components/custom/guided-setup-progress.tsx",
+      ),
+      "utf8",
+    );
 
-    expect(workflowSource).toContain("GuidedStepTransition");
-    expect(workflowSource).toContain("stepKey={guidedStep}");
+    expect(workflowSource).not.toContain("GuidedStepTransition");
+    expect(experienceSource).toContain("GuidedStepTransition");
+    expect(experienceSource).toContain("getGuidedTransitionDirection");
+    expect(experienceSource).toContain('stepKey={displayedGuidedStep}');
     expect(workflowSource).not.toContain("Back to service keys");
     expect(workflowSource).not.toContain("Back to target repo");
     expect(workflowSource).not.toContain(
@@ -167,8 +180,12 @@ describe("M6 configure GUI boundaries", () => {
     expect(workflowSource).not.toContain(
       "Target repo is set. You can go back to change it before applying.",
     );
-    expect(transitionSource).toContain("AnimatePresence");
-    expect(transitionSource).toContain("useReducedMotion");
+    expect(transitionSource).toContain('mode="wait"');
+    expect(transitionSource).toContain('x: "100vw"');
+    expect(transitionSource).toContain('x: "-100vw"');
+    expect(transitionSource).toContain("overflow-x-hidden");
+    expect(transitionSource).toContain("panelRef?.current?.contains(document.activeElement)");
+    expect(progressSource).toContain("GuidedProgressCheck");
   });
 
   it("guided workflow hides advanced fields from default view", () => {
