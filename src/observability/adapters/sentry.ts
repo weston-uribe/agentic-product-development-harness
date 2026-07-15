@@ -28,6 +28,10 @@ import {
   sanitizeTagRecord,
 } from "../redaction.js";
 import { P_DEV_SENTRY_ENVIRONMENT_ENV } from "../constants.js";
+import {
+  scrubOutboundSentryEnvelope,
+  scrubOutboundSentryEvent,
+} from "../sentry-outbound-privacy.js";
 
 export interface SentryAdapterOptions {
   dsn: string;
@@ -148,7 +152,20 @@ export function createSentryErrorTransport(
     return {
       send(envelope: Envelope) {
         let tracked: Promise<void>;
-        const operation = Promise.resolve(base.send(envelope))
+        const operation = Promise.resolve()
+          .then(() => {
+            try {
+              return scrubOutboundSentryEnvelope(envelope);
+            } catch {
+              return null;
+            }
+          })
+          .then((scrubbedEnvelope) => {
+            if (!scrubbedEnvelope) {
+              return { statusCode: 200 } satisfies TransportMakeRequestResponse;
+            }
+            return base.send(scrubbedEnvelope);
+          })
           .catch(() => ({ statusCode: 0 }))
           .then((response: TransportMakeRequestResponse) => response)
           .finally(() => {
@@ -175,9 +192,6 @@ export function createSentryErrorTransport(
     sendClientReports: false,
     includeServerName: false,
     stackParser: defaultStackParser,
-    tracesSampleRate: 0,
-    profilesSampleRate: 0,
-    profileSessionSampleRate: 0,
     enableLogs: false,
     integrations: [],
     registerEsmLoaderHooks: false,
@@ -189,7 +203,14 @@ export function createSentryErrorTransport(
     while (active && pending.length > 0) {
       const event = pending.shift();
       if (event) {
-        client.sendEvent(event);
+        try {
+          const scrubbedEvent = scrubOutboundSentryEvent(event);
+          if (scrubbedEvent) {
+            client.sendEvent(scrubbedEvent);
+          }
+        } catch {
+          // best-effort telemetry must never interrupt product execution
+        }
       }
     }
     if (!active) {

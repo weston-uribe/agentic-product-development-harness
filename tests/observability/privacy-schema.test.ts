@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { parseObservabilityPublicConfigJson } from "../../src/observability/package-config.js";
 import {
-  analyticsEventToProperties,
+  ALLOWED_SENTRY_TAG_KEYS,
   assertAllowedPropertyKeys,
   allowedAnalyticsPropertyKeysForEvent,
+  analyticsEventToProperties,
 } from "../../src/observability/privacy-schema.js";
 import { sanitizeObservabilityString } from "../../src/observability/redaction.js";
 
@@ -39,6 +40,12 @@ describe("observability privacy schema", () => {
     expect(sanitized).not.toContain("weston@example.com");
     expect(sanitized).not.toContain("/Users/weston");
     expect(sanitized).not.toContain("token=abc");
+  });
+
+  it("documents the allowlisted sentry tag contract", () => {
+    expect(ALLOWED_SENTRY_TAG_KEYS).toContain("package_version");
+    expect(ALLOWED_SENTRY_TAG_KEYS).toContain("release_sha");
+    expect(ALLOWED_SENTRY_TAG_KEYS).not.toContain("installationId");
   });
 
   it("enforces analytics property allowlists", () => {

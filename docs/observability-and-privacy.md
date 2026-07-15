@@ -85,6 +85,45 @@ Allowed tags/context include package/release metadata, ephemeral session ID, lif
 
 Sentry fingerprints use structured product error code and lifecycle phase only (not package version).
 
+## Sentry outbound privacy boundary
+
+The Sentry adapter builds allowlisted error events and sends them through an isolated `NodeClient` using `sendEvent()`, bypassing default SDK scope merge and tracing integrations.
+
+### Client envelope guarantees
+
+Automated envelope tests prove the structured outbound payload omits:
+
+- `user`, `request`, `breadcrumbs`, `transaction`, `server_name`, `contexts`
+- `ip_address`, `trace_id`, `span_id`, `parent_span_id`, installation ID
+- tracing/profiling client options (rates are omitted entirely, not set to `0`)
+- envelope-header `trace` metadata
+
+Allowed content is limited to approved product error messages, sanitized exception metadata, allowlisted tags, package/release metadata, ephemeral session ID, and fingerprints based on product error code plus lifecycle phase.
+
+Production enforcement is best-effort: if a final outbound event or envelope cannot be scrubbed into compliance, the adapter **drops** it and continues harness execution. Automated tests **throw** on the same violations.
+
+### Vendor-derived metadata (not client fields)
+
+Sentry may derive metadata during HTTP ingestion that does not appear in the client-built event JSON:
+
+- **Geography** under User in the Sentry UI is commonly derived from the ingestion request IP, not from a `user` field sent by this harness.
+- **Trace Details / Trace Preview** in the Sentry UI may appear even when the client envelope contains no trace context. Inspect the raw stored event JSON; do not treat UI chrome alone as proof of client transmission.
+
+Official Sentry server-side scrubbing documents that geographic information can be extracted from IP even when "Prevent storing IP addresses" is enabled. Removing stored geo requires an Advanced Data Scrubbing rule.
+
+### Mandatory Sentry project settings (release gate)
+
+Before committing a public DSN to `config/observability.public.json`, verify live sandbox evidence with these project settings:
+
+1. **Security & Privacy → Prevent Storing of IP Addresses**
+2. **Advanced Data Scrubbing:** `[Remove] [Anything] from [$user.geo.**]`
+
+Release remains blocked until:
+
+- automated envelope tests pass in CI
+- sandbox raw event JSON shows no `user`, `user.geo`, `ip_address`, or `contexts.trace`
+- the project settings above are verified on the target Sentry project
+
 ## Dashboard: p-dev Packaged Onboarding Health
 
 Manual PostHog dashboard specification:
@@ -118,5 +157,7 @@ Before an observability-enabled npm release:
 - Verify tarball includes public config and excludes local observability state
 - Verify sandbox Sentry/PostHog payloads match allowlists
 - Compare funnel/error metrics by `package_version` after fixes
+- Verify automated Sentry envelope privacy tests pass
+- Verify sandbox raw event JSON and mandatory Sentry project privacy settings before authorizing a public DSN
 
 Do not claim legal compliance in this document.
