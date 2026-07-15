@@ -10,6 +10,7 @@ V0.3.0 is a **GitHub source release** plus a **public npm CLI package** (`p-dev-
 
 - Configure GUI application header: compact `PDev Harness` brand lockup, sticky background-matched header, and Settings dropdown with theme toggle and Configure navigation.
 - Guided Configure flow: seven-stage display-only progress indicator and refined Step 1 service setup copy and workspace button labels.
+- Configure GUI copy: page title `Initial Harness Configuration`, simplified Cursor/Vercel connected-account status messages, and updated Step 3 Vercel settings description.
 
 ## [0.3.1] — 2026-07-14
 

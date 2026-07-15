@@ -94,6 +94,36 @@ function formatLinearTokenError(error: unknown, token: string): string {
   return sanitizeMessage(raw, [token]);
 }
 
+export interface CursorAccountMetadata {
+  apiKeyName: string;
+  userEmail?: string;
+  userFirstName?: string;
+  userLastName?: string;
+}
+
+export function formatCursorAccountIdentity(
+  metadata: CursorAccountMetadata,
+): string {
+  const fullName = [metadata.userFirstName?.trim(), metadata.userLastName?.trim()]
+    .filter(Boolean)
+    .join(" ");
+  if (fullName) {
+    return fullName;
+  }
+
+  const email = metadata.userEmail?.trim();
+  if (email) {
+    return email;
+  }
+
+  const apiKeyName = metadata.apiKeyName?.trim();
+  if (apiKeyName) {
+    return apiKeyName;
+  }
+
+  return "Cursor account";
+}
+
 function formatCursorTokenError(error: unknown, token: string): string {
   const raw = error instanceof Error ? error.message : String(error);
   if (/unauthorized|invalid|forbidden|authentication|401|403/i.test(raw)) {
@@ -202,24 +232,16 @@ export async function verifyCursorToken(
 
   try {
     const { Cursor } = await import("@cursor/sdk");
-    const models = await Cursor.models.list({ apiKey: trimmed });
-    const count = models.length;
-    let repoHint = "";
-    try {
-      const repos = await Cursor.repositories.list({ apiKey: trimmed });
-      if (repos.length > 0) {
-        repoHint = ` ${repos.length} connected repo(s) visible to Cursor.`;
-      }
-    } catch {
-      // repositories.list is optional enrichment only
-    }
+    const [user] = await Promise.all([
+      Cursor.me({ apiKey: trimmed }),
+      Cursor.models.list({ apiKey: trimmed }),
+    ]);
+    const identity = formatCursorAccountIdentity(user);
 
     return {
       status: "connected",
-      label: `${count} model(s)`,
-      message: `Cursor API key accepted (${count} model(s) available).${repoHint}`,
-      limitation:
-        "This confirms the key works with Cursor SDK listing. It does not guarantee a future cloud run can access every target repo.",
+      label: identity,
+      message: `Cursor API key connected to ${identity}.`,
     };
   } catch (error) {
     return {
@@ -414,8 +436,6 @@ export async function verifyVercelTokenForSetup(
       status: "connected",
       label: user.username,
       message: `Connected as ${user.username}.`,
-      limitation:
-        "This confirms the Vercel token can read account metadata. Project and env var writes still require preview + confirmation.",
     };
   } catch (error) {
     const raw = error instanceof Error ? error.message : String(error);

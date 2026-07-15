@@ -506,7 +506,7 @@ export function GuidedVercelBridgeCard({
   return (
     <SectionCard
       title={`Step 3 of ${GUIDED_SETUP_STEP_COUNT} · Configure Vercel settings`}
-      description="Choose the Vercel team and project this setup should use for automation and preview checks. Env var presence alone is not enough; the bridge must pass signed delivery verification against production."
+      description="Choose the Vercel team and project this setup should use for automation and issue previews before merging code."
     >
       <div className={SPACING.stackSm}>
         {!summary.vercelTokenConfigured ? (
