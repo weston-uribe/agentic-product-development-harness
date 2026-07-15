@@ -333,16 +333,21 @@ Prepare only. Do not run with a real DSN unless the operator supplies `P_DEV_SEN
 3. Confirm zero Sentry traffic before consent (`GET /api/observability/preferences` undecided).
 4. Enable **Automated sanitized error reports** only in Configure.
 5. Trigger one captured product error without mutating GitHub, Linear, or Vercel:
-   - `chmod -R a-w "$P_DEV_HOME/.harness"`
-   - From Configure, attempt any observability preference write (for example **Reset local telemetry identity**).
+   - Enable **Automated sanitized error reports** only and confirm the preference persisted.
+   - `chmod -R a-w "$P_DEV_HOME/.harness"` for the same runtime user as the launcher.
+   - Prove a direct write by that user fails (for example `touch "$P_DEV_HOME/.harness/.write-test"` → `EACCES`).
+   - From Configure, submit a **normal preference write** (not **Reset local telemetry identity**) that keeps `errorReportingPreference: enabled`, does not enable analytics, and requires persistence—for example toggling `disclosureShown` through the real Configure session with the observability nonce.
    - Expected capture: `configure_request_error` / `configure_route` via `onRequestError` when `.harness` is read-only.
-6. Stop the launcher cleanly so observability flush/shutdown hooks run.
+   - **Do not use Reset local telemetry identity** as the trigger; reset disables observability transports before attempting the write.
+6. Keep the launcher running through consent-withdrawal validation below; do not stop after the first event.
 7. Inspect **raw stored event JSON** in Sentry:
    - no `user`, `user.geo`, `ip_address`, `contexts.trace`, `trace_id`, or `span_id`
    - `package_version` equals installed tarball version
    - `release_sha` equals tarball `workspace-snapshot/manifest.json` `sourceCommit`
    - exactly one event; zero user identity in Sentry Users
-8. Teardown: disable consent if needed, stop process, `unset P_DEV_SENTRY_DSN`, delete temp files.
+8. Consent withdrawal: restore `.harness` write permissions, disable automated error reporting in Configure, make `.harness` read-only again, repeat the same preference-write failure once, and confirm the Sentry event count remains exactly one.
+9. Stop the launcher cleanly so observability flush/shutdown hooks run.
+10. Teardown: `unset P_DEV_SENTRY_DSN`, delete temp files.
 
 Do **not** bump package version, publish npm, tag, or create a GitHub release from observability validation work alone.
 
