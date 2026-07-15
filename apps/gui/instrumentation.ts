@@ -1,19 +1,48 @@
+function isTruthyEnv(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes";
+}
+
+function shouldSkipInstrumentation(): boolean {
+  if (isTruthyEnv(process.env.DO_NOT_TRACK)) {
+    return true;
+  }
+  if (isTruthyEnv(process.env.P_DEV_OBSERVABILITY_DISABLED)) {
+    return true;
+  }
+  return process.env.P_DEV_RUNTIME_MODE?.trim().toLowerCase() !== "packaged";
+}
+
+async function dynamicHarnessImport<T>(moduleName: string): Promise<T> {
+  const dynamicImport = new Function(
+    "moduleName",
+    "return import(moduleName)",
+  ) as (moduleName: string) => Promise<T>;
+  return dynamicImport(moduleName);
+}
+
 export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME !== "nodejs") {
     return;
   }
 
-  const { beginObservabilitySession, installObservabilityUncaughtHandlers } =
-    await import("@harness/observability/facade.js");
-  const { resolveHarnessRepoRoot } = await import("@harness/gui/repo-root.js");
+  if (shouldSkipInstrumentation()) {
+    return;
+  }
 
   try {
+    const facade = await dynamicHarnessImport<
+      typeof import("@harness/observability/facade.js")
+    >("@harness/observability/facade.js");
+    const { resolveHarnessRepoRoot } = await dynamicHarnessImport<
+      typeof import("@harness/gui/repo-root.js")
+    >("@harness/gui/repo-root.js");
     const workspaceDir = resolveHarnessRepoRoot();
-    await beginObservabilitySession({
+    await facade.beginObservabilitySession({
       workspaceDir,
       moduleUrl: import.meta.url,
     });
-    installObservabilityUncaughtHandlers();
+    facade.installObservabilityUncaughtHandlers();
   } catch {
     // observability must remain best-effort
   }
@@ -21,7 +50,7 @@ export async function register(): Promise<void> {
 
 export async function onRequestError(
   error: Error,
-  request: {
+  _request: {
     path: string;
     method: string;
   },
@@ -30,11 +59,21 @@ export async function onRequestError(
     return;
   }
 
-  const { captureProductError } = await import("@harness/observability/facade.js");
-  captureProductError({
-    lifecyclePhase: "configure_route",
-    productErrorCode: "configure_request_error",
-    errorCategory: "unexpected",
-    cause: error,
-  });
+  if (shouldSkipInstrumentation()) {
+    return;
+  }
+
+  try {
+    const facade = await dynamicHarnessImport<
+      typeof import("@harness/observability/facade.js")
+    >("@harness/observability/facade.js");
+    facade.captureProductError({
+      lifecyclePhase: "configure_route",
+      productErrorCode: "configure_request_error",
+      errorCategory: "unexpected",
+      cause: error,
+    });
+  } catch {
+    // observability must remain best-effort
+  }
 }

@@ -6,6 +6,10 @@ V0.3.0 is a **GitHub source release** plus a **public npm CLI package** (`p-dev-
 
 ## Unreleased
 
+### Fixed
+
+- Configure GUI development launcher: skip server observability instrumentation during source-repo `next dev` and when observability is globally disabled, and lazy-load Sentry/PostHog adapters so development bundling no longer fails on Node built-in `diagnostics_channel`.
+
 ### Changed
 
 - Configure GUI application header: compact `PDev Harness` brand lockup, sticky background-matched header, and Settings dropdown with theme toggle and Configure navigation.
