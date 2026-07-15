@@ -5,21 +5,28 @@ import type {
   NodeChange,
   EdgeChange,
 } from "@xyflow/react";
+import type {
+  OperationsBootstrapPayload,
+  OperationsDraftModelSelection,
+  OperationsExecutorCatalogEntry,
+  OperationsLayout,
+  OperationsModelCatalogEntry,
+  OperationsOutcome,
+  OperationsRule,
+  OperationsStatusRecord,
+  OperationsValidationResult,
+  OperationsWorkflowDraft,
+} from "@harness/operations/types";
+import { lookupExecutor } from "@harness/operations/executor-catalog";
+
+export const OPERATIONS_HISTORY_LIMIT = 100;
+
 function createId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();
   }
   return `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
-import type {
-  OperationsBootstrapPayload,
-  OperationsLayout,
-  OperationsOutcome,
-  OperationsRule,
-  OperationsStatusRecord,
-  OperationsWorkflowDraft,
-} from "@harness/operations/types";
-import { lookupExecutor } from "@harness/operations/executor-catalog";
 
 export type OperationsSelection =
   | { kind: "none" }
@@ -36,36 +43,117 @@ export type OperationsSaveState =
 
 export interface OperationsPageState {
   bootstrap: OperationsBootstrapPayload;
+  unavailableReason?: string;
   draft: OperationsWorkflowDraft;
+  cleanDraft: OperationsWorkflowDraft;
+  cleanFingerprint: string;
   selection: OperationsSelection;
   saveState: OperationsSaveState;
   saveMessage?: string;
+  validation?: OperationsValidationResult;
   past: OperationsWorkflowDraft[];
   future: OperationsWorkflowDraft[];
+  activeRequest?: {
+    token: number;
+    kind: "save" | "reset";
+    draftFingerprintAtStart: string;
+  };
+  nextRequestToken: number;
 }
 
 export type OperationsAction =
   | { type: "select"; selection: OperationsSelection }
   | { type: "commit-draft"; draft: OperationsWorkflowDraft; pushHistory?: boolean }
+  | { type: "save-start" }
+  | {
+      type: "save-success";
+      token: number;
+      draft: OperationsWorkflowDraft;
+      validation?: OperationsValidationResult;
+      message?: string;
+    }
+  | { type: "save-error"; token: number; message: string }
   | { type: "undo" }
   | { type: "redo" }
   | { type: "set-save-state"; saveState: OperationsSaveState; saveMessage?: string }
-  | { type: "replace-bootstrap"; bootstrap: OperationsBootstrapPayload; draft: OperationsWorkflowDraft };
+  | { type: "replace-bootstrap"; bootstrap: OperationsBootstrapPayload; draft?: OperationsWorkflowDraft }
+  | { type: "reset-start" }
+  | {
+      type: "reset-success";
+      token: number;
+      bootstrap: OperationsBootstrapPayload;
+      draft?: OperationsWorkflowDraft;
+      message?: string;
+    }
+  | { type: "reset-error"; token: number; message: string };
 
 function cloneDraft(draft: OperationsWorkflowDraft): OperationsWorkflowDraft {
   return structuredClone(draft);
 }
 
+export function fingerprintOperationsDraft(draft: OperationsWorkflowDraft): string {
+  return JSON.stringify(draft);
+}
+
+function deriveSaveState(
+  draft: OperationsWorkflowDraft,
+  cleanFingerprint: string,
+  preferredCleanState: OperationsSaveState = "clean",
+): OperationsSaveState {
+  return fingerprintOperationsDraft(draft) === cleanFingerprint
+    ? preferredCleanState
+    : "dirty";
+}
+
+function pushHistory(
+  past: OperationsWorkflowDraft[],
+  draft: OperationsWorkflowDraft,
+): OperationsWorkflowDraft[] {
+  return [...past, cloneDraft(draft)].slice(-OPERATIONS_HISTORY_LIMIT);
+}
+
+function fallbackDraft(bootstrap: OperationsBootstrapPayload): OperationsWorkflowDraft {
+  const now = new Date().toISOString();
+  return {
+    schemaVersion: 1,
+    draftId: "unavailable-draft",
+    createdAt: now,
+    updatedAt: now,
+    savedByRuntime: bootstrap.sourceMode === "fixture" ? "fixture-test" : "source-gui",
+    sourceMode: bootstrap.sourceMode,
+    baseSnapshot: {
+      configFingerprint: "unavailable",
+      statusCatalogFingerprint: "unavailable",
+      modelCatalogFingerprint: "unavailable",
+      workflowFingerprint: "unavailable",
+    },
+    statusIdsOnCanvas: [],
+    rules: [],
+    layout: { statusPositions: {}, viewport: { x: 0, y: 0, zoom: 1 } },
+  };
+}
+
 export function createInitialOperationsState(
   bootstrap: OperationsBootstrapPayload,
 ): OperationsPageState {
+  const initialDraft = cloneDraft(bootstrap.draft ?? fallbackDraft(bootstrap));
+  const cleanFingerprint = fingerprintOperationsDraft(initialDraft);
   return {
     bootstrap,
-    draft: cloneDraft(bootstrap.draft!),
+    unavailableReason: bootstrap.draft
+      ? undefined
+      : bootstrap.validation.errors[0]?.message ??
+        bootstrap.warnings[0] ??
+        "Operations draft is unavailable.",
+    draft: initialDraft,
+    cleanDraft: cloneDraft(initialDraft),
+    cleanFingerprint,
     selection: { kind: "none" },
     saveState: "clean",
+    validation: bootstrap.validation,
     past: [],
     future: [],
+    nextRequestToken: 1,
   };
 }
 
@@ -77,17 +165,78 @@ export function operationsReducer(
     case "select":
       return { ...state, selection: action.selection };
     case "commit-draft": {
+      if (state.activeRequest) {
+        return state;
+      }
       const nextDraft = cloneDraft(action.draft);
       const pushHistory = action.pushHistory ?? true;
       return {
         ...state,
         draft: nextDraft,
-        saveState: "dirty",
-        past: pushHistory ? [...state.past, cloneDraft(state.draft)] : state.past,
+        saveState: deriveSaveState(nextDraft, state.cleanFingerprint),
+        saveMessage: undefined,
+        past: pushHistory ? pushHistoryFn(state.past, state.draft) : state.past,
         future: pushHistory ? [] : state.future,
       };
     }
+    case "save-start": {
+      if (state.activeRequest || state.saveState === "clean" || state.saveState === "saved") {
+        return state;
+      }
+      const token = state.nextRequestToken;
+      return {
+        ...state,
+        saveState: "saving",
+        saveMessage: undefined,
+        activeRequest: {
+          token,
+          kind: "save",
+          draftFingerprintAtStart: fingerprintOperationsDraft(state.draft),
+        },
+        nextRequestToken: token + 1,
+      };
+    }
+    case "save-success": {
+      if (
+        state.activeRequest?.kind !== "save" ||
+        state.activeRequest.token !== action.token ||
+        state.activeRequest.draftFingerprintAtStart !== fingerprintOperationsDraft(state.draft)
+      ) {
+        return state;
+      }
+      const savedDraft = cloneDraft(action.draft);
+      const cleanFingerprint = fingerprintOperationsDraft(savedDraft);
+      return {
+        ...state,
+        draft: savedDraft,
+        cleanDraft: cloneDraft(savedDraft),
+        cleanFingerprint,
+        saveState: "saved",
+        saveMessage: action.message,
+        validation: action.validation,
+        activeRequest: undefined,
+        past: [],
+        future: [],
+      };
+    }
+    case "save-error": {
+      if (
+        state.activeRequest?.kind !== "save" ||
+        state.activeRequest.token !== action.token
+      ) {
+        return state;
+      }
+      return {
+        ...state,
+        saveState: "error",
+        saveMessage: action.message,
+        activeRequest: undefined,
+      };
+    }
     case "undo": {
+      if (state.activeRequest) {
+        return state;
+      }
       const previous = state.past.at(-1);
       if (!previous) {
         return state;
@@ -97,10 +246,14 @@ export function operationsReducer(
         draft: cloneDraft(previous),
         past: state.past.slice(0, -1),
         future: [cloneDraft(state.draft), ...state.future],
-        saveState: "dirty",
+        saveState: deriveSaveState(previous, state.cleanFingerprint),
+        saveMessage: undefined,
       };
     }
     case "redo": {
+      if (state.activeRequest) {
+        return state;
+      }
       const next = state.future[0];
       if (!next) {
         return state;
@@ -108,9 +261,10 @@ export function operationsReducer(
       return {
         ...state,
         draft: cloneDraft(next),
-        past: [...state.past, cloneDraft(state.draft)],
+        past: pushHistoryFn(state.past, state.draft),
         future: state.future.slice(1),
-        saveState: "dirty",
+        saveState: deriveSaveState(next, state.cleanFingerprint),
+        saveMessage: undefined,
       };
     }
     case "set-save-state":
@@ -120,14 +274,88 @@ export function operationsReducer(
         saveMessage: action.saveMessage,
       };
     case "replace-bootstrap":
+      if (!action.draft && !action.bootstrap.draft) {
+        return {
+          ...createInitialOperationsState(action.bootstrap),
+          nextRequestToken: state.nextRequestToken,
+        };
+      }
+      {
+        const draft = cloneDraft(action.draft ?? action.bootstrap.draft!);
+        const cleanFingerprint = fingerprintOperationsDraft(draft);
+        return {
+          ...createInitialOperationsState(action.bootstrap),
+          draft,
+          cleanDraft: cloneDraft(draft),
+          cleanFingerprint,
+          nextRequestToken: state.nextRequestToken,
+        };
+      }
+    case "reset-start": {
+      if (state.activeRequest) {
+        return state;
+      }
+      const token = state.nextRequestToken;
       return {
-        ...createInitialOperationsState(action.bootstrap),
-        draft: cloneDraft(action.draft),
+        ...state,
+        saveState: "saving",
+        saveMessage: undefined,
+        activeRequest: {
+          token,
+          kind: "reset",
+          draftFingerprintAtStart: fingerprintOperationsDraft(state.draft),
+        },
+        nextRequestToken: token + 1,
       };
+    }
+    case "reset-success": {
+      if (
+        state.activeRequest?.kind !== "reset" ||
+        state.activeRequest.token !== action.token ||
+        state.activeRequest.draftFingerprintAtStart !== fingerprintOperationsDraft(state.draft)
+      ) {
+        return state;
+      }
+      const next = createInitialOperationsState(action.bootstrap);
+      const draft = action.draft ?? action.bootstrap.draft;
+      if (!draft) {
+        return {
+          ...next,
+          saveMessage: action.message,
+          nextRequestToken: state.nextRequestToken,
+        };
+      }
+      const cleanDraft = cloneDraft(draft);
+      return {
+        ...next,
+        draft: cleanDraft,
+        cleanDraft: cloneDraft(cleanDraft),
+        cleanFingerprint: fingerprintOperationsDraft(cleanDraft),
+        saveState: "clean",
+        saveMessage: action.message,
+        nextRequestToken: state.nextRequestToken,
+      };
+    }
+    case "reset-error": {
+      if (
+        state.activeRequest?.kind !== "reset" ||
+        state.activeRequest.token !== action.token
+      ) {
+        return state;
+      }
+      return {
+        ...state,
+        saveState: "error",
+        saveMessage: action.message,
+        activeRequest: undefined,
+      };
+    }
     default:
       return state;
   }
 }
+
+const pushHistoryFn = pushHistory;
 
 export function statusNodeId(statusId: string): string {
   return `status:${statusId}`;
@@ -188,16 +416,19 @@ export function removeStatusFromCanvas(
   draft: OperationsWorkflowDraft,
   statusId: string,
 ): OperationsWorkflowDraft {
-  const { [statusId]: _removed, ...remainingPositions } =
-    draft.layout.statusPositions;
   return {
     ...draft,
     statusIdsOnCanvas: draft.statusIdsOnCanvas.filter((id) => id !== statusId),
-    rules: draft.rules.filter((rule) => rule.sourceStatusId !== statusId),
-    layout: {
-      ...draft.layout,
-      statusPositions: remainingPositions,
-    },
+    rules: draft.rules
+      .filter((rule) => rule.sourceStatusId !== statusId)
+      .map((rule) => ({
+        ...rule,
+        outcomes: rule.outcomes.map((outcome) =>
+          outcome.destinationStatusId === statusId
+            ? { ...outcome, destinationStatusId: undefined }
+            : outcome,
+        ),
+      })),
   };
 }
 
@@ -297,6 +528,114 @@ export function updateRule(
     ...draft,
     rules: draft.rules.map((rule) =>
       rule.id === ruleId ? { ...rule, ...patch } : rule,
+    ),
+  };
+}
+
+export function updateRuleWithExecutorCleanup(
+  draft: OperationsWorkflowDraft,
+  ruleId: string,
+  patch: Partial<OperationsRule>,
+  executors: OperationsExecutorCatalogEntry[],
+): OperationsWorkflowDraft {
+  return {
+    ...draft,
+    rules: draft.rules.map((rule) => {
+      if (rule.id !== ruleId) {
+        return rule;
+      }
+      const next: OperationsRule = { ...rule, ...patch };
+      const executor = executors.find((entry) => entry.id === next.executorId);
+      if (!executor?.supportsDraftModelSelection) {
+        delete next.modelSelection;
+      }
+      if (next.executorId !== "merge-runner") {
+        delete next.nestedRecoveryPolicy;
+      } else if (!next.nestedRecoveryPolicy) {
+        next.nestedRecoveryPolicy = {
+          deterministicRepairEnabled: true,
+          cursorAgentFallbackEnabled: true,
+        };
+      }
+      return next;
+    }),
+  };
+}
+
+export function buildDefaultModelSelection(
+  model: OperationsModelCatalogEntry,
+): OperationsDraftModelSelection {
+  return {
+    modelId: model.id,
+    displayNameAtSelection: model.displayName,
+    parameters: model.supportedParameters
+      .filter((parameter) => parameter.defaultValue !== undefined)
+      .map((parameter) => ({
+        id: parameter.id,
+        value: parameter.defaultValue!,
+      })),
+  };
+}
+
+export function updateRuleModelSelection(
+  draft: OperationsWorkflowDraft,
+  ruleId: string,
+  modelId: string,
+  modelCatalog: OperationsModelCatalogEntry[],
+): OperationsWorkflowDraft {
+  const model = modelCatalog.find((entry) => entry.id === modelId);
+  return updateRule(draft, ruleId, {
+    modelSelection: model ? buildDefaultModelSelection(model) : undefined,
+  });
+}
+
+export function updateRuleModelParameter(
+  draft: OperationsWorkflowDraft,
+  ruleId: string,
+  parameterId: string,
+  value: string,
+): OperationsWorkflowDraft {
+  return {
+    ...draft,
+    rules: draft.rules.map((rule) => {
+      if (rule.id !== ruleId || !rule.modelSelection) {
+        return rule;
+      }
+      const parameters = rule.modelSelection.parameters.filter(
+        (parameter) => parameter.id !== parameterId,
+      );
+      return {
+        ...rule,
+        modelSelection: {
+          ...rule.modelSelection,
+          parameters: [...parameters, { id: parameterId, value }],
+        },
+      };
+    }),
+  };
+}
+
+export function addOutcomeToRule(
+  draft: OperationsWorkflowDraft,
+  ruleId: string,
+  label = "New outcome",
+): OperationsWorkflowDraft {
+  return {
+    ...draft,
+    rules: draft.rules.map((rule) =>
+      rule.id === ruleId
+        ? {
+            ...rule,
+            outcomes: [
+              ...rule.outcomes,
+              {
+                id: createId(),
+                label,
+                enabled: true,
+              },
+            ],
+          }
+        : rule,
     ),
   };
 }

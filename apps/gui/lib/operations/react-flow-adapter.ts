@@ -7,4 +7,5 @@ export {
   mergeViewport,
   connectOutcome,
   reconnectOutcome,
+  deleteOutcome,
 } from "./reducer";

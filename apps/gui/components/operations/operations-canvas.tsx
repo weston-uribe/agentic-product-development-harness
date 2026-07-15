@@ -47,7 +47,7 @@ function OperationsCanvasInner({
   onSelect,
   fitViewSignal,
 }: OperationsCanvasInnerProps) {
-  const { fitView } = useReactFlow();
+  const { fitView, getViewport } = useReactFlow();
   const derived = useMemo(
     () => domainDraftToFlow({ draft, statuses: bootstrap.statuses }),
     [bootstrap.statuses, draft],
@@ -62,9 +62,17 @@ function OperationsCanvasInner({
 
   useEffect(() => {
     if (fitViewSignal > 0) {
-      fitView({ padding: 0.2 });
+      void fitView({ padding: 0.2 }).then(() => {
+        onDraftChange(
+          {
+            ...draft,
+            layout: mergeViewport(draft.layout, getViewport()),
+          },
+          false,
+        );
+      });
     }
-  }, [fitView, fitViewSignal]);
+  }, [draft, fitView, fitViewSignal, getViewport, onDraftChange]);
 
   const onConnect = useCallback(
     (connection: Connection) => {
@@ -136,6 +144,16 @@ function OperationsCanvasInner({
     [draft, onDraftChange],
   );
 
+  const onMoveEnd = useCallback(() => {
+    onDraftChange(
+      {
+        ...draft,
+        layout: mergeViewport(draft.layout, getViewport()),
+      },
+      false,
+    );
+  }, [draft, getViewport, onDraftChange]);
+
   return (
     <ReactFlow
       nodes={nodes}
@@ -149,6 +167,8 @@ function OperationsCanvasInner({
       onSelectionChange={onSelectionChange}
       onEdgesDelete={onEdgesDelete}
       onReconnect={onReconnect}
+      onMoveEnd={onMoveEnd}
+      defaultViewport={draft.layout.viewport}
       fitView
       proOptions={{ hideAttribution: true }}
       className="h-full w-full bg-background"

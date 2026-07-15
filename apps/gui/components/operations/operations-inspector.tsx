@@ -1,4 +1,8 @@
-import type { OperationsBootstrapPayload, OperationsWorkflowDraft } from "@harness/operations/types";
+import type {
+  OperationsBootstrapPayload,
+  OperationsOutcome,
+  OperationsWorkflowDraft,
+} from "@harness/operations/types";
 import type { OperationsSelection } from "@/lib/operations/reducer";
 import { StatusInspector } from "./status-inspector";
 import { RuleInspector } from "./rule-inspector";
@@ -9,6 +13,16 @@ type OperationsInspectorProps = {
   draft: OperationsWorkflowDraft;
   selection: OperationsSelection;
   onUpdateRule: (ruleId: string, patch: Partial<OperationsWorkflowDraft["rules"][number]>) => void;
+  onSelectModel: (ruleId: string, modelId: string) => void;
+  onUpdateModelParameter: (ruleId: string, parameterId: string, value: string) => void;
+  onAddOutcome: (ruleId: string) => void;
+  onUpdateOutcome: (
+    ruleId: string,
+    outcomeId: string,
+    patch: Partial<OperationsOutcome>,
+  ) => void;
+  onDeleteOutcome: (ruleId: string, outcomeId: string) => void;
+  onRemoveStatus: (statusId: string) => void;
 };
 
 export function OperationsInspector({
@@ -16,6 +30,12 @@ export function OperationsInspector({
   draft,
   selection,
   onUpdateRule,
+  onSelectModel,
+  onUpdateModelParameter,
+  onAddOutcome,
+  onUpdateOutcome,
+  onDeleteOutcome,
+  onRemoveStatus,
 }: OperationsInspectorProps) {
   const statusById = new Map(bootstrap.statuses.map((status) => [status.id, status]));
 
@@ -29,7 +49,10 @@ export function OperationsInspector({
       ) : null}
       {selection.kind === "status" ? (
         <div className="space-y-4">
-          <StatusInspector status={statusById.get(selection.statusId)!} />
+          <StatusInspector
+            status={statusById.get(selection.statusId)!}
+            onRemove={() => onRemoveStatus(selection.statusId)}
+          />
           {(() => {
             const rule = findRuleForStatus(draft, selection.statusId);
             if (!rule) {
@@ -44,7 +67,17 @@ export function OperationsInspector({
                 rule={rule}
                 executors={bootstrap.executors}
                 modelCatalog={bootstrap.modelCatalog}
+                statuses={bootstrap.statuses}
                 onChange={(patch) => onUpdateRule(rule.id, patch)}
+                onSelectModel={(modelId) => onSelectModel(rule.id, modelId)}
+                onUpdateModelParameter={(parameterId, value) =>
+                  onUpdateModelParameter(rule.id, parameterId, value)
+                }
+                onAddOutcome={() => onAddOutcome(rule.id)}
+                onUpdateOutcome={(outcomeId, patch) =>
+                  onUpdateOutcome(rule.id, outcomeId, patch)
+                }
+                onDeleteOutcome={(outcomeId) => onDeleteOutcome(rule.id, outcomeId)}
               />
             );
           })()}
@@ -65,7 +98,20 @@ export function OperationsInspector({
               rule={rule}
               executors={bootstrap.executors}
               modelCatalog={bootstrap.modelCatalog}
+                statuses={bootstrap.statuses}
+                selectedOutcomeId={
+                  selection.kind === "outcome" ? selection.outcomeId : undefined
+                }
               onChange={(patch) => onUpdateRule(rule.id, patch)}
+                onSelectModel={(modelId) => onSelectModel(rule.id, modelId)}
+                onUpdateModelParameter={(parameterId, value) =>
+                  onUpdateModelParameter(rule.id, parameterId, value)
+                }
+                onAddOutcome={() => onAddOutcome(rule.id)}
+                onUpdateOutcome={(outcomeId, patch) =>
+                  onUpdateOutcome(rule.id, outcomeId, patch)
+                }
+                onDeleteOutcome={(outcomeId) => onDeleteOutcome(rule.id, outcomeId)}
             />
           );
         })()

@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   addStatusToCanvas,
+  applyEdgeChangesToDraft,
   connectOutcome,
   domainDraftToFlow,
+  mergeViewport,
+  reconnectOutcome,
   updateLayoutPosition,
 } from "../../apps/gui/lib/operations/reducer.ts";
 
@@ -65,5 +68,37 @@ describe("operations react flow adapter", () => {
     const next = updateLayoutPosition(draft, "status-a", { x: 120, y: 80 });
     expect(next.layout.statusPositions["status-a"]).toEqual({ x: 120, y: 80 });
     expect(next.rules).toEqual(draft.rules);
+  });
+
+  it("persists viewport in layout without changing rule semantics", () => {
+    const next = {
+      ...draft,
+      layout: mergeViewport(draft.layout, { x: 10, y: 20, zoom: 0.75 }),
+    };
+    expect(next.layout.viewport).toEqual({ x: 10, y: 20, zoom: 0.75 });
+    expect(next.rules).toEqual(draft.rules);
+  });
+
+  it("reconnects and deletes the same canonical outcome", () => {
+    const withTarget = addStatusToCanvas(
+      addStatusToCanvas(
+        connectOutcome(draft, {
+          source: "status:status-a",
+          target: "status:status-b",
+          sourceHandle: null,
+          targetHandle: null,
+        }),
+        "status-b",
+      ),
+      "status-c",
+    );
+    const edge = domainDraftToFlow({ draft: withTarget, statuses }) .edges[0]!;
+    const reconnected = reconnectOutcome(withTarget, edge.id, "status-c");
+    expect(reconnected.rules[0]?.outcomes[0]?.destinationStatusId).toBe("status-c");
+
+    const deleted = applyEdgeChangesToDraft(reconnected, [
+      { id: edge.id, type: "remove" },
+    ]);
+    expect(deleted.rules[0]?.outcomes).toHaveLength(0);
   });
 });

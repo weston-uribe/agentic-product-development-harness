@@ -8,6 +8,8 @@ type OperationsToolbarProps = {
   saveMessage?: string;
   canUndo: boolean;
   canRedo: boolean;
+  canSave: boolean;
+  isRequestActive: boolean;
   onUndo: () => void;
   onRedo: () => void;
   onSave: () => void;
@@ -21,6 +23,8 @@ export function OperationsToolbar({
   saveMessage,
   canUndo,
   canRedo,
+  canSave,
+  isRequestActive,
   onUndo,
   onRedo,
   onSave,
@@ -32,23 +36,46 @@ export function OperationsToolbar({
       <h1 className="text-lg font-semibold">Operations</h1>
       <Badge variant="outline">{dataSourceLabel}</Badge>
       <div className="ml-auto flex flex-wrap items-center gap-2">
-        <Button type="button" variant="outline" size="sm" onClick={onUndo} disabled={!canUndo}>
+        <Badge variant={saveState === "dirty" || saveState === "error" ? "secondary" : "outline"}>
+          {saveState === "dirty"
+            ? "Unsaved changes"
+            : saveState === "saving"
+              ? "Saving"
+              : saveState === "saved"
+                ? "Saved"
+                : saveState === "error"
+                  ? "Save error"
+                  : "Clean"}
+        </Badge>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={onUndo}
+          disabled={!canUndo || isRequestActive}
+        >
           Undo
         </Button>
-        <Button type="button" variant="outline" size="sm" onClick={onRedo} disabled={!canRedo}>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={onRedo}
+          disabled={!canRedo || isRequestActive}
+        >
           Redo
         </Button>
-        <Button type="button" variant="outline" size="sm" onClick={onFitView}>
+        <Button type="button" variant="outline" size="sm" onClick={onFitView} disabled={isRequestActive}>
           Fit view
         </Button>
-        <Button type="button" variant="outline" size="sm" onClick={onReset}>
+        <Button type="button" variant="outline" size="sm" onClick={onReset} disabled={isRequestActive}>
           Reset draft
         </Button>
         <Button
           type="button"
           size="sm"
           onClick={onSave}
-          disabled={saveState === "saving"}
+          disabled={!canSave || isRequestActive}
         >
           {saveState === "saving" ? "Saving…" : "Save draft"}
         </Button>

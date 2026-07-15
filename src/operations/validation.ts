@@ -232,11 +232,12 @@ export function validateOperationsDraft(
       );
     }
 
-    if (rule.enabled && rule.outcomes.length === 0) {
+    const enabledOutcomes = rule.outcomes.filter((outcome) => outcome.enabled);
+    if (rule.enabled && enabledOutcomes.length === 0) {
       errors.push(
         issue({
           id: "enabled-rule-without-outcomes",
-          message: "Enabled rule must have at least one outcome.",
+          message: "Enabled rule must have at least one enabled outcome.",
           ruleId: rule.id,
         }),
       );
@@ -255,6 +256,10 @@ export function validateOperationsDraft(
         );
       }
       outcomeIds.add(outcome.id);
+
+      if (!outcome.enabled) {
+        continue;
+      }
 
       if (!outcome.destinationStatusId) {
         errors.push(
@@ -380,20 +385,70 @@ export function validateOperationsDraft(
     }
   }
 
-  const hasEntry = draft.statusIdsOnCanvas.some((statusId) => {
-    const incoming = draft.rules.some((rule) =>
-      rule.outcomes.some((outcome) => outcome.destinationStatusId === statusId),
+  const enabledCanvasIds = new Set(draft.statusIdsOnCanvas);
+  const enabledEdges = draft.rules
+    .filter((rule) => rule.enabled && enabledCanvasIds.has(rule.sourceStatusId))
+    .flatMap((rule) =>
+      rule.outcomes
+        .filter(
+          (outcome) =>
+            outcome.enabled &&
+            outcome.destinationStatusId &&
+            enabledCanvasIds.has(outcome.destinationStatusId),
+        )
+        .map((outcome) => ({
+          sourceStatusId: rule.sourceStatusId,
+          destinationStatusId: outcome.destinationStatusId!,
+        })),
     );
-    return !incoming;
-  });
-  if (draft.statusIdsOnCanvas.length > 0 && hasEntry) {
+  const incomingByStatus = new Map<string, number>();
+  for (const edge of enabledEdges) {
+    incomingByStatus.set(
+      edge.destinationStatusId,
+      (incomingByStatus.get(edge.destinationStatusId) ?? 0) + 1,
+    );
+  }
+  const entryStatusIds = draft.statusIdsOnCanvas.filter(
+    (statusId) => !incomingByStatus.has(statusId),
+  );
+  if (draft.statusIdsOnCanvas.length > 0 && entryStatusIds.length === 0) {
     warnings.push(
       issue({
-        id: "no-entry-path",
+        id: "graph-has-no-entry-status",
         severity: "warning",
-        message: "One or more canvas statuses have no incoming outcome path.",
+        message:
+          "Every canvas status has an incoming enabled outcome; no usable entry status can be identified.",
       }),
     );
+  }
+
+  if (entryStatusIds.length > 0) {
+    const reachable = new Set(entryStatusIds);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const edge of enabledEdges) {
+        if (
+          reachable.has(edge.sourceStatusId) &&
+          !reachable.has(edge.destinationStatusId)
+        ) {
+          reachable.add(edge.destinationStatusId);
+          changed = true;
+        }
+      }
+    }
+    for (const statusId of draft.statusIdsOnCanvas) {
+      if (!reachable.has(statusId)) {
+        warnings.push(
+          issue({
+            id: "unreachable-status",
+            severity: "warning",
+            message: `Canvas status ${statusId} is unreachable from any usable entry status.`,
+            statusId,
+          }),
+        );
+      }
+    }
   }
 
   return { errors, warnings, infos };

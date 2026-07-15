@@ -19,6 +19,41 @@ describe("operations validation", () => {
     statusIdsOnCanvas: ["status-a", "status-b"],
     layout: { statusPositions: {} },
   };
+  const statuses = ["status-a", "status-b", "status-c"].map((id) => ({
+    id,
+    name: id,
+    category: "started",
+    source: "fixture" as const,
+    participatesInCurrentHarnessWorkflow: true,
+    automationTriggerStatus: false,
+    currentMappingKeys: [],
+    mappingState: "resolved" as const,
+  }));
+
+  function validateRules(rules: Array<{
+    id: string;
+    sourceStatusId: string;
+    enabled: boolean;
+    executorId: string;
+    outcomes: Array<{
+      id: string;
+      label: string;
+      destinationStatusId?: string;
+      enabled: boolean;
+    }>;
+  }>) {
+    return validateOperationsDraft({
+      draft: {
+        ...baseDraft,
+        statusIdsOnCanvas: ["status-a", "status-b", "status-c"],
+        rules,
+      },
+      statuses,
+      executors: getExecutorCatalog(),
+      modelCatalog: [],
+      currentWorkflowMappings: [],
+    });
+  }
 
   it("rejects non-assignable executors", () => {
     const result = validateOperationsDraft({
@@ -91,5 +126,183 @@ describe("operations validation", () => {
     expect(
       result.warnings.some((issue) => issue.id === "stale-config-fingerprint"),
     ).toBe(true);
+  });
+
+  it("does not warn for a normal linear workflow with one entry", () => {
+    const result = validateRules([
+      {
+        id: "rule-a",
+        sourceStatusId: "status-a",
+        enabled: true,
+        executorId: "human-decision",
+        outcomes: [
+          {
+            id: "outcome-a",
+            label: "Next",
+            destinationStatusId: "status-b",
+            enabled: true,
+          },
+        ],
+      },
+      {
+        id: "rule-b",
+        sourceStatusId: "status-b",
+        enabled: true,
+        executorId: "human-decision",
+        outcomes: [
+          {
+            id: "outcome-b",
+            label: "Next",
+            destinationStatusId: "status-c",
+            enabled: true,
+          },
+        ],
+      },
+    ]);
+    expect(result.warnings.some((issue) => issue.id === "graph-has-no-entry-status")).toBe(false);
+    expect(result.warnings.some((issue) => issue.id === "unreachable-status")).toBe(false);
+  });
+
+  it("does not warn for a branching workflow with one entry", () => {
+    const result = validateRules([
+      {
+        id: "rule-a",
+        sourceStatusId: "status-a",
+        enabled: true,
+        executorId: "human-decision",
+        outcomes: [
+          {
+            id: "outcome-b",
+            label: "B",
+            destinationStatusId: "status-b",
+            enabled: true,
+          },
+          {
+            id: "outcome-c",
+            label: "C",
+            destinationStatusId: "status-c",
+            enabled: true,
+          },
+        ],
+      },
+    ]);
+    expect(result.warnings.some((issue) => issue.id === "graph-has-no-entry-status")).toBe(false);
+    expect(result.warnings.some((issue) => issue.id === "unreachable-status")).toBe(false);
+  });
+
+  it("warns for a completely cyclic graph with no entry", () => {
+    const result = validateRules([
+      {
+        id: "rule-a",
+        sourceStatusId: "status-a",
+        enabled: true,
+        executorId: "human-decision",
+        outcomes: [
+          {
+            id: "outcome-a",
+            label: "B",
+            destinationStatusId: "status-b",
+            enabled: true,
+          },
+        ],
+      },
+      {
+        id: "rule-b",
+        sourceStatusId: "status-b",
+        enabled: true,
+        executorId: "human-decision",
+        outcomes: [
+          {
+            id: "outcome-b",
+            label: "C",
+            destinationStatusId: "status-c",
+            enabled: true,
+          },
+        ],
+      },
+      {
+        id: "rule-c",
+        sourceStatusId: "status-c",
+        enabled: true,
+        executorId: "revision-agent",
+        outcomes: [
+          {
+            id: "outcome-c",
+            label: "A",
+            destinationStatusId: "status-a",
+            enabled: true,
+          },
+        ],
+      },
+    ]);
+    expect(result.warnings.some((issue) => issue.id === "graph-has-no-entry-status")).toBe(true);
+  });
+
+  it("warns for unreachable statuses and ignores disabled outcomes as paths", () => {
+    const result = validateRules([
+      {
+        id: "rule-a",
+        sourceStatusId: "status-a",
+        enabled: true,
+        executorId: "human-decision",
+        outcomes: [
+          {
+            id: "outcome-a",
+            label: "Disabled",
+            destinationStatusId: "status-b",
+            enabled: false,
+          },
+        ],
+      },
+      {
+        id: "rule-b",
+        sourceStatusId: "status-b",
+        enabled: true,
+        executorId: "human-decision",
+        outcomes: [
+          {
+            id: "outcome-b",
+            label: "C",
+            destinationStatusId: "status-c",
+            enabled: true,
+          },
+        ],
+      },
+      {
+        id: "rule-c",
+        sourceStatusId: "status-c",
+        enabled: true,
+        executorId: "revision-agent",
+        outcomes: [
+          {
+            id: "outcome-c",
+            label: "B",
+            destinationStatusId: "status-b",
+            enabled: true,
+          },
+        ],
+      },
+    ]);
+    expect(result.warnings.some((issue) => issue.id === "unreachable-status")).toBe(true);
+  });
+
+  it("allows legitimate revision self-loops", () => {
+    const result = validateRules([
+      {
+        id: "rule-a",
+        sourceStatusId: "status-a",
+        enabled: true,
+        executorId: "revision-agent",
+        outcomes: [
+          {
+            id: "outcome-a",
+            label: "Retry",
+            destinationStatusId: "status-a",
+            enabled: true,
+          },
+        ],
+      },
+    ]);
+    expect(result.errors.some((issue) => issue.id === "invalid-self-loop")).toBe(false);
   });
 });

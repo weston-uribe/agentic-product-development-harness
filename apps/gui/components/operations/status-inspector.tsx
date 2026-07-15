@@ -2,9 +2,10 @@ import type { OperationsStatusRecord } from "@harness/operations/types";
 
 type StatusInspectorProps = {
   status: OperationsStatusRecord;
+  onRemove?: () => void;
 };
 
-export function StatusInspector({ status }: StatusInspectorProps) {
+export function StatusInspector({ status, onRemove }: StatusInspectorProps) {
   return (
     <div className="space-y-2 text-sm">
       <div>
@@ -25,6 +26,20 @@ export function StatusInspector({ status }: StatusInspectorProps) {
           <dd>{status.participatesInCurrentHarnessWorkflow ? "Yes" : "No"}</dd>
         </div>
       </dl>
+      {onRemove ? (
+        <div className="rounded-md border border-border p-2 text-xs">
+          <p className="text-muted-foreground">
+            Removing this status only removes it from the local draft canvas. It never deletes, renames, reorders, or changes the Linear status.
+          </p>
+          <button
+            type="button"
+            className="mt-2 rounded-md border border-input px-2 py-1 hover:bg-accent"
+            onClick={onRemove}
+          >
+            Remove from draft canvas
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

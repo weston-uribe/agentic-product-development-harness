@@ -82,6 +82,10 @@ describe("operations draft routes", () => {
       json: async () => sampleDraft,
     } as never);
     expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(JSON.stringify(payload.validation)).not.toMatch(
+      /missing-source-status|missing-destination-status|model-not-in-catalog/,
+    );
     await access(resolveDraftPath(tempRoot));
   });
 
@@ -95,6 +99,10 @@ describe("operations draft routes", () => {
       json: async () => ({ ...sampleDraft, sourceMode: "fixture" }),
     } as never);
     expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(JSON.stringify(payload.validation)).not.toMatch(
+      /missing-source-status|missing-destination-status|model-not-in-catalog/,
+    );
     await expect(access(resolveDraftPath(tempRoot))).rejects.toThrow();
   });
 });

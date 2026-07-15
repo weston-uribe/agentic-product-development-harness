@@ -53,7 +53,7 @@ function defaultLayout(statuses: OperationsStatusRecord[]): OperationsLayout {
   return { statusPositions, viewport: { x: 0, y: 0, zoom: 1 } };
 }
 
-function buildBaseSnapshot(input: {
+export function buildOperationsBaseSnapshot(input: {
   teamId?: string;
   teamKey?: string;
   config?: HarnessConfig;
@@ -185,7 +185,7 @@ export async function buildOperationsBootstrap(
     statuses: linearStatuses,
     source: context.mode === "fixture" ? "fixture" : "linear-live",
   });
-  const baseSnapshot = buildBaseSnapshot({
+  const baseSnapshot = buildOperationsBaseSnapshot({
     teamId: deps.teamId,
     teamKey: deps.teamKey,
     config,

@@ -20,7 +20,7 @@ export function AvailableStatusPanel({
     <div className="rounded-md border border-border bg-card p-3">
       <h2 className="mb-2 text-sm font-medium">Status palette</h2>
       <p className="mb-3 text-xs text-muted-foreground">
-        Canvas positions are visual only and do not change Linear ordering or harness behavior.
+        Canvas positions and add/remove choices are local draft-only. Removing a status from this canvas never deletes or changes the Linear status, and Undo can restore the draft operation.
       </p>
       <ul className="max-h-72 space-y-2 overflow-y-auto text-sm">
         {statuses.map((status) => {
@@ -44,7 +44,7 @@ export function AvailableStatusPanel({
                   isOnCanvas ? onRemoveStatus(status.id) : onAddStatus(status.id)
                 }
               >
-                {isOnCanvas ? "Remove" : "Add"}
+                {isOnCanvas ? "Remove" : "Restore"}
               </Button>
             </li>
           );
