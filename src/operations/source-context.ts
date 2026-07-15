@@ -7,6 +7,7 @@ import type { OperationsSourceContext, OperationsSourceMode } from "./types.js";
 export interface SourceContextRequest {
   source?: string | null;
   fixture?: string | null;
+  scope?: string | null;
   fixturesEnabled?: boolean;
 }
 
@@ -21,6 +22,7 @@ export function resolveOperationsSourceContext(
   const fixturesEnabled = request.fixturesEnabled ?? isFixturesOptInEnabled(env);
   const source = request.source?.trim().toLowerCase();
   const fixture = request.fixture?.trim();
+  const scope = request.scope?.trim();
 
   if (source === "fixture" || fixture) {
     if (!fixturesEnabled) {
@@ -47,24 +49,26 @@ export function resolveOperationsSourceContext(
     return {
       mode: "fixture",
       fixtureId: fixture,
+      scopeId: scope,
       fixturesEnabled: true,
     };
   }
 
   return {
     mode: "live",
+    scopeId: scope,
     fixturesEnabled,
   };
 }
 
 export function dataSourceLabel(context: OperationsSourceContext): string {
   if (context.rejectionReason) {
-    return "Fixture request rejected";
+    return "Unavailable";
   }
-  if (context.mode === "fixture" && context.fixtureId) {
-    return `Fixture: ${context.fixtureId}`;
+  if (context.mode === "fixture") {
+    return "Draft workflow";
   }
-  return "Live workspace data";
+  return "Draft workflow";
 }
 
 export function assertWritableSourceContext(

@@ -10,11 +10,13 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const source = request.nextUrl.searchParams.get("source");
   const fixture = request.nextUrl.searchParams.get("fixture");
-  const context = resolveOperationsSourceContext({ source, fixture });
+  const scope = request.nextUrl.searchParams.get("scope");
+  const context = resolveOperationsSourceContext({ source, fixture, scope });
   const payload = sanitizeBootstrapPayload(
     await loadOperationsBootstrap({
       source,
       fixture,
+      scope,
       fixturesEnabled: context.fixturesEnabled,
     }),
   );

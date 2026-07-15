@@ -1,11 +1,18 @@
 import type { OperationsBootstrapPayload, OperationsWorkflowDraft } from "@harness/operations/types";
 import type { OperationsValidationResult } from "@harness/operations/types";
 
-function buildQuery(sourceMode?: string, fixtureId?: string): string {
+function buildQuery(input?: {
+  sourceMode?: string;
+  fixtureId?: string;
+  scopeId?: string;
+}): string {
   const params = new URLSearchParams();
-  if (sourceMode === "fixture" && fixtureId) {
+  if (input?.sourceMode === "fixture" && input.fixtureId) {
     params.set("source", "fixture");
-    params.set("fixture", fixtureId);
+    params.set("fixture", input.fixtureId);
+  }
+  if (input?.scopeId) {
+    params.set("scope", input.scopeId);
   }
   const query = params.toString();
   return query ? `?${query}` : "";
@@ -14,9 +21,12 @@ function buildQuery(sourceMode?: string, fixtureId?: string): string {
 export async function fetchOperationsBootstrap(input?: {
   sourceMode?: string;
   fixtureId?: string;
+  scopeId?: string;
+  signal?: AbortSignal;
 }): Promise<OperationsBootstrapPayload> {
   const response = await fetch(
-    `/api/operations/bootstrap${buildQuery(input?.sourceMode, input?.fixtureId)}`,
+    `/api/operations/bootstrap${buildQuery(input)}`,
+    { signal: input?.signal },
   );
   if (!response.ok) {
     throw new Error("Failed to load Operations bootstrap data.");
@@ -28,13 +38,14 @@ export async function saveOperationsDraft(input: {
   draft: OperationsWorkflowDraft;
   sourceMode?: string;
   fixtureId?: string;
+  scopeId?: string;
 }): Promise<{
   draft: OperationsWorkflowDraft;
   validation: OperationsValidationResult;
   message: string;
 }> {
   const response = await fetch(
-    `/api/operations/draft${buildQuery(input.sourceMode, input.fixtureId)}`,
+    `/api/operations/draft${buildQuery(input)}`,
     {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -60,10 +71,12 @@ export async function saveOperationsDraft(input: {
 export async function resetOperationsDraft(input?: {
   sourceMode?: string;
   fixtureId?: string;
+  scopeId?: string;
+  signal?: AbortSignal;
 }): Promise<OperationsBootstrapPayload> {
   const response = await fetch(
-    `/api/operations/draft${buildQuery(input?.sourceMode, input?.fixtureId)}`,
-    { method: "DELETE" },
+    `/api/operations/draft${buildQuery(input)}`,
+    { method: "DELETE", signal: input?.signal },
   );
   const payload = (await response.json()) as {
     bootstrap?: OperationsBootstrapPayload;

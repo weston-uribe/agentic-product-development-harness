@@ -5,15 +5,17 @@ import { cn } from "@/lib/utils";
 type ApplicationHeaderProps = {
   configureHref?: string;
   isConfigureActive?: boolean;
+  headerInnerClassName?: string;
 };
 
 export function ApplicationHeader({
   configureHref,
   isConfigureActive,
+  headerInnerClassName,
 }: ApplicationHeaderProps) {
   return (
     <header className={cn(LAYOUT.header)}>
-      <div className={LAYOUT.headerInner}>
+      <div className={cn(LAYOUT.headerInner, headerInnerClassName)}>
         <div className="flex min-w-0 items-center gap-2.5">
           <span
             aria-hidden="true"

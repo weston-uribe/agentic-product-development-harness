@@ -11,11 +11,16 @@ import {
 import { validateOperationsDraft } from "../../src/operations/validation.js";
 import { getExecutorCatalog } from "../../src/operations/executor-catalog.js";
 import { deleteDraft } from "../../src/operations/draft-store.js";
+import { getFixtureWorkflowScopes } from "../../src/operations/fixtures/workflow-scopes.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 describe("fixture seeds", () => {
+  const fixtureScopes = getFixtureWorkflowScopes();
+  const targetAppScope = fixtureScopes.find((scope) => scope.id === "target-app")!;
+  const harnessRepoScope = fixtureScopes.find((scope) => scope.id === "harness-repo")!;
+
   it("builds a connected basic workflow with stable ids and outcomes", () => {
     const fixture = getFixtureDefinition("basic-current-workflow");
     const config = fixture.config;
@@ -36,13 +41,14 @@ describe("fixture seeds", () => {
     });
     const seed = buildBasicCurrentWorkflowSeed({
       context: { mode: "fixture", fixtureId: "basic-current-workflow", fixturesEnabled: true },
+      scope: targetAppScope,
       baseSnapshot,
       statuses,
       modelCatalog: fixture.modelCatalog,
       mappings,
     });
 
-    expect(seed.draftId).toBe("draft-fixture-basic-current-workflow");
+    expect(seed.draftId).toBe("draft-fixture-basic-target-app");
     expect(seed.rules.every((rule) => rule.enabled && rule.outcomes.some((o) => o.enabled))).toBe(true);
     expect(seed.rules.find((rule) => rule.executorId === "planner-agent")?.outcomes).toHaveLength(2);
     expect(
@@ -70,6 +76,7 @@ describe("fixture seeds", () => {
     });
     const seed = buildBranchingPrReviewSeed({
       context: { mode: "fixture", fixtureId: "branching-pr-review", fixturesEnabled: true },
+      scope: harnessRepoScope,
       baseSnapshot,
       statuses,
       modelCatalog: fixture.modelCatalog,
@@ -97,21 +104,29 @@ describe("fixture seeds", () => {
         mode: "fixture" as const,
         fixtureId: "branching-pr-review",
         fixturesEnabled: true,
+        scopeId: "harness-repo",
       };
       const first = await buildOperationsBootstrap({
         cwd,
         context,
+        scopes: fixtureScopes,
         warnings: [],
       });
       const second = await buildOperationsBootstrap({
         cwd,
         context,
+        scopes: fixtureScopes,
         warnings: [],
       });
       expect(JSON.stringify(first.draft)).toBe(JSON.stringify(second.draft));
 
-      await deleteDraft(cwd, context);
-      const afterReset = await buildOperationsBootstrap({ cwd, context, warnings: [] });
+      await deleteDraft(cwd, context, fixtureScopes);
+      const afterReset = await buildOperationsBootstrap({
+        cwd,
+        context,
+        scopes: fixtureScopes,
+        warnings: [],
+      });
       expect(JSON.stringify(afterReset.draft)).toBe(JSON.stringify(first.draft));
 
       const validation = validateOperationsDraft({

@@ -1,9 +1,7 @@
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import type { OperationsRequestState } from "@/lib/operations/reducer";
 
 type OperationsToolbarProps = {
-  dataSourceLabel: string;
   requestState: OperationsRequestState;
   isDirty: boolean;
   saveMessage?: string;
@@ -11,6 +9,8 @@ type OperationsToolbarProps = {
   canRedo: boolean;
   canSave: boolean;
   isRequestActive: boolean;
+  sidebarCollapsed: boolean;
+  onToggleSidebar: () => void;
   onUndo: () => void;
   onRedo: () => void;
   onSave: () => void;
@@ -19,7 +19,6 @@ type OperationsToolbarProps = {
 };
 
 export function OperationsToolbar({
-  dataSourceLabel,
   requestState,
   isDirty,
   saveMessage,
@@ -27,6 +26,8 @@ export function OperationsToolbar({
   canRedo,
   canSave,
   isRequestActive,
+  sidebarCollapsed,
+  onToggleSidebar,
   onUndo,
   onRedo,
   onSave,
@@ -54,13 +55,38 @@ export function OperationsToolbar({
         : "Save draft";
 
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-3">
-      <h1 className="text-lg font-semibold">Operations</h1>
-      <Badge variant="outline">{dataSourceLabel}</Badge>
+    <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-2">
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="lg:hidden"
+        onClick={onToggleSidebar}
+        disabled={isRequestActive}
+      >
+        {sidebarCollapsed ? "Panel" : "Close panel"}
+      </Button>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="hidden lg:inline-flex"
+        onClick={onToggleSidebar}
+        disabled={isRequestActive}
+      >
+        {sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
+      </Button>
+      <h1 className="text-base font-semibold">Operations</h1>
       <div className="ml-auto flex flex-wrap items-center gap-2">
-        <Badge variant={isDirty || requestState === "error" ? "secondary" : "outline"}>
+        <span
+          className={`rounded-md border px-2 py-0.5 text-xs ${
+            isDirty || requestState === "error"
+              ? "border-border bg-muted text-foreground"
+              : "border-transparent text-muted-foreground"
+          }`}
+        >
           {statusLabel}
-        </Badge>
+        </span>
         <Button
           type="button"
           variant="outline"
@@ -79,10 +105,22 @@ export function OperationsToolbar({
         >
           Redo
         </Button>
-        <Button type="button" variant="outline" size="sm" onClick={onFitView} disabled={isRequestActive}>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={onFitView}
+          disabled={isRequestActive}
+        >
           Fit view
         </Button>
-        <Button type="button" variant="outline" size="sm" onClick={onReset} disabled={isRequestActive}>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={onReset}
+          disabled={isRequestActive}
+        >
           Reset draft
         </Button>
         <Button
@@ -92,9 +130,6 @@ export function OperationsToolbar({
           disabled={!canSave || isRequestActive}
         >
           {saveButtonLabel}
-        </Button>
-        <Button type="button" variant="secondary" size="sm" disabled>
-          Apply to harness — coming later
         </Button>
       </div>
       {saveMessage ? (

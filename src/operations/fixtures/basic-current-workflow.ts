@@ -1,5 +1,7 @@
 import type { OperationsFixtureDefinition } from "../fixture-definition.js";
 import { buildBasicCurrentWorkflowSeed } from "../fixture-seeds/basic-current-workflow.js";
+import { getFixtureModelCatalog } from "./model-catalog-snapshot.js";
+import { getFixtureWorkflowScopes } from "./workflow-scopes.js";
 
 const WORKFLOW_STATUSES = [
   ["status-backlog", "Backlog", "backlog"],
@@ -23,31 +25,15 @@ const WORKFLOW_STATUSES = [
 
 export const basicCurrentWorkflowFixture: OperationsFixtureDefinition = {
   id: "basic-current-workflow",
+  workflowScopes: getFixtureWorkflowScopes(),
   statuses: WORKFLOW_STATUSES.map(([id, name, type]) => ({
     id,
     name,
     type,
   })),
-  modelCatalog: [
-    {
-      id: "composer-2.5",
-      displayName: "Composer 2.5",
-      availability: "available",
-      supportedParameters: [
-        {
-          id: "fast",
-          label: "Fast",
-          type: "boolean",
-          allowedValues: ["true", "false"],
-          defaultValue: "true",
-        },
-      ],
-      fetchedAt: "2026-01-01T00:00:00.000Z",
-      source: "fixture",
-    },
-  ],
+  modelCatalog: getFixtureModelCatalog(),
   warnings: [
-    "Internal in-progress statuses (Planning, Building, Revising, Merging) remain available in the catalog but are not primary canvas nodes because the rule schema cannot honestly represent transient agent-running states.",
+    "Internal in-progress statuses remain available in the catalog but are not primary canvas nodes.",
   ],
   buildSeedDraft: buildBasicCurrentWorkflowSeed,
 };

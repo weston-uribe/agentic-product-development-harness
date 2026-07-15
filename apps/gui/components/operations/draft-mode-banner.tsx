@@ -1,10 +1,10 @@
 export function DraftModeBanner() {
   return (
-    <div
+    <p
       role="status"
-      className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm text-foreground"
+      className="shrink-0 border-b border-border bg-muted/30 px-4 py-1.5 text-xs text-muted-foreground"
     >
-      Draft mode — workflow changes are not applied to the running harness.
-    </div>
+      Draft — Changes are not active.
+    </p>
   );
 }

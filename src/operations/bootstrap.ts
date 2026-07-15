@@ -3,6 +3,7 @@ import type {
   OperationsBootstrapPayload,
   OperationsSourceContext,
   OperationsValidationResult,
+  OperationsWorkflowScope,
 } from "./types.js";
 import { getExecutorCatalog, getNestedCapabilities } from "./executor-catalog.js";
 import {
@@ -17,9 +18,14 @@ import { buildStatusCatalogFingerprint } from "./linear-status-source.js";
 import { hashOperationsFingerprint } from "./fingerprint.js";
 import { validateOperationsDraft } from "./validation.js";
 import { dataSourceLabel } from "./source-context.js";
-import { loadDraft } from "./draft-store.js";
+import {
+  loadDraft,
+  migrateLegacyDraftIfNeeded,
+} from "./draft-store.js";
 import { getFixtureDefinition } from "./fixtures/index.js";
+import { getFixtureWorkflowScopes } from "./fixtures/workflow-scopes.js";
 import { createLiveBaselineDraft } from "./baseline-workflow.js";
+import { buildLiveWorkflowScopes, validateRequestedScopeId } from "./workflow-scopes.js";
 import type { HarnessConfig } from "../config/types.js";
 import type {
   OperationsCatalogLoadMetadata,
@@ -37,11 +43,14 @@ export interface BootstrapDependencies {
   modelCatalog?: OperationsModelCatalogEntry[];
   catalogLoadMetadata?: OperationsCatalogLoadMetadata;
   warnings?: string[];
+  scopes?: OperationsWorkflowScope[];
+  debugEnabled?: boolean;
 }
 
 export function buildOperationsBaseSnapshot(input: {
   teamId?: string;
   teamKey?: string;
+  scopeId?: string;
   config?: HarnessConfig;
   statuses: LinearStatusInput[];
   modelCatalog: OperationsModelCatalogEntry[];
@@ -50,6 +59,7 @@ export function buildOperationsBaseSnapshot(input: {
   return {
     teamId: input.teamId,
     teamKey: input.teamKey,
+    scopeId: input.scopeId,
     configFingerprint: hashOperationsFingerprint(input.config ?? {}),
     statusCatalogFingerprint: buildStatusCatalogFingerprint(input.statuses),
     modelCatalogFingerprint: buildModelCatalogFingerprint(input.modelCatalog),
@@ -57,42 +67,45 @@ export function buildOperationsBaseSnapshot(input: {
   };
 }
 
+function resolveScopes(deps: BootstrapDependencies): OperationsWorkflowScope[] {
+  if (deps.scopes?.length) {
+    return deps.scopes;
+  }
+  if (deps.context.mode === "fixture") {
+    return getFixtureWorkflowScopes();
+  }
+  return buildLiveWorkflowScopes(deps.config ?? emptyConfig());
+}
+
 export async function buildOperationsBootstrap(
   deps: BootstrapDependencies,
 ): Promise<OperationsBootstrapPayload> {
   const warnings = [...(deps.warnings ?? [])];
   const context = deps.context;
+  const scopes = resolveScopes(deps);
+  const allowlist = new Map(scopes.map((scope) => [scope.id, scope]));
+  const scopeResolution = validateRequestedScopeId(context.scopeId, allowlist);
 
   if (context.rejectionReason) {
-    return {
-      sourceMode: context.mode,
-      fixtureId: context.fixtureId,
-      dataSourceLabel: dataSourceLabel(context),
-      statuses: [],
-      executors: getExecutorCatalog(),
-      nestedCapabilities: getNestedCapabilities(),
-      currentWorkflowMappings: [],
-      currentModel: buildCurrentModelSummary(deps.config),
-      modelCatalog: deps.modelCatalog ?? [],
-      catalogLoadMetadata: {
-        statusCatalog: "unavailable",
-        modelCatalog: "unavailable",
-      },
-      draft: null,
-      validation: {
-        errors: [
-          {
-            id: "fixture-rejected",
-            severity: "error",
-            message: context.rejectionReason,
-          },
-        ],
-        warnings: [],
-        infos: [],
-      },
-      warnings: [context.rejectionReason],
-    };
+    return rejectedPayload(context, scopes, warnings);
   }
+
+  if (scopeResolution.error || !scopeResolution.scope) {
+    return rejectedPayload(
+      {
+        ...context,
+        rejectionReason: scopeResolution.error ?? "Workflow scope is required.",
+      },
+      scopes,
+      warnings,
+    );
+  }
+
+  const selectedScope = scopeResolution.scope;
+  const contextWithScope: OperationsSourceContext = {
+    ...context,
+    scopeId: selectedScope.id,
+  };
 
   let linearStatuses = deps.linearStatuses ?? [];
   let modelCatalog = deps.modelCatalog ?? [];
@@ -108,7 +121,9 @@ export async function buildOperationsBootstrap(
     linearStatuses = fixture.statuses;
     modelCatalog = fixture.modelCatalog;
     config = fixture.config ?? config;
-    warnings.push(...fixture.warnings);
+    if (process.env.P_DEV_OPERATIONS_DEBUG === "1") {
+      warnings.push(...fixture.warnings);
+    }
     catalogLoadMetadata = { statusCatalog: "loaded", modelCatalog: "loaded" };
   }
 
@@ -125,13 +140,28 @@ export async function buildOperationsBootstrap(
   const baseSnapshot = buildOperationsBaseSnapshot({
     teamId: deps.teamId,
     teamKey: deps.teamKey,
+    scopeId: selectedScope.id,
     config,
     statuses: linearStatuses,
     modelCatalog,
     mappingsFingerprint: buildWorkflowFingerprint(mappings),
   });
 
-  let draft = await loadDraft(deps.cwd, context);
+  let legacyDraftReviewRequired = false;
+  if (context.mode === "live") {
+    const migration = await migrateLegacyDraftIfNeeded({
+      cwd: deps.cwd,
+      scopes,
+    });
+    if (migration.reviewRequired) {
+      legacyDraftReviewRequired = true;
+      warnings.push(migration.message!);
+    } else if (migration.message) {
+      warnings.push(migration.message);
+    }
+  }
+
+  let draft = await loadDraft(deps.cwd, contextWithScope, scopes);
   if (!draft) {
     const fixture =
       context.mode === "fixture" && context.fixtureId
@@ -140,7 +170,8 @@ export async function buildOperationsBootstrap(
 
     if (fixture?.buildSeedDraft) {
       draft = fixture.buildSeedDraft({
-        context,
+        context: contextWithScope,
+        scope: selectedScope,
         baseSnapshot,
         statuses: statusRecords,
         modelCatalog,
@@ -148,7 +179,7 @@ export async function buildOperationsBootstrap(
       });
     } else {
       draft = createLiveBaselineDraft({
-        context,
+        context: contextWithScope,
         baseSnapshot,
         statuses: statusRecords,
         mappings,
@@ -171,6 +202,10 @@ export async function buildOperationsBootstrap(
   return {
     sourceMode: context.mode,
     fixtureId: context.fixtureId,
+    selectedScopeId: selectedScope.id,
+    scopes,
+    legacyDraftReviewRequired,
+    debugEnabled: deps.debugEnabled ?? false,
     dataSourceLabel: dataSourceLabel(context),
     statuses: statusRecords,
     executors: getExecutorCatalog(),
@@ -185,6 +220,40 @@ export async function buildOperationsBootstrap(
   };
 }
 
+function rejectedPayload(
+  context: OperationsSourceContext,
+  scopes: OperationsWorkflowScope[],
+  warnings: string[],
+): OperationsBootstrapPayload {
+  const reason = context.rejectionReason ?? "Operations unavailable.";
+  return {
+    sourceMode: context.mode,
+    fixtureId: context.fixtureId,
+    selectedScopeId: undefined,
+    scopes,
+    legacyDraftReviewRequired: false,
+    debugEnabled: false,
+    dataSourceLabel: dataSourceLabel(context),
+    statuses: [],
+    executors: getExecutorCatalog(),
+    nestedCapabilities: getNestedCapabilities(),
+    currentWorkflowMappings: [],
+    currentModel: buildCurrentModelSummary(undefined),
+    modelCatalog: [],
+    catalogLoadMetadata: {
+      statusCatalog: "unavailable",
+      modelCatalog: "unavailable",
+    },
+    draft: null,
+    validation: {
+      errors: [{ id: "operations-unavailable", severity: "error", message: reason }],
+      warnings: [],
+      infos: [],
+    },
+    warnings: [...warnings, reason],
+  };
+}
+
 function emptyConfig(): HarnessConfig {
   return {
     version: 1,
@@ -193,12 +262,12 @@ function emptyConfig(): HarnessConfig {
     repos: [
       {
         id: "target-app",
-        targetRepo: "https://github.com/owner/example-target-app",
+        targetRepo: "https://github.com/weston-uribe/example-target-app",
         baseBranch: "main",
         productionBranch: "main",
       },
     ],
-    allowedTargetRepos: ["https://github.com/owner/example-target-app"],
+    allowedTargetRepos: ["https://github.com/weston-uribe/example-target-app"],
   };
 }
 

@@ -93,7 +93,7 @@ export function validateOperationsDraft(
       errors.push(
         issue({
           id: "ambiguous-config-mapping",
-          message: `Configured status "${mapping.configuredStatusName}" (${mapping.mappingKey}) matches multiple live statuses.`,
+          message: `Status "${mapping.configuredStatusName}" matches more than one Linear status. Rename or deduplicate statuses so each configured role resolves uniquely.`,
           path: `currentWorkflowMappings.${mapping.mappingKey}`,
         }),
       );
@@ -103,7 +103,7 @@ export function validateOperationsDraft(
         issue({
           id: "missing-config-mapping",
           severity: "warning",
-          message: `Configured status "${mapping.configuredStatusName}" (${mapping.mappingKey}) matches no live status.`,
+          message: `Status "${mapping.configuredStatusName}" is configured in the harness but no matching Linear status was found.`,
           path: `currentWorkflowMappings.${mapping.mappingKey}`,
         }),
       );
@@ -116,7 +116,7 @@ export function validateOperationsDraft(
         issue({
           id: "ambiguous-status-mapping",
           severity: "warning",
-          message: `Status "${status.name}" has ambiguous current harness mapping.`,
+          message: `Status "${status.name}" cannot be matched uniquely to the harness configuration.`,
           statusId: status.id,
         }),
       );

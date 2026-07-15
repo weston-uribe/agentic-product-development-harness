@@ -11,34 +11,20 @@ export function StatusInspector({ status, disabled = false, onRemove }: StatusIn
     <div className="space-y-2 text-sm">
       <div>
         <div className="font-medium">{status.name}</div>
-        <div className="text-xs text-muted-foreground">{status.category}</div>
+        <div className="text-xs capitalize text-muted-foreground">{status.category}</div>
       </div>
-      <dl className="space-y-1 text-xs">
-        <div className="flex justify-between gap-2">
-          <dt className="text-muted-foreground">Mapping state</dt>
-          <dd>{status.mappingState}</dd>
-        </div>
-        <div className="flex justify-between gap-2">
-          <dt className="text-muted-foreground">Automation trigger</dt>
-          <dd>{status.automationTriggerStatus ? "Yes" : "No"}</dd>
-        </div>
-        <div className="flex justify-between gap-2">
-          <dt className="text-muted-foreground">Participates in workflow</dt>
-          <dd>{status.participatesInCurrentHarnessWorkflow ? "Yes" : "No"}</dd>
-        </div>
-      </dl>
       {onRemove ? (
-        <div className="rounded-md border border-border p-2 text-xs">
+        <div className="space-y-2 text-xs">
           <p className="text-muted-foreground">
-            Removing this status only removes it from the local draft canvas. It never deletes, renames, reorders, or changes the Linear status.
+            Removing this status from the workflow does not delete it from Linear.
           </p>
           <button
             type="button"
-            className="mt-2 rounded-md border border-input px-2 py-1 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-md border border-input px-2 py-1 hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
             disabled={disabled}
             onClick={onRemove}
           >
-            Remove from draft canvas
+            Remove from workflow
           </button>
         </div>
       ) : null}

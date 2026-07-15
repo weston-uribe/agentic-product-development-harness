@@ -57,6 +57,7 @@ export const operationsLayoutSchema = z.object({
 export const operationsBaseSnapshotSchema = z.object({
   teamId: z.string().optional(),
   teamKey: z.string().optional(),
+  scopeId: z.string().optional(),
   configFingerprint: z.string().min(1),
   statusCatalogFingerprint: z.string().min(1),
   modelCatalogFingerprint: z.string().min(1),

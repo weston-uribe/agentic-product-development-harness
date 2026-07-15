@@ -11,7 +11,8 @@ export const dynamic = "force-dynamic";
 function resolveContext(request: NextRequest) {
   const source = request.nextUrl.searchParams.get("source");
   const fixture = request.nextUrl.searchParams.get("fixture");
-  return resolveOperationsSourceContext({ source, fixture });
+  const scope = request.nextUrl.searchParams.get("scope");
+  return resolveOperationsSourceContext({ source, fixture, scope });
 }
 
 export async function PUT(request: NextRequest): Promise<NextResponse> {

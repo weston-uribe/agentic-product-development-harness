@@ -6,7 +6,6 @@ import type {
   OperationsRule,
   OperationsStatusRecord,
 } from "@harness/operations/types";
-import { ExecutorMaturityBadge } from "./executor-maturity-badge";
 
 type RuleInspectorProps = {
   rule: OperationsRule;
@@ -14,6 +13,7 @@ type RuleInspectorProps = {
   modelCatalog: OperationsModelCatalogEntry[];
   statuses: OperationsStatusRecord[];
   selectedOutcomeId?: string;
+  connectionView?: boolean;
   disabled?: boolean;
   onChange: (patch: Partial<OperationsRule>) => void;
   onSelectModel: (modelId: string) => void;
@@ -28,18 +28,21 @@ function SimpleSelect({
   options,
   onChange,
   label,
+  disabled,
 }: {
   value: string;
   options: Array<{ value: string; label: string }>;
   onChange: (value: string) => void;
   label: string;
+  disabled?: boolean;
 }) {
   return (
     <div className="space-y-1">
       <Label>{label}</Label>
       <select
-        className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+        className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm disabled:opacity-60"
         value={value}
+        disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
       >
         {options.map((option) => (
@@ -52,12 +55,54 @@ function SimpleSelect({
   );
 }
 
+function BooleanSwitch({
+  label,
+  checked,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <Label>{label}</Label>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        disabled={disabled}
+        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60 ${
+          checked ? "border-primary bg-primary" : "border-input bg-muted"
+        }`}
+        onClick={() => onChange(!checked)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onChange(!checked);
+          }
+        }}
+      >
+        <span
+          className={`inline-block size-4 transform rounded-full bg-background transition-transform ${
+            checked ? "translate-x-5" : "translate-x-1"
+          }`}
+        />
+      </button>
+    </div>
+  );
+}
+
 export function RuleInspector({
   rule,
   executors,
   modelCatalog,
   statuses,
   selectedOutcomeId,
+  connectionView = false,
   disabled = false,
   onChange,
   onSelectModel,
@@ -70,6 +115,26 @@ export function RuleInspector({
   const selectedModel = rule.modelSelection
     ? modelCatalog.find((entry) => entry.id === rule.modelSelection?.modelId)
     : undefined;
+  const selectedOutcome = selectedOutcomeId
+    ? rule.outcomes.find((outcome) => outcome.id === selectedOutcomeId)
+    : undefined;
+
+  if (connectionView && selectedOutcome) {
+    const destination = statuses.find(
+      (status) => status.id === selectedOutcome.destinationStatusId,
+    );
+    return (
+      <fieldset disabled={disabled} className="space-y-2 text-sm disabled:opacity-60">
+        <div>
+          <p className="text-xs text-muted-foreground">Connection</p>
+          <p className="font-medium">{selectedOutcome.label}</p>
+          {destination ? (
+            <p className="text-xs text-muted-foreground">→ {destination.name}</p>
+          ) : null}
+        </div>
+      </fieldset>
+    );
+  }
 
   return (
     <fieldset disabled={disabled} className="space-y-3 disabled:opacity-60">
@@ -79,37 +144,24 @@ export function RuleInspector({
           checked={rule.enabled}
           onChange={(event) => onChange({ enabled: event.target.checked })}
         />
-        Rule enabled
+        Automation enabled
       </label>
       <SimpleSelect
         label="Executor"
         value={rule.executorId}
+        disabled={disabled}
         options={executors.map((entry) => ({
           value: entry.id,
           label: entry.label,
         }))}
         onChange={(executorId) => onChange({ executorId })}
       />
-      {executor ? (
-        <div className="rounded-md border border-border p-2 text-xs">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-medium">{executor.label}</span>
-            <ExecutorMaturityBadge maturity={executor.maturity} />
-            <span className="rounded bg-muted px-1.5 py-0.5">{executor.kind}</span>
-          </div>
-          <p className="mt-1 text-muted-foreground">{executor.honestyNote}</p>
-          {executor.id === "pr-review-agent" ? (
-            <p className="mt-2 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-amber-700 dark:text-amber-300">
-              Prototype only: no PR Review Agent exists in the runtime today.
-            </p>
-          ) : null}
-        </div>
-      ) : null}
       {executor?.supportsDraftModelSelection ? (
         <div className="space-y-3 rounded-md border border-border p-2">
           <SimpleSelect
-            label="Draft model"
+            label="Model"
             value={rule.modelSelection?.modelId ?? ""}
+            disabled={disabled}
             options={[
               { value: "", label: "Select model" },
               ...modelCatalog
@@ -118,12 +170,9 @@ export function RuleInspector({
             ]}
             onChange={onSelectModel}
           />
-          <p className="text-xs text-muted-foreground">
-            Draft model selections are prototype-only and do not change the active runtime model.
-          </p>
           {rule.modelSelection && !selectedModel ? (
             <p className="text-xs text-destructive">
-              Selected model {rule.modelSelection.modelId} is no longer available in the current catalog.
+              Selected model is no longer available in the current catalog.
             </p>
           ) : null}
           {selectedModel?.supportedParameters.map((parameter) => {
@@ -132,23 +181,41 @@ export function RuleInspector({
                 ?.value ??
               parameter.defaultValue ??
               "";
-            return parameter.allowedValues && parameter.allowedValues.length > 0 ? (
-              <SimpleSelect
-                key={parameter.id}
-                label={parameter.label}
-                value={selectedValue}
-                options={parameter.allowedValues.map((value) => ({
-                  value,
-                  label: value,
-                }))}
-                onChange={(value) => onUpdateModelParameter(parameter.id, value)}
-              />
-            ) : (
+            if (parameter.type === "boolean") {
+              return (
+                <BooleanSwitch
+                  key={parameter.id}
+                  label={parameter.label}
+                  checked={selectedValue === "true"}
+                  disabled={disabled}
+                  onChange={(checked) =>
+                    onUpdateModelParameter(parameter.id, checked ? "true" : "false")
+                  }
+                />
+              );
+            }
+            if (parameter.allowedValues && parameter.allowedValues.length > 0) {
+              return (
+                <SimpleSelect
+                  key={parameter.id}
+                  label={parameter.label}
+                  value={selectedValue}
+                  disabled={disabled}
+                  options={parameter.allowedValues.map((value) => ({
+                    value,
+                    label: value,
+                  }))}
+                  onChange={(value) => onUpdateModelParameter(parameter.id, value)}
+                />
+              );
+            }
+            return (
               <div key={parameter.id} className="space-y-1">
                 <Label>{parameter.label}</Label>
                 <input
                   className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
                   value={selectedValue}
+                  disabled={disabled}
                   onChange={(event) =>
                     onUpdateModelParameter(parameter.id, event.target.value)
                   }
@@ -160,10 +227,7 @@ export function RuleInspector({
       ) : null}
       {rule.executorId === "merge-runner" ? (
         <div className="rounded-md border border-border p-2 text-xs">
-          <p className="font-medium">Integration Repair (nested recovery policy)</p>
-          <p className="mt-1 text-muted-foreground">
-            Current runtime: deterministic integration repair with Cursor-agent fallback when deterministic repair fails. Integration Repair remains nested under Merge Runner and is not assignable on the canvas.
-          </p>
+          <p className="font-medium">Integration repair</p>
           <label className="mt-2 flex items-center gap-2">
             <input
               type="checkbox"
@@ -203,7 +267,8 @@ export function RuleInspector({
           <Label>Outcomes</Label>
           <button
             type="button"
-            className="rounded-md border border-input px-2 py-1 text-xs hover:bg-accent"
+            className="rounded-md border border-input px-2 py-1 text-xs hover:bg-accent disabled:opacity-60"
+            disabled={disabled}
             onClick={onAddOutcome}
           >
             Add outcome
@@ -242,6 +307,7 @@ export function RuleInspector({
               <SimpleSelect
                 label="Destination status"
                 value={outcome.destinationStatusId ?? ""}
+                disabled={disabled}
                 options={[
                   { value: "", label: "Unresolved" },
                   ...statuses.map((status) => ({
@@ -258,6 +324,7 @@ export function RuleInspector({
               <button
                 type="button"
                 className="rounded-md border border-input px-2 py-1 text-xs hover:bg-accent"
+                disabled={disabled}
                 onClick={() => onDeleteOutcome(outcome.id)}
               >
                 Remove outcome

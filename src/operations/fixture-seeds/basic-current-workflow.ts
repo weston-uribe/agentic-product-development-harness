@@ -22,8 +22,9 @@ export function buildBasicCurrentWorkflowSeed(
   ];
 
   return buildFixtureDraftShell({
-    draftId: "draft-fixture-basic-current-workflow",
+    draftId: `draft-fixture-basic-${input.scope.id}`,
     context: input.context,
+    scopeId: input.scope.id,
     baseSnapshot: input.baseSnapshot,
     statusIdsOnCanvas: canvasIds,
     rules: buildBasicWorkflowRules(input.modelCatalog),

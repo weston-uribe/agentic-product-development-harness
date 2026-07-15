@@ -2,20 +2,20 @@ import type { OperationsWorkflowDraft } from "./types.js";
 
 const fixtureDrafts = new Map<string, OperationsWorkflowDraft>();
 
-export function getFixtureDraft(fixtureId: string): OperationsWorkflowDraft | null {
-  return fixtureDrafts.get(fixtureId) ?? null;
+export function getFixtureDraft(storageKey: string): OperationsWorkflowDraft | null {
+  return fixtureDrafts.get(storageKey) ?? null;
 }
 
 export function saveFixtureDraft(
-  fixtureId: string,
+  storageKey: string,
   draft: OperationsWorkflowDraft,
 ): OperationsWorkflowDraft {
-  fixtureDrafts.set(fixtureId, draft);
+  fixtureDrafts.set(storageKey, draft);
   return draft;
 }
 
-export function deleteFixtureDraft(fixtureId: string): boolean {
-  return fixtureDrafts.delete(fixtureId);
+export function deleteFixtureDraft(storageKey: string): boolean {
+  return fixtureDrafts.delete(storageKey);
 }
 
 export function resetFixtureStoreForTests(): void {

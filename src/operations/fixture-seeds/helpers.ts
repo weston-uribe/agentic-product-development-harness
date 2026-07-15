@@ -77,18 +77,18 @@ export function buildOutcome(
 }
 
 export function buildBasicWorkflowLayout(): OperationsLayout["statusPositions"] {
-  const rowY = 120;
-  const gap = 280;
+  const rowY = 80;
+  const gap = 260;
   return {
     [FIXTURE_STATUS_IDS.readyPlanning]: { x: 0, y: rowY },
     [FIXTURE_STATUS_IDS.readyBuild]: { x: gap, y: rowY },
     [FIXTURE_STATUS_IDS.prOpen]: { x: gap * 2, y: rowY },
     [FIXTURE_STATUS_IDS.pmReview]: { x: gap * 3, y: rowY },
-    [FIXTURE_STATUS_IDS.needsRevision]: { x: gap * 3, y: rowY + 160 },
+    [FIXTURE_STATUS_IDS.needsRevision]: { x: gap * 3, y: rowY + 140 },
     [FIXTURE_STATUS_IDS.readyMerge]: { x: gap * 4, y: rowY },
-    [FIXTURE_STATUS_IDS.blocked]: { x: gap * 2, y: rowY + 160 },
+    [FIXTURE_STATUS_IDS.blocked]: { x: gap * 2, y: rowY + 140 },
     [FIXTURE_STATUS_IDS.mergedDev]: { x: gap * 5, y: rowY },
-    [FIXTURE_STATUS_IDS.engReview]: { x: gap * 3.5, y: rowY - 120 },
+    [FIXTURE_STATUS_IDS.engReview]: { x: gap * 3.5, y: rowY - 100 },
   };
 }
 
@@ -178,6 +178,7 @@ export function buildBasicWorkflowRules(
 export function buildFixtureDraftShell(input: {
   draftId: string;
   context: OperationsSourceContext;
+  scopeId: string;
   baseSnapshot: OperationsBaseSnapshot;
   statusIdsOnCanvas: string[];
   rules: OperationsRule[];
@@ -190,7 +191,7 @@ export function buildFixtureDraftShell(input: {
     updatedAt: FIXTURE_DRAFT_TIMESTAMP,
     savedByRuntime: "fixture-test",
     sourceMode: input.context.mode,
-    baseSnapshot: input.baseSnapshot,
+    baseSnapshot: { ...input.baseSnapshot, scopeId: input.scopeId },
     statusIdsOnCanvas: input.statusIdsOnCanvas,
     rules: input.rules,
     layout: input.layout,

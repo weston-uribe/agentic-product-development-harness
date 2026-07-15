@@ -52,14 +52,18 @@ describe("operations react flow adapter", () => {
   ];
 
   it("maps statuses to nodes and outcomes to edges with stable ids", () => {
-    const withConnection = connectOutcome(draft, {
-      source: "status:status-a",
-      target: "status:status-b",
-      sourceHandle: null,
-      targetHandle: null,
-    });
-    const withTarget = addStatusToCanvas(withConnection, "status-b");
-    const flow = domainDraftToFlow({ draft: withTarget, statuses });
+    const withTarget = addStatusToCanvas(draft, "status-b");
+    const withConnection = connectOutcome(
+      withTarget,
+      {
+        source: "status:status-a",
+        target: "status:status-b",
+        sourceHandle: null,
+        targetHandle: null,
+      },
+      { statuses },
+    );
+    const flow = domainDraftToFlow({ draft: withConnection, statuses });
     expect(flow.nodes.some((node) => node.id === "status:status-a")).toBe(true);
     expect(flow.edges[0]?.target).toBe("status:status-b");
   });
@@ -82,17 +86,21 @@ describe("operations react flow adapter", () => {
   it("reconnects and deletes the same canonical outcome", () => {
     const withTarget = addStatusToCanvas(
       addStatusToCanvas(
-        connectOutcome(draft, {
-          source: "status:status-a",
-          target: "status:status-b",
-          sourceHandle: null,
-          targetHandle: null,
-        }),
-        "status-b",
+        connectOutcome(
+          addStatusToCanvas(draft, "status-b"),
+          {
+            source: "status:status-a",
+            target: "status:status-b",
+            sourceHandle: null,
+            targetHandle: null,
+          },
+          { statuses },
+        ),
+        "status-c",
       ),
       "status-c",
     );
-    const edge = domainDraftToFlow({ draft: withTarget, statuses }) .edges[0]!;
+    const edge = domainDraftToFlow({ draft: withTarget, statuses }).edges[0]!;
     const reconnected = reconnectOutcome(withTarget, edge.id, "status-c");
     expect(reconnected.rules[0]?.outcomes[0]?.destinationStatusId).toBe("status-c");
 

@@ -4,6 +4,7 @@ import type {
   OperationsWorkflowDraft,
 } from "@harness/operations/types";
 import type { OperationsSelection } from "@/lib/operations/reducer";
+import { Button } from "@/components/ui/button";
 import { StatusInspector } from "./status-inspector";
 import { RuleInspector } from "./rule-inspector";
 import { findRuleForStatus } from "@/lib/operations/reducer";
@@ -24,6 +25,7 @@ type OperationsInspectorProps = {
   ) => void;
   onDeleteOutcome: (ruleId: string, outcomeId: string) => void;
   onRemoveStatus: (statusId: string) => void;
+  onCreateAutomation: (statusId: string) => void;
 };
 
 export function OperationsInspector({
@@ -38,15 +40,16 @@ export function OperationsInspector({
   onUpdateOutcome,
   onDeleteOutcome,
   onRemoveStatus,
+  onCreateAutomation,
 }: OperationsInspectorProps) {
   const statusById = new Map(bootstrap.statuses.map((status) => [status.id, status]));
 
   return (
-    <div className="rounded-md border border-border bg-card p-3" aria-busy={disabled}>
-      <h2 className="mb-2 text-sm font-medium">Inspector</h2>
+    <section className="space-y-2" aria-busy={disabled} aria-label="Inspector">
+      <h2 className="text-sm font-medium">Inspector</h2>
       {selection.kind === "none" ? (
         <p className="text-sm text-muted-foreground">
-          Select a status node or outcome to inspect rule semantics.
+          Select a status or connection to edit it.
         </p>
       ) : null}
       {selection.kind === "status" ? (
@@ -60,9 +63,14 @@ export function OperationsInspector({
             const rule = findRuleForStatus(draft, selection.statusId);
             if (!rule) {
               return (
-                <p className="text-xs text-muted-foreground">
-                  No rule exists for this status yet. Connect an outcome to create one.
-                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={disabled}
+                  onClick={() => onCreateAutomation(selection.statusId)}
+                >
+                  Create automation
+                </Button>
               );
             }
             return (
@@ -104,23 +112,24 @@ export function OperationsInspector({
               modelCatalog={bootstrap.modelCatalog}
               statuses={bootstrap.statuses}
               disabled={disabled}
+              connectionView={selection.kind === "outcome"}
               selectedOutcomeId={
                 selection.kind === "outcome" ? selection.outcomeId : undefined
               }
               onChange={(patch) => onUpdateRule(rule.id, patch)}
-                onSelectModel={(modelId) => onSelectModel(rule.id, modelId)}
-                onUpdateModelParameter={(parameterId, value) =>
-                  onUpdateModelParameter(rule.id, parameterId, value)
-                }
-                onAddOutcome={() => onAddOutcome(rule.id)}
-                onUpdateOutcome={(outcomeId, patch) =>
-                  onUpdateOutcome(rule.id, outcomeId, patch)
-                }
-                onDeleteOutcome={(outcomeId) => onDeleteOutcome(rule.id, outcomeId)}
+              onSelectModel={(modelId) => onSelectModel(rule.id, modelId)}
+              onUpdateModelParameter={(parameterId, value) =>
+                onUpdateModelParameter(rule.id, parameterId, value)
+              }
+              onAddOutcome={() => onAddOutcome(rule.id)}
+              onUpdateOutcome={(outcomeId, patch) =>
+                onUpdateOutcome(rule.id, outcomeId, patch)
+              }
+              onDeleteOutcome={(outcomeId) => onDeleteOutcome(rule.id, outcomeId)}
             />
           );
         })()
       ) : null}
-    </div>
+    </section>
   );
 }

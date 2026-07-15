@@ -11,6 +11,10 @@ import {
 export function buildBranchingPrReviewSeed(
   input: OperationsFixtureSeedInput,
 ): OperationsWorkflowDraft {
+  if (input.scope.id !== "harness-repo") {
+    return buildBasicCurrentWorkflowSeed(input);
+  }
+
   const base = buildBasicCurrentWorkflowSeed(input);
   const modelSelection = buildCursorModelSelection(input.modelCatalog, "composer-2.5", {
     fast: "false",
@@ -59,7 +63,7 @@ export function buildBranchingPrReviewSeed(
 
   return {
     ...base,
-    draftId: "draft-fixture-branching-pr-review",
+    draftId: `draft-fixture-branching-${input.scope.id}`,
     statusIdsOnCanvas,
     rules: [...rules, prReviewRule],
     layout: {

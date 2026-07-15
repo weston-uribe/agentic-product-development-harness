@@ -54,13 +54,25 @@ describe("current workflow normalization", () => {
     ).toEqual(["ready for build"]);
   });
 
-  it("enriches status records with mapping state", () => {
-    const records = enrichStatusRecords({
+  it("treats multi-role status resolution as valid when each mapping is unique", () => {
+    const statuses = [
+      { id: "status-pr-open", name: "PR Open", type: "started" },
+      { id: "status-ready-merge", name: "Ready to Merge", type: "started" },
+    ];
+    const mappings = buildCurrentWorkflowMappings({
       config,
-      statuses: [{ id: "status-ready-build", name: "Ready for Build", type: "unstarted" }],
+      statuses,
       source: "fixture",
     });
-    expect(records[0]?.mappingState).toBe("resolved");
-    expect(records[0]?.automationTriggerStatus).toBe(true);
+    const records = enrichStatusRecords({
+      config,
+      statuses,
+      source: "fixture",
+    });
+    const prOpen = records.find((record) => record.id === "status-pr-open");
+    expect(prOpen?.mappingState).toBe("resolved");
+    expect(
+      mappings.filter((mapping) => mapping.resolvedStatusIds.includes("status-pr-open")).length,
+    ).toBeGreaterThan(1);
   });
 });

@@ -139,7 +139,7 @@ function OperationsCanvasInner({
     if (!shouldInitialFit(draftRef.current.layout.viewport)) {
       return;
     }
-    void fitView({ padding: 0.2 }).then(() => {
+    void fitView({ padding: 0.18, maxZoom: 1.1, minZoom: 0.45 }).then(() => {
       persistViewportFromFlow();
     });
   }, [fitView, persistViewportFromFlow]);
@@ -149,7 +149,7 @@ function OperationsCanvasInner({
       return;
     }
     lastHandledFitViewSignal.current = fitViewSignal;
-    void fitView({ padding: 0.2 }).then(() => {
+    void fitView({ padding: 0.18, maxZoom: 1.1, minZoom: 0.45 }).then(() => {
       persistViewportFromFlow();
     });
   }, [fitViewSignal, fitView, persistViewportFromFlow]);
@@ -159,9 +159,11 @@ function OperationsCanvasInner({
       if (isRequestActive) {
         return;
       }
-      onDraftChange(connectOutcome(draft, connection));
+      onDraftChange(
+        connectOutcome(draft, connection, { statuses: bootstrap.statuses }),
+      );
     },
-    [draft, isRequestActive, onDraftChange],
+    [bootstrap.statuses, draft, isRequestActive, onDraftChange],
   );
 
   const onNodeDragStop = useCallback(
@@ -263,12 +265,21 @@ function OperationsCanvasInner({
       nodesConnectable={!locked}
       elementsSelectable={!locked}
       proOptions={{ hideAttribution: true }}
-      className="h-full w-full bg-background"
+      minZoom={0.35}
+      maxZoom={1.5}
+      connectionRadius={28}
+      className="h-full min-h-0 w-full min-w-0 bg-background"
       aria-busy={locked}
     >
       <Background />
-      <Controls />
-      <MiniMap pannable zoomable />
+      <Controls className="!shadow-sm" />
+      <MiniMap
+        pannable
+        zoomable
+        className="!rounded-md !border !border-border !bg-card/90 dark:!bg-card/80"
+        nodeColor={() => "hsl(var(--primary))"}
+        maskColor="hsl(var(--background) / 0.65)"
+      />
     </ReactFlow>
   );
 }

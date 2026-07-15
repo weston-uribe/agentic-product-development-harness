@@ -1,5 +1,6 @@
 import {
   access,
+  copyFile,
   mkdir,
   readFile,
   rename,
@@ -18,6 +19,12 @@ import {
   saveFixtureDraft,
 } from "./fixture-store.js";
 import { assertWritableSourceContext } from "./source-context.js";
+import {
+  deriveSafeScopeFilename,
+  scopeStorageKey,
+  validateRequestedScopeId,
+} from "./workflow-scopes.js";
+import type { OperationsWorkflowScope } from "./types.js";
 
 const SECRET_KEY_PATTERN =
   /(api[_-]?key|token|secret|password|authorization|private[_-]?key)/i;
@@ -33,12 +40,23 @@ export interface OperationsDraftResetResult {
   path?: string;
 }
 
+export interface LegacyDraftMigrationResult {
+  migrated: boolean;
+  reviewRequired: boolean;
+  message?: string;
+}
+
 export function resolveDraftPath(cwd: string): string {
   return path.join(cwd, ".harness", OPERATIONS_DRAFT_FILENAME);
 }
 
-function resolveTempDraftPath(cwd: string): string {
-  return `${resolveDraftPath(cwd)}.tmp-${process.pid}-${randomUUID()}`;
+export function resolveScopedDraftPath(cwd: string, validatedScopeId: string): string {
+  const safeName = deriveSafeScopeFilename(validatedScopeId);
+  return path.join(cwd, ".harness", "operations-drafts", `${safeName}.local.json`);
+}
+
+function resolveTempDraftPath(targetPath: string): string {
+  return `${targetPath}.tmp-${process.pid}-${randomUUID()}`;
 }
 
 function containsSecretLikeKeys(value: unknown, pathParts: string[] = []): string[] {
@@ -68,9 +86,7 @@ export function assertDraftHasNoSecrets(draft: unknown): void {
   }
 }
 
-export async function loadLiveDraft(
-  cwd: string,
-): Promise<OperationsWorkflowDraft | null> {
+export async function loadLiveDraft(cwd: string): Promise<OperationsWorkflowDraft | null> {
   const filePath = resolveDraftPath(cwd);
   try {
     await access(filePath);
@@ -86,17 +102,78 @@ export async function loadLiveDraft(
   }
 }
 
+export async function loadScopedLiveDraft(
+  cwd: string,
+  validatedScopeId: string,
+): Promise<OperationsWorkflowDraft | null> {
+  const filePath = resolveScopedDraftPath(cwd, validatedScopeId);
+  try {
+    await access(filePath);
+    const raw = await readFile(filePath, "utf8");
+    const parsed = JSON.parse(raw) as unknown;
+    const result = operationsWorkflowDraftSchema.safeParse(parsed);
+    if (!result.success) {
+      return null;
+    }
+    return result.data;
+  } catch {
+    return null;
+  }
+}
+
+export async function migrateLegacyDraftIfNeeded(input: {
+  cwd: string;
+  scopes: OperationsWorkflowScope[];
+}): Promise<LegacyDraftMigrationResult> {
+  const legacyPath = resolveDraftPath(input.cwd);
+  try {
+    await access(legacyPath);
+  } catch {
+    return { migrated: false, reviewRequired: false };
+  }
+
+  if (input.scopes.length === 1) {
+    const onlyScope = input.scopes[0]!;
+    const scopedPath = resolveScopedDraftPath(input.cwd, onlyScope.id);
+    try {
+      await access(scopedPath);
+      return {
+        migrated: false,
+        reviewRequired: false,
+        message:
+          "Legacy Operations draft remains at the previous path because a scoped draft already exists.",
+      };
+    } catch {
+      await mkdir(path.dirname(scopedPath), { recursive: true });
+      await copyFile(legacyPath, scopedPath);
+      return {
+        migrated: true,
+        reviewRequired: false,
+        message: `Legacy Operations draft migrated to scope "${onlyScope.id}".`,
+      };
+    }
+  }
+
+  return {
+    migrated: false,
+    reviewRequired: true,
+    message:
+      "A legacy Operations draft exists at the previous single-file path. Manual review is required before assigning it to a repository scope.",
+  };
+}
+
 export async function saveLiveDraft(
   cwd: string,
   draft: OperationsWorkflowDraft,
+  validatedScopeId: string,
 ): Promise<OperationsWorkflowDraftSaveResult> {
   assertDraftHasNoSecrets(draft);
   const validated = operationsWorkflowDraftSchema.parse(draft);
-  const harnessDir = path.join(cwd, ".harness");
+  const harnessDir = path.join(cwd, ".harness", "operations-drafts");
   await mkdir(harnessDir, { recursive: true });
 
-  const filePath = resolveDraftPath(cwd);
-  const tempPath = resolveTempDraftPath(cwd);
+  const filePath = resolveScopedDraftPath(cwd, validatedScopeId);
+  const tempPath = resolveTempDraftPath(filePath);
   const payload = `${JSON.stringify(validated, null, 2)}\n`;
 
   try {
@@ -114,6 +191,20 @@ export async function saveLiveDraft(
   };
 }
 
+export async function deleteScopedLiveDraft(
+  cwd: string,
+  validatedScopeId: string,
+): Promise<OperationsDraftResetResult> {
+  const filePath = resolveScopedDraftPath(cwd, validatedScopeId);
+  try {
+    await access(filePath);
+    await rm(filePath, { force: true });
+    return { deleted: true, path: filePath };
+  } catch {
+    return { deleted: false, path: filePath };
+  }
+}
+
 export async function deleteLiveDraft(cwd: string): Promise<OperationsDraftResetResult> {
   const filePath = resolveDraftPath(cwd);
   try {
@@ -125,25 +216,50 @@ export async function deleteLiveDraft(cwd: string): Promise<OperationsDraftReset
   }
 }
 
+function resolveScopeForContext(
+  context: OperationsSourceContext,
+  scopes: OperationsWorkflowScope[],
+): OperationsWorkflowScope {
+  const allowlist = new Map(scopes.map((scope) => [scope.id, scope]));
+  const validated = validateRequestedScopeId(context.scopeId, allowlist);
+  if (validated.error || !validated.scope) {
+    throw new Error(validated.error ?? "Workflow scope is required.");
+  }
+  return validated.scope;
+}
+
 export async function loadDraft(
   cwd: string,
   context: OperationsSourceContext,
+  scopes: OperationsWorkflowScope[],
 ): Promise<OperationsWorkflowDraft | null> {
   if (context.rejectionReason) {
     return null;
   }
+
+  const scope = resolveScopeForContext(context, scopes);
+  const storageKey = scopeStorageKey({
+    fixtureId: context.fixtureId,
+    scopeId: scope.id,
+  });
+
   if (context.mode === "fixture") {
-    return context.fixtureId ? getFixtureDraft(context.fixtureId) : null;
+    return getFixtureDraft(storageKey);
   }
-  return loadLiveDraft(cwd);
+
+  await migrateLegacyDraftIfNeeded({ cwd, scopes });
+  return loadScopedLiveDraft(cwd, scope.id);
 }
 
 export async function saveDraft(
   cwd: string,
   context: OperationsSourceContext,
   draft: OperationsWorkflowDraft,
+  scopes: OperationsWorkflowScope[],
 ): Promise<OperationsWorkflowDraftSaveResult> {
   const writable = assertWritableSourceContext(context);
+  const scope = resolveScopeForContext(writable, scopes);
+
   if (writable.mode === "fixture") {
     if (!writable.fixtureId) {
       throw new Error("Fixture id is required to save fixture drafts.");
@@ -153,33 +269,50 @@ export async function saveDraft(
       ...draft,
       sourceMode: "fixture",
       savedByRuntime: "fixture-test",
+      baseSnapshot: { ...draft.baseSnapshot, scopeId: scope.id },
     });
-    saveFixtureDraft(writable.fixtureId, validated);
+    const storageKey = scopeStorageKey({
+      fixtureId: writable.fixtureId,
+      scopeId: scope.id,
+    });
+    saveFixtureDraft(storageKey, validated);
     return {
       draft: validated,
       savedAt: validated.updatedAt,
     };
   }
 
-  return saveLiveDraft(cwd, {
-    ...draft,
-    sourceMode: "live",
-  });
+  return saveLiveDraft(
+    cwd,
+    {
+      ...draft,
+      sourceMode: "live",
+      baseSnapshot: { ...draft.baseSnapshot, scopeId: scope.id },
+    },
+    scope.id,
+  );
 }
 
 export async function deleteDraft(
   cwd: string,
   context: OperationsSourceContext,
+  scopes: OperationsWorkflowScope[],
 ): Promise<OperationsDraftResetResult> {
   const writable = assertWritableSourceContext(context);
+  const scope = resolveScopeForContext(writable, scopes);
+
   if (writable.mode === "fixture") {
     if (!writable.fixtureId) {
       return { deleted: false };
     }
-    const deleted = deleteFixtureDraft(writable.fixtureId);
+    const storageKey = scopeStorageKey({
+      fixtureId: writable.fixtureId,
+      scopeId: scope.id,
+    });
+    const deleted = deleteFixtureDraft(storageKey);
     return { deleted };
   }
-  return deleteLiveDraft(cwd);
+  return deleteScopedLiveDraft(cwd, scope.id);
 }
 
 export function summarizeDraftForReport(draft: OperationsWorkflowDraft | null): {
@@ -187,6 +320,7 @@ export function summarizeDraftForReport(draft: OperationsWorkflowDraft | null): 
   schemaVersion?: number;
   draftId?: string;
   sourceMode?: string;
+  scopeId?: string;
 } {
   if (!draft) {
     return { present: false };
@@ -196,5 +330,6 @@ export function summarizeDraftForReport(draft: OperationsWorkflowDraft | null): 
     schemaVersion: draft.schemaVersion,
     draftId: draft.draftId,
     sourceMode: draft.sourceMode,
+    scopeId: draft.baseSnapshot.scopeId,
   };
 }

@@ -2,7 +2,7 @@ import { access, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resolveDraftPath } from "../../src/operations/draft-store.js";
+import { resolveScopedDraftPath } from "../../src/operations/draft-store.js";
 
 vi.mock("../../apps/gui/lib/operations-server.ts", async () => {
   const draftStore = await vi.importActual<
@@ -14,6 +14,12 @@ vi.mock("../../apps/gui/lib/operations-server.ts", async () => {
   const sourceContext = await vi.importActual<
     typeof import("../../src/operations/source-context.js")
   >("../../src/operations/source-context.js");
+  const { getFixtureWorkflowScopes: fixtureScopes } = await vi.importActual<
+    typeof import("../../src/operations/fixtures/workflow-scopes.js")
+  >("../../src/operations/fixtures/workflow-scopes.js");
+  const { buildLiveWorkflowScopes: liveScopes } = await vi.importActual<
+    typeof import("../../src/operations/workflow-scopes.js")
+  >("../../src/operations/workflow-scopes.js");
 
   return {
     persistOperationsDraft: async ({
@@ -24,7 +30,22 @@ vi.mock("../../apps/gui/lib/operations-server.ts", async () => {
       draft: Parameters<typeof draftStore.saveDraft>[2];
     }) => {
       const cwd = process.env.HARNESS_REPO_ROOT ?? process.cwd();
-      const saved = await draftStore.saveDraft(cwd, context, draft);
+      const scopes =
+        context.mode === "fixture" ? fixtureScopes() : liveScopes({
+          version: 1,
+          orchestratorMarker: "harness-orchestrator-v1",
+          logDirectory: "runs",
+          repos: [
+            {
+              id: "target-app",
+              targetRepo: "https://github.com/owner/example-target-app",
+              baseBranch: "main",
+              productionBranch: "main",
+            },
+          ],
+          allowedTargetRepos: ["https://github.com/owner/example-target-app"],
+        });
+      const saved = await draftStore.saveDraft(cwd, context, draft, scopes);
       return {
         draft: saved.draft,
         validation: { errors: [], warnings: [], infos: [] },
@@ -35,8 +56,28 @@ vi.mock("../../apps/gui/lib/operations-server.ts", async () => {
       context: ReturnType<typeof sourceContext.resolveOperationsSourceContext>,
     ) => {
       const cwd = process.env.HARNESS_REPO_ROOT ?? process.cwd();
-      await draftStore.deleteDraft(cwd, context);
-      return bootstrap.buildOperationsBootstrap({ cwd, context, warnings: [] });
+      const scopes =
+        context.mode === "fixture" ? fixtureScopes() : liveScopes({
+          version: 1,
+          orchestratorMarker: "harness-orchestrator-v1",
+          logDirectory: "runs",
+          repos: [
+            {
+              id: "target-app",
+              targetRepo: "https://github.com/owner/example-target-app",
+              baseBranch: "main",
+              productionBranch: "main",
+            },
+          ],
+          allowedTargetRepos: ["https://github.com/owner/example-target-app"],
+        });
+      await draftStore.deleteDraft(cwd, context, scopes);
+      return bootstrap.buildOperationsBootstrap({
+        cwd,
+        context,
+        scopes,
+        warnings: [],
+      });
     },
   };
 });
@@ -53,6 +94,7 @@ const sampleDraft = {
     statusCatalogFingerprint: "def",
     modelCatalogFingerprint: "ghi",
     workflowFingerprint: "jkl",
+    scopeId: "target-app",
   },
   statusIdsOnCanvas: ["status-1"],
   rules: [],
@@ -75,10 +117,10 @@ describe("operations draft routes", () => {
     await rm(tempRoot, { recursive: true, force: true });
   });
 
-  it("saves live drafts to the local draft path", async () => {
+  it("saves live drafts to the scoped local draft path", async () => {
     const { PUT } = await import("../../apps/gui/app/api/operations/draft/route.ts");
     const response = await PUT({
-      nextUrl: new URL("http://localhost/api/operations/draft"),
+      nextUrl: new URL("http://localhost/api/operations/draft?scope=target-app"),
       json: async () => sampleDraft,
     } as never);
     expect(response.status).toBe(200);
@@ -86,7 +128,7 @@ describe("operations draft routes", () => {
     expect(JSON.stringify(payload.validation)).not.toMatch(
       /missing-source-status|missing-destination-status|model-not-in-catalog/,
     );
-    await access(resolveDraftPath(tempRoot));
+    await access(resolveScopedDraftPath(tempRoot, "target-app"));
   });
 
   it("does not create a live draft file when saving fixture drafts", async () => {
@@ -94,7 +136,7 @@ describe("operations draft routes", () => {
     const { PUT } = await import("../../apps/gui/app/api/operations/draft/route.ts");
     const response = await PUT({
       nextUrl: new URL(
-        "http://localhost/api/operations/draft?source=fixture&fixture=basic-current-workflow",
+        "http://localhost/api/operations/draft?source=fixture&fixture=basic-current-workflow&scope=target-app",
       ),
       json: async () => ({ ...sampleDraft, sourceMode: "fixture" }),
     } as never);
@@ -103,6 +145,6 @@ describe("operations draft routes", () => {
     expect(JSON.stringify(payload.validation)).not.toMatch(
       /missing-source-status|missing-destination-status|model-not-in-catalog/,
     );
-    await expect(access(resolveDraftPath(tempRoot))).rejects.toThrow();
+    await expect(access(resolveScopedDraftPath(tempRoot, "target-app"))).rejects.toThrow();
   });
 });

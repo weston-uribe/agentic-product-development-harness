@@ -144,7 +144,7 @@ export interface OperationsPageState {
 
 export type OperationsAction =
   | { type: "select"; selection: OperationsSelection }
-  | { type: "commit-draft"; draft: OperationsWorkflowDraft; pushHistory?: boolean }
+  | { type: "commit-draft"; draft: OperationsWorkflowDraft; pushHistory?: boolean; syncClean?: boolean }
   | { type: "save-start" }
   | {
       type: "save-success";
@@ -254,13 +254,19 @@ export function operationsReducer(
         return state;
       }
       const nextDraft = cloneDraft(action.draft);
+      const wasClean = !isDraftDirty(state.draft, state.cleanFingerprint);
       const pushHistory = action.pushHistory ?? true;
+      const syncClean = action.syncClean ?? (!pushHistory && wasClean);
       return {
         ...state,
         draft: nextDraft,
         saveMessage: undefined,
         past: pushHistory ? pushHistoryFn(state.past, state.draft) : state.past,
         future: pushHistory ? [] : state.future,
+        cleanDraft: syncClean ? cloneDraft(nextDraft) : state.cleanDraft,
+        cleanFingerprint: syncClean
+          ? fingerprintOperationsDraft(nextDraft)
+          : state.cleanFingerprint,
       };
     }
     case "save-start": {
@@ -397,8 +403,7 @@ export function operationsReducer(
     case "reset-success": {
       if (
         state.activeRequest?.kind !== "reset" ||
-        state.activeRequest.token !== action.token ||
-        state.activeRequest.draftFingerprintAtStart !== fingerprintOperationsDraft(state.draft)
+        state.activeRequest.token !== action.token
       ) {
         return state;
       }
@@ -476,9 +481,27 @@ export function updateLayoutPosition(
   };
 }
 
+export function computeNextStatusPosition(
+  draft: OperationsWorkflowDraft,
+  anchor?: { x: number; y: number },
+): { x: number; y: number } {
+  if (anchor) {
+    return { x: anchor.x + 40, y: anchor.y + 40 };
+  }
+  const positions = Object.values(draft.layout.statusPositions);
+  if (positions.length === 0) {
+    return { x: 120, y: 120 };
+  }
+  const maxX = Math.max(...positions.map((position) => position.x));
+  const avgY =
+    positions.reduce((sum, position) => sum + position.y, 0) / positions.length;
+  return { x: maxX + 280, y: avgY };
+}
+
 export function addStatusToCanvas(
   draft: OperationsWorkflowDraft,
   statusId: string,
+  anchor?: { x: number; y: number },
 ): OperationsWorkflowDraft {
   if (draft.statusIdsOnCanvas.includes(statusId)) {
     return draft;
@@ -490,12 +513,34 @@ export function addStatusToCanvas(
       ...draft.layout,
       statusPositions: {
         ...draft.layout.statusPositions,
-        [statusId]: draft.layout.statusPositions[statusId] ?? {
-          x: draft.statusIdsOnCanvas.length * 280,
-          y: 40,
-        },
+        [statusId]:
+          draft.layout.statusPositions[statusId] ??
+          computeNextStatusPosition(draft, anchor),
       },
     },
+  };
+}
+
+export function createRuleForStatus(
+  draft: OperationsWorkflowDraft,
+  statusId: string,
+  options?: { executorId?: string },
+): OperationsWorkflowDraft {
+  if (findRuleForStatus(draft, statusId)) {
+    return draft;
+  }
+  return {
+    ...draft,
+    rules: [
+      ...draft.rules,
+      {
+        id: createId(),
+        sourceStatusId: statusId,
+        enabled: true,
+        executorId: options?.executorId ?? "human-decision",
+        outcomes: [],
+      },
+    ],
   };
 }
 
@@ -522,15 +567,32 @@ export function removeStatusFromCanvas(
 export function connectOutcome(
   draft: OperationsWorkflowDraft,
   connection: Connection,
+  options?: {
+    statuses?: OperationsStatusRecord[];
+  },
 ): OperationsWorkflowDraft {
   const sourceStatusId = connection.source?.replace(/^status:/, "");
   const targetStatusId = connection.target?.replace(/^status:/, "");
-  if (!sourceStatusId || !targetStatusId) {
+  if (!sourceStatusId || !targetStatusId || sourceStatusId === targetStatusId) {
+    return draft;
+  }
+  if (
+    !draft.statusIdsOnCanvas.includes(sourceStatusId) ||
+    !draft.statusIdsOnCanvas.includes(targetStatusId)
+  ) {
     return draft;
   }
 
   let rules = [...draft.rules];
   let rule = rules.find((entry) => entry.sourceStatusId === sourceStatusId);
+  if (
+    rule?.outcomes.some(
+      (outcome) => outcome.destinationStatusId === targetStatusId && outcome.enabled,
+    )
+  ) {
+    return draft;
+  }
+
   if (!rule) {
     rule = {
       id: createId(),
@@ -542,13 +604,17 @@ export function connectOutcome(
     rules = [...rules, rule];
   }
 
+  const targetName =
+    options?.statuses?.find((status) => status.id === targetStatusId)?.name ??
+    "New outcome";
+
   const nextRule: OperationsRule = {
     ...rule,
     outcomes: [
       ...rule.outcomes,
       {
         id: createId(),
-        label: "New outcome",
+        label: targetName,
         destinationStatusId: targetStatusId,
         enabled: true,
       },
@@ -772,7 +838,6 @@ export function domainDraftToFlow(input: {
         color: status?.color,
         automationTriggerStatus: status?.automationTriggerStatus ?? false,
         executorLabel: executor?.label,
-        executorMaturity: executor?.maturity,
         modelId: rule?.modelSelection?.modelId,
       },
       ariaLabel: `Status ${status?.name ?? statusId}`,

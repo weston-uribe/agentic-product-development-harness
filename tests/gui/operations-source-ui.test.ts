@@ -10,32 +10,36 @@ function read(relativePath: string): string {
 }
 
 describe("operations source UI coverage", () => {
-  it("renders draft-mode and no authoritative Apply claim", () => {
+  it("renders compact draft notice without authoritative Apply action", () => {
     expect(
       read("apps/gui/components/operations/draft-mode-banner.tsx"),
-    ).toContain("Draft mode");
+    ).toContain("Draft — Changes are not active.");
     expect(
       read("apps/gui/components/operations/operations-toolbar.tsx"),
-    ).toContain("Apply to harness — coming later");
+    ).not.toContain("Apply to harness");
   });
 
   it("includes rule, model, parameter, and outcome semantic controls", () => {
     const inspector = read("apps/gui/components/operations/rule-inspector.tsx");
-    expect(inspector).toContain("Rule enabled");
-    expect(inspector).toContain("Draft model");
+    expect(inspector).toContain("Automation enabled");
+    expect(inspector).toContain('label="Model"');
     expect(inspector).toContain("supportedParameters");
+    expect(inspector).toContain('role="switch"');
     expect(inspector).toContain("Add outcome");
     expect(inspector).toContain("Outcome label");
     expect(inspector).toContain("Destination status");
     expect(inspector).toContain("Remove outcome");
   });
 
-  it("includes planned PR Review and fixture/source disclosures", () => {
-    expect(read("apps/gui/components/operations/rule-inspector.tsx")).toContain(
-      "Prototype only: no PR Review Agent exists",
+  it("uses production-facing sidebar sections instead of prototype disclosures", () => {
+    expect(read("apps/gui/components/operations/operations-sidebar.tsx")).toContain(
+      "OperationsScopeSelector",
     );
-    expect(read("apps/gui/components/operations/available-status-panel.tsx")).toContain(
-      "local draft-only",
+    expect(read("apps/gui/components/operations/operations-sidebar.tsx")).toContain(
+      "OperationsIssuesPanel",
+    );
+    expect(read("apps/gui/components/operations/rule-inspector.tsx")).not.toContain(
+      "Prototype only",
     );
   });
 

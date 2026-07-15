@@ -6,7 +6,9 @@ import {
   assertDraftHasNoSecrets,
   deleteDraft,
   loadDraft,
+  migrateLegacyDraftIfNeeded,
   resolveDraftPath,
+  resolveScopedDraftPath,
   saveDraft,
   summarizeDraftForReport,
 } from "../../src/operations/draft-store.js";
@@ -28,11 +30,17 @@ const sampleDraft = {
     statusCatalogFingerprint: "def",
     modelCatalogFingerprint: "ghi",
     workflowFingerprint: "jkl",
+    scopeId: "default",
   },
   statusIdsOnCanvas: ["status-1"],
   rules: [],
   layout: { statusPositions: {} },
 };
+
+const TEST_SCOPES = [
+  { id: "default", targetRepo: "owner/repo" },
+  { id: "target-app", targetRepo: "owner/target-app" },
+];
 
 describe("operations draft store", () => {
   let tempRoot = "";
@@ -47,10 +55,19 @@ describe("operations draft store", () => {
   });
 
   it("saves and reloads the live draft atomically", async () => {
-    await saveDraft(tempRoot, { mode: "live", fixturesEnabled: false }, sampleDraft);
-    const loaded = await loadDraft(tempRoot, { mode: "live", fixturesEnabled: false });
+    await saveDraft(
+      tempRoot,
+      { mode: "live", fixturesEnabled: false, scopeId: "default" },
+      sampleDraft,
+      TEST_SCOPES,
+    );
+    const loaded = await loadDraft(
+      tempRoot,
+      { mode: "live", fixturesEnabled: false, scopeId: "default" },
+      TEST_SCOPES,
+    );
     expect(loaded?.draftId).toBe("draft-1");
-    await access(resolveDraftPath(tempRoot));
+    await access(resolveScopedDraftPath(tempRoot, "default"));
   });
 
   it("rejects drafts containing credential-like keys", () => {
@@ -63,50 +80,117 @@ describe("operations draft store", () => {
   });
 
   it("preserves the prior valid draft when a corrupt temp write is avoided by validation", async () => {
-    await saveDraft(tempRoot, { mode: "live", fixturesEnabled: false }, sampleDraft);
+    await saveDraft(
+      tempRoot,
+      { mode: "live", fixturesEnabled: false, scopeId: "default" },
+      sampleDraft,
+      TEST_SCOPES,
+    );
     await expect(
       saveDraft(
         tempRoot,
-        { mode: "live", fixturesEnabled: false },
+        { mode: "live", fixturesEnabled: false, scopeId: "default" },
         {
           ...sampleDraft,
           updatedAt: "not-a-date",
         } as never,
+        TEST_SCOPES,
       ),
     ).rejects.toThrow();
-    const loaded = await loadDraft(tempRoot, { mode: "live", fixturesEnabled: false });
+    const loaded = await loadDraft(
+      tempRoot,
+      { mode: "live", fixturesEnabled: false, scopeId: "default" },
+      TEST_SCOPES,
+    );
     expect(loaded?.updatedAt).toBe("2026-01-01T00:00:00.000Z");
   });
 
   it("uses isolated fixture storage without touching the live draft path", async () => {
     await saveDraft(
       tempRoot,
-      { mode: "fixture", fixtureId: "basic-current-workflow", fixturesEnabled: true },
+      {
+        mode: "fixture",
+        fixtureId: "basic-current-workflow",
+        fixturesEnabled: true,
+        scopeId: "target-app",
+      },
       { ...sampleDraft, sourceMode: "fixture" },
+      TEST_SCOPES,
     );
-    await expect(access(resolveDraftPath(tempRoot))).rejects.toThrow();
-    const fixtureDraft = await loadDraft(tempRoot, {
-      mode: "fixture",
-      fixtureId: "basic-current-workflow",
-      fixturesEnabled: true,
-    });
+    await expect(access(resolveScopedDraftPath(tempRoot, "default"))).rejects.toThrow();
+    const fixtureDraft = await loadDraft(
+      tempRoot,
+      {
+        mode: "fixture",
+        fixtureId: "basic-current-workflow",
+        fixturesEnabled: true,
+        scopeId: "target-app",
+      },
+      TEST_SCOPES,
+    );
     expect(fixtureDraft?.sourceMode).toBe("fixture");
   });
 
   it("does not delete the live draft when resetting fixture drafts", async () => {
-    await saveDraft(tempRoot, { mode: "live", fixturesEnabled: false }, sampleDraft);
     await saveDraft(
       tempRoot,
-      { mode: "fixture", fixtureId: "basic-current-workflow", fixturesEnabled: true },
-      { ...sampleDraft, draftId: "fixture-draft", sourceMode: "fixture" },
+      { mode: "live", fixturesEnabled: false, scopeId: "default" },
+      sampleDraft,
+      TEST_SCOPES,
     );
-    await deleteDraft(tempRoot, {
-      mode: "fixture",
-      fixtureId: "basic-current-workflow",
-      fixturesEnabled: true,
-    });
-    const liveDraft = await loadDraft(tempRoot, { mode: "live", fixturesEnabled: false });
+    await saveDraft(
+      tempRoot,
+      {
+        mode: "fixture",
+        fixtureId: "basic-current-workflow",
+        fixturesEnabled: true,
+        scopeId: "target-app",
+      },
+      { ...sampleDraft, draftId: "fixture-draft", sourceMode: "fixture" },
+      TEST_SCOPES,
+    );
+    await deleteDraft(
+      tempRoot,
+      {
+        mode: "fixture",
+        fixtureId: "basic-current-workflow",
+        fixturesEnabled: true,
+        scopeId: "target-app",
+      },
+      TEST_SCOPES,
+    );
+    const liveDraft = await loadDraft(
+      tempRoot,
+      { mode: "live", fixturesEnabled: false, scopeId: "default" },
+      TEST_SCOPES,
+    );
     expect(liveDraft?.draftId).toBe("draft-1");
+  });
+
+  it("auto-migrates legacy draft only when exactly one live scope exists", async () => {
+    await mkdir(path.join(tempRoot, ".harness"), { recursive: true });
+    await writeFile(resolveDraftPath(tempRoot), `${JSON.stringify(sampleDraft, null, 2)}\n`, "utf8");
+    const result = await migrateLegacyDraftIfNeeded({
+      cwd: tempRoot,
+      scopes: [{ id: "default", targetRepo: "owner/repo" }],
+    });
+    expect(result.migrated).toBe(true);
+    await access(resolveScopedDraftPath(tempRoot, "default"));
+  });
+
+  it("requires manual review when multiple scopes exist and legacy draft remains", async () => {
+    await mkdir(path.join(tempRoot, ".harness"), { recursive: true });
+    await writeFile(resolveDraftPath(tempRoot), `${JSON.stringify(sampleDraft, null, 2)}\n`, "utf8");
+    const result = await migrateLegacyDraftIfNeeded({
+      cwd: tempRoot,
+      scopes: [
+        { id: "a", targetRepo: "o/a" },
+        { id: "b", targetRepo: "o/b" },
+      ],
+    });
+    expect(result.migrated).toBe(false);
+    expect(result.reviewRequired).toBe(true);
+    await access(resolveDraftPath(tempRoot));
   });
 
   it("excludes the live draft path from workspace snapshots and reports redacted metadata only", () => {
@@ -118,6 +202,7 @@ describe("operations draft store", () => {
       schemaVersion: 1,
       draftId: "draft-1",
       sourceMode: "live",
+      scopeId: "default",
     });
   });
 });

@@ -115,11 +115,15 @@ function resolveMappingState(
   const directMatches = mappings.filter((mapping) =>
     mapping.resolvedStatusIds.includes(statusId),
   );
-  if (directMatches.length === 1) {
+  // One status may legitimately fulfill several workflow roles (e.g. PR Open).
+  if (directMatches.length >= 1) {
+    if (directMatches.some((mapping) => mapping.state === "ambiguous")) {
+      return "ambiguous";
+    }
+    if (directMatches.some((mapping) => mapping.state === "missing")) {
+      return "missing";
+    }
     return "resolved";
-  }
-  if (directMatches.length > 1) {
-    return "ambiguous";
   }
 
   const nameMatches = mappings.filter(

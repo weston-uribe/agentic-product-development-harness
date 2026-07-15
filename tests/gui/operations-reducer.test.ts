@@ -59,7 +59,9 @@ function draft(overrides: Partial<OperationsWorkflowDraft> = {}): OperationsWork
 function bootstrap(initialDraft = draft()): OperationsBootstrapPayload {
   return {
     sourceMode: "live",
-    dataSourceLabel: "Live workspace data",
+    selectedScopeId: "target-app",
+    scopes: [{ id: "target-app", targetRepo: "owner/example-target-app" }],
+    dataSourceLabel: "Draft workflow",
     statuses: [],
     executors: getExecutorCatalog(),
     nestedCapabilities: [],

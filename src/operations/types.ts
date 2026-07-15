@@ -138,9 +138,17 @@ export interface OperationsLayout {
   inspectorCollapsed?: boolean;
 }
 
+export interface OperationsWorkflowScope {
+  id: string;
+  targetRepo: string;
+  linearTeams?: string[];
+  linearProjects?: string[];
+}
+
 export interface OperationsBaseSnapshot {
   teamId?: string;
   teamKey?: string;
+  scopeId?: string;
   configFingerprint: string;
   statusCatalogFingerprint: string;
   modelCatalogFingerprint: string;
@@ -189,6 +197,7 @@ export interface OperationsCatalogLoadMetadata {
 export interface OperationsSourceContext {
   mode: OperationsSourceMode;
   fixtureId?: string;
+  scopeId?: string;
   fixturesEnabled: boolean;
   rejectionReason?: string;
 }
@@ -196,6 +205,10 @@ export interface OperationsSourceContext {
 export interface OperationsBootstrapPayload {
   sourceMode: OperationsSourceMode;
   fixtureId?: string;
+  selectedScopeId?: string;
+  scopes: OperationsWorkflowScope[];
+  legacyDraftReviewRequired?: boolean;
+  debugEnabled?: boolean;
   dataSourceLabel: string;
   statuses: OperationsStatusRecord[];
   executors: OperationsExecutorCatalogEntry[];

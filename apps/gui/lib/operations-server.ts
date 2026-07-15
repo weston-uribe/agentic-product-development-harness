@@ -5,13 +5,8 @@ import { loadHarnessDotenv } from "@harness/config/load-dotenv";
 import { loadHarnessConfig } from "@harness/config/load-config";
 import { readControlPlaneSetupState } from "@harness/setup/control-plane-setup-state";
 import { loadSecretFromEnvLocal } from "@harness/setup/service-verification";
-import {
-  buildOperationsBaseSnapshot,
-  buildOperationsBootstrap,
-} from "@harness/operations/bootstrap";
-import {
-  fetchLiveCursorModelCatalog,
-} from "@harness/operations/model-catalog";
+import { buildOperationsBootstrap } from "@harness/operations/bootstrap";
+import { fetchLiveCursorModelCatalog } from "@harness/operations/model-catalog";
 import { loadLiveLinearStatuses } from "@harness/operations/linear-status-source";
 import {
   resolveOperationsSourceContext,
@@ -40,14 +35,21 @@ import type {
   OperationsModelCatalogEntry,
   OperationsSourceContext,
   OperationsStatusRecord,
+  OperationsWorkflowScope,
 } from "@harness/operations/types";
 import { getFixtureDefinition } from "@harness/operations/fixtures";
 import type { HarnessConfig } from "@harness/config/types";
 import type { OperationsFixtureId } from "@harness/operations/constants";
 import { buildCatalogUnavailableEntry } from "@harness/operations/model-catalog-utils";
+import { buildLiveWorkflowScopes } from "@harness/operations/workflow-scopes";
+import { buildOperationsBaseSnapshot } from "@harness/operations/bootstrap";
 
 function isPackagedRuntime(): boolean {
   return Boolean(process.env.P_DEV_HOME?.trim());
+}
+
+function isDebugEnabled(): boolean {
+  return process.env.P_DEV_OPERATIONS_DEBUG === "1";
 }
 
 const FALLBACK_CONFIG: HarnessConfig = {
@@ -63,6 +65,7 @@ interface ComposedOperationsContext {
   context: OperationsSourceContext;
   config?: HarnessConfig;
   effectiveConfig: HarnessConfig;
+  scopes: OperationsWorkflowScope[];
   teamId?: string;
   teamKey?: string;
   linearStatuses: LinearStatusInput[];
@@ -73,6 +76,7 @@ interface ComposedOperationsContext {
   baseSnapshot: OperationsBaseSnapshot;
   executors: OperationsExecutorCatalogEntry[];
   warnings: string[];
+  debugEnabled: boolean;
 }
 
 async function composeOperationsContext(
@@ -85,12 +89,15 @@ async function composeOperationsContext(
       ? requestOrContext
       : resolveOperationsSourceContext(requestOrContext);
   const warnings: string[] = [];
+  const debugEnabled = isDebugEnabled();
 
   let config: HarnessConfig | undefined;
   try {
     ({ config } = await loadHarnessConfig({ baseDir: cwd }));
   } catch {
-    warnings.push("Active harness config could not be loaded.");
+    if (debugEnabled) {
+      warnings.push("Active harness config could not be loaded.");
+    }
   }
 
   const setupState = await readControlPlaneSetupState(cwd);
@@ -109,13 +116,17 @@ async function composeOperationsContext(
       key: "LINEAR_API_KEY",
     });
     if (!linearApiKey) {
-      warnings.push(
-        "Validation limitation: LINEAR_API_KEY is not configured, so live Linear statuses could not be loaded.",
-      );
+      if (debugEnabled) {
+        warnings.push(
+          "Validation limitation: LINEAR_API_KEY is not configured, so live Linear statuses could not be loaded.",
+        );
+      }
     } else if (!teamId) {
-      warnings.push(
-        "Validation limitation: Linear team is not configured in control-plane setup state.",
-      );
+      if (debugEnabled) {
+        warnings.push(
+          "Validation limitation: Linear team is not configured in control-plane setup state.",
+        );
+      }
     } else {
       const result = await loadLiveLinearStatuses({
         apiKey: linearApiKey,
@@ -126,10 +137,10 @@ async function composeOperationsContext(
         ...catalogLoadMetadata,
         statusCatalog: result.loadState,
       };
-      if (result.warning) {
+      if (debugEnabled && result.warning) {
         warnings.push(result.warning);
       }
-      if (result.error) {
+      if (debugEnabled && result.error) {
         warnings.push(`Linear status load failed: ${result.error}`);
       }
     }
@@ -142,9 +153,11 @@ async function composeOperationsContext(
       key: "CURSOR_API_KEY",
     });
     if (!cursorApiKey) {
-      warnings.push(
-        "Validation limitation: CURSOR_API_KEY is not configured, so the live Cursor model catalog could not be loaded.",
-      );
+      if (debugEnabled) {
+        warnings.push(
+          "Validation limitation: CURSOR_API_KEY is not configured, so the live Cursor model catalog could not be loaded.",
+        );
+      }
       modelCatalog = buildCatalogUnavailableEntry("cursor-live");
       catalogLoadMetadata = {
         ...catalogLoadMetadata,
@@ -161,12 +174,17 @@ async function composeOperationsContext(
   }
 
   let effectiveConfig = config ?? FALLBACK_CONFIG;
+  let scopes = buildLiveWorkflowScopes(effectiveConfig);
+
   if (context.mode === "fixture" && context.fixtureId && !context.rejectionReason) {
     const fixture = getFixtureDefinition(context.fixtureId as OperationsFixtureId);
     linearStatuses = fixture.statuses;
     modelCatalog = fixture.modelCatalog;
     effectiveConfig = fixture.config ?? effectiveConfig;
-    warnings.push(...fixture.warnings);
+    scopes = fixture.workflowScopes;
+    if (debugEnabled) {
+      warnings.push(...fixture.warnings);
+    }
     catalogLoadMetadata = { statusCatalog: "loaded", modelCatalog: "loaded" };
   }
 
@@ -194,6 +212,7 @@ async function composeOperationsContext(
     context,
     config,
     effectiveConfig,
+    scopes,
     teamId,
     teamKey,
     linearStatuses,
@@ -204,6 +223,7 @@ async function composeOperationsContext(
     baseSnapshot,
     executors: getExecutorCatalog(),
     warnings,
+    debugEnabled,
   };
 }
 
@@ -215,12 +235,14 @@ export async function loadOperationsBootstrap(
     cwd: composed.cwd,
     context: composed.context,
     config: composed.effectiveConfig,
+    scopes: composed.scopes,
     teamId: composed.teamId,
     teamKey: composed.teamKey,
     linearStatuses: composed.linearStatuses,
     modelCatalog: composed.modelCatalog,
     catalogLoadMetadata: composed.catalogLoadMetadata,
     warnings: composed.warnings,
+    debugEnabled: composed.debugEnabled,
   });
 }
 
@@ -248,7 +270,12 @@ export async function persistOperationsDraft(input: {
     baseSnapshot: composed.baseSnapshot,
     catalogLoadMetadata: composed.catalogLoadMetadata,
   });
-  const saved = await saveDraft(composed.cwd, input.context, draftToSave);
+  const saved = await saveDraft(
+    composed.cwd,
+    input.context,
+    draftToSave,
+    composed.scopes,
+  );
 
   return {
     draft: saved.draft,
@@ -260,17 +287,32 @@ export async function persistOperationsDraft(input: {
 export async function resetOperationsDraft(
   context: OperationsSourceContext,
 ): Promise<OperationsBootstrapPayload> {
-  const cwd = resolveHarnessRepoRoot();
-  await deleteDraft(cwd, context);
-  return loadOperationsBootstrap({
-    source: context.mode,
-    fixture: context.fixtureId ?? null,
-    fixturesEnabled: context.fixturesEnabled,
+  const composed = await composeOperationsContext(context);
+  await deleteDraft(composed.cwd, context, composed.scopes);
+  return buildOperationsBootstrap({
+    cwd: composed.cwd,
+    context,
+    config: composed.effectiveConfig,
+    scopes: composed.scopes,
+    teamId: composed.teamId,
+    teamKey: composed.teamKey,
+    linearStatuses: composed.linearStatuses,
+    modelCatalog: composed.modelCatalog,
+    catalogLoadMetadata: composed.catalogLoadMetadata,
+    warnings: composed.warnings,
+    debugEnabled: composed.debugEnabled,
   });
 }
 
 export function sanitizeBootstrapPayload(
   payload: OperationsBootstrapPayload,
 ): OperationsBootstrapPayload {
-  return payload;
+  if (payload.debugEnabled) {
+    return payload;
+  }
+  return {
+    ...payload,
+    warnings: [],
+    currentWorkflowMappings: [],
+  };
 }

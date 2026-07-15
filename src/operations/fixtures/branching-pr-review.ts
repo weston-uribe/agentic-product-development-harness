@@ -6,7 +6,7 @@ export const branchingPrReviewFixture: OperationsFixtureDefinition = {
   ...basicCurrentWorkflowFixture,
   id: "branching-pr-review",
   warnings: [
-    "Fixture includes a planned PR Review Agent with branching outcomes for prototype testing.",
+    "Fixture includes a planned PR Review Agent with branching outcomes.",
     ...basicCurrentWorkflowFixture.warnings,
   ],
   buildSeedDraft: buildBranchingPrReviewSeed,

@@ -1,22 +1,25 @@
 import { AppShell } from "@/components/custom/app-shell";
 import { OperationsPageClient } from "@/components/operations/operations-page-client";
-import { loadOperationsBootstrap } from "@/lib/operations-server";
+import { loadOperationsBootstrap, sanitizeBootstrapPayload } from "@/lib/operations-server";
 
 export const dynamic = "force-dynamic";
 
 export default async function OperationsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ source?: string; fixture?: string }>;
+  searchParams: Promise<{ source?: string; fixture?: string; scope?: string }>;
 }) {
   const params = await searchParams;
-  const bootstrap = await loadOperationsBootstrap({
-    source: params.source ?? null,
-    fixture: params.fixture ?? null,
-  });
+  const bootstrap = sanitizeBootstrapPayload(
+    await loadOperationsBootstrap({
+      source: params.source ?? null,
+      fixture: params.fixture ?? null,
+      scope: params.scope ?? null,
+    }),
+  );
 
   return (
-    <AppShell>
+    <AppShell variant="operations">
       <OperationsPageClient initialBootstrap={bootstrap} />
     </AppShell>
   );
