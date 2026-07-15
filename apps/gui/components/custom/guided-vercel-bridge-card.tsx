@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { VercelBridgePreview } from "@harness/setup/vercel-setup-apply";
 import type { VercelBridgeApplyResult } from "@harness/setup/vercel-setup-apply";
 import type { VercelSetupSummary } from "@harness/setup/vercel-setup-summary";
@@ -17,7 +17,11 @@ import { readSetupJsonResponse } from "@/lib/setup-json-response";
 import {
   canInvalidatePreviewDuringPolling,
   isRedeployPollingActive,
+  mapOrchestrationPhaseLabel,
   REDEPLOY_POLLING_LOCK_MESSAGE,
+  resolveOrchestrationStatusMessage,
+  shouldHideApplyButton,
+  shouldShowTerminalApplyResult,
 } from "@/lib/vercel-bridge-polling-ui";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,6 +29,7 @@ import { Label } from "@/components/ui/label";
 import { SectionCard } from "@/components/custom/section-card";
 import { RemoteActionConfirmation } from "@/components/custom/remote-action-confirmation";
 import { SetupApplyResult } from "@/components/custom/setup-apply-result";
+import { VercelBridgeOrchestrationStatus } from "@/components/custom/vercel-bridge-orchestration-status";
 
 interface GuidedVercelBridgeCardProps {
   readiness: FirstRunReadiness;
@@ -42,6 +47,14 @@ function buildVercelApplyResultMessage(apply: VercelBridgeApplyResult): string {
     return `${apply.deploymentRequired?.message ?? "Deployment required."} ${apply.deploymentRequired?.nextSteps.join(" ") ?? ""}`;
   }
 
+  if (apply.setupBlocked) {
+    return [apply.setupBlocked.message, ...apply.setupBlocked.nextSteps].join(" ");
+  }
+
+  if (apply.verified && apply.signedProbeVerified) {
+    return "Vercel settings verified.";
+  }
+
   const parts = [
     `Vercel team: ${apply.team?.outcome ?? "unchanged"} ${apply.team?.name ?? ""}.`,
     `Vercel project: ${apply.project?.outcome ?? "unchanged"} ${apply.project?.name ?? apply.projectName}.`,
@@ -56,62 +69,63 @@ function buildVercelApplyResultMessage(apply: VercelBridgeApplyResult): string {
     );
   }
 
-  if (apply.setupBlocked) {
-    parts.push(apply.setupBlocked.message);
-    if (apply.setupBlocked.nextSteps.length > 0) {
-      parts.push(apply.setupBlocked.nextSteps.join(" "));
-    }
-  } else if (
-    apply.deploymentRedeployRequired &&
-    !apply.signedProbeVerified &&
-    !apply.productionRedeployTriggered
-  ) {
-    parts.push(
-      "Redeploy production in Vercel, then use Retry verification (this will not rotate secrets or rewrite env vars).",
-    );
-  }
-
   return parts.join(" ");
 }
 
-function shouldShowRetryVerification(
-  apply: VercelBridgeApplyResult | null,
-  redeployPollingActive: boolean,
+function isTerminalRedeployApply(
+  apply: VercelBridgeApplyResult,
+  summary: VercelSetupSummary,
 ): boolean {
-  if (redeployPollingActive) {
-    return false;
-  }
-  if (!apply) {
-    return false;
-  }
-  if (apply.setupPending) {
-    return false;
-  }
-  if (apply.verified && apply.signedProbeVerified) {
-    return false;
-  }
-  return Boolean(
-    apply.setupBlocked ||
-      (apply.deploymentRedeployRequired && !apply.signedProbeVerified) ||
-      (apply.productionRedeployTriggered &&
-        apply.productionRedeployStatus === "ready" &&
-        !apply.signedProbeVerified),
-  );
-}
-
-function isTerminalRedeployApply(apply: VercelBridgeApplyResult): boolean {
   if (apply.verified && apply.signedProbeVerified) {
     return true;
   }
-  if (apply.setupPending) {
+  if (apply.setupPending || summary.orchestration?.active) {
     return false;
   }
   return Boolean(
     apply.setupBlocked ||
       apply.productionRedeployStatus === "failed" ||
       apply.productionRedeployStatus === "timeout" ||
-      apply.productionRedeployStatus === "no_source_deployment",
+      apply.productionRedeployStatus === "no_source_deployment" ||
+      summary.orchestration?.terminal,
   );
+}
+
+function resumeOrchestrationFromSummary(summary: VercelSetupSummary): {
+  setupPending: boolean;
+  pollActionId: string | null;
+  verifiedSuccess: boolean;
+} {
+  const orchestration = summary.orchestration;
+  if (!orchestration) {
+    return {
+      setupPending: false,
+      pollActionId: null,
+      verifiedSuccess: summary.readiness.ready,
+    };
+  }
+
+  if (orchestration.verified || summary.readiness.ready) {
+    return {
+      setupPending: false,
+      pollActionId: null,
+      verifiedSuccess: true,
+    };
+  }
+
+  if (orchestration.active) {
+    return {
+      setupPending: true,
+      pollActionId: orchestration.pollActionId ?? null,
+      verifiedSuccess: false,
+    };
+  }
+
+  return {
+    setupPending: false,
+    pollActionId: null,
+    verifiedSuccess: false,
+  };
 }
 
 export function GuidedVercelBridgeCard({
@@ -121,6 +135,7 @@ export function GuidedVercelBridgeCard({
   onUiStateChange,
   onContinue,
 }: GuidedVercelBridgeCardProps) {
+  const initialResume = resumeOrchestrationFromSummary(initialSummary);
   const [summary, setSummary] = useState(initialSummary);
   const [scopes, setScopes] = useState<VercelBridgeScopeOption[]>([]);
   const [projects, setProjects] = useState<VercelBridgeProjectOption[]>([]);
@@ -128,6 +143,10 @@ export function GuidedVercelBridgeCard({
     teamCreate: true,
     projectCreate: true,
   });
+  const [githubDispatchEligible, setGithubDispatchEligible] = useState(true);
+  const [githubDispatchMessage, setGithubDispatchMessage] = useState<string | null>(
+    null,
+  );
   const [teamMode, setTeamMode] = useState<"existing" | "create">("existing");
   const [teamId, setTeamId] = useState(summary.controlPlane?.vercel?.teamId ?? "");
   const [teamName, setTeamName] = useState("");
@@ -140,9 +159,6 @@ export function GuidedVercelBridgeCard({
   const [harnessTeamKey, setHarnessTeamKey] = useState(
     summary.linearTeamKey ?? "",
   );
-  const [showGithubDispatchOverride, setShowGithubDispatchOverride] =
-    useState(false);
-  const [githubDispatchToken, setGithubDispatchToken] = useState("");
   const [optionsError, setOptionsError] = useState<string | null>(null);
   const [optionsLoading, setOptionsLoading] = useState(false);
   const [preview, setPreview] = useState<VercelBridgePreview | null>(null);
@@ -156,23 +172,47 @@ export function GuidedVercelBridgeCard({
   const [applyResult, setApplyResult] = useState<VercelBridgeApplyResult | null>(
     null,
   );
-  const [pollActionId, setPollActionId] = useState<string | null>(null);
-  const [setupPending, setSetupPending] = useState(false);
-  const [verifiedSuccess, setVerifiedSuccess] = useState(false);
+  const [pollActionId, setPollActionId] = useState<string | null>(
+    initialResume.pollActionId,
+  );
+  const [setupPending, setSetupPending] = useState(initialResume.setupPending);
+  const [verifiedSuccess, setVerifiedSuccess] = useState(
+    initialResume.verifiedSuccess,
+  );
   const [manualCopySecret, setManualCopySecret] = useState<string | null>(null);
   const [manualCopyAcknowledged, setManualCopyAcknowledged] = useState(false);
+  const continueGuardRef = useRef<string | null>(null);
 
   const redeployPollingActive = isRedeployPollingActive({
     setupPending,
     pollActionId,
+    orchestration: summary.orchestration,
   });
   const controlsLocked = redeployPollingActive || loading !== null;
+  const orchestrationStatusMessage = resolveOrchestrationStatusMessage({
+    loading,
+    applyResult,
+    orchestration: summary.orchestration,
+  });
+  const showTerminalApplyResult = shouldShowTerminalApplyResult({
+    applyResult,
+    orchestration: summary.orchestration,
+    redeployPollingActive,
+  });
+  const hideApplyButton = shouldHideApplyButton({
+    verifiedSuccess,
+    redeployPollingActive,
+  });
 
   useEffect(() => {
     setSummary(initialSummary);
     if (initialSummary.linearTeamKey) {
       setHarnessTeamKey(initialSummary.linearTeamKey);
     }
+    const resumed = resumeOrchestrationFromSummary(initialSummary);
+    setSetupPending(resumed.setupPending);
+    setPollActionId(resumed.pollActionId);
+    setVerifiedSuccess(resumed.verifiedSuccess);
   }, [initialSummary]);
 
   const previewIsCurrent = preview !== null && previewGenerated;
@@ -202,7 +242,10 @@ export function GuidedVercelBridgeCard({
       if (data.harnessTeamKey) {
         setHarnessTeamKey(data.harnessTeamKey);
       }
-      setShowGithubDispatchOverride(!data.githubDispatch.eligible);
+      setGithubDispatchEligible(data.githubDispatch.eligible);
+      setGithubDispatchMessage(
+        data.githubDispatch.eligible ? null : data.githubDispatch.message,
+      );
       if (scopeId === undefined && data.selectedScopeId !== undefined) {
         setTeamId(data.selectedScopeId);
       }
@@ -239,8 +282,13 @@ export function GuidedVercelBridgeCard({
       if (!response.ok) {
         throw new Error(data.error ?? "Vercel summary refresh failed");
       }
-      setSummary(data as VercelSetupSummary);
-      onSummaryUpdated?.(data as VercelSetupSummary);
+      const nextSummary = data as VercelSetupSummary;
+      setSummary(nextSummary);
+      onSummaryUpdated?.(nextSummary);
+      const resumed = resumeOrchestrationFromSummary(nextSummary);
+      setSetupPending(resumed.setupPending);
+      setPollActionId(resumed.pollActionId);
+      setVerifiedSuccess(resumed.verifiedSuccess);
     } catch (refreshError) {
       setError(
         refreshError instanceof Error
@@ -287,19 +335,14 @@ export function GuidedVercelBridgeCard({
       projectName: projectMode === "create" ? projectName || undefined : undefined,
       linearTeamId: summary.controlPlane?.linear?.teamId,
       envInput: {
-        GITHUB_DISPATCH_TOKEN: showGithubDispatchOverride
-          ? githubDispatchToken || undefined
-          : undefined,
         HARNESS_TEAM_KEY: harnessTeamKey || undefined,
       },
     }),
     [
-      githubDispatchToken,
       harnessTeamKey,
       projectId,
       projectMode,
       projectName,
-      showGithubDispatchOverride,
       summary.controlPlane?.linear?.teamId,
       teamId,
       teamMode,
@@ -309,7 +352,7 @@ export function GuidedVercelBridgeCard({
   );
 
   const applyVercelBridgeResponse = useCallback(
-    async (apply: VercelBridgeApplyResult, summary: VercelSetupSummary) => {
+    async (apply: VercelBridgeApplyResult, nextSummary: VercelSetupSummary) => {
       setApplyResult(apply);
       if (apply.status === "deployment-required") {
         setError(
@@ -326,11 +369,13 @@ export function GuidedVercelBridgeCard({
         return;
       }
 
-      setSummary(summary);
-      onSummaryUpdated?.(summary);
+      setSummary(nextSummary);
+      onSummaryUpdated?.(nextSummary);
       setVerifiedSuccess(apply.verified);
-      setSetupPending(Boolean(apply.setupPending));
-      setPollActionId(apply.pollActionId ?? null);
+      setSetupPending(Boolean(apply.setupPending || nextSummary.orchestration?.active));
+      setPollActionId(
+        apply.pollActionId ?? nextSummary.orchestration?.pollActionId ?? null,
+      );
 
       if (apply.linearWebhookSetup.manualCopySecret) {
         setManualCopySecret(apply.linearWebhookSetup.manualCopySecret);
@@ -373,7 +418,7 @@ export function GuidedVercelBridgeCard({
 
       const apply = data.apply;
       await applyVercelBridgeResponse(apply, data.summary);
-      if (isTerminalRedeployApply(apply)) {
+      if (isTerminalRedeployApply(apply, data.summary)) {
         setSetupPending(false);
         setPollActionId(null);
       }
@@ -383,11 +428,13 @@ export function GuidedVercelBridgeCard({
           ? pollError.message
           : "Redeploy status check failed",
       );
-      setSetupPending(false);
+      if (!summary.orchestration?.active) {
+        setSetupPending(false);
+      }
     } finally {
       setLoading(null);
     }
-  }, [applyVercelBridgeResponse, pollActionId]);
+  }, [applyVercelBridgeResponse, pollActionId, summary.orchestration?.active]);
 
   useEffect(() => {
     if (!setupPending || !pollActionId) {
@@ -404,6 +451,31 @@ export function GuidedVercelBridgeCard({
       window.clearInterval(intervalId);
     };
   }, [pollActionId, pollRedeployStatus, setupPending]);
+
+  useEffect(() => {
+    const successKey =
+      summary.orchestration?.verified || summary.readiness.ready
+        ? `${summary.controlPlane?.vercel?.appliedFingerprint ?? "ready"}:verified`
+        : null;
+    if (!successKey || continueGuardRef.current === successKey) {
+      return;
+    }
+    if (
+      (verifiedSuccess && applyResult?.signedProbeVerified === true) ||
+      (summary.readiness.ready && !summary.orchestration?.active)
+    ) {
+      continueGuardRef.current = successKey;
+      onContinue();
+    }
+  }, [
+    applyResult?.signedProbeVerified,
+    onContinue,
+    summary.controlPlane?.vercel?.appliedFingerprint,
+    summary.orchestration?.active,
+    summary.orchestration?.verified,
+    summary.readiness.ready,
+    verifiedSuccess,
+  ]);
 
   const runPreview = useCallback(async () => {
     const response = await fetch("/api/setup/preview-vercel-bridge", {
@@ -445,19 +517,24 @@ export function GuidedVercelBridgeCard({
     }
   }, [invalidatePreview, redeployPollingActive, runPreview]);
 
-  const handleApply = async (options?: { verifyOnly?: boolean }) => {
-    if (redeployPollingActive && !options?.verifyOnly) {
+  const handleApply = async () => {
+    if (redeployPollingActive) {
       return;
     }
-    if (!confirmed && !options?.verifyOnly) {
+    if (!confirmed) {
+      return;
+    }
+    if (!githubDispatchEligible) {
+      setError(
+        githubDispatchMessage ??
+          "Saved GITHUB_TOKEN cannot dispatch to the harness repository. Update Step 1 before applying.",
+      );
       return;
     }
 
     setLoading("apply");
     setError(null);
-    if (!options?.verifyOnly) {
-      invalidatePreview();
-    }
+    invalidatePreview();
     try {
       const currentPreview =
         previewIsCurrent && preview ? preview : await runPreview();
@@ -472,7 +549,6 @@ export function GuidedVercelBridgeCard({
           plan: buildPlanPayload(),
           confirmed: true,
           fingerprint: currentPreview.fingerprint,
-          verifyOnly: options?.verifyOnly === true,
         }),
       });
       const data = await readSetupJsonResponse<{
@@ -519,6 +595,17 @@ export function GuidedVercelBridgeCard({
               <p className="text-sm text-muted-foreground">
                 {REDEPLOY_POLLING_LOCK_MESSAGE}
               </p>
+            ) : null}
+            {!githubDispatchEligible && githubDispatchMessage ? (
+              <p className="text-sm text-destructive">{githubDispatchMessage}</p>
+            ) : null}
+            {orchestrationStatusMessage ? (
+              <VercelBridgeOrchestrationStatus
+                message={orchestrationStatusMessage}
+                phaseLabel={mapOrchestrationPhaseLabel(
+                  applyResult?.orchestrationPhase ?? summary.orchestration?.phase,
+                )}
+              />
             ) : null}
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
@@ -660,27 +747,6 @@ export function GuidedVercelBridgeCard({
               <p className="text-sm text-destructive">{optionsError}</p>
             ) : null}
 
-            {showGithubDispatchOverride ? (
-              <div className="space-y-2">
-                <Label htmlFor="github-dispatch-token">
-                  GITHUB_DISPATCH_TOKEN override
-                </Label>
-                <Input
-                  id="github-dispatch-token"
-                  type="password"
-                  value={githubDispatchToken}
-                  onChange={(event) => {
-                    if (redeployPollingActive) {
-                      return;
-                    }
-                    setGithubDispatchToken(event.target.value);
-                    invalidatePreview();
-                  }}
-                  disabled={controlsLocked}
-                />
-              </div>
-            ) : null}
-
             <div className={FORM.actions}>
               <Button
                 type="button"
@@ -763,7 +829,7 @@ export function GuidedVercelBridgeCard({
               }}
             />
 
-            {!verifiedSuccess ? (
+            {!hideApplyButton ? (
               <div className={FORM.actions}>
                 <Button
                   type="button"
@@ -772,47 +838,19 @@ export function GuidedVercelBridgeCard({
                     controlsLocked ||
                     !confirmed ||
                     !formComplete ||
+                    !githubDispatchEligible ||
                     Boolean(preview?.validationError)
                   }
                 >
                   {loading === "apply"
                     ? "Applying Vercel settings…"
-                    : loading === "poll"
-                      ? "Waiting for production redeploy…"
-                      : "Apply Vercel Settings"}
+                    : "Apply Vercel Settings"}
                 </Button>
-                {shouldShowRetryVerification(applyResult, redeployPollingActive) ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => void handleApply({ verifyOnly: true })}
-                    disabled={loading !== null || !formComplete}
-                  >
-                    {loading === "apply" ? "Verifying…" : "Retry verification"}
-                  </Button>
-                ) : null}
               </div>
             ) : null}
 
-            {applyResult?.orchestrationSteps?.length || setupPending ? (
-              <ul className="list-disc pl-5 text-sm text-muted-foreground">
-                {applyResult?.orchestrationSteps?.map((step) => (
-                  <li key={`${step.phase}-${step.status}`}>
-                    {step.message}
-                    {step.status === "failed" ? " (failed)" : ""}
-                  </li>
-                ))}
-                {setupPending ? (
-                  <li>
-                    {loading === "poll"
-                      ? "Checking Vercel deployment status…"
-                      : "Waiting for Vercel deployment READY…"}
-                  </li>
-                ) : null}
-              </ul>
-            ) : null}
             {error ? <SetupApplyResult success={false} message={error} /> : null}
-            {applyResult ? (
+            {showTerminalApplyResult && applyResult ? (
               <SetupApplyResult
                 success={applyResult.verified}
                 message={buildVercelApplyResultMessage(applyResult)}

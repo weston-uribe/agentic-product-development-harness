@@ -2,11 +2,14 @@ import {
   readControlPlaneSetupState,
   updateControlPlaneSetupState,
 } from "./control-plane-setup-state.js";
+import { withControlPlaneStateLock } from "./control-plane-state-lock.js";
 import type {
   ControlPlaneSetupState,
+  VercelBridgeOrchestrationPhase,
   VercelBridgeRedeployVerification,
   VercelBridgeRedeployVerificationStatus,
   VercelBridgeSelection,
+  VercelSignedProbeEvidence,
 } from "./control-plane-types.js";
 import { assessGitHubDispatchTokenEligibility } from "./github-dispatch-token.js";
 import { inspectProductionRedeployStatus } from "./vercel-production-redeploy.js";
@@ -24,6 +27,19 @@ import {
   previewVercelBridgeSetup,
 } from "./vercel-setup-plan.js";
 import { logVercelBridgeEvent } from "./vercel-bridge-structured-log.js";
+import {
+  buildVerificationClaim,
+  classifySignedProbeFailure,
+  DEFAULT_MAX_VERIFICATION_ATTEMPTS,
+  getOrchestrationStatusMessage,
+  isOrchestrationActive,
+  isTerminalRedeployVerificationStatus,
+  isVerificationAttemptDue,
+  getVerificationAttemptNotDueReason,
+  mapPendingPhaseForDeployStatus,
+  normalizeRedeployVerification,
+  VERIFICATION_POLL_INTERVAL_MS,
+} from "./vercel-bridge-redeploy-normalize.js";
 
 function buildPersistedContextMismatchBlocked(): VercelBridgeSetupBlocked {
   return {
@@ -183,30 +199,20 @@ export async function buildPollVerifyPlanFromPersistedState(input: {
   return { ok: true, plan: built.plan, vercelToken: built.vercelToken };
 }
 
-const verifyClaimInFlight = new Set<string>();
-
-function verifyClaimKey(actionId: string, cwd?: string): string {
-  return `${cwd ?? "default"}:${actionId}`;
-}
-const TERMINAL_REDEPLOY_STATUSES = new Set<VercelBridgeRedeployVerificationStatus>([
-  "failed",
-  "timeout",
-  "no_source_deployment",
-  "verify_failed",
-  "verified",
-]);
-
 function buildSetupBlockedForPostRedeployVerificationFailure(input?: {
   retryReason?: string;
+  exhausted?: boolean;
 }): VercelBridgeSetupBlocked {
   const reasonSuffix = input?.retryReason?.trim()
     ? ` (${input.retryReason})`
     : "";
   return {
-    message: `Production redeploy completed, but signed webhook delivery verification still failed${reasonSuffix}.`,
+    message: input?.exhausted
+      ? `Signed webhook verification failed after ${DEFAULT_MAX_VERIFICATION_ATTEMPTS} attempts${reasonSuffix}.`
+      : `Production redeploy completed, but signed webhook delivery verification still failed${reasonSuffix}.`,
     nextSteps: [
-      "Use Retry verification without rewriting env vars or rotating secrets.",
-      "If verification still fails, confirm the Linear webhook signing secret matches Vercel production.",
+      "Use Apply Vercel Settings again after confirming the Linear webhook signing secret matches Vercel production.",
+      "If verification still fails, confirm the production deployment and webhook URL are correct.",
     ],
   };
 }
@@ -218,16 +224,16 @@ function buildManualRedeployRecoveryMessage(
   if (status === "timeout") {
     return (
       message ??
-      "Automatic production redeploy timed out before READY. Redeploy production in Vercel, then use Retry verification."
+      "Automatic production redeploy timed out before READY. Redeploy production in Vercel, then use Apply Vercel Settings again."
     );
   }
   if (status === "failed") {
     return (
       message ??
-      "Automatic production redeploy failed. Redeploy production in Vercel, then use Retry verification."
+      "Automatic production redeploy failed. Redeploy production in Vercel, then use Apply Vercel Settings again."
     );
   }
-  return "Redeploy production in Vercel, then use Retry verification (this will not rotate secrets or rewrite env vars).";
+  return "Redeploy production in Vercel, then use Apply Vercel Settings again.";
 }
 
 function mapRedeployStatusToProductionStatus(
@@ -270,12 +276,14 @@ function buildOrchestrationSteps(input: {
     return steps;
   }
 
-  if (input.pending.status === "no_source_deployment") {
+  const normalized = normalizeRedeployVerification({ pending: input.pending });
+
+  if (normalized.status === "no_source_deployment") {
     steps.push({
       phase: "redeploying_production",
       status: "failed",
       message:
-        input.pending.message ??
+        normalized.message ??
         "No READY production deployment was found to redeploy after env var changes.",
     });
     return steps;
@@ -284,44 +292,59 @@ function buildOrchestrationSteps(input: {
   steps.push({
     phase: "redeploying_production",
     status:
-      input.pending.status === "failed" || input.pending.status === "timeout"
+      normalized.status === "failed" || normalized.status === "timeout"
         ? "failed"
-        : input.pending.status === "verified" ||
-            input.pending.status === "ready" ||
-            input.pending.status === "verify_failed"
-          ? "completed"
-          : "completed",
-    message:
-      input.pending.status === "building" || input.pending.status === "triggered"
-        ? "Waiting for Vercel deployment READY…"
-        : "Redeploying production so new env vars take effect…",
+        : "completed",
+    message: getOrchestrationStatusMessage({
+      ...normalized,
+      phase:
+        normalized.phase === "building" || normalized.phase === "triggered"
+          ? normalized.phase
+          : "waiting_for_ready",
+    }),
   });
 
   if (
-    input.pending.status === "verify_failed" ||
-    input.pending.status === "verified" ||
+    normalized.phase === "verifying" ||
+    normalized.phase === "retry_wait" ||
+    normalized.status === "verify_failed" ||
+    normalized.status === "verified" ||
     input.apply?.verificationRetry
   ) {
     steps.push({
       phase: "verifying_webhook",
       status:
-        input.pending.status === "verified" || input.apply?.signedProbeVerified
+        normalized.status === "verified" || input.apply?.signedProbeVerified
           ? "completed"
-          : "failed",
-      message: "Retrying signed webhook verification…",
+          : normalized.status === "verify_failed"
+            ? "failed"
+            : "active",
+      message: getOrchestrationStatusMessage({
+        ...normalized,
+        phase:
+          normalized.phase === "retry_wait" || normalized.phase === "verifying"
+            ? normalized.phase
+            : "verifying",
+      }),
     });
   }
 
   return steps;
 }
 
-function buildApplyResultFromState(input: {
+export function buildApplyResultFromState(input: {
   vercel: VercelBridgeSelection;
   pending?: VercelBridgeRedeployVerification;
   retryApply?: VercelBridgeApplyResult;
   setupBlocked?: VercelBridgeSetupBlocked;
 }): VercelBridgeApplyResult {
-  const pending = input.pending ?? input.vercel.redeployVerification;
+  const pendingRaw = input.pending ?? input.vercel.redeployVerification;
+  const pending = pendingRaw
+    ? normalizeRedeployVerification({
+        pending: pendingRaw,
+        signedProbe: input.vercel.signedProbe,
+      })
+    : undefined;
   const retryApply = input.retryApply;
   const productionRedeployTriggered = Boolean(pending);
   const productionRedeployStatus = pending
@@ -341,6 +364,12 @@ function buildApplyResultFromState(input: {
   const signedProbeRetryResult = retryApply?.signedProbe;
   const signedProbeVerified =
     retryApply?.signedProbeVerified ?? input.vercel.signedProbeVerified ?? false;
+
+  const orchestrationPhase: VercelBridgeOrchestrationPhase | undefined =
+    pending?.phase;
+  const orchestrationStatusMessage = pending
+    ? getOrchestrationStatusMessage(pending)
+    : undefined;
 
   return {
     actionId: pending?.actionId ?? "vercel-bridge-apply",
@@ -368,9 +397,13 @@ function buildApplyResultFromState(input: {
     productionRedeployTriggered,
     productionRedeployStatus,
     setupBlocked,
-    setupPending: pending ? !TERMINAL_REDEPLOY_STATUSES.has(pending.status) : false,
+    setupPending: pending ? isOrchestrationActive(pending) : false,
     pollActionId: pending?.actionId,
     orchestrationSteps: buildOrchestrationSteps({ pending, apply: retryApply }),
+    orchestrationPhase,
+    orchestrationStatusMessage,
+    verificationAttemptCount: pending?.verificationAttemptCount,
+    maxVerificationAttempts: pending?.maxVerificationAttempts,
   };
 }
 
@@ -378,78 +411,247 @@ async function claimVerifyAttempt(input: {
   cwd?: string;
   pending: VercelBridgeRedeployVerification;
 }): Promise<VercelBridgeRedeployVerification | null> {
-  const claimKey = verifyClaimKey(input.pending.actionId, input.cwd);
-  if (verifyClaimInFlight.has(claimKey)) {
-    return null;
-  }
-  verifyClaimInFlight.add(claimKey);
+  return withControlPlaneStateLock(input.cwd, async () => {
+    const state = await readControlPlaneSetupState(input.cwd);
+    const currentRaw = state?.vercel?.redeployVerification;
+    if (!currentRaw || currentRaw.actionId !== input.pending.actionId) {
+      return null;
+    }
 
-  const state = await readControlPlaneSetupState(input.cwd);
-  const current = state?.vercel?.redeployVerification;
-  if (!current || current.actionId !== input.pending.actionId) {
-    verifyClaimInFlight.delete(claimKey);
-    return null;
-  }
-  if (current.verifyAttempted) {
-    verifyClaimInFlight.delete(claimKey);
-    return null;
-  }
+    const current = normalizeRedeployVerification({
+      pending: currentRaw,
+      signedProbe: state?.vercel?.signedProbe,
+    });
 
-  const nextPending: VercelBridgeRedeployVerification = {
-    ...current,
-    verifyAttempted: true,
-    updatedAt: new Date().toISOString(),
-    status: "ready",
-  };
+    if (!isVerificationAttemptDue(current)) {
+      return null;
+    }
 
-  await updateControlPlaneSetupState(
-    {
-      vercel: {
-        ...state!.vercel!,
-        redeployVerification: nextPending,
+    const attemptNumber = (current.verificationAttemptCount ?? 0) + 1;
+    const claim = buildVerificationClaim(attemptNumber);
+    const nextPending: VercelBridgeRedeployVerification = {
+      ...current,
+      status: "ready",
+      phase: "verifying",
+      verificationClaim: claim,
+      verifyAttempted: true,
+      updatedAt: new Date().toISOString(),
+    };
+
+    logVercelBridgeEvent({
+      phase: "verify_claim",
+      actionId: current.actionId,
+      pollStatus: "ready",
+      verifyAttempted: true,
+      verifyOnly: true,
+      verificationAttemptCount: attemptNumber,
+      maxVerificationAttempts:
+        current.maxVerificationAttempts ?? DEFAULT_MAX_VERIFICATION_ATTEMPTS,
+      verificationClaimId: claim?.claimId,
+      projectId: current.projectId,
+      fingerprint: current.fingerprint,
+      candidateSecretSource: current.candidateSecretSource,
+    });
+
+    await updateControlPlaneSetupState(
+      {
+        vercel: {
+          redeployVerification: nextPending,
+        },
       },
-    },
-    input.cwd,
-  );
+      input.cwd,
+    );
 
-  return nextPending;
+    return nextPending;
+  });
 }
 
 async function finalizePendingState(input: {
   cwd?: string;
   pending: VercelBridgeRedeployVerification;
   status: VercelBridgeRedeployVerificationStatus;
+  phase?: VercelBridgeOrchestrationPhase;
   message?: string;
   setupBlocked?: VercelBridgeSetupBlocked;
   clearPending?: boolean;
   vercelPatch?: Partial<VercelBridgeSelection>;
+  verificationAttemptCount?: number;
+  nextVerificationAttemptAt?: string;
+  lastVerificationFailureReason?: string;
+  lastVerificationFailureClass?: "retryable" | "terminal";
+  signedProbe?: VercelSignedProbeEvidence;
 }): Promise<void> {
-  const state = await readControlPlaneSetupState(input.cwd);
-  if (!state?.vercel) {
-    return;
+  await withControlPlaneStateLock(input.cwd, async () => {
+    const state = await readControlPlaneSetupState(input.cwd);
+    if (!state?.vercel) {
+      return;
+    }
+
+    const completedAt = new Date().toISOString();
+    const nextPending: VercelBridgeRedeployVerification = {
+      ...input.pending,
+      status: input.status,
+      phase: input.phase ?? input.pending.phase,
+      updatedAt: completedAt,
+      completedAt: input.clearPending ? completedAt : input.pending.completedAt ?? completedAt,
+      message: input.message ?? input.pending.message,
+      blockedMessage: input.setupBlocked?.message,
+      blockedNextSteps: input.setupBlocked?.nextSteps,
+      verificationAttemptCount:
+        input.verificationAttemptCount ?? input.pending.verificationAttemptCount,
+      verificationClaim: undefined,
+      nextVerificationAttemptAt: input.nextVerificationAttemptAt,
+      lastVerificationAttemptAt: completedAt,
+      lastVerificationFailureReason: input.lastVerificationFailureReason,
+      lastVerificationFailureClass: input.lastVerificationFailureClass,
+    };
+
+    await updateControlPlaneSetupState(
+      {
+        vercel: {
+          ...input.vercelPatch,
+          redeployVerification: input.clearPending ? undefined : nextPending,
+        },
+      },
+      input.cwd,
+    );
+  });
+}
+
+async function persistDeployProgress(input: {
+  cwd?: string;
+  vercel: VercelBridgeSelection;
+  pending: VercelBridgeRedeployVerification;
+  status: VercelBridgeRedeployVerificationStatus;
+  message?: string;
+}): Promise<VercelBridgeRedeployVerification> {
+  return withControlPlaneStateLock(input.cwd, async () => {
+    const state = await readControlPlaneSetupState(input.cwd);
+    const current = state?.vercel?.redeployVerification;
+    if (!current || current.actionId !== input.pending.actionId) {
+      return input.pending;
+    }
+
+    const nextPending: VercelBridgeRedeployVerification = {
+      ...current,
+      status: input.status,
+      phase: mapPendingPhaseForDeployStatus(input.status),
+      updatedAt: new Date().toISOString(),
+      message: input.message ?? current.message,
+    };
+
+    await updateControlPlaneSetupState(
+      {
+        vercel: {
+          redeployVerification: nextPending,
+        },
+      },
+      input.cwd,
+    );
+
+    return nextPending;
+  });
+}
+
+async function handleVerificationFailure(input: {
+  cwd?: string;
+  claimed: VercelBridgeRedeployVerification;
+  retryResult: VercelBridgeApplyResult;
+  vercelPatch: Partial<VercelBridgeSelection>;
+}): Promise<VercelBridgeApplyResult> {
+  const probe = input.retryResult.signedProbe;
+  const failureClass = classifySignedProbeFailure(probe);
+  const attemptNumber =
+    input.claimed.verificationClaim?.attemptNumber ??
+    (input.claimed.verificationAttemptCount ?? 0) + 1;
+  const maxAttempts =
+    input.claimed.maxVerificationAttempts ?? DEFAULT_MAX_VERIFICATION_ATTEMPTS;
+  const exhausted = attemptNumber >= maxAttempts;
+  const retryable = failureClass === "retryable" && !exhausted;
+
+  if (retryable) {
+    logVercelBridgeEvent({
+      phase: "verify_retry",
+      actionId: input.claimed.actionId,
+      pollStatus: "ready",
+      verifyAttempted: true,
+      verifyOnly: true,
+      verificationAttemptCount: attemptNumber,
+      maxVerificationAttempts: maxAttempts,
+      verificationFailureClass: failureClass,
+      signedProbeResult: probe?.result,
+      signedProbeReason: input.retryResult.signedProbeReason,
+      signedProbeStatusCode: probe?.statusCode,
+      fingerprint: input.claimed.fingerprint,
+    });
+
+    await finalizePendingState({
+      cwd: input.cwd,
+      pending: input.claimed,
+      status: "ready",
+      phase: "retry_wait",
+      message: getOrchestrationStatusMessage({
+        ...input.claimed,
+        phase: "retry_wait",
+        verificationAttemptCount: attemptNumber,
+      }),
+      verificationAttemptCount: attemptNumber,
+      nextVerificationAttemptAt: new Date(
+        Date.now() + VERIFICATION_POLL_INTERVAL_MS,
+      ).toISOString(),
+      lastVerificationFailureReason: input.retryResult.signedProbeReason,
+      lastVerificationFailureClass: failureClass,
+      vercelPatch: input.vercelPatch,
+    });
+
+    const latest = await readControlPlaneSetupState(input.cwd);
+    return buildApplyResultFromState({
+      vercel: latest!.vercel!,
+      pending: latest!.vercel!.redeployVerification,
+      retryApply: { ...input.retryResult, verificationRetry: true },
+    });
   }
 
-  const completedAt = new Date().toISOString();
-  const nextPending: VercelBridgeRedeployVerification = {
-    ...input.pending,
-    status: input.status,
-    updatedAt: completedAt,
-    completedAt,
-    message: input.message ?? input.pending.message,
-    blockedMessage: input.setupBlocked?.message,
-    blockedNextSteps: input.setupBlocked?.nextSteps,
-  };
+  const setupBlocked = buildSetupBlockedForPostRedeployVerificationFailure({
+    retryReason: input.retryResult.signedProbeReason,
+    exhausted,
+  });
 
-  await updateControlPlaneSetupState(
-    {
-      vercel: {
-        ...state.vercel,
-        ...input.vercelPatch,
-        redeployVerification: input.clearPending ? undefined : nextPending,
-      },
-    },
-    input.cwd,
-  );
+  logVercelBridgeEvent({
+    phase: "blocked",
+    actionId: input.claimed.actionId,
+    pollStatus: "verify_failed",
+    verificationAttemptCount: attemptNumber,
+    maxVerificationAttempts: maxAttempts,
+    verificationFailureClass: failureClass,
+    signedProbeResult: probe?.result,
+    signedProbeReason: input.retryResult.signedProbeReason,
+    signedProbeStatusCode: probe?.statusCode,
+    setupBlockedMessage: setupBlocked.message,
+    setupBlockedNextSteps: setupBlocked.nextSteps,
+    fingerprint: input.claimed.fingerprint,
+  });
+
+  await finalizePendingState({
+    cwd: input.cwd,
+    pending: input.claimed,
+    status: "verify_failed",
+    phase: "terminal",
+    message: setupBlocked.message,
+    setupBlocked,
+    verificationAttemptCount: attemptNumber,
+    lastVerificationFailureReason: input.retryResult.signedProbeReason,
+    lastVerificationFailureClass: failureClass,
+    vercelPatch: input.vercelPatch,
+  });
+
+  const latest = await readControlPlaneSetupState(input.cwd);
+  return buildApplyResultFromState({
+    vercel: latest!.vercel!,
+    pending: latest!.vercel!.redeployVerification,
+    retryApply: { ...input.retryResult, verificationRetry: true },
+    setupBlocked,
+  });
 }
 
 export async function pollVercelBridgeRedeployVerification(input: {
@@ -458,22 +660,29 @@ export async function pollVercelBridgeRedeployVerification(input: {
 }): Promise<VercelBridgeApplyResult> {
   const state = await readControlPlaneSetupState(input.cwd);
   const vercel = state?.vercel;
-  const pending = vercel?.redeployVerification;
+  const pendingRaw = vercel?.redeployVerification;
 
-  if (!vercel || !pending) {
+  if (!vercel || !pendingRaw) {
     throw new Error("No pending Vercel redeploy verification is in progress.");
   }
+
+  const pending = normalizeRedeployVerification({
+    pending: pendingRaw,
+    signedProbe: vercel.signedProbe,
+  });
 
   if (input.actionId && pending.actionId !== input.actionId) {
     throw new Error("Pending Vercel redeploy verification action was not found.");
   }
 
-  if (TERMINAL_REDEPLOY_STATUSES.has(pending.status)) {
+  if (isTerminalRedeployVerificationStatus(pending.status)) {
     logVercelBridgeEvent({
       phase: "poll",
       actionId: pending.actionId,
       pollStatus: pending.status,
-      verifyAttempted: pending.verifyAttempted,
+      orchestrationPhase: pending.phase,
+      verificationAttemptCount: pending.verificationAttemptCount,
+      maxVerificationAttempts: pending.maxVerificationAttempts,
       projectId: pending.projectId,
       projectName: pending.projectName,
       teamId: pending.teamId,
@@ -507,33 +716,25 @@ export async function pollVercelBridgeRedeployVerification(input: {
       phase: "blocked",
       actionId: pending.actionId,
       pollStatus: "verify_failed",
+      orchestrationPhase: "terminal",
       setupBlockedMessage: persistedPlan.setupBlocked.message,
       setupBlockedNextSteps: persistedPlan.setupBlocked.nextSteps,
       projectId: pending.projectId,
       fingerprint: pending.fingerprint,
     });
-    const terminalPending: VercelBridgeRedeployVerification = {
-      ...pending,
+    await finalizePendingState({
+      cwd: input.cwd,
+      pending,
       status: "verify_failed",
-      updatedAt: new Date().toISOString(),
-      completedAt: new Date().toISOString(),
+      phase: "terminal",
       message: persistedPlan.setupBlocked.message,
-      blockedMessage: persistedPlan.setupBlocked.message,
-      blockedNextSteps: persistedPlan.setupBlocked.nextSteps,
-    };
+      setupBlocked: persistedPlan.setupBlocked,
+    });
 
-    await updateControlPlaneSetupState(
-      {
-        vercel: {
-          ...vercel,
-          redeployVerification: terminalPending,
-        },
-      },
-      input.cwd,
-    );
-
+    const latest = await readControlPlaneSetupState(input.cwd);
+    const terminalPending = latest!.vercel!.redeployVerification!;
     return buildApplyResultFromState({
-      vercel: { ...vercel, redeployVerification: terminalPending },
+      vercel: latest!.vercel!,
       pending: terminalPending,
       setupBlocked: persistedPlan.setupBlocked,
     });
@@ -555,7 +756,7 @@ export async function pollVercelBridgeRedeployVerification(input: {
       ),
       nextSteps: [
         "Redeploy production in Vercel manually if needed.",
-        "Use Retry verification without rewriting env vars or rotating secrets.",
+        "Use Apply Vercel Settings again to restart verification.",
       ],
     };
 
@@ -563,34 +764,26 @@ export async function pollVercelBridgeRedeployVerification(input: {
       phase: "blocked",
       actionId: pending.actionId,
       pollStatus: inspectResult.status,
+      orchestrationPhase: "terminal",
       setupBlockedMessage: setupBlocked.message,
       setupBlockedNextSteps: setupBlocked.nextSteps,
       projectId: pending.projectId,
       fingerprint: pending.fingerprint,
     });
 
-    const terminalPending: VercelBridgeRedeployVerification = {
-      ...pending,
+    await finalizePendingState({
+      cwd: input.cwd,
+      pending,
       status: inspectResult.status,
-      updatedAt: new Date().toISOString(),
-      completedAt: new Date().toISOString(),
+      phase: "terminal",
       message: inspectResult.message,
-      blockedMessage: setupBlocked.message,
-      blockedNextSteps: setupBlocked.nextSteps,
-    };
+      setupBlocked,
+    });
 
-    await updateControlPlaneSetupState(
-      {
-        vercel: {
-          ...vercel,
-          redeployVerification: terminalPending,
-        },
-      },
-      input.cwd,
-    );
-
+    const latest = await readControlPlaneSetupState(input.cwd);
+    const terminalPending = latest!.vercel!.redeployVerification!;
     return buildApplyResultFromState({
-      vercel: { ...vercel, redeployVerification: terminalPending },
+      vercel: latest!.vercel!,
       pending: terminalPending,
       setupBlocked,
     });
@@ -601,26 +794,18 @@ export async function pollVercelBridgeRedeployVerification(input: {
       phase: "poll",
       actionId: pending.actionId,
       pollStatus: inspectResult.status,
-      verifyAttempted: pending.verifyAttempted,
+      orchestrationPhase: mapPendingPhaseForDeployStatus(inspectResult.status),
+      verificationAttemptCount: pending.verificationAttemptCount,
       projectId: pending.projectId,
       fingerprint: pending.fingerprint,
     });
-    const buildingPending: VercelBridgeRedeployVerification = {
-      ...pending,
-      status: "building",
-      updatedAt: new Date().toISOString(),
+    const buildingPending = await persistDeployProgress({
+      cwd: input.cwd,
+      vercel,
+      pending,
+      status: inspectResult.status,
       message: inspectResult.message,
-    };
-
-    await updateControlPlaneSetupState(
-      {
-        vercel: {
-          ...vercel,
-          redeployVerification: buildingPending,
-        },
-      },
-      input.cwd,
-    );
+    });
 
     return buildApplyResultFromState({
       vercel: { ...vercel, redeployVerification: buildingPending },
@@ -632,11 +817,58 @@ export async function pollVercelBridgeRedeployVerification(input: {
     return buildApplyResultFromState({ vercel, pending });
   }
 
-  if (pending.verifyAttempted) {
-    return buildApplyResultFromState({ vercel, pending });
+  const readyPending = await persistDeployProgress({
+    cwd: input.cwd,
+    vercel,
+    pending,
+    status: "ready",
+    message: inspectResult.message,
+  });
+
+  if (!isVerificationAttemptDue(readyPending)) {
+    const notDueReason = getVerificationAttemptNotDueReason(readyPending);
+    if (
+      notDueReason === "deadline_expired" ||
+      notDueReason === "budget_exhausted"
+    ) {
+      const setupBlocked =
+        notDueReason === "budget_exhausted"
+          ? buildSetupBlockedForPostRedeployVerificationFailure({ exhausted: true })
+          : {
+              message: buildManualRedeployRecoveryMessage("timeout"),
+              nextSteps: [
+                "Redeploy production in Vercel manually if needed.",
+                "Use Apply Vercel Settings again to restart verification.",
+              ],
+            };
+      const terminalStatus =
+        notDueReason === "deadline_expired" ? "timeout" : "verify_failed";
+
+      await finalizePendingState({
+        cwd: input.cwd,
+        pending: readyPending,
+        status: terminalStatus,
+        phase: "terminal",
+        message: setupBlocked.message,
+        setupBlocked,
+      });
+
+      const latest = await readControlPlaneSetupState(input.cwd);
+      const terminalPending = latest!.vercel!.redeployVerification!;
+      return buildApplyResultFromState({
+        vercel: latest!.vercel!,
+        pending: terminalPending,
+        setupBlocked,
+      });
+    }
+
+    return buildApplyResultFromState({
+      vercel: { ...vercel, redeployVerification: readyPending },
+      pending: readyPending,
+    });
   }
 
-  const claimed = await claimVerifyAttempt({ cwd: input.cwd, pending });
+  const claimed = await claimVerifyAttempt({ cwd: input.cwd, pending: readyPending });
   if (!claimed) {
     const latest = await readControlPlaneSetupState(input.cwd);
     return buildApplyResultFromState({
@@ -651,6 +883,10 @@ export async function pollVercelBridgeRedeployVerification(input: {
     pollStatus: "ready",
     verifyAttempted: true,
     verifyOnly: true,
+    verificationAttemptCount: claimed.verificationClaim?.attemptNumber,
+    maxVerificationAttempts:
+      claimed.maxVerificationAttempts ?? DEFAULT_MAX_VERIFICATION_ATTEMPTS,
+    verificationClaimId: claimed.verificationClaim?.claimId,
     projectId: claimed.projectId,
     fingerprint: claimed.fingerprint,
     candidateSecretSource: claimed.candidateSecretSource,
@@ -664,28 +900,36 @@ export async function pollVercelBridgeRedeployVerification(input: {
     cwd: input.cwd,
   });
 
+  const latestAfterApply = await readControlPlaneSetupState(input.cwd);
+  const vercelPatch = {
+    productionUrl: latestAfterApply?.vercel?.productionUrl,
+    webhookUrl: latestAfterApply?.vercel?.webhookUrl,
+    signedProbe: retryResult.signedProbe,
+  };
+
   if (retryResult.signedProbeVerified && retryResult.verified) {
     logVercelBridgeEvent({
       phase: "signed_probe",
       actionId: claimed.actionId,
       pollStatus: "verified",
+      orchestrationPhase: "verified",
+      verificationAttemptCount: claimed.verificationClaim?.attemptNumber,
       signedProbeResult: retryResult.signedProbe?.result,
       signedProbeReason: retryResult.signedProbeReason,
       signedProbeStatusCode: retryResult.signedProbe?.statusCode,
       fingerprint: claimed.fingerprint,
     });
-    const latestAfterApply = await readControlPlaneSetupState(input.cwd);
     await finalizePendingState({
       cwd: input.cwd,
       pending: claimed,
       status: "verified",
+      phase: "verified",
       message: "Signed webhook verification passed after production redeploy.",
       clearPending: true,
+      verificationAttemptCount: claimed.verificationClaim?.attemptNumber,
       vercelPatch: {
-        productionUrl: latestAfterApply?.vercel?.productionUrl,
-        webhookUrl: latestAfterApply?.vercel?.webhookUrl,
+        ...vercelPatch,
         signedProbeVerified: true,
-        signedProbe: retryResult.signedProbe,
         deploymentRedeployRequired: false,
       },
     });
@@ -696,49 +940,21 @@ export async function pollVercelBridgeRedeployVerification(input: {
       pending: {
         ...claimed,
         status: "verified",
+        phase: "verified",
         completedAt: new Date().toISOString(),
       },
       retryApply: retryResult,
     });
   }
 
-  const setupBlocked = buildSetupBlockedForPostRedeployVerificationFailure({
-    retryReason: retryResult.signedProbeReason,
-  });
-
-  logVercelBridgeEvent({
-    phase: "blocked",
-    actionId: claimed.actionId,
-    pollStatus: "verify_failed",
-    signedProbeResult: retryResult.signedProbe?.result,
-    signedProbeReason: retryResult.signedProbeReason,
-    signedProbeStatusCode: retryResult.signedProbe?.statusCode,
-    setupBlockedMessage: setupBlocked.message,
-    setupBlockedNextSteps: setupBlocked.nextSteps,
-    fingerprint: claimed.fingerprint,
-  });
-
-  const latestAfterApply = await readControlPlaneSetupState(input.cwd);
-  await finalizePendingState({
+  return handleVerificationFailure({
     cwd: input.cwd,
-    pending: claimed,
-    status: "verify_failed",
-    message: setupBlocked.message,
-    setupBlocked,
+    claimed,
+    retryResult,
     vercelPatch: {
-      productionUrl: latestAfterApply?.vercel?.productionUrl,
-      webhookUrl: latestAfterApply?.vercel?.webhookUrl,
+      ...vercelPatch,
       signedProbeVerified: false,
-      signedProbe: retryResult.signedProbe,
       deploymentRedeployRequired: true,
     },
-  });
-
-  const latest = await readControlPlaneSetupState(input.cwd);
-  return buildApplyResultFromState({
-    vercel: latest!.vercel!,
-    pending: latest!.vercel!.redeployVerification,
-    retryApply: { ...retryResult, verificationRetry: true },
-    setupBlocked,
   });
 }

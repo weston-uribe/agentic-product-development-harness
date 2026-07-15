@@ -2,7 +2,7 @@ import {
   updateControlPlaneSetupState,
   readControlPlaneSetupState,
 } from "./control-plane-setup-state.js";
-import type { VercelBridgeSelection } from "./control-plane-types.js";
+import type { VercelBridgeSelection, VercelBridgeOrchestrationPhase } from "./control-plane-types.js";
 import {
   ensureLinearIssueWebhook,
   generateLinearWebhookSecret,
@@ -48,6 +48,8 @@ import {
 } from "./vercel-production-redeploy.js";
 import { createPendingRedeployVerification } from "./vercel-bridge-redeploy-state.js";
 import { persistGeneratedLinearWebhookSecret } from "./linear-webhook-env-local.js";
+import { assessGitHubDispatchTokenEligibility } from "./github-dispatch-token.js";
+import { loadSecretFromEnvLocal } from "./service-verification.js";
 import { REQUIRED_VERCEL_BRIDGE_ENV_VARS } from "./vercel-bridge-readiness.js";
 import {
   VERCEL_SETUP_ACTIONS,
@@ -87,7 +89,7 @@ export interface VercelBridgeSetupBlocked {
 
 export interface VercelBridgeOrchestrationStep {
   phase: "writing_env_vars" | "redeploying_production" | "verifying_webhook";
-  status: "completed" | "failed";
+  status: "completed" | "failed" | "active";
   message: string;
 }
 
@@ -120,6 +122,10 @@ export interface VercelBridgeApplyResult {
   orchestrationSteps?: VercelBridgeOrchestrationStep[];
   setupPending?: boolean;
   pollActionId?: string;
+  orchestrationPhase?: VercelBridgeOrchestrationPhase;
+  orchestrationStatusMessage?: string;
+  verificationAttemptCount?: number;
+  maxVerificationAttempts?: number;
 }
 
 async function resolveVercelTeamForApply(input: {
@@ -265,16 +271,16 @@ function buildManualRedeployRecoveryMessage(
   if (redeployStatus === "timeout") {
     return (
       redeployMessage ??
-      "Automatic production redeploy timed out before READY. Redeploy production in Vercel, then use Retry verification."
+      "Automatic production redeploy timed out before READY. Redeploy production in Vercel, then use Apply Vercel Settings again."
     );
   }
   if (redeployStatus === "failed") {
     return (
       redeployMessage ??
-      "Automatic production redeploy failed. Redeploy production in Vercel, then use Retry verification."
+      "Automatic production redeploy failed. Redeploy production in Vercel, then use Apply Vercel Settings again."
     );
   }
-  return "Redeploy production in Vercel, then use Retry verification (this will not rotate secrets or rewrite env vars).";
+  return "Redeploy production in Vercel, then use Apply Vercel Settings again.";
 }
 
 async function maybeOrchestrateAutoRedeploy(input: {
@@ -423,7 +429,7 @@ async function maybeOrchestrateAutoRedeploy(input: {
             ),
             nextSteps: [
               "Redeploy production in Vercel manually if needed.",
-              "Use Retry verification without rewriting env vars or rotating secrets.",
+              "Use Apply Vercel Settings again to restart verification.",
             ],
           };
 
@@ -532,6 +538,48 @@ export async function applyVercelBridgeSetup(input: {
   assertRemoteSetupFingerprint(input.fingerprint, initialPreview.fingerprint);
   if (initialPreview.validationError) {
     throw new Error(initialPreview.validationError);
+  }
+
+  if (input.verifyOnly !== true) {
+    const githubToken = await loadSecretFromEnvLocal({
+      cwd: input.cwd,
+      key: "GITHUB_TOKEN",
+    });
+    const dispatchEligibility = await assessGitHubDispatchTokenEligibility({
+      githubToken,
+      cwd: input.cwd,
+    });
+    if (!dispatchEligibility.eligible) {
+      logVercelBridgeEvent({
+        phase: "blocked",
+        actionId: VERCEL_SETUP_ACTIONS.apply.id,
+        setupBlockedMessage: dispatchEligibility.message,
+        fingerprint: input.fingerprint,
+      });
+      return {
+        actionId: VERCEL_SETUP_ACTIONS.apply.id,
+        status: "applied",
+        projectId: normalized.projectId ?? "",
+        projectName: normalized.projectName ?? "",
+        writtenEnvKeys: [],
+        skippedEnvKeys: [],
+        linearWebhookSetup: {
+          mode: "manual-copy",
+          manualSteps: [],
+        },
+        signedProbeVerified: false,
+        deploymentRedeployRequired: false,
+        verified: false,
+        fingerprint: initialPreview.fingerprint,
+        permission: VERCEL_SETUP_ACTIONS.apply.permission,
+        setupBlocked: {
+          message: dispatchEligibility.message,
+          nextSteps: [
+            "Update GITHUB_TOKEN in Step 1 with Contents write access to the harness dispatch repository.",
+          ],
+        },
+      };
+    }
   }
 
   const created: string[] = [];
@@ -946,7 +994,12 @@ export async function applyVercelBridgeSetup(input: {
     manualComplete: input.manualComplete,
   };
 
-  await updateControlPlaneSetupState({ vercel: selection }, input.cwd);
+  await updateControlPlaneSetupState(
+    {
+      vercel: selection,
+    },
+    input.cwd,
+  );
 
   const resultPayload = {
     actionId: VERCEL_SETUP_ACTIONS.apply.id,

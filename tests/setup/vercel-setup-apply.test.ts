@@ -59,6 +59,19 @@ vi.mock("../../src/setup/vercel-production-redeploy.js", async (importOriginal) 
   };
 });
 
+vi.mock("../../src/setup/github-dispatch-token.js", () => ({
+  assessGitHubDispatchTokenEligibility: vi.fn(),
+}));
+
+vi.mock("../../src/setup/service-verification.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../src/setup/service-verification.js")>();
+  return {
+    ...actual,
+    loadSecretFromEnvLocal: vi.fn(),
+  };
+});
+
 import { runSignedWebhookProbe } from "../../src/setup/vercel-webhook-probe.js";
 import {
   updateControlPlaneSetupState,
@@ -90,6 +103,8 @@ import {
   findLatestReadyProductionDeploymentId,
   triggerProductionRedeployOnce,
 } from "../../src/setup/vercel-production-redeploy.js";
+import { assessGitHubDispatchTokenEligibility } from "../../src/setup/github-dispatch-token.js";
+import { loadSecretFromEnvLocal } from "../../src/setup/service-verification.js";
 
 const previewResult = {
   actionId: VERCEL_SETUP_ACTIONS.preview.id,
@@ -144,6 +159,18 @@ describe("vercel-setup-apply", () => {
 
     vi.clearAllMocks();
     vi.mocked(readControlPlaneSetupState).mockResolvedValue(null);
+    vi.mocked(loadSecretFromEnvLocal).mockImplementation(async ({ key }) => {
+      if (key === "GITHUB_TOKEN") {
+        return "ghp_saved";
+      }
+      return undefined;
+    });
+    vi.mocked(assessGitHubDispatchTokenEligibility).mockResolvedValue({
+      eligible: true,
+      source: "saved-github-token",
+      repository: "owner/harness",
+      message: "Saved GITHUB_TOKEN can dispatch to owner/harness.",
+    });
     vi.mocked(resolveLinearWebhookCandidateSecret).mockResolvedValue({
       secret: "generated-webhook-secret",
       source: "generated",
@@ -1278,5 +1305,32 @@ describe("vercel-setup-apply", () => {
     expect(result.setupBlocked?.message).toContain("Vercel API 500");
     expect(result.setupPending).toBeFalsy();
     expect(result.verified).toBe(false);
+  });
+
+  it("blocks initial apply when saved GITHUB_TOKEN is ineligible for dispatch", async () => {
+    vi.mocked(assessGitHubDispatchTokenEligibility).mockResolvedValue({
+      eligible: false,
+      source: "manual-required",
+      message:
+        "Saved GITHUB_TOKEN cannot write repository contents for owner/harness.",
+    });
+
+    const result = await applyVercelBridgeSetup({
+      plan: {
+        vercelToken: "vercel-token",
+        projectId: "proj-1",
+        linearApiKey: "lin_api_test",
+        derivedHarnessTeamKey: "WES",
+        derivedGithubDispatchToken: "ghp_saved",
+      },
+      confirmed: true,
+      fingerprint: "preview-fingerprint",
+      cwd: tempRoot,
+    });
+
+    expect(result.setupBlocked?.message).toMatch(/cannot write repository contents/i);
+    expect(result.verified).toBe(false);
+    expect(upsertVercelProjectEnvVar).not.toHaveBeenCalled();
+    expect(triggerProductionRedeployOnce).not.toHaveBeenCalled();
   });
 });

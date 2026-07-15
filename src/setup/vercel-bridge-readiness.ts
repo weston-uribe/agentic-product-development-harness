@@ -51,6 +51,7 @@ export function deriveVercelBridgeReadiness(input: {
   signedProbeVerified?: boolean;
   deploymentRedeployRequired?: boolean;
   manualComplete?: boolean;
+  orchestrationActive?: boolean;
 }): VercelBridgeReadiness {
   const requiredEnvPresence = {
     LINEAR_WEBHOOK_SECRET:
@@ -87,7 +88,7 @@ export function deriveVercelBridgeReadiness(input: {
       "Signed webhook delivery verification has not passed against production.",
     );
   }
-  if (input.deploymentRedeployRequired) {
+  if (input.deploymentRedeployRequired && !input.orchestrationActive) {
     blockers.push(
       "Redeploy Vercel production after env var changes, then retry signed verification.",
     );

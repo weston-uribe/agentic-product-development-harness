@@ -16,7 +16,12 @@ export async function POST(request: Request) {
       manualComplete?: boolean;
       verifyOnly?: boolean;
     };
-    const result = await applyVercelBridgeRemote(body);
+    const result = await applyVercelBridgeRemote({
+      plan: body.plan,
+      confirmed: body.confirmed,
+      fingerprint: body.fingerprint,
+      manualComplete: body.manualComplete,
+    });
     return NextResponse.json(result);
   } catch (error) {
     const message =

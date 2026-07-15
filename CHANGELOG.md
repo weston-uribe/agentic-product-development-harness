@@ -16,6 +16,7 @@ V0.3.0 is a **GitHub source release** plus a **public npm CLI package** (`p-dev-
 - Guided Configure flow: seven-stage display-only progress indicator and refined Step 1 service setup copy and workspace button labels.
 - Configure GUI copy: page title `Initial Harness Configuration`, simplified Cursor/Vercel connected-account status messages, and updated Step 3 Vercel settings description.
 - Guided Configure flow: animated progress check marks and viewport-relative directional card transitions with reduced-motion fallbacks.
+- Vercel bridge setup: autonomous post-redeploy verification with bounded retries, filesystem-backed orchestration state, resume-after-reload GUI status, and removal of manual dispatch-token override plus Retry verification UI.
 
 ## [0.3.1] — 2026-07-14
 

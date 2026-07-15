@@ -37,6 +37,9 @@ export function createPendingRedeployVerification(input: {
     updatedAt: startedAt,
     deadlineAt: new Date(Date.now() + DEFAULT_REDEPLOY_TIMEOUT_MS).toISOString(),
     verifyAttempted: false,
+    phase: "triggered",
+    verificationAttemptCount: 0,
+    maxVerificationAttempts: 5,
     message:
       input.message ??
       "Production redeploy triggered. Waiting for Vercel deployment READY.",

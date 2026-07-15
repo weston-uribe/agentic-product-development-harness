@@ -83,20 +83,20 @@ describe("configure GUI fix loop", () => {
     expect(source).toContain("deployment-required");
     expect(source).toContain("Deployment status:");
     expect(source).toContain("Applying Vercel settings…");
-    expect(source).toContain("Retry verification");
-    expect(source).toContain("verifyOnly: true");
-    expect(source).toContain("orchestrationSteps");
+    expect(source).not.toContain("Retry verification");
+    expect(source).not.toContain("GITHUB_DISPATCH_TOKEN override");
+    expect(source).toContain("VercelBridgeOrchestrationStatus");
+    expect(source).toContain("resolveOrchestrationStatusMessage");
+    expect(source).toContain("shouldHideApplyButton");
+    expect(source).toContain("continueGuardRef");
+    expect(source).toContain("resumeOrchestrationFromSummary");
+    expect(source).toContain("githubDispatchEligible");
     expect(source).toContain("buildVercelApplyResultMessage");
-    expect(source).toContain("shouldShowRetryVerification");
-    expect(source).toContain('productionRedeployStatus === "ready"');
-    expect(source).toContain("apply.setupBlocked");
-    expect(source).toContain("shouldShowRetryVerification(applyResult, redeployPollingActive)");
     expect(source).toContain("setupPending");
     expect(source).toContain("pollActionId");
     expect(source).toContain("/api/setup/vercel-bridge-redeploy-status");
     expect(source).toContain('body: JSON.stringify({\n          actionId: pollActionId,\n        })');
     expect(source).toContain("readSetupJsonResponse");
-    expect(source).toContain("Waiting for production redeploy");
     expect(source).toContain("redeployPollingActive");
     expect(source).toContain("controlsLocked");
     expect(source).toContain("REDEPLOY_POLLING_LOCK_MESSAGE");
@@ -104,10 +104,7 @@ describe("configure GUI fix loop", () => {
     expect(source).toMatch(/disabled=\{controlsLocked/);
     expect(source).toMatch(/if \(redeployPollingActive\) \{\s*return;\s*\}/);
     expect(source).toMatch(/handlePreview[\s\S]*if \(redeployPollingActive\)/);
-    expect(source).toMatch(/handleApply[\s\S]*if \(redeployPollingActive && !options\?\.verifyOnly\)/);
-    expect(source).toMatch(
-      /shouldShowRetryVerification\(applyResult, redeployPollingActive\)/,
-    );
+    expect(source).toMatch(/handleApply[\s\S]*if \(redeployPollingActive\)/);
   });
 
   it("Step 3 locks controls during pending redeploy polling", () => {
