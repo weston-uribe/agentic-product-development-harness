@@ -1,6 +1,7 @@
 import { summarizeCursorModelSettings } from "../setup/model-settings.js";
 import type { HarnessConfig } from "../config/types.js";
 import type { OperationsCurrentModelSummary, OperationsModelCatalogEntry } from "./types.js";
+import type { CatalogLoadState } from "./types.js";
 import {
   buildCatalogUnavailableEntry,
   normalizeCursorModelCatalog,
@@ -30,17 +31,28 @@ export function buildCurrentModelSummary(
   };
 }
 
+export interface ModelCatalogLoadResult {
+  catalog: OperationsModelCatalogEntry[];
+  loadState: CatalogLoadState;
+}
+
 export async function fetchLiveCursorModelCatalog(
   apiKey: string,
-): Promise<OperationsModelCatalogEntry[]> {
+): Promise<ModelCatalogLoadResult> {
   const fetchedAt = new Date().toISOString();
   try {
     const { Cursor } = await import("@cursor/sdk");
     const models = (await Cursor.models.list({
       apiKey: apiKey.trim(),
     })) as RawCursorModel[];
-    return normalizeCursorModelCatalog(models, "cursor-live", fetchedAt);
+    return {
+      catalog: normalizeCursorModelCatalog(models, "cursor-live", fetchedAt),
+      loadState: "loaded",
+    };
   } catch {
-    return buildCatalogUnavailableEntry("cursor-live");
+    return {
+      catalog: buildCatalogUnavailableEntry("cursor-live"),
+      loadState: "unavailable",
+    };
   }
 }

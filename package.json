@@ -24,7 +24,8 @@
     "generate:config-schema": "tsx scripts/generate-config-schema.ts",
     "package:p-dev:prepare": "tsx scripts/prepare-p-dev-package.ts",
     "package:p-dev:pack": "npm run package:p-dev:prepare && sh -c 'cd packages/p-dev && npm pack --pack-destination .'",
-    "package:p-dev:inspect": "sh -c 'cd packages/p-dev && npm pack --dry-run --json'"
+    "package:p-dev:inspect": "sh -c 'cd packages/p-dev && npm pack --dry-run --json'",
+    "test:operations:browser": "playwright test --config scripts/operations-browser-matrix.config.ts"
   },
   "dependencies": {
     "@cursor/sdk": "^1.0.23",
@@ -51,6 +52,7 @@
     "zod": "^3.24.2"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@tailwindcss/postcss": "^4.1.8",
     "@types/node": "^22.13.10",
     "@types/react": "^19.1.6",

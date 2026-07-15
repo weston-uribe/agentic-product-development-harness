@@ -1,10 +1,11 @@
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import type { OperationsSaveState } from "@/lib/operations/reducer";
+import type { OperationsRequestState } from "@/lib/operations/reducer";
 
 type OperationsToolbarProps = {
   dataSourceLabel: string;
-  saveState: OperationsSaveState;
+  requestState: OperationsRequestState;
+  isDirty: boolean;
   saveMessage?: string;
   canUndo: boolean;
   canRedo: boolean;
@@ -19,7 +20,8 @@ type OperationsToolbarProps = {
 
 export function OperationsToolbar({
   dataSourceLabel,
-  saveState,
+  requestState,
+  isDirty,
   saveMessage,
   canUndo,
   canRedo,
@@ -31,21 +33,33 @@ export function OperationsToolbar({
   onReset,
   onFitView,
 }: OperationsToolbarProps) {
+  const statusLabel =
+    requestState === "saving"
+      ? "Saving"
+      : requestState === "resetting"
+        ? "Resetting"
+        : requestState === "saved"
+          ? "Saved"
+          : requestState === "error"
+            ? "Request error"
+            : isDirty
+              ? "Unsaved changes"
+              : "Clean";
+
+  const saveButtonLabel =
+    requestState === "saving"
+      ? "Saving…"
+      : requestState === "resetting"
+        ? "Resetting…"
+        : "Save draft";
+
   return (
     <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-3">
       <h1 className="text-lg font-semibold">Operations</h1>
       <Badge variant="outline">{dataSourceLabel}</Badge>
       <div className="ml-auto flex flex-wrap items-center gap-2">
-        <Badge variant={saveState === "dirty" || saveState === "error" ? "secondary" : "outline"}>
-          {saveState === "dirty"
-            ? "Unsaved changes"
-            : saveState === "saving"
-              ? "Saving"
-              : saveState === "saved"
-                ? "Saved"
-                : saveState === "error"
-                  ? "Save error"
-                  : "Clean"}
+        <Badge variant={isDirty || requestState === "error" ? "secondary" : "outline"}>
+          {statusLabel}
         </Badge>
         <Button
           type="button"
@@ -77,7 +91,7 @@ export function OperationsToolbar({
           onClick={onSave}
           disabled={!canSave || isRequestActive}
         >
-          {saveState === "saving" ? "Saving…" : "Save draft"}
+          {saveButtonLabel}
         </Button>
         <Button type="button" variant="secondary" size="sm" disabled>
           Apply to harness — coming later

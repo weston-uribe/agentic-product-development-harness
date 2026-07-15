@@ -3,10 +3,12 @@ import {
   listTeamWorkflowStates,
 } from "../setup/linear-setup-client.js";
 import type { LinearStatusInput } from "./current-workflow.js";
+import type { CatalogLoadState } from "./types.js";
 import { hashOperationsFingerprint } from "./fingerprint.js";
 
 export interface LinearStatusLoadResult {
   statuses: LinearStatusInput[];
+  loadState: CatalogLoadState;
   warning?: string;
   error?: string;
 }
@@ -24,12 +26,14 @@ export async function loadLiveLinearStatuses(input: {
         name: state.name,
         type: state.type,
       })),
+      loadState: "loaded",
     };
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Linear status load failed.";
     return {
       statuses: [],
+      loadState: "unavailable",
       error: message,
     };
   }

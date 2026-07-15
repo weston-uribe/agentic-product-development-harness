@@ -34,12 +34,93 @@ export type OperationsSelection =
   | { kind: "rule"; ruleId: string }
   | { kind: "outcome"; ruleId: string; outcomeId: string };
 
-export type OperationsSaveState =
-  | "clean"
-  | "dirty"
+export type OperationsRequestState =
+  | "idle"
   | "saving"
+  | "resetting"
   | "saved"
   | "error";
+
+/** @deprecated Use OperationsRequestState */
+export type OperationsSaveState = OperationsRequestState;
+
+export function isDraftDirty(
+  draft: OperationsWorkflowDraft,
+  cleanFingerprint: string,
+): boolean {
+  return fingerprintOperationsDraft(draft) !== cleanFingerprint;
+}
+
+function selectionEquals(
+  left: OperationsSelection,
+  right: OperationsSelection,
+): boolean {
+  if (left.kind !== right.kind) {
+    return false;
+  }
+  if (left.kind === "none" || right.kind === "none") {
+    return true;
+  }
+  if (left.kind === "status" && right.kind === "status") {
+    return left.statusId === right.statusId;
+  }
+  if (left.kind === "rule" && right.kind === "rule") {
+    return left.ruleId === right.ruleId;
+  }
+  if (left.kind === "outcome" && right.kind === "outcome") {
+    return left.ruleId === right.ruleId && left.outcomeId === right.outcomeId;
+  }
+  return false;
+}
+
+export function normalizeViewport(viewport: {
+  x: number;
+  y: number;
+  zoom: number;
+}): { x: number; y: number; zoom: number } {
+  const round = (value: number) => Math.round(value * 1000) / 1000;
+  return {
+    x: round(viewport.x),
+    y: round(viewport.y),
+    zoom: round(viewport.zoom),
+  };
+}
+
+export function viewportsEqual(
+  left?: { x: number; y: number; zoom: number },
+  right?: { x: number; y: number; zoom: number },
+): boolean {
+  if (!left && !right) {
+    return true;
+  }
+  if (!left || !right) {
+    return false;
+  }
+  const normalizedLeft = normalizeViewport(left);
+  const normalizedRight = normalizeViewport(right);
+  return (
+    normalizedLeft.x === normalizedRight.x &&
+    normalizedLeft.y === normalizedRight.y &&
+    normalizedLeft.zoom === normalizedRight.zoom
+  );
+}
+
+export function shouldInitialFit(viewport?: { x: number; y: number; zoom: number }): boolean {
+  if (!viewport) {
+    return true;
+  }
+  return viewport.x === 0 && viewport.y === 0 && viewport.zoom === 1;
+}
+
+export function mergeViewportIfChanged(
+  layout: OperationsLayout,
+  viewport: { x: number; y: number; zoom: number },
+): OperationsLayout {
+  if (viewportsEqual(layout.viewport, viewport)) {
+    return layout;
+  }
+  return mergeViewport(layout, viewport);
+}
 
 export interface OperationsPageState {
   bootstrap: OperationsBootstrapPayload;
@@ -48,7 +129,7 @@ export interface OperationsPageState {
   cleanDraft: OperationsWorkflowDraft;
   cleanFingerprint: string;
   selection: OperationsSelection;
-  saveState: OperationsSaveState;
+  requestState: OperationsRequestState;
   saveMessage?: string;
   validation?: OperationsValidationResult;
   past: OperationsWorkflowDraft[];
@@ -75,7 +156,7 @@ export type OperationsAction =
   | { type: "save-error"; token: number; message: string }
   | { type: "undo" }
   | { type: "redo" }
-  | { type: "set-save-state"; saveState: OperationsSaveState; saveMessage?: string }
+  | { type: "set-request-state"; requestState: OperationsRequestState; saveMessage?: string }
   | { type: "replace-bootstrap"; bootstrap: OperationsBootstrapPayload; draft?: OperationsWorkflowDraft }
   | { type: "reset-start" }
   | {
@@ -95,14 +176,14 @@ export function fingerprintOperationsDraft(draft: OperationsWorkflowDraft): stri
   return JSON.stringify(draft);
 }
 
-function deriveSaveState(
-  draft: OperationsWorkflowDraft,
-  cleanFingerprint: string,
-  preferredCleanState: OperationsSaveState = "clean",
-): OperationsSaveState {
-  return fingerprintOperationsDraft(draft) === cleanFingerprint
-    ? preferredCleanState
-    : "dirty";
+export function mergeViewport(
+  layout: OperationsLayout,
+  viewport: { x: number; y: number; zoom: number },
+): OperationsLayout {
+  return {
+    ...layout,
+    viewport: normalizeViewport(viewport),
+  };
 }
 
 function pushHistory(
@@ -149,7 +230,7 @@ export function createInitialOperationsState(
     cleanDraft: cloneDraft(initialDraft),
     cleanFingerprint,
     selection: { kind: "none" },
-    saveState: "clean",
+    requestState: "idle",
     validation: bootstrap.validation,
     past: [],
     future: [],
@@ -162,8 +243,12 @@ export function operationsReducer(
   action: OperationsAction,
 ): OperationsPageState {
   switch (action.type) {
-    case "select":
+    case "select": {
+      if (selectionEquals(state.selection, action.selection)) {
+        return state;
+      }
       return { ...state, selection: action.selection };
+    }
     case "commit-draft": {
       if (state.activeRequest) {
         return state;
@@ -173,20 +258,23 @@ export function operationsReducer(
       return {
         ...state,
         draft: nextDraft,
-        saveState: deriveSaveState(nextDraft, state.cleanFingerprint),
         saveMessage: undefined,
         past: pushHistory ? pushHistoryFn(state.past, state.draft) : state.past,
         future: pushHistory ? [] : state.future,
       };
     }
     case "save-start": {
-      if (state.activeRequest || state.saveState === "clean" || state.saveState === "saved") {
+      if (state.activeRequest) {
+        return state;
+      }
+      const dirty = isDraftDirty(state.draft, state.cleanFingerprint);
+      if (!dirty && state.requestState !== "error") {
         return state;
       }
       const token = state.nextRequestToken;
       return {
         ...state,
-        saveState: "saving",
+        requestState: "saving",
         saveMessage: undefined,
         activeRequest: {
           token,
@@ -211,7 +299,7 @@ export function operationsReducer(
         draft: savedDraft,
         cleanDraft: cloneDraft(savedDraft),
         cleanFingerprint,
-        saveState: "saved",
+        requestState: "saved",
         saveMessage: action.message,
         validation: action.validation,
         activeRequest: undefined,
@@ -228,7 +316,7 @@ export function operationsReducer(
       }
       return {
         ...state,
-        saveState: "error",
+        requestState: "error",
         saveMessage: action.message,
         activeRequest: undefined,
       };
@@ -246,7 +334,6 @@ export function operationsReducer(
         draft: cloneDraft(previous),
         past: state.past.slice(0, -1),
         future: [cloneDraft(state.draft), ...state.future],
-        saveState: deriveSaveState(previous, state.cleanFingerprint),
         saveMessage: undefined,
       };
     }
@@ -263,14 +350,13 @@ export function operationsReducer(
         draft: cloneDraft(next),
         past: pushHistoryFn(state.past, state.draft),
         future: state.future.slice(1),
-        saveState: deriveSaveState(next, state.cleanFingerprint),
         saveMessage: undefined,
       };
     }
-    case "set-save-state":
+    case "set-request-state":
       return {
         ...state,
-        saveState: action.saveState,
+        requestState: action.requestState,
         saveMessage: action.saveMessage,
       };
     case "replace-bootstrap":
@@ -298,7 +384,7 @@ export function operationsReducer(
       const token = state.nextRequestToken;
       return {
         ...state,
-        saveState: "saving",
+        requestState: "resetting",
         saveMessage: undefined,
         activeRequest: {
           token,
@@ -331,8 +417,9 @@ export function operationsReducer(
         draft: cleanDraft,
         cleanDraft: cloneDraft(cleanDraft),
         cleanFingerprint: fingerprintOperationsDraft(cleanDraft),
-        saveState: "clean",
+        requestState: "idle",
         saveMessage: action.message,
+        selection: { kind: "none" },
         nextRequestToken: state.nextRequestToken,
       };
     }
@@ -345,7 +432,7 @@ export function operationsReducer(
       }
       return {
         ...state,
-        saveState: "error",
+        requestState: "error",
         saveMessage: action.message,
         activeRequest: undefined,
       };
@@ -745,14 +832,4 @@ export function applyEdgeChangesToDraft(
     }
   }
   return next;
-}
-
-export function mergeViewport(
-  layout: OperationsLayout,
-  viewport: { x: number; y: number; zoom: number },
-): OperationsLayout {
-  return {
-    ...layout,
-    viewport,
-  };
 }

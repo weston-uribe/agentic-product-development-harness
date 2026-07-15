@@ -14,10 +14,11 @@ import {
   addOutcomeToRule,
   createInitialOperationsState,
   deleteOutcome,
+  findRuleForStatus,
+  isDraftDirty,
   operationsReducer,
   removeStatusFromCanvas,
   updateOutcome,
-  updateRule,
   updateRuleModelParameter,
   updateRuleModelSelection,
   updateRuleWithExecutorCleanup,
@@ -42,8 +43,8 @@ export function OperationsPageClient({
   );
   const [fitViewSignal, setFitViewSignal] = useState(0);
   const isRequestActive = Boolean(state.activeRequest);
-  const isDirty = state.saveState === "dirty" || state.saveState === "error";
-  const canSave = state.saveState === "dirty" || state.saveState === "error";
+  const isDirty = isDraftDirty(state.draft, state.cleanFingerprint);
+  const canSave = isDirty && !isRequestActive;
 
   const validation = useMemo(
     () => {
@@ -57,6 +58,7 @@ export function OperationsPageClient({
         modelCatalog: state.bootstrap.modelCatalog,
         currentWorkflowMappings: state.bootstrap.currentWorkflowMappings,
         baseSnapshot: state.draft.baseSnapshot,
+        catalogLoadMetadata: state.bootstrap.catalogLoadMetadata,
       });
     },
     [state.bootstrap, state.draft, state.unavailableReason],
@@ -164,13 +166,21 @@ export function OperationsPageClient({
     state.unavailableReason,
   ]);
 
+  const busyMessage =
+    state.requestState === "saving"
+      ? "Saving draft…"
+      : state.requestState === "resetting"
+        ? "Resetting draft…"
+        : undefined;
+
   if (state.unavailableReason) {
     return (
       <div className="flex min-h-[calc(100vh-4rem)] flex-col gap-4 px-4 pb-4">
         <DraftModeBanner />
         <OperationsToolbar
           dataSourceLabel={state.bootstrap.dataSourceLabel}
-          saveState={state.saveState}
+          requestState={state.requestState}
+          isDirty={false}
           saveMessage={state.saveMessage}
           canUndo={false}
           canRedo={false}
@@ -194,11 +204,12 @@ export function OperationsPageClient({
   }
 
   return (
-    <div className="flex min-h-[calc(100vh-4rem)] flex-col gap-4">
+    <div className="flex min-h-[calc(100vh-4rem)] flex-col gap-4" aria-busy={isRequestActive}>
       <DraftModeBanner />
       <OperationsToolbar
         dataSourceLabel={state.bootstrap.dataSourceLabel}
-        saveState={state.saveState}
+        requestState={state.requestState}
+        isDirty={isDirty}
         saveMessage={state.saveMessage}
         canUndo={state.past.length > 0}
         canRedo={state.future.length > 0}
@@ -210,6 +221,9 @@ export function OperationsPageClient({
         onReset={() => void handleReset()}
         onFitView={() => setFitViewSignal((value) => value + 1)}
       />
+      {busyMessage ? (
+        <p className="px-4 text-xs text-muted-foreground">{busyMessage}</p>
+      ) : null}
       <div className="grid flex-1 gap-4 px-4 pb-4 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-h-[420px] overflow-hidden rounded-md border border-border">
           <OperationsCanvas
@@ -218,6 +232,7 @@ export function OperationsPageClient({
             onDraftChange={commitDraft}
             onSelect={(selection) => dispatch({ type: "select", selection })}
             fitViewSignal={fitViewSignal}
+            isRequestActive={isRequestActive}
           />
         </div>
         <div className="space-y-4">
@@ -225,6 +240,7 @@ export function OperationsPageClient({
             bootstrap={state.bootstrap}
             draft={state.draft}
             selection={state.selection}
+            disabled={isRequestActive}
             onUpdateRule={(ruleId, patch) =>
               commitDraft(
                 updateRuleWithExecutorCleanup(
@@ -256,9 +272,17 @@ export function OperationsPageClient({
             onUpdateOutcome={(ruleId, outcomeId, patch) =>
               commitDraft(updateOutcome(state.draft, ruleId, outcomeId, patch))
             }
-            onDeleteOutcome={(ruleId, outcomeId) =>
-              commitDraft(deleteOutcome(state.draft, ruleId, outcomeId))
-            }
+            onDeleteOutcome={(ruleId, outcomeId) => {
+              const rule = findRuleForStatus(state.draft, ruleId)
+                ?? state.draft.rules.find((entry) => entry.id === ruleId);
+              commitDraft(deleteOutcome(state.draft, ruleId, outcomeId));
+              if (rule) {
+                dispatch({
+                  type: "select",
+                  selection: { kind: "status", statusId: rule.sourceStatusId },
+                });
+              }
+            }}
             onRemoveStatus={(statusId) => {
               commitDraft(removeStatusFromCanvas(state.draft, statusId));
               dispatch({ type: "select", selection: { kind: "none" } });
@@ -267,6 +291,7 @@ export function OperationsPageClient({
           <AvailableStatusPanel
             statuses={state.bootstrap.statuses}
             onCanvasIds={state.draft.statusIdsOnCanvas}
+            disabled={isRequestActive}
             onAddStatus={(statusId) =>
               commitDraft(addStatusToCanvas(state.draft, statusId))
             }
@@ -282,8 +307,8 @@ export function OperationsPageClient({
           />
           {state.bootstrap.warnings.length > 0 ? (
             <div className="rounded-md border border-border bg-card p-3 text-xs text-muted-foreground">
-              {state.bootstrap.warnings.map((warning) => (
-                <p key={warning}>{warning}</p>
+              {state.bootstrap.warnings.map((warning, index) => (
+                <p key={`${index}-${warning}`}>{warning}</p>
               ))}
             </div>
           ) : null}

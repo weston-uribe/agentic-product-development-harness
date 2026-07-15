@@ -6,6 +6,7 @@ import { findDuplicateNormalizedNames } from "./current-workflow.js";
 import { lookupModelInCatalog } from "./model-catalog-lookup.js";
 import type {
   OperationsBaseSnapshot,
+  OperationsCatalogLoadMetadata,
   OperationsCurrentWorkflowMapping,
   OperationsExecutorCatalogEntry,
   OperationsModelCatalogEntry,
@@ -22,6 +23,7 @@ export interface ValidationContext {
   modelCatalog: OperationsModelCatalogEntry[];
   currentWorkflowMappings: OperationsCurrentWorkflowMapping[];
   baseSnapshot?: OperationsBaseSnapshot;
+  catalogLoadMetadata?: OperationsCatalogLoadMetadata;
 }
 
 function issue(
@@ -44,6 +46,32 @@ export function validateOperationsDraft(
   const { draft, statuses } = context;
   const statusById = new Map(statuses.map((status) => [status.id, status]));
   const canvasIds = new Set(draft.statusIdsOnCanvas);
+  const statusCatalogLoaded =
+    context.catalogLoadMetadata?.statusCatalog === "loaded";
+  const modelCatalogLoaded =
+    context.catalogLoadMetadata?.modelCatalog === "loaded";
+
+  if (context.catalogLoadMetadata?.statusCatalog === "unavailable") {
+    warnings.push(
+      issue({
+        id: "status-catalog-unavailable",
+        severity: "warning",
+        message:
+          "Validation limitation: live Linear status catalog could not be loaded, so status reference checks are limited.",
+      }),
+    );
+  }
+
+  if (context.catalogLoadMetadata?.modelCatalog === "unavailable") {
+    warnings.push(
+      issue({
+        id: "model-catalog-unavailable",
+        severity: "warning",
+        message:
+          "Validation limitation: live Cursor model catalog could not be loaded, so model selection checks are limited.",
+      }),
+    );
+  }
 
   for (const normalized of findDuplicateNormalizedNames(
     statuses.map((status) => ({
@@ -114,14 +142,16 @@ export function validateOperationsDraft(
     );
 
     if (!statusById.has(rule.sourceStatusId)) {
-      errors.push(
-        issue({
-          id: "missing-source-status",
-          message: `Rule references missing source status ${rule.sourceStatusId}.`,
-          ruleId: rule.id,
-          statusId: rule.sourceStatusId,
-        }),
-      );
+      if (statusCatalogLoaded) {
+        errors.push(
+          issue({
+            id: "missing-source-status",
+            message: `Rule references missing source status ${rule.sourceStatusId}.`,
+            ruleId: rule.id,
+            statusId: rule.sourceStatusId,
+          }),
+        );
+      }
     } else if (!canvasIds.has(rule.sourceStatusId)) {
       errors.push(
         issue({
@@ -186,13 +216,15 @@ export function validateOperationsDraft(
         rule.modelSelection.modelId,
       );
       if (!model || model.availability !== "available") {
-        errors.push(
-          issue({
-            id: "model-not-in-catalog",
-            message: `Selected model "${rule.modelSelection.modelId}" is not available in the current catalog.`,
-            ruleId: rule.id,
-          }),
-        );
+        if (modelCatalogLoaded) {
+          errors.push(
+            issue({
+              id: "model-not-in-catalog",
+              message: `Selected model "${rule.modelSelection.modelId}" is not available in the current catalog.`,
+              ruleId: rule.id,
+            }),
+          );
+        }
       } else {
         for (const selected of rule.modelSelection.parameters) {
           const definition = model.supportedParameters.find(
@@ -271,15 +303,17 @@ export function validateOperationsDraft(
           }),
         );
       } else if (!statusById.has(outcome.destinationStatusId)) {
-        errors.push(
-          issue({
-            id: "missing-destination-status",
-            message: `Outcome destination status is missing: ${outcome.destinationStatusId}.`,
-            ruleId: rule.id,
-            outcomeId: outcome.id,
-            statusId: outcome.destinationStatusId,
-          }),
-        );
+        if (statusCatalogLoaded) {
+          errors.push(
+            issue({
+              id: "missing-destination-status",
+              message: `Outcome destination status is missing: ${outcome.destinationStatusId}.`,
+              ruleId: rule.id,
+              outcomeId: outcome.id,
+              statusId: outcome.destinationStatusId,
+            }),
+          );
+        }
       } else if (!canvasIds.has(outcome.destinationStatusId)) {
         errors.push(
           issue({

@@ -9,7 +9,9 @@ import {
   buildOperationsBaseSnapshot,
   buildOperationsBootstrap,
 } from "@harness/operations/bootstrap";
-import { fetchLiveCursorModelCatalog } from "@harness/operations/model-catalog";
+import {
+  fetchLiveCursorModelCatalog,
+} from "@harness/operations/model-catalog";
 import { loadLiveLinearStatuses } from "@harness/operations/linear-status-source";
 import {
   resolveOperationsSourceContext,
@@ -32,6 +34,7 @@ import {
 } from "@harness/operations/current-workflow";
 import type {
   OperationsBaseSnapshot,
+  OperationsCatalogLoadMetadata,
   OperationsCurrentWorkflowMapping,
   OperationsExecutorCatalogEntry,
   OperationsModelCatalogEntry,
@@ -41,6 +44,7 @@ import type {
 import { getFixtureDefinition } from "@harness/operations/fixtures";
 import type { HarnessConfig } from "@harness/config/types";
 import type { OperationsFixtureId } from "@harness/operations/constants";
+import { buildCatalogUnavailableEntry } from "@harness/operations/model-catalog-utils";
 
 function isPackagedRuntime(): boolean {
   return Boolean(process.env.P_DEV_HOME?.trim());
@@ -64,6 +68,7 @@ interface ComposedOperationsContext {
   linearStatuses: LinearStatusInput[];
   statuses: OperationsStatusRecord[];
   modelCatalog: OperationsModelCatalogEntry[];
+  catalogLoadMetadata: OperationsCatalogLoadMetadata;
   currentWorkflowMappings: OperationsCurrentWorkflowMapping[];
   baseSnapshot: OperationsBaseSnapshot;
   executors: OperationsExecutorCatalogEntry[];
@@ -93,6 +98,11 @@ async function composeOperationsContext(
   const teamKey = setupState?.linear?.teamKey;
 
   let linearStatuses: LinearStatusInput[] = [];
+  let catalogLoadMetadata: OperationsCatalogLoadMetadata = {
+    statusCatalog: "unavailable",
+    modelCatalog: "unavailable",
+  };
+
   if (context.mode === "live" && !context.rejectionReason) {
     const linearApiKey = await loadSecretFromEnvLocal({
       cwd,
@@ -112,6 +122,10 @@ async function composeOperationsContext(
         teamId,
       });
       linearStatuses = result.statuses;
+      catalogLoadMetadata = {
+        ...catalogLoadMetadata,
+        statusCatalog: result.loadState,
+      };
       if (result.warning) {
         warnings.push(result.warning);
       }
@@ -131,9 +145,18 @@ async function composeOperationsContext(
       warnings.push(
         "Validation limitation: CURSOR_API_KEY is not configured, so the live Cursor model catalog could not be loaded.",
       );
-      modelCatalog = [];
+      modelCatalog = buildCatalogUnavailableEntry("cursor-live");
+      catalogLoadMetadata = {
+        ...catalogLoadMetadata,
+        modelCatalog: "unavailable",
+      };
     } else {
-      modelCatalog = await fetchLiveCursorModelCatalog(cursorApiKey);
+      const result = await fetchLiveCursorModelCatalog(cursorApiKey);
+      modelCatalog = result.catalog;
+      catalogLoadMetadata = {
+        ...catalogLoadMetadata,
+        modelCatalog: result.loadState,
+      };
     }
   }
 
@@ -144,6 +167,7 @@ async function composeOperationsContext(
     modelCatalog = fixture.modelCatalog;
     effectiveConfig = fixture.config ?? effectiveConfig;
     warnings.push(...fixture.warnings);
+    catalogLoadMetadata = { statusCatalog: "loaded", modelCatalog: "loaded" };
   }
 
   const currentWorkflowMappings = buildCurrentWorkflowMappings({
@@ -175,6 +199,7 @@ async function composeOperationsContext(
     linearStatuses,
     statuses,
     modelCatalog,
+    catalogLoadMetadata,
     currentWorkflowMappings,
     baseSnapshot,
     executors: getExecutorCatalog(),
@@ -194,6 +219,7 @@ export async function loadOperationsBootstrap(
     teamKey: composed.teamKey,
     linearStatuses: composed.linearStatuses,
     modelCatalog: composed.modelCatalog,
+    catalogLoadMetadata: composed.catalogLoadMetadata,
     warnings: composed.warnings,
   });
 }
@@ -220,6 +246,7 @@ export async function persistOperationsDraft(input: {
     modelCatalog: composed.modelCatalog,
     currentWorkflowMappings: composed.currentWorkflowMappings,
     baseSnapshot: composed.baseSnapshot,
+    catalogLoadMetadata: composed.catalogLoadMetadata,
   });
   const saved = await saveDraft(composed.cwd, input.context, draftToSave);
 

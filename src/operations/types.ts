@@ -179,6 +179,13 @@ export interface OperationsValidationResult {
   infos: OperationsValidationIssue[];
 }
 
+export type CatalogLoadState = "loaded" | "unavailable";
+
+export interface OperationsCatalogLoadMetadata {
+  statusCatalog: CatalogLoadState;
+  modelCatalog: CatalogLoadState;
+}
+
 export interface OperationsSourceContext {
   mode: OperationsSourceMode;
   fixtureId?: string;
@@ -196,6 +203,7 @@ export interface OperationsBootstrapPayload {
   currentWorkflowMappings: OperationsCurrentWorkflowMapping[];
   currentModel: OperationsCurrentModelSummary;
   modelCatalog: OperationsModelCatalogEntry[];
+  catalogLoadMetadata: OperationsCatalogLoadMetadata;
   draft: OperationsWorkflowDraft | null;
   validation: OperationsValidationResult;
   warnings: string[];

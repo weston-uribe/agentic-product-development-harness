@@ -8,11 +8,11 @@ V0.3.0 is a **GitHub source release** plus a **public npm CLI package** (`p-dev-
 
 ### Added
 
-- Operations GUI: draft-only `/operations` workflow canvas with semantic rule/outcome editing, local draft save/reset behavior, fixture-mode validation, and packaged GUI dependency coverage.
+- Operations GUI: draft-only `/operations` workflow canvas with semantic rule/outcome editing, local draft save/reset behavior, fixture-mode validation, deterministic fixture workflow seeds (`basic-current-workflow`, `branching-pr-review`), mapping-based live baseline rules, and packaged GUI dependency coverage.
 
 ### Fixed
 
-- Operations GUI: repaired draft save-state semantics, truthful save-time validation, null-bootstrap handling, graph entry/unreachable warnings, viewport persistence, status removal/restoration disclosure, and unsaved-change protection.
+- Operations GUI: repaired draft save-state semantics, truthful save-time validation, null-bootstrap handling, graph entry/unreachable warnings, viewport persistence and Fit View loop prevention, visible request-lock during save/reset, fingerprint-derived dirty state separate from request errors, explicit catalog load metadata for validation limitations, selection clearing, status removal/restoration disclosure, and unsaved-change protection.
 - Configure GUI development launcher: skip server observability instrumentation during source-repo `next dev` and when observability is globally disabled, and lazy-load Sentry/PostHog adapters so development bundling no longer fails on Node built-in `diagnostics_channel`.
 
 ### Changed

@@ -4,6 +4,7 @@ import type { OperationsStatusRecord } from "@harness/operations/types";
 type AvailableStatusPanelProps = {
   statuses: OperationsStatusRecord[];
   onCanvasIds: string[];
+  disabled?: boolean;
   onAddStatus: (statusId: string) => void;
   onRemoveStatus: (statusId: string) => void;
 };
@@ -11,6 +12,7 @@ type AvailableStatusPanelProps = {
 export function AvailableStatusPanel({
   statuses,
   onCanvasIds,
+  disabled = false,
   onAddStatus,
   onRemoveStatus,
 }: AvailableStatusPanelProps) {
@@ -40,6 +42,7 @@ export function AvailableStatusPanel({
                 type="button"
                 size="sm"
                 variant={isOnCanvas ? "outline" : "default"}
+                disabled={disabled}
                 onClick={() =>
                   isOnCanvas ? onRemoveStatus(status.id) : onAddStatus(status.id)
                 }

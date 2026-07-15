@@ -4,6 +4,7 @@ import {
   buildDefaultModelSelection,
   createInitialOperationsState,
   fingerprintOperationsDraft,
+  isDraftDirty,
   operationsReducer,
   updateRuleModelSelection,
   updateRuleWithExecutorCleanup,
@@ -88,6 +89,10 @@ function bootstrap(initialDraft = draft()): OperationsBootstrapPayload {
         ],
       },
     ],
+    catalogLoadMetadata: {
+      statusCatalog: "loaded",
+      modelCatalog: "loaded",
+    },
     draft: initialDraft,
     validation: { errors: [], warnings: [], infos: [] },
     warnings: [],
@@ -99,11 +104,11 @@ describe("operations reducer", () => {
     let state = createInitialOperationsState(bootstrap());
     const edited = draft({ statusIdsOnCanvas: ["status-a"] });
     state = operationsReducer(state, { type: "commit-draft", draft: edited });
-    expect(state.saveState).toBe("dirty");
+    expect(isDraftDirty(state.draft, state.cleanFingerprint)).toBe(true);
 
     const token = state.nextRequestToken;
     state = operationsReducer(state, { type: "save-start" });
-    expect(state.saveState).toBe("saving");
+    expect(state.requestState).toBe("saving");
     expect(state.activeRequest?.token).toBe(token);
 
     const saved = { ...edited, updatedAt: "2026-01-01T00:00:01.000Z" };
@@ -113,20 +118,21 @@ describe("operations reducer", () => {
       draft: saved,
       message: "Saved",
     });
-    expect(state.saveState).toBe("saved");
+    expect(state.requestState).toBe("saved");
     expect(state.saveMessage).toBe("Saved");
     expect(fingerprintOperationsDraft(state.cleanDraft)).toBe(
       fingerprintOperationsDraft(saved),
     );
+    expect(isDraftDirty(state.draft, state.cleanFingerprint)).toBe(false);
 
     state = operationsReducer(state, {
       type: "commit-draft",
       draft: { ...saved, statusIdsOnCanvas: ["status-a", "status-b"] },
     });
-    expect(state.saveState).toBe("dirty");
+    expect(isDraftDirty(state.draft, state.cleanFingerprint)).toBe(true);
   });
 
-  it("preserves the draft on save failure", () => {
+  it("preserves the draft on save failure and keeps fingerprint-derived dirty state", () => {
     let state = createInitialOperationsState(bootstrap());
     const edited = draft({ statusIdsOnCanvas: ["status-a"] });
     state = operationsReducer(state, { type: "commit-draft", draft: edited });
@@ -137,16 +143,50 @@ describe("operations reducer", () => {
       token,
       message: "Failed",
     });
-    expect(state.saveState).toBe("error");
+    expect(state.requestState).toBe("error");
     expect(state.draft.statusIdsOnCanvas).toEqual(["status-a"]);
+    expect(isDraftDirty(state.draft, state.cleanFingerprint)).toBe(true);
   });
 
-  it("undo back to the saved baseline becomes clean", () => {
+  it("isDraftDirty is false when draft matches clean baseline", () => {
+    const state = createInitialOperationsState(bootstrap());
+    expect(isDraftDirty(state.draft, state.cleanFingerprint)).toBe(false);
+  });
+
+  it("blocks commit-draft while a request is active", () => {
+    let state = createInitialOperationsState(bootstrap());
+    state = operationsReducer(state, {
+      type: "commit-draft",
+      draft: draft({ statusIdsOnCanvas: ["status-a"] }),
+    });
+    state = operationsReducer(state, { type: "save-start" });
+    const before = state.draft;
+    state = operationsReducer(state, {
+      type: "commit-draft",
+      draft: draft({ statusIdsOnCanvas: ["status-a", "status-b"] }),
+    });
+    expect(state.draft).toBe(before);
+  });
+
+  it("undo back to the saved baseline is not dirty", () => {
     let state = createInitialOperationsState(bootstrap());
     const edited = draft({ statusIdsOnCanvas: ["status-a"] });
     state = operationsReducer(state, { type: "commit-draft", draft: edited });
     state = operationsReducer(state, { type: "undo" });
-    expect(state.saveState).toBe("clean");
+    expect(isDraftDirty(state.draft, state.cleanFingerprint)).toBe(false);
+  });
+
+  it("reset error on clean draft is not fingerprint-dirty", () => {
+    let state = createInitialOperationsState(bootstrap());
+    const token = state.nextRequestToken;
+    state = operationsReducer(state, { type: "reset-start" });
+    state = operationsReducer(state, {
+      type: "reset-error",
+      token,
+      message: "Reset failed",
+    });
+    expect(state.requestState).toBe("error");
+    expect(isDraftDirty(state.draft, state.cleanFingerprint)).toBe(false);
   });
 
   it("bounds meaningful undo history", () => {
@@ -174,7 +214,7 @@ describe("operations reducer", () => {
       draft: draft({ draftId: "stale" }),
     });
     expect(afterStale.draft.draftId).not.toBe("stale");
-    expect(afterStale.saveState).toBe("saving");
+    expect(afterStale.requestState).toBe("saving");
   });
 
   it("cleans incompatible executor fields on executor switch", () => {
@@ -216,5 +256,19 @@ describe("operations reducer", () => {
     expect(next.rules[0]?.modelSelection?.parameters).toEqual([
       { id: "fast", value: "true" },
     ]);
+  });
+
+  it("no-ops duplicate selection updates", () => {
+    let state = createInitialOperationsState(bootstrap());
+    state = operationsReducer(state, {
+      type: "select",
+      selection: { kind: "status", statusId: "status-a" },
+    });
+    const before = state;
+    state = operationsReducer(state, {
+      type: "select",
+      selection: { kind: "status", statusId: "status-a" },
+    });
+    expect(state).toBe(before);
   });
 });

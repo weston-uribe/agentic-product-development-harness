@@ -23,8 +23,8 @@ export function ValidationSummary({ validation }: ValidationSummaryProps) {
     <div className="rounded-md border border-border bg-card p-3">
       <h2 className="mb-2 text-sm font-medium">Validation</h2>
       <ul className="space-y-2 text-sm">
-        {items.map((item) => (
-          <li key={item.id + (item.path ?? "") + (item.ruleId ?? "")}>
+        {items.map((item, index) => (
+          <li key={`${index}-${item.id}-${item.path ?? ""}-${item.ruleId ?? ""}-${item.statusId ?? ""}`}>
             <span
               className={
                 item.severity === "error"

@@ -1,4 +1,5 @@
 import type { OperationsFixtureDefinition } from "../fixture-definition.js";
+import { buildBasicCurrentWorkflowSeed } from "../fixture-seeds/basic-current-workflow.js";
 
 const WORKFLOW_STATUSES = [
   ["status-backlog", "Backlog", "backlog"],
@@ -45,7 +46,10 @@ export const basicCurrentWorkflowFixture: OperationsFixtureDefinition = {
       source: "fixture",
     },
   ],
-  warnings: [],
+  warnings: [
+    "Internal in-progress statuses (Planning, Building, Revising, Merging) remain available in the catalog but are not primary canvas nodes because the rule schema cannot honestly represent transient agent-running states.",
+  ],
+  buildSeedDraft: buildBasicCurrentWorkflowSeed,
 };
 
 export { WORKFLOW_STATUSES };

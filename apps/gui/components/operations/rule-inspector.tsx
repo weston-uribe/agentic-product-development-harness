@@ -14,6 +14,7 @@ type RuleInspectorProps = {
   modelCatalog: OperationsModelCatalogEntry[];
   statuses: OperationsStatusRecord[];
   selectedOutcomeId?: string;
+  disabled?: boolean;
   onChange: (patch: Partial<OperationsRule>) => void;
   onSelectModel: (modelId: string) => void;
   onUpdateModelParameter: (parameterId: string, value: string) => void;
@@ -57,6 +58,7 @@ export function RuleInspector({
   modelCatalog,
   statuses,
   selectedOutcomeId,
+  disabled = false,
   onChange,
   onSelectModel,
   onUpdateModelParameter,
@@ -70,7 +72,7 @@ export function RuleInspector({
     : undefined;
 
   return (
-    <div className="space-y-3">
+    <fieldset disabled={disabled} className="space-y-3 disabled:opacity-60">
       <label className="flex items-center gap-2 text-sm">
         <input
           type="checkbox"
@@ -264,6 +266,6 @@ export function RuleInspector({
           ))}
         </ul>
       </div>
-    </div>
+    </fieldset>
   );
 }

@@ -305,4 +305,85 @@ describe("operations validation", () => {
     ]);
     expect(result.errors.some((issue) => issue.id === "invalid-self-loop")).toBe(false);
   });
+
+  it("reports model-not-in-catalog when catalog metadata is loaded", () => {
+    const result = validateOperationsDraft({
+      draft: {
+        ...baseDraft,
+        rules: [
+          {
+            id: "rule-1",
+            sourceStatusId: "status-a",
+            enabled: true,
+            executorId: "planner-agent",
+            modelSelection: {
+              modelId: "missing-model",
+              displayNameAtSelection: "Missing",
+              parameters: [],
+            },
+            outcomes: [
+              {
+                id: "outcome-1",
+                label: "Done",
+                destinationStatusId: "status-b",
+                enabled: true,
+              },
+            ],
+          },
+        ],
+      },
+      statuses,
+      executors: getExecutorCatalog(),
+      modelCatalog: [],
+      currentWorkflowMappings: [],
+      catalogLoadMetadata: { statusCatalog: "loaded", modelCatalog: "loaded" },
+    });
+    expect(result.errors.some((issue) => issue.id === "model-not-in-catalog")).toBe(true);
+  });
+
+  it("emits limitation warnings instead of false catalog errors when unavailable", () => {
+    const result = validateOperationsDraft({
+      draft: {
+        ...baseDraft,
+        rules: [
+          {
+            id: "rule-1",
+            sourceStatusId: "missing-status",
+            enabled: true,
+            executorId: "human-decision",
+            modelSelection: {
+              modelId: "missing-model",
+              displayNameAtSelection: "Missing",
+              parameters: [],
+            },
+            outcomes: [
+              {
+                id: "outcome-1",
+                label: "Done",
+                destinationStatusId: "missing-dest",
+                enabled: true,
+              },
+            ],
+          },
+        ],
+      },
+      statuses: [],
+      executors: getExecutorCatalog(),
+      modelCatalog: [
+        {
+          id: "catalog-unavailable",
+          displayName: "Unavailable",
+          availability: "catalog-unavailable",
+          supportedParameters: [],
+          source: "cursor-live",
+        },
+      ],
+      currentWorkflowMappings: [],
+      catalogLoadMetadata: { statusCatalog: "unavailable", modelCatalog: "unavailable" },
+    });
+    expect(result.errors.some((issue) => issue.id === "missing-source-status")).toBe(false);
+    expect(result.errors.some((issue) => issue.id === "model-not-in-catalog")).toBe(false);
+    expect(result.warnings.some((issue) => issue.id === "status-catalog-unavailable")).toBe(true);
+    expect(result.warnings.some((issue) => issue.id === "model-catalog-unavailable")).toBe(true);
+  });
 });

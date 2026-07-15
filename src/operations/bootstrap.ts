@@ -1,15 +1,9 @@
-import { randomUUID } from "node:crypto";
 import type {
   OperationsBaseSnapshot,
   OperationsBootstrapPayload,
-  OperationsLayout,
-  OperationsRule,
   OperationsSourceContext,
-  OperationsStatusRecord,
   OperationsValidationResult,
-  OperationsWorkflowDraft,
 } from "./types.js";
-import { OPERATIONS_DRAFT_SCHEMA_VERSION } from "./constants.js";
 import { getExecutorCatalog, getNestedCapabilities } from "./executor-catalog.js";
 import {
   buildCurrentWorkflowMappings,
@@ -25,8 +19,12 @@ import { validateOperationsDraft } from "./validation.js";
 import { dataSourceLabel } from "./source-context.js";
 import { loadDraft } from "./draft-store.js";
 import { getFixtureDefinition } from "./fixtures/index.js";
+import { createLiveBaselineDraft } from "./baseline-workflow.js";
 import type { HarnessConfig } from "../config/types.js";
-import type { OperationsModelCatalogEntry } from "./types.js";
+import type {
+  OperationsCatalogLoadMetadata,
+  OperationsModelCatalogEntry,
+} from "./types.js";
 import type { OperationsFixtureId } from "./constants.js";
 
 export interface BootstrapDependencies {
@@ -37,20 +35,8 @@ export interface BootstrapDependencies {
   teamKey?: string;
   linearStatuses?: LinearStatusInput[];
   modelCatalog?: OperationsModelCatalogEntry[];
+  catalogLoadMetadata?: OperationsCatalogLoadMetadata;
   warnings?: string[];
-}
-
-function defaultLayout(statuses: OperationsStatusRecord[]): OperationsLayout {
-  const statusPositions: OperationsLayout["statusPositions"] = {};
-  statuses.forEach((status, index) => {
-    const column = index % 4;
-    const row = Math.floor(index / 4);
-    statusPositions[status.id] = {
-      x: column * 280,
-      y: row * 140,
-    };
-  });
-  return { statusPositions, viewport: { x: 0, y: 0, zoom: 1 } };
 }
 
 export function buildOperationsBaseSnapshot(input: {
@@ -71,65 +57,6 @@ export function buildOperationsBaseSnapshot(input: {
   };
 }
 
-function createDefaultRules(statuses: OperationsStatusRecord[]): OperationsRule[] {
-  const rules: OperationsRule[] = [];
-  for (const status of statuses) {
-    if (!status.automationTriggerStatus) {
-      continue;
-    }
-    let executorId = "human-decision";
-    if (status.name.toLowerCase().includes("planning")) {
-      executorId = "planner-agent";
-    } else if (status.name.toLowerCase().includes("build")) {
-      executorId = "implementation-agent";
-    } else if (status.name.toLowerCase().includes("revision")) {
-      executorId = "revision-agent";
-    } else if (status.name.toLowerCase().includes("merge")) {
-      executorId = "merge-runner";
-    } else if (status.name.toLowerCase().includes("pr open")) {
-      executorId = "handoff-pm-review-prep";
-    }
-
-    rules.push({
-      id: randomUUID(),
-      sourceStatusId: status.id,
-      enabled: true,
-      executorId,
-      outcomes: [],
-    });
-  }
-  return rules;
-}
-
-export function createBaselineDraft(input: {
-  context: OperationsSourceContext;
-  baseSnapshot: OperationsBaseSnapshot;
-  statuses: OperationsStatusRecord[];
-  savedByRuntime: OperationsWorkflowDraft["savedByRuntime"];
-}): OperationsWorkflowDraft {
-  const now = new Date().toISOString();
-  const onCanvas = input.statuses
-    .filter((status) => status.participatesInCurrentHarnessWorkflow)
-    .map((status) => status.id);
-
-  return {
-    schemaVersion: OPERATIONS_DRAFT_SCHEMA_VERSION,
-    draftId: randomUUID(),
-    createdAt: now,
-    updatedAt: now,
-    savedByRuntime: input.savedByRuntime,
-    sourceMode: input.context.mode,
-    baseSnapshot: input.baseSnapshot,
-    statusIdsOnCanvas: onCanvas,
-    rules: createDefaultRules(
-      input.statuses.filter((status) => onCanvas.includes(status.id)),
-    ),
-    layout: defaultLayout(
-      input.statuses.filter((status) => onCanvas.includes(status.id)),
-    ),
-  };
-}
-
 export async function buildOperationsBootstrap(
   deps: BootstrapDependencies,
 ): Promise<OperationsBootstrapPayload> {
@@ -147,6 +74,10 @@ export async function buildOperationsBootstrap(
       currentWorkflowMappings: [],
       currentModel: buildCurrentModelSummary(deps.config),
       modelCatalog: deps.modelCatalog ?? [],
+      catalogLoadMetadata: {
+        statusCatalog: "unavailable",
+        modelCatalog: "unavailable",
+      },
       draft: null,
       validation: {
         errors: [
@@ -166,6 +97,11 @@ export async function buildOperationsBootstrap(
   let linearStatuses = deps.linearStatuses ?? [];
   let modelCatalog = deps.modelCatalog ?? [];
   let config = deps.config;
+  let catalogLoadMetadata: OperationsCatalogLoadMetadata =
+    deps.catalogLoadMetadata ?? {
+      statusCatalog: context.mode === "fixture" ? "loaded" : "unavailable",
+      modelCatalog: context.mode === "fixture" ? "loaded" : "unavailable",
+    };
 
   if (context.mode === "fixture" && context.fixtureId) {
     const fixture = getFixtureDefinition(context.fixtureId as OperationsFixtureId);
@@ -173,6 +109,7 @@ export async function buildOperationsBootstrap(
     modelCatalog = fixture.modelCatalog;
     config = fixture.config ?? config;
     warnings.push(...fixture.warnings);
+    catalogLoadMetadata = { statusCatalog: "loaded", modelCatalog: "loaded" };
   }
 
   const statusRecords = enrichStatusRecords({
@@ -196,13 +133,29 @@ export async function buildOperationsBootstrap(
 
   let draft = await loadDraft(deps.cwd, context);
   if (!draft) {
-    draft = createBaselineDraft({
-      context,
-      baseSnapshot,
-      statuses: statusRecords,
-      savedByRuntime:
-        context.mode === "fixture" ? "fixture-test" : "source-gui",
-    });
+    const fixture =
+      context.mode === "fixture" && context.fixtureId
+        ? getFixtureDefinition(context.fixtureId as OperationsFixtureId)
+        : undefined;
+
+    if (fixture?.buildSeedDraft) {
+      draft = fixture.buildSeedDraft({
+        context,
+        baseSnapshot,
+        statuses: statusRecords,
+        modelCatalog,
+        mappings,
+      });
+    } else {
+      draft = createLiveBaselineDraft({
+        context,
+        baseSnapshot,
+        statuses: statusRecords,
+        mappings,
+        savedByRuntime:
+          context.mode === "fixture" ? "fixture-test" : "source-gui",
+      });
+    }
   }
 
   const validation = validateOperationsDraft({
@@ -212,6 +165,7 @@ export async function buildOperationsBootstrap(
     modelCatalog,
     currentWorkflowMappings: mappings,
     baseSnapshot,
+    catalogLoadMetadata,
   });
 
   return {
@@ -224,6 +178,7 @@ export async function buildOperationsBootstrap(
     currentWorkflowMappings: mappings,
     currentModel: buildCurrentModelSummary(config),
     modelCatalog,
+    catalogLoadMetadata,
     draft,
     validation,
     warnings,

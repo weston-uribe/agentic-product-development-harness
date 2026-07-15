@@ -12,6 +12,7 @@ type OperationsInspectorProps = {
   bootstrap: OperationsBootstrapPayload;
   draft: OperationsWorkflowDraft;
   selection: OperationsSelection;
+  disabled?: boolean;
   onUpdateRule: (ruleId: string, patch: Partial<OperationsWorkflowDraft["rules"][number]>) => void;
   onSelectModel: (ruleId: string, modelId: string) => void;
   onUpdateModelParameter: (ruleId: string, parameterId: string, value: string) => void;
@@ -29,6 +30,7 @@ export function OperationsInspector({
   bootstrap,
   draft,
   selection,
+  disabled = false,
   onUpdateRule,
   onSelectModel,
   onUpdateModelParameter,
@@ -40,7 +42,7 @@ export function OperationsInspector({
   const statusById = new Map(bootstrap.statuses.map((status) => [status.id, status]));
 
   return (
-    <div className="rounded-md border border-border bg-card p-3">
+    <div className="rounded-md border border-border bg-card p-3" aria-busy={disabled}>
       <h2 className="mb-2 text-sm font-medium">Inspector</h2>
       {selection.kind === "none" ? (
         <p className="text-sm text-muted-foreground">
@@ -51,6 +53,7 @@ export function OperationsInspector({
         <div className="space-y-4">
           <StatusInspector
             status={statusById.get(selection.statusId)!}
+            disabled={disabled}
             onRemove={() => onRemoveStatus(selection.statusId)}
           />
           {(() => {
@@ -68,6 +71,7 @@ export function OperationsInspector({
                 executors={bootstrap.executors}
                 modelCatalog={bootstrap.modelCatalog}
                 statuses={bootstrap.statuses}
+                disabled={disabled}
                 onChange={(patch) => onUpdateRule(rule.id, patch)}
                 onSelectModel={(modelId) => onSelectModel(rule.id, modelId)}
                 onUpdateModelParameter={(parameterId, value) =>
@@ -98,10 +102,11 @@ export function OperationsInspector({
               rule={rule}
               executors={bootstrap.executors}
               modelCatalog={bootstrap.modelCatalog}
-                statuses={bootstrap.statuses}
-                selectedOutcomeId={
-                  selection.kind === "outcome" ? selection.outcomeId : undefined
-                }
+              statuses={bootstrap.statuses}
+              disabled={disabled}
+              selectedOutcomeId={
+                selection.kind === "outcome" ? selection.outcomeId : undefined
+              }
               onChange={(patch) => onUpdateRule(rule.id, patch)}
                 onSelectModel={(modelId) => onSelectModel(rule.id, modelId)}
                 onUpdateModelParameter={(parameterId, value) =>
