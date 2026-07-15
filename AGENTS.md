@@ -128,3 +128,15 @@ examples/           → Example runs
 ## Tone
 
 Write for hiring managers and technical reviewers: clear, honest, structured. Early-stage is a feature—do not dress v0.3 up as production-grade SaaS.
+
+## Cursor Cloud specific instructions
+
+Standard dev commands are already documented in [`README.md`](README.md) and [`docs/getting-started.md`](docs/getting-started.md) (`npm ci`, `npm run build`, `npm test`, `npm run harness:configure`). Dependencies are refreshed automatically on startup, so start from running/testing services. Non-obvious caveats:
+
+- **Node 22+ ESM/TypeScript project.** The CLI runs TS directly via `tsx`; there is no separate compile step needed to run it. `npm ci` prints an `EBADENGINE` warning for `posthog-node` on Node 22.14 — it is harmless and does not affect build/test/dev.
+- **No repo-level lint tooling.** There is no ESLint/Prettier/Biome config at the root and no `npm run lint` script for this repo (the `lint` command in `harness.config.json` runs against *target* repos, not here). The effective static check for this repo is the TypeScript typecheck run as part of `npm run build` (`tsc`).
+- **Build runs `tsc` + `next build apps/gui`.** The Configure GUI is a Next.js 15 app under `apps/gui/`.
+- **Run the Configure GUI (primary dev app):** `npm run harness:configure:stable` pins to `http://localhost:3000/settings/configure` and cleans `apps/gui/.next` on start; `npm run harness:configure` auto-selects a free port instead. If the page renders unstyled, stop and re-run the `:stable` command.
+- **Tests and the GUI run fully offline.** The vitest suite (~1100 tests) uses fixtures/mocks and needs no credentials. `LINEAR_API_KEY`, `CURSOR_API_KEY`, and `GITHUB_TOKEN` are only needed for *live* harness runs; `npm run harness:doctor` reporting them as missing is expected in this environment and does not indicate a broken setup.
+- **Exercise the orchestrator offline** with a dry run: `npm run harness:run -- --issue WES-FIXTURE --dry-run --fixture tests/fixtures/issues/valid-target-app.md` (writes to the gitignored `runs/` dir).
+- **Slow tests:** `tests/p-dev/installed-tarball-loopback.test.ts` and `tests/p-dev/package-packed-artifact.test.ts` actually pack and install the `p-dev` package (tens of seconds each), so a full `npm test` takes ~1 minute.
