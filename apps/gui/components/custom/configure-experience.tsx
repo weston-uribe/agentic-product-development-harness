@@ -20,6 +20,7 @@ import { LAYOUT, RESPONSIVE, SPACING } from "@/lib/constants";
 import {
   clampGuidedDisplayStep,
   defaultGuidedDisplayStep,
+  getGuidedTransitionDirection,
   getPreviousGuidedDisplayStep,
   GUIDED_DISPLAY_STEP_AFTER_LOCAL_APPLY,
   GUIDED_DISPLAY_STEP_AFTER_LOCAL_READINESS,
@@ -56,6 +57,7 @@ import { ObservabilitySettingsCard } from "@/components/custom/observability-set
 import { postObservabilityAnalyticsEvent } from "@/lib/observability-client";
 import { bucketDurationMs } from "@harness/observability/privacy-schema.js";
 import { GuidedSetupProgress } from "@/components/custom/guided-setup-progress";
+import { GuidedStepTransition } from "@/components/custom/guided-step-transition";
 
 type ConfigureMode = "guided" | "advanced";
 
@@ -562,6 +564,15 @@ export function ConfigureExperience({
   );
 
   const actionPanelRef = useRef<HTMLDivElement | null>(null);
+  const previousDisplayedStepRef = useRef(displayedGuidedStep);
+  const guidedTransitionDirection = getGuidedTransitionDirection(
+    previousDisplayedStepRef.current,
+    displayedGuidedStep,
+  );
+
+  useEffect(() => {
+    previousDisplayedStepRef.current = displayedGuidedStep;
+  }, [displayedGuidedStep]);
 
   const renderGuidedActionPanel = () => {
     switch (displayedGuidedStep) {
@@ -769,7 +780,15 @@ export function ConfigureExperience({
 
       {mode === "guided" ? (
         <div className={SPACING.section}>
-          <div ref={actionPanelRef}>{renderGuidedActionPanel()}</div>
+          <div ref={actionPanelRef}>
+            <GuidedStepTransition
+              stepKey={displayedGuidedStep}
+              direction={guidedTransitionDirection}
+              panelRef={actionPanelRef}
+            >
+              {renderGuidedActionPanel()}
+            </GuidedStepTransition>
+          </div>
         </div>
       ) : (
         <SetupDashboard

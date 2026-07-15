@@ -4,6 +4,7 @@ import {
   clampGuidedDisplayStep,
   defaultGuidedDisplayStep,
   deriveGuidedProgressStages,
+  getGuidedTransitionDirection,
   firstRunStepIdForProgressStage,
   getPreviousGuidedDisplayStep,
   GUIDED_DISPLAY_STEP_AFTER_CONNECT_SERVICES,
@@ -130,6 +131,22 @@ describe("guided-setup navigation", () => {
     expect(
       compareGuidedDisplaySteps("target-workflow", "cloud-secrets"),
     ).toBeGreaterThan(0);
+  });
+
+  it("derives transition direction from guided display order", () => {
+    expect(
+      getGuidedTransitionDirection("connect-services", "linear-workspace"),
+    ).toBe("forward");
+    expect(
+      getGuidedTransitionDirection("vercel-bridge", "linear-workspace"),
+    ).toBe("backward");
+    expect(
+      getGuidedTransitionDirection("target-workflow", "ready-for-first-run"),
+    ).toBe("forward");
+    expect(getGuidedTransitionDirection(null, "connect-services")).toBe("none");
+    expect(
+      getGuidedTransitionDirection("connect-services", "connect-services"),
+    ).toBe("none");
   });
 
   it("detects readiness forward advancement only", () => {
