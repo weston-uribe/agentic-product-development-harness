@@ -56,8 +56,6 @@ import {
   createFakeErrorTransport,
   createFakeTransportRecorder,
 } from "./adapters/fake.js";
-import { createPostHogAnalyticsTransport } from "./adapters/posthog.js";
-import { createSentryErrorTransport } from "./adapters/sentry.js";
 
 export interface BeginObservabilitySessionInput {
   workspaceDir: string;
@@ -177,11 +175,11 @@ function contextToSentryTags(
   };
 }
 
-function createAnalyticsAdapter(input: {
+async function createAnalyticsAdapter(input: {
   fakeRecorder?: FakeTransportRecorder;
   moduleUrl?: string;
   env?: NodeJS.ProcessEnv;
-}): AnalyticsTransport | null {
+}): Promise<AnalyticsTransport | null> {
   if (input.fakeRecorder) {
     return createFakeAnalyticsTransport(input.fakeRecorder);
   }
@@ -194,6 +192,9 @@ function createAnalyticsAdapter(input: {
   );
   if (publicConfig?.posthogProjectToken) {
     try {
+      const { createPostHogAnalyticsTransport } = await import(
+        "./adapters/posthog.js"
+      );
       return createPostHogAnalyticsTransport({
         projectToken: publicConfig.posthogProjectToken,
         host: publicConfig.posthogIngestionHost,
@@ -205,12 +206,12 @@ function createAnalyticsAdapter(input: {
   return null;
 }
 
-function createErrorAdapter(input: {
+async function createErrorAdapter(input: {
   fakeRecorder?: FakeTransportRecorder;
   context: ObservabilityContext;
   moduleUrl?: string;
   env?: NodeJS.ProcessEnv;
-}): ErrorTransport | null {
+}): Promise<ErrorTransport | null> {
   if (input.fakeRecorder) {
     return createFakeErrorTransport(input.fakeRecorder);
   }
@@ -223,6 +224,7 @@ function createErrorAdapter(input: {
   );
   if (input.context && publicConfig?.sentryPublicDsn) {
     try {
+      const { createSentryErrorTransport } = await import("./adapters/sentry.js");
       return createSentryErrorTransport({
         dsn: publicConfig.sentryPublicDsn,
         release: `p-dev-harness@${input.context.packageVersion}`,
@@ -244,7 +246,7 @@ async function syncAnalyticsTransport(input: {
     await analyticsLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS);
     return;
   }
-  const adapter = createAnalyticsAdapter(input);
+  const adapter = await createAnalyticsAdapter(input);
   if (!adapter) {
     await analyticsLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS);
     return;
@@ -263,7 +265,7 @@ async function syncErrorTransport(input: {
     await errorLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS);
     return;
   }
-  const adapter = createErrorAdapter(input);
+  const adapter = await createErrorAdapter(input);
   if (!adapter) {
     await errorLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS);
     return;
