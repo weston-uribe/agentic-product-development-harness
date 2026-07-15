@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 
 import type { GuidedTransitionDirection } from "@/lib/guided-setup";
@@ -35,6 +35,16 @@ export function GuidedStepTransition({
 }: GuidedStepTransitionProps) {
   const prefersReducedMotion = useReducedMotion();
   const pendingFocusTransferRef = useRef(false);
+  const previousStepKeyRef = useRef(stepKey);
+
+  useEffect(() => {
+    if (previousStepKeyRef.current !== stepKey) {
+      pendingFocusTransferRef.current = Boolean(
+        panelRef?.current?.contains(document.activeElement),
+      );
+      previousStepKeyRef.current = stepKey;
+    }
+  }, [panelRef, stepKey]);
 
   const spatialDirection =
     direction === "none" ? "forward" : direction;
@@ -89,11 +99,6 @@ export function GuidedStepTransition({
           initial={direction === "none" ? false : "initial"}
           animate="animate"
           exit="exit"
-          onExitStart={() => {
-            pendingFocusTransferRef.current = Boolean(
-              panelRef?.current?.contains(document.activeElement),
-            );
-          }}
           onAnimationComplete={(definition) => {
             if (definition === "animate" && pendingFocusTransferRef.current) {
               focusIncomingPanel(panelRef?.current ?? null);
