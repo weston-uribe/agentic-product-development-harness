@@ -116,10 +116,12 @@ describe("local-readiness-checks", () => {
 
     const cursorSdk = await import("@cursor/sdk");
     vi.mocked(cursorSdk.Cursor.me).mockResolvedValue({
-      id: "user-1",
-      email: "weston@example.com",
-      name: "Weston Uribe",
-    });
+      apiKeyName: "Production API Key",
+      userEmail: "weston@example.com",
+      userFirstName: "Weston",
+      userLastName: "Uribe",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    } as never);
     vi.mocked(cursorSdk.Cursor.models.list).mockResolvedValue([{ id: "composer-2.5" }]);
     vi.mocked(cursorSdk.Cursor.repositories.list).mockResolvedValue([]);
   });
