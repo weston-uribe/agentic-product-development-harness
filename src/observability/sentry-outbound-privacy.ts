@@ -1,5 +1,6 @@
 import type { Envelope } from "@sentry/core";
 import type { ErrorEvent } from "@sentry/node";
+import { stringContainsCredentialSecret } from "../artifacts/redact.js";
 import { ALLOWED_SENTRY_TAG_KEYS } from "./privacy-schema.js";
 
 const FORBIDDEN_TOP_LEVEL_EVENT_KEYS = [
@@ -22,10 +23,7 @@ const FORBIDDEN_DEEP_KEYS = new Set([
   "geo",
 ]);
 
-const FORBIDDEN_VALUE_PATTERNS = [
-  /ghp_[A-Za-z0-9]+/,
-  /github_pat_[A-Za-z0-9_]+/,
-  /lin_api_[A-Za-z0-9_]+/,
+const OBSERVABILITY_PRIVACY_PATTERNS = [
   /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i,
   /(?:\/Users\/|\/home\/|C:\\Users\\)/i,
   /[?&][^=\s]+=[^&\s]+/,
@@ -51,7 +49,13 @@ export function findSentryPrivacyViolation(
   }
 
   if (typeof value === "string") {
-    for (const pattern of FORBIDDEN_VALUE_PATTERNS) {
+    if (stringContainsCredentialSecret(value)) {
+      return {
+        path,
+        reason: "Forbidden credential pattern in string",
+      };
+    }
+    for (const pattern of OBSERVABILITY_PRIVACY_PATTERNS) {
       if (pattern.test(value)) {
         return {
           path,
