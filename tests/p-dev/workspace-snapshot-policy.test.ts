@@ -32,4 +32,10 @@ describe("workspace snapshot policy", () => {
     expect(WORKSPACE_SNAPSHOT_POLICY.requiredPaths).toContain(".agents");
     expect(WORKSPACE_SNAPSHOT_POLICY.requiredPaths).toContain("tests");
   });
+
+  it("excludes the Operations live draft path from workspace snapshots", () => {
+    expect(
+      isForbiddenSnapshotPath(".harness/operations-workflow-draft.local.json"),
+    ).toBe(true);
+  });
 });
