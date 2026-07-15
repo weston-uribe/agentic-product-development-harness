@@ -146,29 +146,44 @@ export function isVerificationAttemptDue(
   pending: VercelBridgeRedeployVerification,
   now = Date.now(),
 ): boolean {
+  return getVerificationAttemptNotDueReason(pending, now) === "due";
+}
+
+export function getVerificationAttemptNotDueReason(
+  pending: VercelBridgeRedeployVerification,
+  now = Date.now(),
+):
+  | "due"
+  | "deadline_expired"
+  | "budget_exhausted"
+  | "waiting_for_schedule"
+  | "claim_in_flight"
+  | "not_ready" {
   const normalized = normalizeRedeployVerification({ pending });
   const attemptCount = normalized.verificationAttemptCount ?? 0;
   const maxAttempts = normalized.maxVerificationAttempts ?? DEFAULT_MAX_VERIFICATION_ATTEMPTS;
 
   if (normalized.status !== "ready") {
-    return false;
+    return "not_ready";
   }
   if (attemptCount >= maxAttempts) {
-    return false;
+    return "budget_exhausted";
   }
   if (Date.parse(normalized.deadlineAt) <= now) {
-    return false;
+    return "deadline_expired";
   }
   if (
     normalized.verificationClaim &&
     !isVerificationClaimStale(normalized, now)
   ) {
-    return false;
+    return "claim_in_flight";
   }
   if (normalized.nextVerificationAttemptAt) {
-    return Date.parse(normalized.nextVerificationAttemptAt) <= now;
+    return Date.parse(normalized.nextVerificationAttemptAt) <= now
+      ? "due"
+      : "waiting_for_schedule";
   }
-  return true;
+  return "due";
 }
 
 export function buildVerificationClaim(

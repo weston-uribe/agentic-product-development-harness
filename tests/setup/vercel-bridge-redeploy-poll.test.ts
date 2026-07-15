@@ -629,4 +629,28 @@ describe("vercel-bridge-redeploy-poll", () => {
     expect(serialized).not.toContain("stable-webhook-secret");
     expect(serialized).not.toContain("generated-webhook-secret");
   });
+
+  it("terminalizes when verification deadline expires while deployment is READY", async () => {
+    storedState.vercel.redeployVerification = {
+      ...pendingVerification,
+      status: "ready",
+      deadlineAt: new Date(Date.now() - 1_000).toISOString(),
+    };
+    vi.mocked(inspectProductionRedeployStatus).mockResolvedValue({
+      status: "ready",
+      sourceDeploymentId: "dpl-source-1",
+      newDeploymentId: "dpl-new-1",
+      message: "Production redeploy completed and deployment is READY.",
+    });
+
+    const result = await pollVercelBridgeRedeployVerification({
+      actionId: "vercel-redeploy-test",
+      cwd: tempRoot,
+    });
+
+    expect(result.setupBlocked?.message).toMatch(/timed out|Redeploy production/i);
+    expect(result.setupPending).toBe(false);
+    expect(result.verified).toBe(false);
+    expect(ensureLinearIssueWebhook).not.toHaveBeenCalled();
+  });
 });

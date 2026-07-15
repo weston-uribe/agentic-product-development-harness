@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -6,6 +6,7 @@ import {
   acquireControlPlaneStateLock,
   withControlPlaneStateLock,
 } from "../../src/setup/control-plane-state-lock.js";
+import { resolveLocalFilePaths } from "../../src/setup/setup-state.js";
 
 describe("control-plane-state-lock", () => {
   let tempRoot = "";
@@ -44,5 +45,23 @@ describe("control-plane-state-lock", () => {
     );
 
     expect(maxActive).toBe(1);
+  });
+
+  it("recovers a stale lock so the next acquirer can proceed", async () => {
+    tempRoot = await mkdtemp(path.join(tmpdir(), "control-plane-lock-"));
+    const paths = resolveLocalFilePaths(tempRoot);
+    await mkdir(paths.harnessDir, { recursive: true });
+    await writeFile(
+      path.join(paths.harnessDir, "control-plane-setup.lock"),
+      JSON.stringify({
+        ownerId: "stale-owner",
+        claimedAt: new Date(Date.now() - 60_000).toISOString(),
+      }),
+      "utf8",
+    );
+
+    const lock = await acquireControlPlaneStateLock(tempRoot);
+    expect(lock.ownerId).not.toBe("stale-owner");
+    await lock.release();
   });
 });

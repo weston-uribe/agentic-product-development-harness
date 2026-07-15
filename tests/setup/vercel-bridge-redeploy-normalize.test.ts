@@ -3,6 +3,7 @@ import {
   classifySignedProbeFailure,
   DEFAULT_MAX_VERIFICATION_ATTEMPTS,
   getOrchestrationStatusMessage,
+  getVerificationAttemptNotDueReason,
   isVerificationAttemptDue,
   normalizeRedeployVerification,
 } from "../../src/setup/vercel-bridge-redeploy-normalize.js";
@@ -83,5 +84,23 @@ describe("vercel-bridge-redeploy-normalize", () => {
       nextVerificationAttemptAt: new Date(Date.now() + 60_000).toISOString(),
     });
     expect(due).toBe(false);
+  });
+
+  it("reports deadline_expired when verification window ends", () => {
+    expect(
+      getVerificationAttemptNotDueReason({
+        ...basePending,
+        deadlineAt: new Date(Date.now() - 1_000).toISOString(),
+      }),
+    ).toBe("deadline_expired");
+  });
+
+  it("allows the first verification attempt immediately at READY", () => {
+    expect(
+      getVerificationAttemptNotDueReason({
+        ...basePending,
+        verificationAttemptCount: 0,
+      }),
+    ).toBe("due");
   });
 });
