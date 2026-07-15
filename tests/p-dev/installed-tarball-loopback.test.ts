@@ -176,13 +176,15 @@ function extractPostHogEvents(requests: CollectorRequest[]): Array<{
   });
 }
 
-function expectedPackagedMetadata(): { packageVersion: string; releaseSha: string | null } {
+function expectedPackagedMetadata(
+  currentTarballPath: string,
+): { packageVersion: string; releaseSha: string | null } {
   const packageJson = JSON.parse(
     readFileSync(path.join(packageDir, "package.json"), "utf8"),
   ) as { version: string };
   return {
     packageVersion: packageJson.version,
-    releaseSha: tarballSourceCommit(tarballPath),
+    releaseSha: tarballSourceCommit(currentTarballPath),
   };
 }
 
@@ -467,7 +469,7 @@ return { state, sessionId: session?.sessionId };
       const event = events[0]!;
       expect(event.tags?.product_error_code).toBe("configure_request_error");
       expect(event.tags?.session_id).toBe(output.sessionId);
-      const metadata = expectedPackagedMetadata();
+      const metadata = expectedPackagedMetadata(tarballPath);
       expect(event.tags?.package_version).toBe(metadata.packageVersion);
       expect(event.tags?.release_sha).toBe(metadata.releaseSha);
       expect(event.fingerprint).toEqual([
