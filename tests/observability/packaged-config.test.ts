@@ -39,7 +39,7 @@ describe("observability packaged config", () => {
     expect(tracked.posthogIngestionHost).toBe("https://us.i.posthog.com");
 
     const identity = parseSentryPublicDsnIdentity(tracked.sentryPublicDsn);
-    expect(identity.hostname).toBe("ingest.us.sentry.io");
+    expect(identity.hostname).toMatch(/\.ingest\.us\.sentry\.io$/);
     expect(identity.projectId).toBe("4511740568338432");
     expect(identity.publicKey).toMatch(/^[0-9a-f]{32}$/i);
   });
