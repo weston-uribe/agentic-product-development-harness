@@ -77,7 +77,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       hasInstallationId: Boolean(persisted.installationId),
     });
   } catch (error) {
-    return handleObservabilityRouteFailure(error, {
+    return await handleObservabilityRouteFailure(error, {
       lifecyclePhase: "configure_route",
       productErrorCode: "configure_request_error",
       errorCategory: "unexpected",

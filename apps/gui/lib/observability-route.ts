@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { captureProductError } from "@harness/observability/facade.js";
+import {
+  captureProductError,
+  flushObservability,
+} from "@harness/observability/facade.js";
 import type { ErrorCategory, LifecyclePhase } from "@harness/observability/types.js";
 
 export interface ObservabilityRouteFailureInput {
@@ -28,10 +31,10 @@ export function isExpectedSetupValidationError(error: unknown): boolean {
   );
 }
 
-export function handleObservabilityRouteFailure(
+export async function handleObservabilityRouteFailure(
   error: unknown,
   input: ObservabilityRouteFailureInput,
-): NextResponse {
+): Promise<NextResponse> {
   const message =
     error instanceof Error ? error.message : "Unexpected Configure API failure";
 
@@ -47,6 +50,7 @@ export function handleObservabilityRouteFailure(
       cause: error,
       configureStepId: input.configureStepId,
     });
+    await flushObservability();
   }
 
   return NextResponse.json(
@@ -63,7 +67,7 @@ export async function withObservabilityRoute<T>(
   try {
     return await handler();
   } catch (error) {
-    return handleObservabilityRouteFailure(error, {
+    return await handleObservabilityRouteFailure(error, {
       lifecyclePhase,
       productErrorCode,
     });
