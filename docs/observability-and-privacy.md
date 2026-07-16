@@ -166,16 +166,60 @@ Release remains blocked until:
 
 ## Dashboard: p-dev Packaged Onboarding Health
 
-Manual PostHog dashboard specification:
+**Status:** implemented in PostHog project `p-dev-harness` (US region, `https://us.i.posthog.com`).
 
-- Packaged sessions launched (`p_dev_session_started`) by `package_version` and `os_family`
-- Configure funnel through step completions to `p_dev_setup_completed`
-- Provisioning started/completed/failed trends
-- Failure category breakdown for `p_dev_workspace_provision_failed`
-- Duration and retry/rate-limit buckets
-- Release comparison filters on `package_version` and `release_sha`
+Machine-readable contract: [`src/observability/posthog-dashboard-contract.ts`](../src/observability/posthog-dashboard-contract.ts)
+
+Dashboard identity:
+
+- **Name:** `p-dev Packaged Onboarding Health`
+- **Default date range:** last 30 days
+- **Dashboard filters:** `package_version`, `release_sha`, `os_family`
+
+Mandatory cards:
+
+1. Interpretation (Markdown)
+2. Packaged Sessions by Release (`p_dev_session_started` by `package_version`)
+3. Packaged Sessions by OS (`p_dev_session_started` by `os_family`)
+4. Session to Setup Completion (`p_dev_session_started` → `p_dev_setup_completed`)
+5. Configure Step Completion Funnel (all eight `p_dev_configure_step_completed` steps with `completion_outcome` in `success` / `skipped_already_complete`, or the authorized split funnels Steps 1–4 and Steps 5–8)
+6. Configure Outcomes by Step (`step_id` × `completion_outcome`)
+7. Workspace Provisioning Outcomes (started / completed / failed trends)
+8. Provisioning Failure Categories (`failure_category`)
+9. Provisioning Duration Buckets (`duration_bucket`)
+10. Provisioning Retry Buckets (`retry_count_bucket`)
+11. Rate-Limit Pause Buckets (`rate_limit_pause_count_bucket`)
+
+PostHog project privacy settings (defense in depth):
+
+- Discard client IP data: enabled
+- GeoIP enrichment: disabled
+- Person profiles: disabled (`$process_person_profile: false` on every event)
+- Server-only transport (no browser SDK, autocapture, session replay, or web analytics)
+
+Public packaged configuration:
+
+- Organization: `Kinterra`
+- Project: `p-dev-harness`
+- Public project ingestion token is packaged in `config/observability.public.json` and mirrored to `packages/p-dev/observability.public.json`
+- Personal API keys (`phx_`), MCP credentials, and organization-management credentials are forbidden in tracked files and tarballs
 
 Do not build consent-rate metrics; affirmative consent makes non-consenting installs intentionally invisible.
+
+Reconstruction procedure: use PostHog MCP (`dashboard-create`, `insight-create`, `dashboard-create-text-tile`) with query definitions from `posthog-dashboard-contract.ts`. Validate saved dashboard and insight definitions against the repository contract before merge.
+
+## PostHog release validation
+
+Before an observability-enabled npm release:
+
+- Verify legacy `Default Project` deletion and clean `p-dev-harness` project creation
+- Verify packaged public PostHog token (not `phx_`) and unchanged Sentry public DSN
+- Verify no pre-consent telemetry in packaged smoke tests
+- Verify tarball includes public config and excludes local observability state
+- Verify live packaged validation sequence `0 / 1 / 1` for `p_dev_session_started`
+- Verify stored PostHog events satisfy the privacy allowlist and create no person profile
+- Verify dashboard insight queries execute against validation data
+- Run `tests/observability/posthog-dashboard-contract.test.ts`
 
 ## Sentry alerts (minimal)
 

@@ -35,7 +35,8 @@ describe("observability packaged config", () => {
     expect(JSON.stringify(packaged)).not.toMatch(/phx_/i);
     expect(JSON.stringify(packaged)).not.toMatch(/authToken/i);
     expect(tracked.sentryPublicDsn).not.toBe("");
-    expect(tracked.posthogProjectToken).toBe("");
+    expect(tracked.posthogProjectToken).not.toBe("");
+    expect(tracked.posthogProjectToken.startsWith("phc_")).toBe(true);
     expect(tracked.posthogIngestionHost).toBe("https://us.i.posthog.com");
 
     const identity = parseSentryPublicDsnIdentity(tracked.sentryPublicDsn);

@@ -56,7 +56,8 @@ describe("observability foundation package config", () => {
       },
     );
     expect(config?.sentryPublicDsn).toBe(tracked.sentryPublicDsn);
-    expect(config?.posthogProjectToken).toBe("");
+    expect(config?.posthogProjectToken).not.toBe("");
+    expect(config?.posthogProjectToken.startsWith("phc_")).toBe(true);
     expect(config?.sentryPublicDsn).not.toBe("");
     const url = new URL(config!.sentryPublicDsn);
     expect(url.hostname).toMatch(/\.ingest\.us\.sentry\.io$/);
