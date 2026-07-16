@@ -16,7 +16,8 @@ export default defineConfig({
     trace: "off",
   },
   webServer: {
-    command: "P_DEV_OPERATIONS_FIXTURES=1 npx tsx src/gui/start-gui.ts --port 3000",
+    command:
+      "P_DEV_OBSERVABILITY_DISABLED=1 P_DEV_OPERATIONS_FIXTURES=1 npx tsx src/gui/start-gui.ts --port 3000",
     cwd: repoRoot,
     url: "http://localhost:3000/workflow?source=fixture&fixture=branching-pr-review",
     reuseExistingServer: true,

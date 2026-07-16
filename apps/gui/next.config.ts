@@ -17,7 +17,7 @@ const nextConfig: NextConfig = {
       allowedOrigins: ["localhost:3000", "*.app.github.dev"],
     },
   },
-  webpack: (config) => {
+  webpack: (config, { isServer }) => {
     config.resolve.alias = {
       ...config.resolve.alias,
       "@harness": path.join(repoRoot, "src"),
@@ -26,6 +26,12 @@ const nextConfig: NextConfig = {
       ...config.resolve.extensionAlias,
       ".js": [".ts", ".tsx", ".js"],
     };
+    if (isServer) {
+      config.externals = [
+        ...(Array.isArray(config.externals) ? config.externals : []),
+        "diagnostics_channel",
+      ];
+    }
     return config;
   },
 };
