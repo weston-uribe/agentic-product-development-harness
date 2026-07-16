@@ -9,6 +9,19 @@ const repoRoot = path.resolve(
   "../..",
 );
 
+function parseSentryPublicDsnIdentity(dsn: string): {
+  hostname: string;
+  projectId: string;
+  publicKey: string;
+} {
+  const url = new URL(dsn);
+  return {
+    hostname: url.hostname,
+    projectId: url.pathname.replace(/^\//, ""),
+    publicKey: url.username,
+  };
+}
+
 describe("observability packaged config", () => {
   it("matches tracked source config bytes", () => {
     const tracked = resolveObservabilityPublicConfigForPrepare(repoRoot);
@@ -21,7 +34,13 @@ describe("observability packaged config", () => {
     expect(packaged).toEqual(tracked);
     expect(JSON.stringify(packaged)).not.toMatch(/phx_/i);
     expect(JSON.stringify(packaged)).not.toMatch(/authToken/i);
-    expect(tracked.sentryPublicDsn).toBe("");
+    expect(tracked.sentryPublicDsn).not.toBe("");
     expect(tracked.posthogProjectToken).toBe("");
+    expect(tracked.posthogIngestionHost).toBe("https://us.i.posthog.com");
+
+    const identity = parseSentryPublicDsnIdentity(tracked.sentryPublicDsn);
+    expect(identity.hostname).toMatch(/\.ingest\.us\.sentry\.io$/);
+    expect(identity.projectId).toBe("4511740568338432");
+    expect(identity.publicKey).toMatch(/^[0-9a-f]{32}$/i);
   });
 });

@@ -310,23 +310,29 @@ kill "$PID"
 
 **Stop** if:
 
-- `observability.public.json` contains privileged credentials or non-empty ingestion tokens before maintainer approval
+- `observability.public.json` contains privileged credentials, PostHog personal API keys (`phx_`), or Sentry auth/management tokens
 - Tarball ships `.harness/observability.local.json`, nonce fixtures, or maintainer overrides
 - Pre-consent network transmission occurs in smoke
 - Sentry payloads include stable installation ID
+- the public DSN appears outside `config/observability.public.json` and the established generated package mirror
+- browser-side Sentry initialization, CI/Vercel source-map upload, source-context upload, or build/runtime `SENTRY_AUTH_TOKEN` dependency is introduced
 
-**Pending until sandbox evidence exists:**
+**Required before observability-enabled release approval:**
 
-- Real Sentry/PostHog project configuration
+- Sentry public DSN committed only to the tracked public config source
+- PostHog project token remains empty
 - Vendor sandbox payload verification with raw stored event JSON (not UI summaries alone)
 - Mandatory Sentry project privacy settings verified live:
+  - Data Scrubber and Default Scrubbers enabled
   - Prevent Storing of IP Addresses
   - Advanced Data Scrubbing: `[Remove] [Anything] from [$user.geo.**]`
-- Source-map upload decision
+  - Advanced Data Scrubbing: `[Remove] [Anything] from [contexts.trace]`
+- Source maps, JavaScript source fetching, and SCM source context remain disabled
+- Exposed Sentry client key revoked, deleted, disabled, or otherwise proven unusable before the replacement DSN is enabled
 
 ### Sentry sandbox privacy revalidation (operator-run)
 
-Prepare only. Do not run with a real DSN unless the operator supplies `P_DEV_SENTRY_DSN` through a private environment variable. Never commit the DSN.
+Use the exact-head packaged tarball with the committed public DSN. Do not supply `P_DEV_SENTRY_DSN`, `SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN`, or `SENTRY_AUTH_TOKEN` through private environment variables for this gate.
 
 1. Fresh disposable `P_DEV_HOME` temp directory.
 2. Install and launch the packed tarball with `npx p-dev-harness@VERSION --no-open` (real launcher, not a direct facade import).
@@ -347,7 +353,7 @@ Prepare only. Do not run with a real DSN unless the operator supplies `P_DEV_SEN
    - exactly one event; zero user identity in Sentry Users
 8. Consent withdrawal: restore `.harness` write permissions, disable automated error reporting in Configure, make `.harness` read-only again, repeat the same preference-write failure once, and confirm the Sentry event count remains exactly one.
 9. Stop the launcher cleanly so observability flush/shutdown hooks run.
-10. Teardown: `unset P_DEV_SENTRY_DSN`, delete temp files.
+10. Teardown: `unset P_DEV_SENTRY_DSN SENTRY_DSN NEXT_PUBLIC_SENTRY_DSN SENTRY_AUTH_TOKEN`, delete temp files.
 
 Do **not** bump package version, publish npm, tag, or create a GitHub release from observability validation work alone.
 

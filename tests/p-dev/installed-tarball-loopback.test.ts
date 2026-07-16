@@ -334,6 +334,66 @@ process.exit(0);
       return JSON.parse(stdout.trim().split("\n").at(-1) ?? "{}") as ScenarioOutput;
     }
 
+    async function runPackagedPublicConfigScenario(
+      name: string,
+      workspaceDir: string,
+      source: string,
+    ): Promise<ScenarioOutput> {
+      const scriptPath = path.join(
+        await mkdtemp(path.join(os.tmpdir(), `p-dev-scenario-${name}-`)),
+        "scenario.mjs",
+      );
+      tempDirs.push(path.dirname(scriptPath));
+      await writeFile(
+        scriptPath,
+        `
+const facade = await import(${JSON.stringify(facadeUrl)});
+const workspaceDir = process.env.P_DEV_HOME;
+if (!workspaceDir) throw new Error("Missing P_DEV_HOME");
+const result = await (async () => {
+${source}
+})();
+console.log(JSON.stringify(result ?? {}));
+process.exit(0);
+`,
+        "utf8",
+      );
+
+      const env: NodeJS.ProcessEnv = { ...process.env };
+      for (const key of [
+        "VITEST",
+        "CI",
+        "GITHUB_ACTIONS",
+        "VERCEL",
+        "P_DEV_OBSERVABILITY_SESSION_ID",
+        "P_DEV_OBSERVABILITY_NONCE",
+        "DO_NOT_TRACK",
+        "P_DEV_OBSERVABILITY_DISABLED",
+        "P_DEV_ANALYTICS_DISABLED",
+        "P_DEV_SENTRY_DISABLED",
+        "P_DEV_SENTRY_DSN",
+        "SENTRY_DSN",
+        "NEXT_PUBLIC_SENTRY_DSN",
+        "SENTRY_AUTH_TOKEN",
+        "P_DEV_POSTHOG_PROJECT_TOKEN",
+        "P_DEV_POSTHOG_HOST",
+      ]) {
+        delete env[key];
+      }
+      env.NODE_ENV = "production";
+      env.P_DEV_RUNTIME_MODE = "packaged";
+      env.P_DEV_PACKAGE_VERSION = "0.3.1";
+      env.P_DEV_HOME = workspaceDir;
+
+      const { stdout } = await execFileAsync(process.execPath, [scriptPath], {
+        cwd: installDir,
+        env,
+        timeout: 60_000,
+        maxBuffer: 1024 * 1024,
+      });
+      return JSON.parse(stdout.trim().split("\n").at(-1) ?? "{}") as ScenarioOutput;
+    }
+
     it("keeps undecided consent silent", async () => {
       sentryRequests = [];
       posthogRequests = [];
@@ -701,6 +761,56 @@ return { state, afterResetAnalyticsEnabled, afterResetErrorEnabled };
       expect(output.state?.installationId).toBeUndefined();
       expect(output.afterResetAnalyticsEnabled).toBe(false);
       expect(output.afterResetErrorEnabled).toBe(false);
+    });
+
+    it("resolves packaged public Sentry DSN without private env override", async () => {
+      const publicConfig = JSON.parse(
+        readFileSync(path.join(packageRoot, "observability.public.json"), "utf8"),
+      ) as { sentryPublicDsn?: string };
+      expect(publicConfig.sentryPublicDsn).not.toBe("");
+
+      const home = await makeHome();
+      const output = await runPackagedPublicConfigScenario(
+        "public-config-only",
+        home,
+        `
+const packageConfig = await import(${JSON.stringify(
+          pathToFileURL(
+            path.join(packageRoot, "dist/observability/package-config.js"),
+          ).href,
+        )});
+const resolved = packageConfig.readObservabilityPublicConfig(
+  ${JSON.stringify(facadePath)},
+  process.env,
+);
+await facade.beginObservabilitySession({
+  workspaceDir,
+  moduleUrl: ${JSON.stringify(facadePath)},
+  env: process.env,
+});
+await facade.writeObservabilityPreferences(workspaceDir, {
+  analyticsPreference: "disabled",
+  errorReportingPreference: "enabled",
+  disclosureShown: true,
+});
+const errorEnabled = facade.isErrorReportingCaptureEnabled();
+const analyticsEnabled = facade.isAnalyticsCaptureEnabled();
+await facade.shutdownObservability();
+return {
+  resolvedPresent: Boolean(resolved?.sentryPublicDsn),
+  usesPackageFile: Boolean(
+    resolved?.sourcePath?.includes("observability.public.json"),
+  ),
+  errorEnabled,
+  analyticsEnabled,
+};
+`,
+      );
+
+      expect(output.resolvedPresent).toBe(true);
+      expect(output.usesPackageFile).toBe(true);
+      expect(output.errorEnabled).toBe(true);
+      expect(output.analyticsEnabled).toBe(false);
     });
 
     it("preserves packaged privacy filtering for Sentry and PostHog", async () => {
