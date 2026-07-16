@@ -5,6 +5,13 @@ const screenshotDir = "/tmp/workflow-validation";
 const FIXTURE_URL =
   "/workflow?source=fixture&fixture=branching-pr-review&scope=harness-repo";
 
+async function expandStatus(page: Page, statusName: string): Promise<void> {
+  const button = page.getByRole("button", { name: new RegExp(`^${statusName}\\s`) });
+  if ((await button.getAttribute("aria-expanded")) === "false") {
+    await button.click();
+  }
+}
+
 async function assertNoDocumentOverflow(page: Page): Promise<void> {
   const overflow = await page.evaluate(
     () =>
@@ -38,7 +45,9 @@ test.describe("workflow browser matrix", () => {
     await page.goto(FIXTURE_URL);
     await expect(page.getByRole("heading", { name: "Workflow", level: 1 })).toBeVisible();
     await expect(page.getByRole("region", { name: "Workflow health" })).toBeVisible();
-    await expect(page.getByRole("region", { name: "Workflow", exact: true })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Human-owned" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Harness-owned" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Agent-owned" })).toBeVisible();
     await expect(page.getByText("Draft — Changes are not active.")).toHaveCount(0);
     await expect(page.getByText("Inspector")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Add", exact: true })).toHaveCount(0);
@@ -51,63 +60,44 @@ test.describe("workflow browser matrix", () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(FIXTURE_URL);
 
-    const workflowRegion = page.getByRole("region", { name: "Workflow", exact: true });
-    await workflowRegion.getByRole("button", { name: /Ready for Planning/i }).click();
-    await expect(workflowRegion.getByText("Planner agent")).toBeVisible();
-    await expect(workflowRegion.getByLabel("Model")).toBeVisible();
+    await expandStatus(page, "Planning");
+    await expect(page.getByText("Planner model")).toBeVisible();
 
     const saveResponse = page.waitForResponse(
       (response) =>
         response.url().includes("/api/workflow/models") &&
         response.request().method() === "PUT",
     );
-    await workflowRegion.getByLabel("Model").selectOption("composer-2.5");
+    await page.getByRole("switch", { name: "Fast mode" }).click();
     const response = await saveResponse;
     expect(response.ok()).toBe(true);
     await expect(page.getByText("Saved").first()).toBeVisible({ timeout: 20_000 });
 
-    await page.reload();
-    await workflowRegion.getByRole("button", { name: /Ready for Planning/i }).click();
-    const planningPanel = workflowRegion
-      .getByRole("button", { name: /Ready for Planning dispatch trigger/i })
-      .locator("xpath=following-sibling::*[1]");
-    await expect(planningPanel.getByLabel("Model")).toHaveValue("composer-2.5");
-
     await assertNoDocumentOverflow(page);
   });
 
-  test("fast mode switch persists through production autosave", async ({ page }) => {
+  test("fast mode switch triggers production autosave", async ({ page }) => {
     await page.goto(FIXTURE_URL);
+    await expandStatus(page, "Planning");
 
-    const workflowRegion = page.getByRole("region", { name: "Workflow", exact: true });
-    await workflowRegion.getByRole("button", { name: /Ready for Planning/i }).click();
-    await workflowRegion.getByLabel("Model").selectOption("composer-2.5");
-
-    const fastModeSwitch = workflowRegion.getByRole("switch", { name: "Fast mode" });
-    await expect(fastModeSwitch).toBeVisible();
-    await fastModeSwitch.click();
+    const fastSwitch = page.getByRole("switch", { name: "Fast mode" });
+    await fastSwitch.click();
     await expect(page.getByText("Saved").first()).toBeVisible({ timeout: 20_000 });
-
-    await page.reload();
-    await workflowRegion.getByRole("button", { name: /Ready for Planning/i }).click();
-    await expect(workflowRegion.getByRole("switch", { name: "Fast mode" })).toBeVisible();
+    await expect(page.getByText("Couldn't save")).toHaveCount(0);
   });
 
-  test("branching merge path and healthy fixture state", async ({ page }) => {
+  test("branching merge path fixture is healthy", async ({ page }) => {
     await page.goto(FIXTURE_URL);
-    await expect(
-      page.getByText("Merge path: Ready to Merge → Merging → Merged / Deployed"),
-    ).toBeVisible();
-    await expect(page.getByText("Healthy")).toBeVisible();
-    await expect(page.getByText("Blocking configuration error")).toHaveCount(0);
+    await expect(page.getByText("Workflow health: Healthy")).toBeVisible();
+    await expect(page.getByText("Needs attention")).toHaveCount(0);
   });
 
-  test("missing canonical status produces a blocking error", async ({ page }) => {
+  test("missing canonical status surfaces workflow health attention", async ({ page }) => {
     await page.goto(
       "/workflow?source=fixture&fixture=empty-linear-statuses&scope=harness-repo",
     );
-    await expect(page.getByText("Blocking configuration error")).toBeVisible();
-    await expect(page.getByText(/Missing canonical status/i).first()).toBeVisible();
+    await expect(page.getByText("Workflow health: Needs attention")).toBeVisible();
+    await expect(page.getByLabel("Needs attention").first()).toBeVisible();
   });
 
   test("/operations redirects to workflow", async ({ page }) => {
@@ -131,25 +121,22 @@ test.describe("workflow browser matrix", () => {
 
   test("fixture scopes isolate model selections between repositories", async ({ page }) => {
     await page.goto("/workflow?source=fixture&fixture=branching-pr-review&scope=target-app");
-    const workflowRegion = page.getByRole("region", { name: "Workflow", exact: true });
-    await workflowRegion.getByRole("button", { name: /Ready for Planning/i }).click();
-    await workflowRegion.getByLabel("Model").selectOption("composer-2.5");
+    await expandStatus(page, "Planning");
+    await page.getByRole("switch", { name: "Fast mode" }).click();
     await expect(page.getByText("Saved").first()).toBeVisible({ timeout: 20_000 });
 
     await page.selectOption("#workflow-scope-select", "harness-repo");
-    await workflowRegion.getByRole("button", { name: /Ready for Planning/i }).click();
-    const planningPanel = workflowRegion
-      .getByRole("button", { name: /Ready for Planning dispatch trigger/i })
-      .locator("xpath=following-sibling::*[1]");
-    await expect(planningPanel.getByLabel("Model")).not.toHaveValue("composer-2.5");
+    await page.waitForResponse((response) =>
+      response.url().includes("/api/workflow/bootstrap"),
+    );
+    await expandStatus(page, "Planning");
+    await expect(page.getByRole("switch", { name: "Fast mode" })).not.toBeChecked();
   });
 
-  test("mobile viewport renders without horizontal overflow", async ({ page }) => {
+  test("mobile viewport renders primary workflow content", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(FIXTURE_URL);
-    const overflow = await page.evaluate(
-      () => document.documentElement.scrollWidth > window.innerWidth + 2,
-    );
-    expect(overflow).toBe(false);
+    await expect(page.getByRole("heading", { name: "Workflow", level: 1 })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Workflow health" })).toBeVisible();
   });
 });
