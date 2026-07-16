@@ -493,13 +493,11 @@ return { state, sessionId: session?.sessionId };
         home,
         `
 const metadata = ${JSON.stringify(metadata)};
+process.env.P_DEV_RELEASE_SHA = metadata.releaseSha;
 await facade.beginObservabilitySession({
   workspaceDir,
   moduleUrl: ${JSON.stringify(bundledModuleUrl)},
-  env: {
-    ...process.env,
-    P_DEV_RELEASE_SHA: metadata.releaseSha,
-  },
+  env: process.env,
 });
 await facade.writeObservabilityPreferences(workspaceDir, {
   analyticsPreference: "disabled",
@@ -518,6 +516,8 @@ return { sessionId: session?.sessionId, releaseSha: session?.context.releaseSha 
 `,
       );
 
+      expect(sentryRequests.length).toBeGreaterThanOrEqual(1);
+      expect(metadata.releaseSha).toMatch(/^[0-9a-f]{40}$/);
       const sentryBody = sentryRequests.map((request) => request.body).join("\n");
       const events = assertSentryRequestPrivacy(sentryBody);
       expect(events).toHaveLength(1);
