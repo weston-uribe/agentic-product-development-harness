@@ -1,6 +1,6 @@
 # Canonical product-development workflow
 
-**Status:** implemented in source (Operations V2 + runner preflight)
+**Status:** implemented in source (Workflow page + runner preflight)
 
 The harness uses one canonical Linear workflow descriptor for product-development work. The descriptor lives in `src/workflow/canonical-product-development-workflow.ts` and contains product semantics only (status names, categories, roles, transitions, merge-path variants, and agent-phase keys).
 
@@ -20,16 +20,16 @@ Exactly five Linear statuses trigger repository dispatch:
 - **PM Review** → Needs Revision or Engineering Review
 - **Engineering Review** → Needs Revision or Ready to Merge (human gate only; no PR review agent)
 
-## Agent phases with draft model settings
+## Role-based agent models
 
-Operations stores draft-only model selections keyed by agent phase:
+Production Workflow configuration stores authoritative model selections in `harness.config.json` under `roleModels`:
 
-- planning
-- implementation
-- revision
-- merge-integration-repair
+- **Planner** — planning agents
+- **Builder** — implementation, revision, and integration-repair agents
 
-Draft model choices are not active runtime settings unless a future activation path is implemented and validated separately.
+The Workflow page exposes Planner and Builder controls only. There are no independent revision or integration-repair model settings.
+
+Model changes autosave locally and sync to the harness repo cloud secret `HARNESS_CONFIG_JSON_B64` only.
 
 ## Duplicate status contract
 
@@ -40,15 +40,11 @@ Linear **Duplicate** is an optional system terminal status. Setup does not creat
 - **Different integration and production branches:** Ready to Merge → Merging → Merged to Dev → Merged / Deployed
 - **Same branch:** Ready to Merge → Merging → Merged / Deployed
 
-## Operations V2 draft
+## Workflow UI
 
-Persisted Operations drafts (schema version 2) store:
+The Workflow page is cards-only (health panel + expandable workflow cards). Sidebar card expansion state is stored in browser session storage.
 
-- node layout keyed by canonical status keys
-- draft model settings keyed by canonical agent-phase keys
-- viewport metadata
-
-Sidebar card expansion state is stored in browser session storage, not the draft JSON.
+Legacy `/operations` routes redirect to Workflow. The retired draft API returns **410 Gone**.
 
 ## Validation
 

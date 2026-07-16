@@ -182,6 +182,55 @@ describe("cloud agent factories use basic Composer 2.5", () => {
     assertStandardComposer(request.model);
   });
 
+  it("uses explicit roleModels for planner and builder agent creation", async () => {
+    const roleConfig = makeConfig({
+      roleModels: {
+        planner: { id: "planner-role-model", params: [{ id: "fast", value: "false" }] },
+        builder: { id: "builder-role-model", params: [{ id: "fast", value: "false" }] },
+      },
+    });
+
+    await createPlanningCloudAgent({
+      apiKey: "key",
+      config: roleConfig,
+      targetRepo: TARGET_REPO,
+      baseBranch: "dev",
+    });
+    expect(createMock.mock.calls[0]![0].model.id).toBe("planner-role-model");
+
+    createMock.mockClear();
+
+    await createImplementationCloudAgent({
+      apiKey: "key",
+      config: roleConfig,
+      targetRepo: TARGET_REPO,
+      baseBranch: "dev",
+    });
+    expect(createMock.mock.calls[0]![0].model.id).toBe("builder-role-model");
+
+    createMock.mockClear();
+
+    await createRevisionCloudAgent({
+      apiKey: "key",
+      config: roleConfig,
+      targetRepo: TARGET_REPO,
+      branch: "cursor/wes-1",
+      prUrl: "https://github.com/owner/example-target-app/pull/7",
+    });
+    expect(createMock.mock.calls[0]![0].model.id).toBe("builder-role-model");
+
+    createMock.mockClear();
+
+    await createIntegrationRepairCloudAgent({
+      apiKey: "key",
+      config: roleConfig,
+      targetRepo: TARGET_REPO,
+      branch: "cursor/wes-1",
+      prUrl: "https://github.com/owner/example-target-app/pull/7",
+    });
+    expect(createMock.mock.calls[0]![0].model.id).toBe("builder-role-model");
+  });
+
   it("never sends Fast/Max/high-reasoning in any factory request", async () => {
     await createPlanningCloudAgent({
       apiKey: "key",

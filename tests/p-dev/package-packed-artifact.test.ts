@@ -112,11 +112,16 @@ describe.skipIf(!isCleanEnoughForPackagePack())("p-dev packed artifact", () => {
     expect(listing).toContain("package/workspace-snapshot/manifest.json");
     expect(listing).toMatch(/package\/workspace-snapshot\/files\/src\//);
     expect(listing).toContain(
-      "package/workspace-snapshot/files/apps/gui/app/operations/page.tsx",
+      "package/workspace-snapshot/files/apps/gui/app/workflow/page.tsx",
     );
     expect(listing).toContain(
-      "package/workspace-snapshot/files/apps/gui/components/operations/operations-canvas.tsx",
+      "package/workspace-snapshot/files/apps/gui/lib/workflow-server.ts",
     );
+    expect(listing).toContain(
+      "package/workspace-snapshot/files/apps/gui/components/workflow/workflow-page-client.tsx",
+    );
+    expect(listing).not.toContain("operations-canvas.tsx");
+    expect(listing).not.toMatch(/@xyflow\/react/);
     expect(listing).not.toMatch(/\.env\.local/);
     expect(listing).not.toMatch(/config\.local\.json/);
     expect(listing).not.toMatch(/operations-workflow-draft\.local\.json/);
