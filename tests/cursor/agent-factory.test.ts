@@ -1,10 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const createMock = vi.hoisted(() => vi.fn());
+const resumeMock = vi.hoisted(() => vi.fn());
+const getMock = vi.hoisted(() => vi.fn());
+const unarchiveMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@cursor/sdk", () => ({
   Agent: {
     create: createMock,
+    resume: resumeMock,
+    get: getMock,
+    unarchive: unarchiveMock,
   },
 }));
 
@@ -14,6 +20,7 @@ import {
   createPlanningCloudAgent,
   createRevisionCloudAgent,
   disposeCloudAgent,
+  resumeBuilderCloudAgent,
 } from "../../src/cursor/agent-factory.js";
 import type { HarnessConfig } from "../../src/config/types.js";
 
@@ -84,10 +91,19 @@ describe("disposeCloudAgent", () => {
 describe("cloud agent factories use basic Composer 2.5", () => {
   beforeEach(() => {
     createMock.mockReset();
+    resumeMock.mockReset();
+    getMock.mockReset();
+    unarchiveMock.mockReset();
     createMock.mockResolvedValue({
       agentId: "agent-1",
       [Symbol.asyncDispose]: async () => undefined,
     });
+    resumeMock.mockResolvedValue({
+      agentId: "bc-resumed",
+      [Symbol.asyncDispose]: async () => undefined,
+    });
+    getMock.mockResolvedValue({ agentId: "bc-resumed", archived: false });
+    unarchiveMock.mockResolvedValue(undefined);
   });
 
   it("createPlanningCloudAgent requests standard Composer 2.5 and plan mode", async () => {
@@ -262,5 +278,40 @@ describe("cloud agent factories use basic Composer 2.5", () => {
     for (const call of createMock.mock.calls) {
       assertRequestHasNoPremiumModes(call[0]);
     }
+  });
+
+  it("resumes Builder agents via get, optional unarchive, and resume", async () => {
+    const events = { log: vi.fn() };
+    getMock.mockResolvedValue({ agentId: "bc-resumed", archived: false });
+
+    const agent = await resumeBuilderCloudAgent({
+      apiKey: "key",
+      agentId: "bc-resumed",
+      events: events as never,
+    });
+
+    expect(getMock).toHaveBeenCalledWith("bc-resumed", { apiKey: "key" });
+    expect(unarchiveMock).not.toHaveBeenCalled();
+    expect(resumeMock).toHaveBeenCalledWith("bc-resumed", { apiKey: "key" });
+    expect(agent.agentId).toBe("bc-resumed");
+  });
+
+  it("unarchives archived Builder agents before resume", async () => {
+    const events = { log: vi.fn() };
+    getMock.mockResolvedValue({ agentId: "bc-archived", archived: true });
+
+    await resumeBuilderCloudAgent({
+      apiKey: "key",
+      agentId: "bc-archived",
+      events: events as never,
+    });
+
+    expect(unarchiveMock).toHaveBeenCalledWith("bc-archived", { apiKey: "key" });
+    expect(events.log).toHaveBeenCalledWith(
+      "builder_thread_unarchived",
+      "info",
+      { agentId: "bc-archived" },
+    );
+    expect(resumeMock).toHaveBeenCalledWith("bc-archived", { apiKey: "key" });
   });
 });

@@ -7,9 +7,10 @@ import { ImplementationError } from "../../src/runner/errors.js";
 const mocks = vi.hoisted(() => ({
   transitionIssueStatus: vi.fn(),
   postErrorComment: vi.fn(),
+  postPhaseStartCommentIfNeeded: vi.fn(),
   listIssueComments: vi.fn(),
   createLinearClient: vi.fn(),
-  createImplementationAgent: vi.fn(),
+  acquireBuilderAgent: vi.fn(),
   disposeAgent: vi.fn(),
   sendAndObserve: vi.fn(),
   fetchLinearIssue: vi.fn(),
@@ -18,12 +19,13 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../../src/linear/writer.js", () => ({
   transitionIssueStatus: mocks.transitionIssueStatus,
   postErrorComment: mocks.postErrorComment,
+  postPhaseStartCommentIfNeeded: mocks.postPhaseStartCommentIfNeeded,
   listIssueComments: mocks.listIssueComments,
   createLinearClient: mocks.createLinearClient,
 }));
 
 vi.mock("../../src/agents/index.js", () => ({
-  createImplementationAgent: mocks.createImplementationAgent,
+  acquireBuilderAgent: mocks.acquireBuilderAgent,
   disposeAgent: mocks.disposeAgent,
   sendAndObserve: mocks.sendAndObserve,
   resolveModelId: vi.fn().mockReturnValue("composer-2.5"),
@@ -123,9 +125,23 @@ describe("executeImplementationPhase", () => {
     mocks.transitionIssueStatus.mockResolvedValue(undefined);
     mocks.postErrorComment.mockResolvedValue("error-comment-1");
     mocks.createLinearClient.mockReturnValue({});
-    mocks.createImplementationAgent.mockResolvedValue({
-      agentId: "agent-impl",
-      [Symbol.asyncDispose]: async () => undefined,
+    mocks.postPhaseStartCommentIfNeeded.mockResolvedValue("phase-start-1");
+    mocks.acquireBuilderAgent.mockResolvedValue({
+      agent: {
+        agentId: "agent-impl",
+        [Symbol.asyncDispose]: async () => undefined,
+      },
+      continuity: {
+        action: "created",
+        reference: {
+          agentId: "agent-impl",
+          generation: 1,
+          originHarnessRunId: "run-impl",
+          latestHarnessRunId: "run-impl",
+          sourcePhase: "implementation",
+          targetRepo: "https://github.com/owner/example-target-app",
+        },
+      },
     });
     mocks.fetchLinearIssue.mockResolvedValue({
       id: "issue-impl",
@@ -172,6 +188,8 @@ describe("executeImplementationPhase", () => {
       "cursor/wes-12-m3-implementation-integration-test",
     );
     expect(result.manifest.prUrl).toContain("/pull/12");
+    expect(result.manifest.builderAgentId).toBe("agent-impl");
+    expect(result.manifest.builderThreadAction).toBe("created");
     expect(mocks.transitionIssueStatus).toHaveBeenCalledTimes(2);
     expect(mocks.postErrorComment).not.toHaveBeenCalled();
   });

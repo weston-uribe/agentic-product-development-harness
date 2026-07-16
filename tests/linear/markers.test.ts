@@ -94,4 +94,33 @@ target_repo: https://github.com/example/repo
 
   // Linear preserves HTML comments in stored comment bodies (verified via API round-trip).
   // Hidden metadata strategy depends on this behavior.
+
+  it("round-trips Builder thread metadata fields", () => {
+    const footer = formatHarnessCommentFooter({
+      orchestratorMarker: "harness-orchestrator-v1",
+      phase: "revision_start",
+      runId: "rev-run-1",
+      model: "composer-2.5",
+      promptVersion: "revision@1",
+      targetRepo: "https://github.com/owner/example-target-app",
+      builderAgentId: "bc-builder-1",
+      builderThreadGeneration: 2,
+      builderThreadAction: "resumed",
+      builderOriginRunId: "impl-run-1",
+      builderThreadIdempotencyKey: "p-dev:revision:WES-1:comment-1",
+      previousBuilderAgentId: "bc-builder-0",
+      builderThreadReplacementReason: "agent_not_found",
+    });
+
+    const markers = parseHarnessMarkers(`Revision starting.\n\n${footer}`);
+    expect(markers.builderAgentId).toBe("bc-builder-1");
+    expect(markers.builderThreadGeneration).toBe("2");
+    expect(markers.builderThreadAction).toBe("resumed");
+    expect(markers.builderOriginRunId).toBe("impl-run-1");
+    expect(markers.builderThreadIdempotencyKey).toBe(
+      "p-dev:revision:WES-1:comment-1",
+    );
+    expect(markers.previousBuilderAgentId).toBe("bc-builder-0");
+    expect(markers.builderThreadReplacementReason).toBe("agent_not_found");
+  });
 });

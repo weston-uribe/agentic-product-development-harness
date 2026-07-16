@@ -28,12 +28,12 @@ import {
   transitionIssueStatus,
 } from "../../linear/writer.js";
 import {
-  createImplementationAgent,
+  acquireBuilderAgent,
   disposeAgent,
   sendAndObserve,
   type CursorCancelOutcome,
 } from "../../agents/index.js";
-import { manifestModelEvidence } from "../../cursor/model.js";
+import { manifestModelEvidence, resolveBuilderModel } from "../../cursor/model.js";
 import { assertPrBaseBranchMatches } from "../../github/base-branch.js";
 import { GitHubClient } from "../../github/client.js";
 import { classifyGitHubError, inspectPullRequest } from "../../github/pr-inspector.js";
@@ -41,6 +41,12 @@ import { parsePrUrl } from "../../github/pr-url.js";
 import { pollForVercelPreview } from "../../preview/vercel-from-pr.js";
 import { buildBranchName } from "../../prompts/branch-name.js";
 import { buildImplementationPrompt } from "../../prompts/builder.js";
+import { buildImplementationIdempotencyKey } from "../builder-thread-idempotency.js";
+import {
+  builderManifestFieldsFromResolution,
+  builderMarkerEvidenceFromResolution,
+} from "../builder-thread-evidence.js";
+import type { BuilderThreadResolution } from "../builder-thread-types.js";
 import { ImplementationError } from "../errors.js";
 import { runPreflight } from "../preflight.js";
 import {
@@ -219,6 +225,8 @@ export async function executeImplementationPhase(
   let validationSummary: string | null = null;
   let enteredBuilding = false;
   let cursorCleanup: CursorCancelOutcome | null = null;
+  let builderContinuity: BuilderThreadResolution | null = null;
+  let cursorRequestId: string | null = null;
   const builderModel = manifestModelEvidence(config, "builder");
   const model = builderModel.model;
   const commentsWritten: string[] = [];
@@ -363,12 +371,33 @@ export async function executeImplementationPhase(
     await mkdir(`${runDirectory}/prompts`, { recursive: true });
     await writeFile(getImplementationPromptPath(runDirectory), `${prompt}\n`, "utf8");
 
-    const agent = await createImplementationAgent({
+    const implementationIdempotencyKey = buildImplementationIdempotencyKey({
+      issueKey: issue.identifier,
+      targetRepo: resolved.targetRepo,
+      branch: branchName,
+    });
+    const acquired = await acquireBuilderAgent({
       apiKey: cursorApiKey,
       config,
-      targetRepo: resolved.targetRepo,
-      baseBranch: resolved.baseBranch,
+      phase: "implementation",
+      events,
+      context: {
+        issueKey: issue.identifier,
+        harnessRunId: runId,
+        targetRepo: resolved.targetRepo,
+        baseBranch: resolved.baseBranch,
+        branch: branchName,
+        idempotencyKey: implementationIdempotencyKey,
+        comments,
+        orchestratorMarker: config.orchestratorMarker,
+      },
     });
+    builderContinuity = acquired.continuity;
+    const builderEvidence = builderMarkerEvidenceFromResolution(
+      acquired.continuity,
+      implementationIdempotencyKey,
+    );
+    const agent = acquired.agent;
 
     try {
     const timeoutMs =
@@ -392,7 +421,10 @@ export async function executeImplementationPhase(
         targetRepo: resolved.targetRepo,
         abortSignal: abortController.signal,
         apiKey: cursorApiKey,
-        onAgentCreated: async ({ agentId, runId: cursorRunId }) => {
+        model: resolveBuilderModel(config),
+        mode: "agent",
+        idempotencyKey: implementationIdempotencyKey,
+        onBeforeSend: async ({ agentId }) => {
           const commentId = await postPhaseStartCommentIfNeeded(client, issue.id, {
             orchestratorMarker: config.orchestratorMarker,
             phase: "implementation_start",
@@ -404,7 +436,14 @@ export async function executeImplementationPhase(
             promptVersion: IMPLEMENTATION_PROMPT_VERSION,
             branch: branchName,
             cursorAgentId: agentId,
-            cursorRunId,
+            builderAgentId: builderEvidence.builderAgentId,
+            builderThreadGeneration: builderEvidence.builderThreadGeneration,
+            builderThreadAction: builderEvidence.builderThreadAction,
+            builderOriginRunId: builderEvidence.builderOriginRunId,
+            builderThreadIdempotencyKey: builderEvidence.builderThreadIdempotencyKey,
+            previousBuilderAgentId: builderEvidence.previousBuilderAgentId,
+            builderThreadReplacementReason:
+              builderEvidence.builderThreadReplacementReason,
           });
           if (commentId) {
             await events.log("phase_start_comment_posted", "info", {
@@ -416,6 +455,13 @@ export async function executeImplementationPhase(
               commentId,
             });
           }
+        },
+        onAgentCreated: async ({ agentId, runId: createdRunId }) => {
+          await events.log("builder_followup_run_started", "info", {
+            agentId,
+            runId: createdRunId,
+            phase: "implementation",
+          });
         },
       });
     } catch (error) {
@@ -431,6 +477,7 @@ export async function executeImplementationPhase(
 
     cursorAgentId = observed.agentId;
     cursorRunId = observed.runId;
+    cursorRequestId = observed.requestId ?? null;
     branch = observed.gitResult?.branch ?? null;
     prUrl = observed.gitResult?.prUrl ?? null;
     validationSummary = observed.assistantText;
@@ -611,6 +658,17 @@ export async function executeImplementationPhase(
     model,
     modelRole: "builder",
     modelParams: builderModel.modelParams,
+    ...(builderContinuity
+      ? builderManifestFieldsFromResolution(builderContinuity, cursorRequestId ?? undefined)
+      : {
+          builderAgentId: null,
+          builderThreadAction: null,
+          builderThreadGeneration: null,
+          builderOriginRunId: null,
+          previousBuilderAgentId: null,
+          builderThreadReplacementReason: null,
+          cursorRequestId: cursorRequestId,
+        }),
   };
 
   return writeFinalManifest(

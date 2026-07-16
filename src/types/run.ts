@@ -101,6 +101,18 @@ export interface RunManifest {
   model: string | null;
   modelRole?: "planner" | "builder" | null;
   modelParams?: Array<{ id: string; value: string }> | null;
+  builderAgentId?: string | null;
+  builderThreadAction?: "created" | "resumed" | "replaced" | null;
+  builderThreadGeneration?: number | null;
+  builderOriginRunId?: string | null;
+  previousBuilderAgentId?: string | null;
+  builderThreadReplacementReason?:
+    | "legacy_missing_lineage"
+    | "agent_not_found"
+    | "agent_deleted"
+    | "agent_inaccessible"
+    | null;
+  cursorRequestId?: string | null;
 }
 
 export type RunEventName =
@@ -155,6 +167,15 @@ export type RunEventName =
   | "deployment_not_found"
   | "merge_comment_posted"
   | "merge_recovery_written"
+  | "builder_thread_resolved"
+  | "builder_thread_created"
+  | "builder_thread_resume_attempted"
+  | "builder_thread_resumed"
+  | "builder_thread_resume_failed"
+  | "builder_thread_unarchived"
+  | "builder_thread_replacement_created"
+  | "builder_thread_lineage_rejected"
+  | "builder_followup_run_started"
   | "run_finished";
 
 export interface RunEvent {

@@ -40,6 +40,7 @@ import {
 import { parsePrUrl } from "../../github/pr-url.js";
 import { pollForVercelPreview } from "../../preview/vercel-from-pr.js";
 import { normalizeRepoUrl } from "../../resolver/normalize-repo.js";
+import { resolveBuilderThreadMarkerEvidence } from "../builder-thread-lineage.js";
 import { HandoffError } from "../errors.js";
 import { runPreflight } from "../preflight.js";
 import {
@@ -491,12 +492,30 @@ export async function executeHandoffPhase(
       previousImplementationRunId,
     });
 
+    const builderEvidence =
+      resolveBuilderThreadMarkerEvidence({
+        comments,
+        orchestratorMarker: config.orchestratorMarker,
+        issueKey: issue.identifier,
+        targetRepo: markerTargetRepo,
+        branch: inspection.branch,
+        prUrl: inspection.url,
+        previousImplementationRunId: previousImplementationRunId ?? undefined,
+      }) ?? {};
+
     const handoffCommentId = await postHandoffComment(client, issue.id, handoffBody, {
       ...footerBase,
       branch: branch ?? undefined,
       prUrl: prUrl ?? undefined,
       previewUrl: previewUrl ?? undefined,
       previousImplementationRunId: previousImplementationRunId ?? undefined,
+      builderAgentId: builderEvidence.builderAgentId,
+      builderThreadGeneration: builderEvidence.builderThreadGeneration,
+      builderThreadAction: builderEvidence.builderThreadAction,
+      builderOriginRunId: builderEvidence.builderOriginRunId,
+      builderThreadIdempotencyKey: builderEvidence.builderThreadIdempotencyKey,
+      previousBuilderAgentId: builderEvidence.previousBuilderAgentId,
+      builderThreadReplacementReason: builderEvidence.builderThreadReplacementReason,
     });
     commentsWritten.push(handoffBody);
     await mkdir(`${runDirectory}/linear`, { recursive: true });

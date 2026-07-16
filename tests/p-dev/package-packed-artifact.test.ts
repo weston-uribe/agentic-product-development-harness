@@ -200,6 +200,21 @@ describe.skipIf(!isCleanEnoughForPackagePack())("p-dev packed artifact", () => {
     expect(JSON.stringify(parsed)).not.toMatch(/\.harness/);
   });
 
+  it("includes Builder thread continuity modules in the workspace snapshot", () => {
+    const listing = execFileSync("tar", ["-tzf", tarballPath], {
+      encoding: "utf8",
+    });
+    expect(listing).toContain(
+      "package/workspace-snapshot/src/runner/builder-thread-lineage.ts",
+    );
+    expect(listing).toContain(
+      "package/workspace-snapshot/src/runner/builder-thread-acquire.ts",
+    );
+    expect(listing).toContain(
+      "package/workspace-snapshot/src/cursor/builder-resume-errors.ts",
+    );
+  });
+
   it("records tarball metadata for release evidence", () => {
     const bytes = readFileSync(tarballPath).byteLength;
     const sha1 = execFileSync("shasum", ["-a", "1", tarballPath], {

@@ -9,9 +9,11 @@ import type { HarnessConfig } from "../../src/config/types.js";
 const factoryMocks = vi.hoisted(() => ({
   createPlanningCloudAgent: vi.fn(),
   createImplementationCloudAgent: vi.fn(),
-  createRevisionCloudAgent: vi.fn(),
-  createIntegrationRepairCloudAgent: vi.fn(),
   disposeCloudAgent: vi.fn(),
+}));
+
+const acquireMocks = vi.hoisted(() => ({
+  acquireBuilderAgent: vi.fn(),
 }));
 
 const observerMocks = vi.hoisted(() => ({
@@ -25,9 +27,11 @@ const modelMocks = vi.hoisted(() => ({
 vi.mock("../../src/cursor/agent-factory.js", () => ({
   createPlanningCloudAgent: factoryMocks.createPlanningCloudAgent,
   createImplementationCloudAgent: factoryMocks.createImplementationCloudAgent,
-  createRevisionCloudAgent: factoryMocks.createRevisionCloudAgent,
-  createIntegrationRepairCloudAgent: factoryMocks.createIntegrationRepairCloudAgent,
   disposeCloudAgent: factoryMocks.disposeCloudAgent,
+}));
+
+vi.mock("../../src/runner/builder-thread-acquire.js", () => ({
+  acquireBuilderAgent: acquireMocks.acquireBuilderAgent,
 }));
 
 vi.mock("../../src/cursor/run-observer.js", () => ({
@@ -122,38 +126,46 @@ describe("cursorAgentProvider", () => {
     expect(factoryMocks.createImplementationCloudAgent).toHaveBeenCalledWith(params);
   });
 
-  it("delegates createRevisionAgent to createRevisionCloudAgent", async () => {
-    factoryMocks.createRevisionCloudAgent.mockResolvedValue(mockCursorAgent());
+  it("delegates acquireBuilderAgent to builder-thread acquire", async () => {
+    const cursorAgent = mockCursorAgent("builder-1");
+    acquireMocks.acquireBuilderAgent.mockResolvedValue({
+      agent: cursorAgent,
+      continuity: {
+        action: "resumed",
+        reference: {
+          agentId: "builder-1",
+          generation: 1,
+          originHarnessRunId: "run-1",
+          latestHarnessRunId: "run-2",
+          sourcePhase: "revision",
+          targetRepo: TARGET_REPO,
+        },
+      },
+    });
     const config = makeConfig();
     const params = {
       apiKey: "key",
       config,
-      targetRepo: TARGET_REPO,
-      branch: "cursor/wes-1-test",
-      prUrl: `${TARGET_REPO}/pull/1`,
+      phase: "revision" as const,
+      context: {
+        issueKey: "WES-1",
+        harnessRunId: "run-2",
+        targetRepo: TARGET_REPO,
+        baseBranch: "main",
+        branch: "cursor/wes-1-test",
+        prUrl: `${TARGET_REPO}/pull/1`,
+        idempotencyKey: "p-dev:revision:WES-1:comment-1",
+        comments: [],
+        orchestratorMarker: config.orchestratorMarker,
+      },
+      events: { log: vi.fn() } as never,
     };
 
-    await cursorAgentProvider.createRevisionAgent(params);
+    const acquired = await cursorAgentProvider.acquireBuilderAgent(params);
 
-    expect(factoryMocks.createRevisionCloudAgent).toHaveBeenCalledWith(params);
-  });
-
-  it("delegates createIntegrationRepairAgent to createIntegrationRepairCloudAgent", async () => {
-    factoryMocks.createIntegrationRepairCloudAgent.mockResolvedValue(mockCursorAgent());
-    const config = makeConfig();
-    const params = {
-      apiKey: "key",
-      config,
-      targetRepo: TARGET_REPO,
-      branch: "cursor/wes-1-test",
-      prUrl: `${TARGET_REPO}/pull/1`,
-    };
-
-    await cursorAgentProvider.createIntegrationRepairAgent(params);
-
-    expect(factoryMocks.createIntegrationRepairCloudAgent).toHaveBeenCalledWith(
-      params,
-    );
+    expect(acquireMocks.acquireBuilderAgent).toHaveBeenCalledWith(params);
+    expect(acquired.continuity.action).toBe("resumed");
+    expect((acquired.agent as { __brand?: symbol }).__brand).toBeDefined();
   });
 
   it("maps ObservedRunResult to ObservedAgentRun without dropping fields", async () => {

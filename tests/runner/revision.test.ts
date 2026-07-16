@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
   postErrorComment: vi.fn(),
   listIssueComments: vi.fn(),
   createLinearClient: vi.fn(),
-  createRevisionAgent: vi.fn(),
+  acquireBuilderAgent: vi.fn(),
   disposeAgent: vi.fn(),
   sendAndObserve: vi.fn(),
   fetchLinearIssue: vi.fn(),
@@ -28,7 +28,7 @@ vi.mock("../../src/linear/writer.js", () => ({
 }));
 
 vi.mock("../../src/agents/index.js", () => ({
-  createRevisionAgent: mocks.createRevisionAgent,
+  acquireBuilderAgent: mocks.acquireBuilderAgent,
   disposeAgent: mocks.disposeAgent,
   sendAndObserve: mocks.sendAndObserve,
   resolveModelId: vi.fn().mockReturnValue("composer-2.5"),
@@ -189,9 +189,24 @@ describe("executeRevisionPhase", () => {
       polledSeconds: 0,
       warnings: [],
     });
-    mocks.createRevisionAgent.mockResolvedValue({
-      agentId: "agent-rev",
-      [Symbol.asyncDispose]: async () => undefined,
+    mocks.acquireBuilderAgent.mockResolvedValue({
+      agent: {
+        agentId: "agent-rev",
+        [Symbol.asyncDispose]: async () => undefined,
+      },
+      continuity: {
+        action: "resumed",
+        reference: {
+          agentId: "agent-rev",
+          generation: 1,
+          originHarnessRunId: "impl-1",
+          latestHarnessRunId: "run-rev",
+          sourcePhase: "revision",
+          targetRepo: "https://github.com/owner/example-target-app",
+          branch: "cursor/wes-13-test",
+          prUrl: "https://github.com/owner/example-target-app/pull/4",
+        },
+      },
     });
     mocks.sendAndObserve.mockResolvedValue({
       agentId: "agent-rev",
@@ -250,12 +265,17 @@ describe("executeRevisionPhase", () => {
     expect(result.manifest.pmFeedbackCommentId).toBe("pm-feedback-1");
     expect(mocks.transitionIssueStatus).toHaveBeenCalledTimes(2);
     expect(mocks.postRevisionComment).toHaveBeenCalledTimes(1);
-    expect(mocks.createRevisionAgent).toHaveBeenCalledWith(
+    expect(mocks.acquireBuilderAgent).toHaveBeenCalledWith(
       expect.objectContaining({
-        branch: "cursor/wes-13-test",
-        prUrl: "https://github.com/owner/example-target-app/pull/4",
+        phase: "revision",
+        context: expect.objectContaining({
+          branch: "cursor/wes-13-test",
+          prUrl: "https://github.com/owner/example-target-app/pull/4",
+        }),
       }),
     );
+    expect(result.manifest.builderAgentId).toBe("agent-rev");
+    expect(result.manifest.builderThreadAction).toBe("resumed");
   });
 
   it("duplicate skips from PM Review when revision marker exists", async () => {
@@ -297,7 +317,7 @@ describe("executeRevisionPhase", () => {
     expect(result.exitCode).toBe(0);
     expect(result.manifest.finalOutcome).toBe("duplicate");
     expect(mocks.postRevisionComment).not.toHaveBeenCalled();
-    expect(mocks.createRevisionAgent).not.toHaveBeenCalled();
+    expect(mocks.acquireBuilderAgent).not.toHaveBeenCalled();
   });
 
   it("fails with wrong_status from PM Review without matching revision marker", async () => {

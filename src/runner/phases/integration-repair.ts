@@ -9,7 +9,7 @@ import {
 import type { HarnessConfig } from "../../config/types.js";
 import type { EventLogger } from "../../artifacts/events.js";
 import {
-  createIntegrationRepairAgent,
+  acquireBuilderAgent,
   disposeAgent,
   sendAndObserve,
 } from "../../agents/index.js";
@@ -33,7 +33,12 @@ import { inferVercelReadyFromComments } from "../../preview/production-from-merg
 import { buildIntegrationRepairPrompt } from "../../prompts/integration-repair-builder.js";
 import type { ResolvedTarget } from "../../resolver/target-repo.js";
 import type { ParsedIssue } from "../../types/parsed-issue.js";
-import { manifestModelEvidence } from "../../cursor/model.js";
+import { manifestModelEvidence, resolveBuilderModel } from "../../cursor/model.js";
+import { listIssueComments } from "../../linear/writer.js";
+import { buildIntegrationRepairIdempotencyKey } from "../builder-thread-idempotency.js";
+import {
+  builderMarkerEvidenceFromResolution,
+} from "../builder-thread-evidence.js";
 import { MergeError } from "../errors.js";
 
 const DETERMINISTIC_UPDATE_ATTEMPTS = 2;
@@ -45,6 +50,13 @@ export interface IntegrationRepairAgentEvidence {
   modelParams: Array<{ id: string; value: string }> | null;
   cursorAgentId: string;
   cursorRunId: string;
+  builderAgentId: string;
+  builderThreadAction: "created" | "resumed" | "replaced";
+  builderThreadGeneration: number;
+  builderOriginRunId: string;
+  previousBuilderAgentId?: string | null;
+  builderThreadReplacementReason?: string | null;
+  cursorRequestId?: string | null;
 }
 
 export interface IntegrationRepairResult {
@@ -113,6 +125,13 @@ async function postRepairComment(
     mergeCommitSha?: string;
     cursorAgentId?: string;
     cursorRunId?: string;
+    builderAgentId?: string;
+    builderThreadGeneration?: number;
+    builderThreadAction?: string;
+    builderOriginRunId?: string;
+    builderThreadIdempotencyKey?: string;
+    previousBuilderAgentId?: string;
+    builderThreadReplacementReason?: string;
   },
 ): Promise<void> {
   const footer = formatHarnessCommentFooter({
@@ -135,6 +154,13 @@ async function postRepairComment(
     repairCycleId: input.repairCycleId,
     cursorAgentId: input.cursorAgentId,
     cursorRunId: input.cursorRunId,
+    builderAgentId: input.builderAgentId,
+    builderThreadGeneration: input.builderThreadGeneration,
+    builderThreadAction: input.builderThreadAction,
+    builderOriginRunId: input.builderOriginRunId,
+    builderThreadIdempotencyKey: input.builderThreadIdempotencyKey,
+    previousBuilderAgentId: input.previousBuilderAgentId,
+    builderThreadReplacementReason: input.builderThreadReplacementReason,
   });
   await postIssueComment(
     options.linearClient,
@@ -406,19 +432,43 @@ async function attemptAgentRepair(
     options.parsedPr,
     options.markerTargetRepo,
   );
-  const agent = await createIntegrationRepairAgent({
+  const comments = await listIssueComments(options.linearClient, options.issue.id);
+  const repairIdempotencyKey = buildIntegrationRepairIdempotencyKey({
+    issueKey: options.issue.identifier,
+    prUrl: inspectionBeforeAgent.url,
+    repairCycleId,
+    baseHeadSha: baseRef.object.sha,
+    headSha: inspectionBeforeAgent.headSha,
+  });
+  const acquired = await acquireBuilderAgent({
     apiKey: options.cursorApiKey,
     config: options.config,
-    targetRepo: options.markerTargetRepo,
-    branch: inspectionBeforeAgent.branch,
-    prUrl: inspectionBeforeAgent.url,
+    phase: "integration_repair",
+    events: options.events,
+    context: {
+      issueKey: options.issue.identifier,
+      harnessRunId: options.runId,
+      targetRepo: options.markerTargetRepo,
+      baseBranch: options.resolved.baseBranch,
+      branch: inspectionBeforeAgent.branch,
+      prUrl: inspectionBeforeAgent.url,
+      idempotencyKey: repairIdempotencyKey,
+      comments,
+      orchestratorMarker: options.config.orchestratorMarker,
+    },
   });
+  const builderEvidence = builderMarkerEvidenceFromResolution(
+    acquired.continuity,
+    repairIdempotencyKey,
+  );
+  const agent = acquired.agent;
 
   try {
     let observed;
     let repairAgentId: string | null = null;
     let repairRunId: string | null = null;
-    const builderEvidence = manifestModelEvidence(options.config, "builder");
+    let repairRequestId: string | null = null;
+    const builderModelEvidence = manifestModelEvidence(options.config, "builder");
     for (let attempt = 1; attempt <= AGENT_REPAIR_ATTEMPTS; attempt += 1) {
       await options.events.log("repair_agent_started", "info", {
         attempt,
@@ -435,9 +485,11 @@ async function attemptAgentRepair(
           expectedBranch: inspectionBeforeAgent.branch,
           expectedPrUrl: inspectionBeforeAgent.url,
           apiKey: options.cursorApiKey,
-          onAgentCreated: async ({ agentId, runId: cursorRunId }) => {
+          model: resolveBuilderModel(options.config),
+          mode: "agent",
+          idempotencyKey: repairIdempotencyKey,
+          onBeforeSend: async ({ agentId }) => {
             repairAgentId = agentId;
-            repairRunId = cursorRunId;
             await postRepairComment(options, {
               phase: "repair_agent_start",
               title: "Integration repair agent started",
@@ -448,7 +500,23 @@ async function attemptAgentRepair(
               triggerReason: repairTriggerReason(options.initialInspection),
               conflictFiles,
               cursorAgentId: agentId,
-              cursorRunId,
+              builderAgentId: builderEvidence.builderAgentId,
+              builderThreadGeneration: builderEvidence.builderThreadGeneration,
+              builderThreadAction: builderEvidence.builderThreadAction,
+              builderOriginRunId: builderEvidence.builderOriginRunId,
+              builderThreadIdempotencyKey: builderEvidence.builderThreadIdempotencyKey,
+              previousBuilderAgentId: builderEvidence.previousBuilderAgentId,
+              builderThreadReplacementReason:
+                builderEvidence.builderThreadReplacementReason,
+            });
+          },
+          onAgentCreated: async ({ agentId, runId: cursorRunId }) => {
+            repairAgentId = agentId;
+            repairRunId = cursorRunId;
+            await options.events.log("builder_followup_run_started", "info", {
+              agentId,
+              runId: cursorRunId,
+              phase: "integration_repair",
             });
           },
         },
@@ -458,6 +526,7 @@ async function attemptAgentRepair(
     if (!observed) {
       throw new MergeError("cursor_run_failed", "Integration repair agent did not run");
     }
+    repairRequestId = observed.requestId ?? null;
 
     const inspectionAfterAgent = await inspectPullRequestForMerge(
       options.github,
@@ -525,6 +594,15 @@ async function attemptAgentRepair(
       dependencyClosureFiles: scope.dependencyClosureFiles,
       touchedFiles: scope.touchedFiles,
       mergeCommitSha: report.merge_commit_sha ?? inspectionAfterAgent.headSha,
+      cursorAgentId: repairAgentId ?? undefined,
+      cursorRunId: repairRunId ?? undefined,
+      builderAgentId: builderEvidence.builderAgentId,
+      builderThreadGeneration: builderEvidence.builderThreadGeneration,
+      builderThreadAction: builderEvidence.builderThreadAction,
+      builderOriginRunId: builderEvidence.builderOriginRunId,
+      builderThreadIdempotencyKey: builderEvidence.builderThreadIdempotencyKey,
+      previousBuilderAgentId: builderEvidence.previousBuilderAgentId,
+      builderThreadReplacementReason: builderEvidence.builderThreadReplacementReason,
     });
     return {
       inspection: checked.inspection,
@@ -533,11 +611,19 @@ async function attemptAgentRepair(
       ...(repairAgentId && repairRunId
         ? {
             agentEvidence: {
-              model: builderEvidence.model,
+              model: builderModelEvidence.model,
               modelRole: "builder" as const,
-              modelParams: builderEvidence.modelParams,
+              modelParams: builderModelEvidence.modelParams,
               cursorAgentId: repairAgentId,
               cursorRunId: repairRunId,
+              builderAgentId: acquired.continuity.reference.agentId,
+              builderThreadAction: acquired.continuity.action,
+              builderThreadGeneration: acquired.continuity.reference.generation,
+              builderOriginRunId: acquired.continuity.reference.originHarnessRunId,
+              previousBuilderAgentId: acquired.continuity.previousAgentId ?? null,
+              builderThreadReplacementReason:
+                acquired.continuity.replacementReason ?? null,
+              cursorRequestId: repairRequestId,
             },
           }
         : {}),

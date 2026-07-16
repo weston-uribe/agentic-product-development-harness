@@ -1,5 +1,10 @@
 import type { HarnessConfig } from "../config/types.js";
 import type { EventLogger } from "../artifacts/events.js";
+import type { LinearCommentRecord } from "../linear/writer.js";
+import type {
+  BuilderThreadResolution,
+  BuilderThreadSourcePhase,
+} from "../runner/builder-thread-types.js";
 
 export type AgentObservePhase =
   | "planning"
@@ -21,6 +26,7 @@ export interface CapturedGitResult {
 export interface ObservedAgentRun {
   agentId: string;
   runId: string;
+  requestId?: string;
   assistantText: string;
   gitResult: CapturedGitResult | null;
   cancelOutcome: CursorCancelOutcome | null;
@@ -50,6 +56,10 @@ export interface BranchAgentParams {
 export type RevisionAgentParams = BranchAgentParams;
 export type IntegrationRepairAgentParams = BranchAgentParams;
 
+export interface AgentModelSelection {
+  id: string;
+}
+
 export interface SendAndObserveOptions {
   phase?: AgentObservePhase;
   targetRepo?: string;
@@ -58,7 +68,36 @@ export interface SendAndObserveOptions {
   abortSignal?: AbortSignal;
   apiKey?: string;
   pollIntervalMs?: number;
+  model?: AgentModelSelection;
+  mode?: "agent" | "plan";
+  idempotencyKey?: string;
   onAgentCreated?: (details: { agentId: string; runId: string }) => Promise<void>;
+  onBeforeSend?: (details: { agentId: string }) => Promise<void>;
+}
+
+export interface AcquireBuilderAgentParams {
+  apiKey: string;
+  config: HarnessConfig;
+  phase: BuilderThreadSourcePhase;
+  context: {
+    issueKey: string;
+    harnessRunId: string;
+    targetRepo: string;
+    baseBranch: string;
+    branch?: string;
+    prUrl?: string;
+    idempotencyKey: string;
+    comments: LinearCommentRecord[];
+    orchestratorMarker: string;
+    previousImplementationRunId?: string;
+    previousRevisionRunId?: string;
+  };
+  events: EventLogger;
+}
+
+export interface AcquiredBuilderAgent {
+  agent: AgentHandle;
+  continuity: BuilderThreadResolution;
 }
 
 export interface AgentProvider {
@@ -68,10 +107,7 @@ export interface AgentProvider {
 
   createPlanningAgent(params: PlanningAgentParams): Promise<AgentHandle>;
   createImplementationAgent(params: ImplementationAgentParams): Promise<AgentHandle>;
-  createRevisionAgent(params: RevisionAgentParams): Promise<AgentHandle>;
-  createIntegrationRepairAgent(
-    params: IntegrationRepairAgentParams,
-  ): Promise<AgentHandle>;
+  acquireBuilderAgent(params: AcquireBuilderAgentParams): Promise<AcquiredBuilderAgent>;
 
   sendAndObserve(
     agent: AgentHandle,

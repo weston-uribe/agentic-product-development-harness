@@ -25,11 +25,30 @@ Exactly five Linear statuses trigger repository dispatch:
 Production Workflow configuration stores authoritative model selections in `harness.config.json` under `roleModels`:
 
 - **Planner** — planning agents
-- **Builder** — implementation, revision, and integration-repair agents
+- **Builder** — implementation, revision, and integration-repair follow-ups on one canonical Builder thread
 
-The Workflow page exposes Planner and Builder controls only. There are no independent revision or integration-repair model settings.
+The Workflow page exposes Planner and Builder controls only. There are no independent revision or integration-repair model settings. Each Builder prompt sends `resolveBuilderModel(config)` so a changed Builder model applies on the next run.
 
 Model changes autosave locally and sync to the harness repo cloud secret `HARNESS_CONFIG_JSON_B64` only.
+
+## Builder thread continuity
+
+One durable Builder Cursor conversation is preserved per implementation lineage:
+
+| Phase | Builder behavior |
+|-------|------------------|
+| **Building** | Create generation `1`; persist `builder_agent_id` before first `send()` |
+| **Revising** | Resolve lineage from handoff / prior markers; resume Builder; send PM feedback as follow-up |
+| **Integration repair (agent)** | Resolve latest canonical Builder; send narrow repair follow-up |
+| **Integration repair (deterministic)** | Agent-free; unchanged |
+
+**Source of truth:** hidden Linear comment metadata (not session memory). Legacy issues without `builder_agent_id` may fall back to validated `cursor_agent_id` on implementation-start markers only.
+
+**Replacement policy:** create a new Builder only for definitive agent loss or exhausted legacy lineage — never for auth, network, rate-limit, busy, or uncertain `send()` outcomes.
+
+**Idempotency:** stable keys from durable triggers (issue + branch, PM feedback comment ID, repair cycle SHAs) — not harness `run_id`.
+
+**No VM guarantee:** resume/unarchive is best-effort; durable artifacts must always allow a fresh agent to reconstruct context.
 
 ## Duplicate status contract
 

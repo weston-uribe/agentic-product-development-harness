@@ -127,3 +127,22 @@ export async function createIntegrationRepairCloudAgent(
     },
   });
 }
+
+export interface ResumeBuilderCloudAgentParams {
+  apiKey: string;
+  agentId: string;
+  events?: import("../artifacts/events.js").EventLogger;
+}
+
+export async function resumeBuilderCloudAgent(
+  params: ResumeBuilderCloudAgentParams,
+): Promise<SDKAgent> {
+  const info = await Agent.get(params.agentId, { apiKey: params.apiKey });
+  if (info.archived) {
+    await Agent.unarchive(params.agentId, { apiKey: params.apiKey });
+    await params.events?.log("builder_thread_unarchived", "info", {
+      agentId: params.agentId,
+    });
+  }
+  return Agent.resume(params.agentId, { apiKey: params.apiKey });
+}

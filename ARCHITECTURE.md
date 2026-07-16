@@ -313,15 +313,17 @@ The first automation inspects status and labels, then:
 | Ready to Merge | Merge runner (M6) |
 | Other | Exit with no changes |
 
-### Agent roles (planned)
+### Agent roles (implemented / planned)
 
 | Role | Trigger | Primary durable output |
 |------|---------|------------------------|
 | Router Agent | Status change | Route or exit |
 | Planning Agent | Ready for Planning | Plan comment in Linear |
-| Implementation Agent | Ready for Build | Branch, PR, Linear comment |
-| Revision Agent | Needs Revision | Commits, revision comment |
+| Builder (implementation) | Ready for Build | Branch, PR, Linear comment; canonical `builder_agent_id` |
+| Builder (revision / repair) | Needs Revision; Merging agent repair | Follow-up prompts on the same Builder thread |
 | Merge/Deployment Reporter | Ready to Merge | Final links comment |
+
+**Builder continuity:** Implementation creates generation `1` of the canonical Builder. Revision and agent-based integration repair resolve lineage from hidden Linear metadata (handoff, implementation-start, and prior Builder markers), resume when possible, and replace only on definitive agent loss (`agent_not_found`, `agent_deleted`, `agent_inaccessible`, or exhausted legacy lineage). Planner remains a separate agent. There is no VM or session guarantee across phases.
 
 Full role contracts: [`docs/architecture/linear-automation-state-machine.md`](docs/architecture/linear-automation-state-machine.md).
 

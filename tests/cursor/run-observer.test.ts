@@ -94,6 +94,42 @@ describe("sendAndObserve", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
+  it("passes per-send model, mode, and idempotencyKey to agent.send", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "harness-observer-"));
+    const events = new EventLogger(dir);
+    await events.init();
+
+    const send = vi.fn().mockResolvedValue({
+      id: "run-idem",
+      requestId: "req-1",
+      stream: async function* () {
+        yield { type: "message" };
+      },
+      wait: vi.fn().mockResolvedValue({
+        id: "run-idem",
+        status: "completed",
+        durationMs: 100,
+        result: "done",
+        git: { branches: [] },
+      }),
+    });
+    const agent = createMockAgent({ send });
+
+    await sendAndObserve(agent as never, "prompt", dir, events, {
+      model: { id: "composer-2.5" },
+      mode: "agent",
+      idempotencyKey: "p-dev:revision:WES-1:comment-1",
+    });
+
+    expect(send).toHaveBeenCalledWith("prompt", {
+      model: { id: "composer-2.5" },
+      mode: "agent",
+      idempotencyKey: "p-dev:revision:WES-1:comment-1",
+    });
+
+    await rm(dir, { recursive: true, force: true });
+  });
+
   it("requires branch and PR for implementation runs", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "harness-observer-"));
     const events = new EventLogger(dir);
