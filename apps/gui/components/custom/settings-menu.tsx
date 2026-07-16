@@ -16,11 +16,15 @@ import { useThemeToggle } from "@/lib/use-theme-toggle";
 type SettingsMenuProps = {
   configureHref?: string;
   isConfigureActive?: boolean;
+  workflowHref?: string;
+  isWorkflowActive?: boolean;
 };
 
 export function SettingsMenu({
   configureHref = "/settings/configure",
   isConfigureActive = false,
+  workflowHref = "/workflow",
+  isWorkflowActive = false,
 }: SettingsMenuProps) {
   const { mounted, isDark, toggleTheme } = useThemeToggle();
 
@@ -47,6 +51,14 @@ export function SettingsMenu({
           <span>{mounted && isDark ? "Light mode" : "Dark mode"}</span>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link
+            href={workflowHref}
+            aria-current={isWorkflowActive ? "page" : undefined}
+          >
+            Workflow
+          </Link>
+        </DropdownMenuItem>
         <DropdownMenuItem asChild>
           <Link
             href={configureHref}

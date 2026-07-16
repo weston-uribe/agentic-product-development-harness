@@ -1,6 +1,4 @@
-import { AppShell } from "@/components/custom/app-shell";
-import { OperationsPageClient } from "@/components/operations/operations-page-client";
-import { loadOperationsBootstrap, sanitizeBootstrapPayload } from "@/lib/operations-server";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -10,17 +8,16 @@ export default async function OperationsPage({
   searchParams: Promise<{ source?: string; fixture?: string; scope?: string }>;
 }) {
   const params = await searchParams;
-  const bootstrap = sanitizeBootstrapPayload(
-    await loadOperationsBootstrap({
-      source: params.source ?? null,
-      fixture: params.fixture ?? null,
-      scope: params.scope ?? null,
-    }),
-  );
-
-  return (
-    <AppShell variant="operations">
-      <OperationsPageClient initialBootstrap={bootstrap} />
-    </AppShell>
-  );
+  const query = new URLSearchParams();
+  if (params.source) {
+    query.set("source", params.source);
+  }
+  if (params.fixture) {
+    query.set("fixture", params.fixture);
+  }
+  if (params.scope) {
+    query.set("scope", params.scope);
+  }
+  const suffix = query.toString();
+  redirect(suffix ? `/workflow?${suffix}` : "/workflow");
 }

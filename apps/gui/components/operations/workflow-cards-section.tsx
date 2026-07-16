@@ -1,43 +1,35 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import type { CanonicalAgentPhaseKey, CanonicalStatusKey } from "@harness/workflow/canonical-product-development-workflow";
-import {
-  CANONICAL_AGENT_PHASES,
-  CANONICAL_HUMAN_GATES,
-  CANONICAL_STATUSES,
-  lookupCanonicalAgentPhase,
-  lookupCanonicalStatus,
-} from "@harness/workflow/canonical-product-development-workflow";
+import { useEffect, useState } from "react";
+import type { CanonicalStatusKey } from "@harness/workflow/canonical-product-development-workflow";
+import { lookupCanonicalStatus } from "@harness/workflow/canonical-product-development-workflow";
 import type {
   OperationsBootstrapPayload,
   OperationsWorkflowDraft,
 } from "@harness/operations/types";
+import { getPhaseModelSetting } from "@harness/operations/canonical-graph";
+import { AlertTriangle } from "lucide-react";
+import { WORKFLOW_OWNERSHIP_COLUMNS } from "@/lib/operations/workflow-ownership";
+import { getViolationForStatus } from "@/lib/operations/workflow-health";
+import { resolveStatusContent } from "@/lib/operations/workflow-status-content";
 import {
-  CANONICAL_ACTOR_LABELS,
-  getAgentPhaseForStatusKey,
-  getHumanGateForStatus,
-  getPhaseModelSetting,
-  listExtraLinearStatuses,
-} from "@harness/operations/canonical-graph";
-import type { OperationsSelection } from "@/lib/operations/reducer";
-import { Button } from "@/components/ui/button";
+  resolveModelDisplayName,
+  type PrototypeModelPhaseKey,
+} from "@/lib/operations/use-model-autosave";
 
-const EXPANDED_CARDS_KEY = "operations-workflow-expanded-cards";
+const EXPANDED_CARDS_KEY = "workflow-expanded-cards";
 
 type WorkflowCardsSectionProps = {
   bootstrap: OperationsBootstrapPayload;
   draft: OperationsWorkflowDraft;
-  selection: OperationsSelection;
   disabled?: boolean;
-  onSelectStatus: (canonicalStatusKey: CanonicalStatusKey) => void;
-  onSelectModel: (phaseKey: CanonicalAgentPhaseKey, modelId: string) => void;
+  onSelectModel: (phaseKey: PrototypeModelPhaseKey, modelId: string) => void;
   onUpdateModelParameter: (
-    phaseKey: CanonicalAgentPhaseKey,
+    phaseKey: PrototypeModelPhaseKey,
     parameterId: string,
     value: string,
   ) => void;
-  scrollToCardSignal?: CanonicalStatusKey | null;
+  saveStateLabel: (phaseKey: PrototypeModelPhaseKey) => string | null;
 };
 
 function readExpandedCards(): Set<CanonicalStatusKey> {
@@ -56,45 +48,24 @@ function readExpandedCards(): Set<CanonicalStatusKey> {
 }
 
 function writeExpandedCards(keys: Set<CanonicalStatusKey>): void {
-  window.sessionStorage.setItem(
-    EXPANDED_CARDS_KEY,
-    JSON.stringify([...keys]),
-  );
+  window.sessionStorage.setItem(EXPANDED_CARDS_KEY, JSON.stringify([...keys]));
 }
 
 export function WorkflowCardsSection({
   bootstrap,
   draft,
-  selection,
   disabled = false,
-  onSelectStatus,
   onSelectModel,
   onUpdateModelParameter,
-  scrollToCardSignal,
+  saveStateLabel,
 }: WorkflowCardsSectionProps) {
   const [expanded, setExpanded] = useState<Set<CanonicalStatusKey>>(() =>
     readExpandedCards(),
-  );
-  const [showExtraStatuses, setShowExtraStatuses] = useState(false);
-  const cardRefs = useMemo(
-    () => new Map<CanonicalStatusKey, HTMLDivElement | null>(),
-    [],
   );
 
   useEffect(() => {
     writeExpandedCards(expanded);
   }, [expanded]);
-
-  useEffect(() => {
-    if (!scrollToCardSignal) {
-      return;
-    }
-    setExpanded((current) => new Set([...current, scrollToCardSignal]));
-    const node = cardRefs.get(scrollToCardSignal);
-    node?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }, [cardRefs, scrollToCardSignal]);
-
-  const extraStatuses = listExtraLinearStatuses(bootstrap.statuses);
 
   const toggleExpanded = (key: CanonicalStatusKey) => {
     setExpanded((current) => {
@@ -108,175 +79,209 @@ export function WorkflowCardsSection({
     });
   };
 
-  return (
-    <section aria-label="Workflow" className="space-y-2">
-      <h2 className="text-sm font-medium">Workflow</h2>
-      <div className="space-y-2">
-        {CANONICAL_STATUSES.map((statusDef) => {
-          const isExpanded = expanded.has(statusDef.key);
-          const isSelected =
-            selection.kind === "status" &&
-            selection.canonicalStatusKey === statusDef.key;
-          const violation = bootstrap.canonicalWorkflow.violations.find(
-            (entry) => entry.statusKey === statusDef.key,
-          );
-          const humanGate = getHumanGateForStatus(statusDef.key);
-          const agentPhase = getAgentPhaseForStatusKey(statusDef.key);
-          const phaseDef = statusDef.agentPhaseKey
-            ? lookupCanonicalAgentPhase(statusDef.agentPhaseKey)
-            : undefined;
-          const modelSelection = statusDef.agentPhaseKey
-            ? getPhaseModelSetting(draft, statusDef.agentPhaseKey)
-            : undefined;
+  const builderModelId = getPhaseModelSetting(draft, "implementation")?.modelId;
+  const builderDisplayName = resolveModelDisplayName(
+    bootstrap.modelCatalog,
+    builderModelId,
+  );
 
-          return (
-            <div
-              key={statusDef.key}
-              ref={(element) => {
-                cardRefs.set(statusDef.key, element);
-              }}
-              className={`rounded-md border ${
-                isSelected ? "border-ring ring-1 ring-ring" : "border-border"
-              } ${violation ? "border-destructive/50" : ""}`}
-            >
-              <button
-                type="button"
-                className="flex w-full items-start justify-between gap-2 px-3 py-2 text-left"
-                aria-expanded={isExpanded}
-                onClick={() => {
-                  onSelectStatus(statusDef.key);
-                  toggleExpanded(statusDef.key);
-                }}
-              >
-                <div>
-                  <div className="text-sm font-medium">{statusDef.name}</div>
-                  <div className="text-xs capitalize text-muted-foreground">
-                    {statusDef.role.replace("-", " ")}
-                  </div>
-                </div>
-                <span className="text-xs text-muted-foreground">
-                  {isExpanded ? "Collapse" : "Expand"}
-                </span>
-              </button>
-              {isExpanded ? (
-                <div className="space-y-2 border-t border-border px-3 py-2 text-xs">
-                  {violation ? (
-                    <p className="text-destructive">{violation.message}</p>
-                  ) : (
-                    <p className="text-emerald-700 dark:text-emerald-300">Status healthy</p>
-                  )}
-                  <p>
-                    Actor: {CANONICAL_ACTOR_LABELS[statusDef.actorRole] ?? statusDef.actorRole}
-                  </p>
-                  {phaseDef ? (
-                    <>
-                      <p>In progress: {lookupCanonicalStatus(phaseDef.inProgressStatusKey)?.name}</p>
-                      <p>
-                        Success: {lookupCanonicalStatus(phaseDef.successDestinationKey)?.name}
-                      </p>
-                      <p>
-                        Failure: {lookupCanonicalStatus(phaseDef.failureDestinationKey)?.name}
-                      </p>
-                    </>
-                  ) : null}
-                  {humanGate ? (
-                    <p>
-                      Human destinations:{" "}
-                      {humanGate.allowedDestinations
-                        .map((key) => lookupCanonicalStatus(key)?.name)
-                        .filter(Boolean)
-                        .join(", ")}
-                    </p>
-                  ) : null}
-                  {statusDef.agentPhaseKey &&
-                  CANONICAL_AGENT_PHASES.find((phase) => phase.key === statusDef.agentPhaseKey)
-                    ?.supportsModelConfiguration ? (
-                    <div className="space-y-2 rounded-md bg-muted/50 p-2">
-                      <p className="font-medium">Draft model (not active)</p>
-                      <label className="flex flex-col gap-1">
-                        <span>Model</span>
-                        <select
-                          className="rounded-md border border-input bg-background px-2 py-1 text-sm"
+  return (
+    <div className="grid grid-cols-1 gap-8 lg:grid-cols-3 lg:gap-6">
+      {WORKFLOW_OWNERSHIP_COLUMNS.map((column) => (
+        <section key={column.id} aria-label={column.title} className="space-y-3">
+          <div>
+            <h2 className="text-base font-semibold">{column.title}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">{column.description}</p>
+          </div>
+          <div className="space-y-2">
+            {column.statuses.map((statusKey) => {
+              const statusDef = lookupCanonicalStatus(statusKey);
+              if (!statusDef) {
+                return null;
+              }
+              const isExpanded = expanded.has(statusKey);
+              const violation = getViolationForStatus(
+                bootstrap.canonicalWorkflow.violations,
+                statusKey,
+              );
+              const content = resolveStatusContent(
+                statusKey,
+                bootstrap.canonicalWorkflow.mergePathVariant,
+              );
+              const plannerSelection = getPhaseModelSetting(draft, "planning");
+              const builderSelection = getPhaseModelSetting(draft, "implementation");
+
+              return (
+                <div
+                  key={statusKey}
+                  className={`rounded-md border ${
+                    violation ? "border-destructive/50" : "border-border"
+                  }`}
+                >
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left"
+                    aria-expanded={isExpanded}
+                    onClick={() => toggleExpanded(statusKey)}
+                  >
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className="text-sm font-medium">{statusDef.name}</span>
+                      {violation ? (
+                        <AlertTriangle
+                          className="size-4 shrink-0 text-destructive"
+                          aria-label="Needs attention"
+                        />
+                      ) : null}
+                    </div>
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {isExpanded ? "Collapse" : "Expand"}
+                    </span>
+                  </button>
+                  {isExpanded ? (
+                    <div className="space-y-2 border-t border-border px-3 py-3 text-sm">
+                      {violation ? (
+                        <p className="text-destructive">{violation.message}</p>
+                      ) : null}
+                      <p className="text-muted-foreground">{content.description}</p>
+                      {content.fields.map((field) => (
+                        <p key={`${statusKey}-${field.label}`}>
+                          <span className="font-medium">{field.label}:</span> {field.value}
+                        </p>
+                      ))}
+                      {content.builderModelNote ? (
+                        <p className="text-muted-foreground">{content.builderModelNote}</p>
+                      ) : null}
+                      {content.showPlannerModel ? (
+                        <ModelControl
+                          label="Planner model"
+                          phaseKey="planning"
                           disabled={disabled}
-                          value={modelSelection?.modelId ?? ""}
-                          onChange={(event) =>
-                            onSelectModel(statusDef.agentPhaseKey!, event.target.value)
-                          }
-                        >
-                          <option value="">Use global default</option>
-                          {bootstrap.modelCatalog
-                            .filter((model) => model.availability === "available")
-                            .map((model) => (
-                              <option key={model.id} value={model.id}>
-                                {model.displayName}
-                              </option>
-                            ))}
-                        </select>
-                      </label>
-                      {modelSelection
-                        ? bootstrap.modelCatalog
-                            .find((model) => model.id === modelSelection.modelId)
-                            ?.supportedParameters.filter((parameter) => parameter.type === "boolean")
-                            .map((parameter) => {
-                              const current = modelSelection.parameters.find(
-                                (entry) => entry.id === parameter.id,
-                              )?.value;
-                              const checked = current === "true";
-                              return (
-                                <label
-                                  key={parameter.id}
-                                  className="flex items-center justify-between gap-2"
-                                >
-                                  <span>{parameter.label}</span>
-                                  <input
-                                    type="checkbox"
-                                    role="switch"
-                                    aria-label={parameter.label}
-                                    disabled={disabled}
-                                    checked={checked}
-                                    onChange={(event) =>
-                                      onUpdateModelParameter(
-                                        statusDef.agentPhaseKey!,
-                                        parameter.id,
-                                        event.target.checked ? "true" : "false",
-                                      )
-                                    }
-                                  />
-                                </label>
-                              );
-                            })
-                        : null}
+                          modelCatalog={bootstrap.modelCatalog}
+                          modelId={plannerSelection?.modelId ?? ""}
+                          parameters={plannerSelection?.parameters ?? []}
+                          saveLabel={saveStateLabel("planning")}
+                          onSelectModel={onSelectModel}
+                          onUpdateModelParameter={onUpdateModelParameter}
+                        />
+                      ) : null}
+                      {content.showBuilderModel ? (
+                        <ModelControl
+                          label="Builder model"
+                          phaseKey="implementation"
+                          disabled={disabled}
+                          modelCatalog={bootstrap.modelCatalog}
+                          modelId={builderSelection?.modelId ?? ""}
+                          parameters={builderSelection?.parameters ?? []}
+                          saveLabel={saveStateLabel("implementation")}
+                          onSelectModel={onSelectModel}
+                          onUpdateModelParameter={onUpdateModelParameter}
+                        />
+                      ) : null}
+                      {content.showBuilderModelReference ? (
+                        <p>
+                          <span className="font-medium">Uses Builder model:</span>{" "}
+                          {builderDisplayName}
+                        </p>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>
-              ) : null}
-            </div>
-          );
-        })}
-      </div>
+              );
+            })}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
 
-      {extraStatuses.length > 0 ? (
-        <div className="space-y-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="w-full"
-            onClick={() => setShowExtraStatuses((value) => !value)}
-          >
-            {showExtraStatuses ? "Hide" : "Show"} other Linear statuses ({extraStatuses.length})
-          </Button>
-          {showExtraStatuses ? (
-            <ul className="space-y-1 text-xs text-muted-foreground">
-              {extraStatuses.map((status) => (
-                <li key={status.id} className="rounded-md border border-border px-2 py-1">
-                  {status.name} ({status.category})
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
-      ) : null}
-    </section>
+type ModelControlProps = {
+  label: string;
+  phaseKey: PrototypeModelPhaseKey;
+  disabled: boolean;
+  modelCatalog: OperationsBootstrapPayload["modelCatalog"];
+  modelId: string;
+  parameters: Array<{ id: string; value: string }>;
+  saveLabel: string | null;
+  onSelectModel: (phaseKey: PrototypeModelPhaseKey, modelId: string) => void;
+  onUpdateModelParameter: (
+    phaseKey: PrototypeModelPhaseKey,
+    parameterId: string,
+    value: string,
+  ) => void;
+};
+
+function ModelControl({
+  label,
+  phaseKey,
+  disabled,
+  modelCatalog,
+  modelId,
+  parameters,
+  saveLabel,
+  onSelectModel,
+  onUpdateModelParameter,
+}: ModelControlProps) {
+  const selectedModel = modelCatalog.find((model) => model.id === modelId);
+
+  return (
+    <div className="space-y-2 rounded-md bg-muted/50 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-medium">{label}</span>
+        {saveLabel ? (
+          <span className="text-xs text-muted-foreground" aria-live="polite">
+            {saveLabel}
+          </span>
+        ) : null}
+      </div>
+      <label className="flex flex-col gap-1">
+        <span className="text-xs text-muted-foreground">Model</span>
+        <select
+          className="rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+          disabled={disabled}
+          value={modelId}
+          onChange={(event) => onSelectModel(phaseKey, event.target.value)}
+        >
+          <option value="">Use global default</option>
+          {modelCatalog
+            .filter((model) => model.availability === "available")
+            .map((model) => (
+              <option key={model.id} value={model.id}>
+                {model.displayName}
+              </option>
+            ))}
+        </select>
+      </label>
+      {selectedModel
+        ? selectedModel.supportedParameters
+            .filter((parameter) => parameter.type === "boolean")
+            .map((parameter) => {
+              const current = parameters.find((entry) => entry.id === parameter.id)?.value;
+              const checked = current === "true";
+              return (
+                <label
+                  key={parameter.id}
+                  className="flex items-center justify-between gap-2 text-sm"
+                >
+                  <span>{parameter.label}</span>
+                  <input
+                    type="checkbox"
+                    role="switch"
+                    aria-label={parameter.label}
+                    disabled={disabled || !modelId}
+                    checked={checked}
+                    onChange={(event) =>
+                      onUpdateModelParameter(
+                        phaseKey,
+                        parameter.id,
+                        event.target.checked ? "true" : "false",
+                      )
+                    }
+                  />
+                </label>
+              );
+            })
+        : null}
+    </div>
   );
 }
