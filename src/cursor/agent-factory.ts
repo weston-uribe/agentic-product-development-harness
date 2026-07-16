@@ -42,6 +42,8 @@ export interface RevisionAgentParams {
 
 export type IntegrationRepairAgentParams = RevisionAgentParams;
 
+export type ReplacementBuilderAgentParams = RevisionAgentParams;
+
 export async function createPlanningCloudAgent(
   params: PlanningAgentParams,
 ): Promise<SDKAgent> {
@@ -79,6 +81,28 @@ export async function createImplementationCloudAgent(
         },
       ],
       autoCreatePR: true,
+      skipReviewerRequest: true,
+    },
+  });
+}
+
+export async function createReplacementBuilderCloudAgent(
+  params: ReplacementBuilderAgentParams,
+): Promise<SDKAgent> {
+  const model: ModelSelection = resolveBuilderModel(params.config);
+  return Agent.create({
+    apiKey: params.apiKey,
+    model,
+    mode: "agent",
+    cloud: {
+      repos: [
+        {
+          url: params.targetRepo,
+          startingRef: params.branch,
+          prUrl: params.prUrl,
+        },
+      ],
+      autoCreatePR: false,
       skipReviewerRequest: true,
     },
   });

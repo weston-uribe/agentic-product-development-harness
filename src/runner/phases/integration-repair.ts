@@ -36,6 +36,7 @@ import type { ParsedIssue } from "../../types/parsed-issue.js";
 import { manifestModelEvidence, resolveBuilderModel } from "../../cursor/model.js";
 import { listIssueComments } from "../../linear/writer.js";
 import { buildIntegrationRepairIdempotencyKey } from "../builder-thread-idempotency.js";
+import { BuilderThreadLineageError } from "../builder-thread-lineage.js";
 import {
   builderMarkerEvidenceFromResolution,
 } from "../builder-thread-evidence.js";
@@ -632,6 +633,9 @@ async function attemptAgentRepair(
     await options.events.log("repair_failed", "error", {
       message: error instanceof Error ? error.message : String(error),
     });
+    if (error instanceof BuilderThreadLineageError) {
+      throw new MergeError("builder_lineage_integrity", error.message);
+    }
     throw error;
   } finally {
     await disposeAgent(agent);

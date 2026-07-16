@@ -61,6 +61,7 @@ import {
   builderMarkerEvidenceFromResolution,
 } from "../builder-thread-evidence.js";
 import type { BuilderThreadResolution } from "../builder-thread-types.js";
+import { BuilderThreadLineageError } from "../builder-thread-lineage.js";
 import { RevisionError } from "../errors.js";
 import { runPreflight } from "../preflight.js";
 import {
@@ -771,6 +772,8 @@ export async function executeRevisionPhase(
     if (error instanceof RevisionError) {
       errorClassification = error.classification;
       cursorCleanup = error.cancelOutcome;
+    } else if (error instanceof BuilderThreadLineageError) {
+      errorClassification = "builder_lineage_integrity";
     } else if (error instanceof Error) {
       errorClassification = "linear_write_failure";
     } else {

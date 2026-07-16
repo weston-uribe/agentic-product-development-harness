@@ -63,6 +63,7 @@ export type ErrorClassification =
   | "linear_team_mismatch"
   | "linear_team_identity_missing"
   | "canonical_workflow_load_failed"
+  | "builder_lineage_integrity"
   | null;
 
 export interface RunManifest {

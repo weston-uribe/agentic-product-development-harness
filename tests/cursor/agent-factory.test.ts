@@ -18,6 +18,7 @@ import {
   createImplementationCloudAgent,
   createIntegrationRepairCloudAgent,
   createPlanningCloudAgent,
+  createReplacementBuilderCloudAgent,
   createRevisionCloudAgent,
   disposeCloudAgent,
   resumeBuilderCloudAgent,
@@ -278,6 +279,29 @@ describe("cloud agent factories use basic Composer 2.5", () => {
     for (const call of createMock.mock.calls) {
       assertRequestHasNoPremiumModes(call[0]);
     }
+  });
+
+  it("creates replacement builders on the existing PR branch without autoCreatePR", async () => {
+    await createReplacementBuilderCloudAgent({
+      apiKey: "key",
+      config: makeConfig(),
+      targetRepo: TARGET_REPO,
+      branch: "cursor/wes-1",
+      prUrl: "https://github.com/owner/example-target-app/pull/7",
+    });
+    expect(createMock.mock.calls[0]![0]).toMatchObject({
+      cloud: {
+        repos: [
+          {
+            url: TARGET_REPO,
+            startingRef: "cursor/wes-1",
+            prUrl: "https://github.com/owner/example-target-app/pull/7",
+          },
+        ],
+        autoCreatePR: false,
+        skipReviewerRequest: true,
+      },
+    });
   });
 
   it("resumes Builder agents via get, optional unarchive, and resume", async () => {

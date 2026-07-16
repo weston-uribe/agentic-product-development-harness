@@ -25,7 +25,12 @@ vi.mock("@cursor/sdk", async (importOriginal) => {
 });
 
 import { acquireBuilderAgent } from "../../src/runner/builder-thread-acquire.js";
+import { BuilderThreadLineageError } from "../../src/runner/builder-thread-lineage.js";
 import type { HarnessConfig } from "../../src/config/types.js";
+
+const TARGET_REPO = "https://github.com/owner/example-target-app";
+const PR_URL = `${TARGET_REPO}/pull/1`;
+const BRANCH = "cursor/wes-1";
 
 function makeConfig(): HarnessConfig {
   return {
@@ -35,12 +40,12 @@ function makeConfig(): HarnessConfig {
     repos: [
       {
         id: "target-app",
-        targetRepo: "https://github.com/owner/example-target-app",
+        targetRepo: TARGET_REPO,
         baseBranch: "main",
         productionBranch: "main",
       },
     ],
-    allowedTargetRepos: ["https://github.com/owner/example-target-app"],
+    allowedTargetRepos: [TARGET_REPO],
   } as HarnessConfig;
 }
 
@@ -52,6 +57,10 @@ function makeEvents() {
       entries.push({ event, data });
     }),
   };
+}
+
+function handoffComment(agentId = "bc-existing") {
+  return `<!--\nharness-orchestrator-v1\nphase: handoff\nrun_id: handoff-1\nbuilder_agent_id: ${agentId}\nbuilder_thread_generation: 1\nbuilder_thread_action: created\nbuilder_origin_run_id: impl-1\ntarget_repo: ${TARGET_REPO}\npr_url: ${PR_URL}\nbranch: ${BRANCH}\n-->`;
 }
 
 describe("acquireBuilderAgent", () => {
@@ -79,15 +88,16 @@ describe("acquireBuilderAgent", () => {
       context: {
         issueKey: "WES-1",
         harnessRunId: "run-1",
-        targetRepo: "https://github.com/owner/example-target-app",
+        targetRepo: TARGET_REPO,
         baseBranch: "main",
-        branch: "cursor/wes-1",
+        branch: BRANCH,
         idempotencyKey: "p-dev:build:WES-1:branch",
         comments: [],
         orchestratorMarker: "harness-orchestrator-v1",
       },
     });
     expect(createMock).toHaveBeenCalledTimes(1);
+    expect(createMock.mock.calls[0]![0].cloud.autoCreatePR).toBe(true);
     expect(resumeMock).not.toHaveBeenCalled();
     expect(acquired.continuity.action).toBe("created");
     expect(acquired.continuity.reference.agentId).toBe("bc-new");
@@ -103,17 +113,12 @@ describe("acquireBuilderAgent", () => {
       context: {
         issueKey: "WES-1",
         harnessRunId: "run-2",
-        targetRepo: "https://github.com/owner/example-target-app",
+        targetRepo: TARGET_REPO,
         baseBranch: "main",
-        branch: "cursor/wes-1",
-        prUrl: "https://github.com/owner/example-target-app/pull/1",
+        branch: BRANCH,
+        prUrl: PR_URL,
         idempotencyKey: "p-dev:revision:WES-1:fb-1",
-        comments: [
-          {
-            id: "c1",
-            body: `<!--\nharness-orchestrator-v1\nphase: handoff\nrun_id: handoff-1\nbuilder_agent_id: bc-existing\nbuilder_thread_generation: 1\nbuilder_thread_action: created\ntarget_repo: https://github.com/owner/example-target-app\npr_url: https://github.com/owner/example-target-app/pull/1\nbranch: cursor/wes-1\n-->`,
-          },
-        ],
+        comments: [{ id: "c1", body: handoffComment() }],
         orchestratorMarker: "harness-orchestrator-v1",
       },
     });
@@ -134,15 +139,12 @@ describe("acquireBuilderAgent", () => {
       context: {
         issueKey: "WES-1",
         harnessRunId: "run-2",
-        targetRepo: "https://github.com/owner/example-target-app",
+        targetRepo: TARGET_REPO,
         baseBranch: "main",
+        branch: BRANCH,
+        prUrl: PR_URL,
         idempotencyKey: "p-dev:revision:WES-1:fb-1",
-        comments: [
-          {
-            id: "c1",
-            body: `<!--\nharness-orchestrator-v1\nphase: handoff\nrun_id: handoff-1\nbuilder_agent_id: bc-existing\nbuilder_thread_generation: 1\ntarget_repo: https://github.com/owner/example-target-app\npr_url: https://github.com/owner/example-target-app/pull/1\n-->`,
-          },
-        ],
+        comments: [{ id: "c1", body: handoffComment() }],
         orchestratorMarker: "harness-orchestrator-v1",
       },
     });
@@ -152,7 +154,7 @@ describe("acquireBuilderAgent", () => {
     );
   });
 
-  it("replaces only on definitive agent loss", async () => {
+  it("replaces on definitive agent loss using the existing PR branch factory", async () => {
     resumeMock.mockRejectedValue(new AgentNotFoundError("missing"));
     createMock.mockResolvedValue({
       agentId: "bc-replacement",
@@ -167,21 +169,26 @@ describe("acquireBuilderAgent", () => {
       context: {
         issueKey: "WES-1",
         harnessRunId: "run-3",
-        targetRepo: "https://github.com/owner/example-target-app",
+        targetRepo: TARGET_REPO,
         baseBranch: "main",
+        branch: BRANCH,
+        prUrl: PR_URL,
         idempotencyKey: "p-dev:revision:WES-1:fb-2",
-        comments: [
-          {
-            id: "c1",
-            body: `<!--\nharness-orchestrator-v1\nphase: handoff\nrun_id: handoff-1\nbuilder_agent_id: bc-existing\nbuilder_thread_generation: 1\ntarget_repo: https://github.com/owner/example-target-app\n-->`,
-          },
-        ],
+        comments: [{ id: "c1", body: handoffComment() }],
         orchestratorMarker: "harness-orchestrator-v1",
       },
     });
     expect(acquired.continuity.action).toBe("replaced");
     expect(acquired.continuity.reference.agentId).toBe("bc-replacement");
     expect(acquired.continuity.replacementReason).toBe("agent_not_found");
+    expect(createMock).toHaveBeenCalledTimes(1);
+    expect(createMock.mock.calls[0]![0]).toMatchObject({
+      cloud: {
+        repos: [{ url: TARGET_REPO, startingRef: BRANCH, prUrl: PR_URL }],
+        autoCreatePR: false,
+        skipReviewerRequest: true,
+      },
+    });
   });
 
   it("does not replace on authentication failure", async () => {
@@ -195,15 +202,12 @@ describe("acquireBuilderAgent", () => {
         context: {
           issueKey: "WES-1",
           harnessRunId: "run-4",
-          targetRepo: "https://github.com/owner/example-target-app",
+          targetRepo: TARGET_REPO,
           baseBranch: "main",
+          branch: BRANCH,
+          prUrl: PR_URL,
           idempotencyKey: "p-dev:revision:WES-1:fb-3",
-          comments: [
-            {
-              id: "c1",
-              body: `<!--\nharness-orchestrator-v1\nphase: handoff\nrun_id: handoff-1\nbuilder_agent_id: bc-existing\nbuilder_thread_generation: 1\ntarget_repo: https://github.com/owner/example-target-app\n-->`,
-            },
-          ],
+          comments: [{ id: "c1", body: handoffComment() }],
           orchestratorMarker: "harness-orchestrator-v1",
         },
       }),
@@ -222,18 +226,63 @@ describe("acquireBuilderAgent", () => {
         context: {
           issueKey: "WES-1",
           harnessRunId: "run-5",
-          targetRepo: "https://github.com/owner/example-target-app",
+          targetRepo: TARGET_REPO,
           baseBranch: "main",
+          branch: BRANCH,
+          prUrl: PR_URL,
           idempotencyKey: "p-dev:revision:WES-1:fb-4",
-          comments: [
-            {
-              id: "c1",
-              body: `<!--\nharness-orchestrator-v1\nphase: handoff\nrun_id: handoff-1\nbuilder_agent_id: bc-existing\nbuilder_thread_generation: 1\ntarget_repo: https://github.com/owner/example-target-app\n-->`,
-            },
-          ],
+          comments: [{ id: "c1", body: handoffComment() }],
           orchestratorMarker: "harness-orchestrator-v1",
         },
       }),
     ).rejects.toBeInstanceOf(NetworkError);
+  });
+
+  it("throws lineage integrity errors instead of legacy replacement", async () => {
+    await expect(
+      acquireBuilderAgent({
+        apiKey: "key",
+        config: makeConfig(),
+        phase: "revision",
+        events: makeEvents() as never,
+        context: {
+          issueKey: "WES-1",
+          harnessRunId: "run-6",
+          targetRepo: TARGET_REPO,
+          baseBranch: "main",
+          branch: BRANCH,
+          prUrl: PR_URL,
+          idempotencyKey: "p-dev:revision:WES-1:fb-5",
+          comments: [
+            { id: "c1", body: handoffComment("bc-a", 2) },
+            { id: "c2", body: handoffComment("bc-b", 2) },
+          ],
+          orchestratorMarker: "harness-orchestrator-v1",
+        },
+      }),
+    ).rejects.toBeInstanceOf(BuilderThreadLineageError);
+    expect(createMock).not.toHaveBeenCalled();
+    expect(resumeMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses legacy_missing_lineage replacement without PR branch context", async () => {
+    await expect(
+      acquireBuilderAgent({
+        apiKey: "key",
+        config: makeConfig(),
+        phase: "revision",
+        events: makeEvents() as never,
+        context: {
+          issueKey: "WES-1",
+          harnessRunId: "run-7",
+          targetRepo: TARGET_REPO,
+          baseBranch: "main",
+          idempotencyKey: "p-dev:revision:WES-1:fb-6",
+          comments: [],
+          orchestratorMarker: "harness-orchestrator-v1",
+        },
+      }),
+    ).rejects.toMatchObject({ reason: "missing_pr_lineage" });
+    expect(createMock).not.toHaveBeenCalled();
   });
 });

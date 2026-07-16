@@ -9,12 +9,16 @@ import {
 import type { EventLogger } from "../artifacts/events.js";
 import {
   createImplementationCloudAgent,
+  createReplacementBuilderCloudAgent,
   resumeBuilderCloudAgent,
 } from "../cursor/agent-factory.js";
 import { classifyBuilderResumeError } from "../cursor/builder-resume-errors.js";
 import type { HarnessConfig } from "../config/types.js";
 import type { LinearCommentRecord } from "../linear/writer.js";
-import { resolveBuilderThreadReference } from "./builder-thread-lineage.js";
+import {
+  BuilderThreadLineageError,
+  resolveBuilderThreadReference,
+} from "./builder-thread-lineage.js";
 import type {
   BuilderThreadReference,
   BuilderThreadReplacementReason,
@@ -52,6 +56,7 @@ export interface AcquiredBuilderAgent {
 export interface ReplacementBuilderContext extends AcquireBuilderAgentContext {
   replacementReason: BuilderThreadReplacementReason;
   previousAgentId?: string;
+  priorGeneration?: number;
 }
 
 function wrapReference(
@@ -139,19 +144,60 @@ async function resumeExistingBuilder(
   }
 }
 
+function resolvePriorReference(
+  params: AcquireBuilderAgentParams,
+): BuilderThreadReference | null {
+  try {
+    return resolveBuilderThreadReference({
+      comments: params.context.comments,
+      orchestratorMarker: params.context.orchestratorMarker,
+      issueKey: params.context.issueKey,
+      targetRepo: params.context.targetRepo,
+      branch: params.context.branch,
+      prUrl: params.context.prUrl,
+      previousImplementationRunId: params.context.previousImplementationRunId,
+      previousRevisionRunId: params.context.previousRevisionRunId,
+    });
+  } catch (error) {
+    if (error instanceof BuilderThreadLineageError) {
+      void params.events.log("builder_thread_lineage_rejected", "error", {
+        phase: params.phase,
+        reason: error.reason,
+        ...error.details,
+      });
+    }
+    throw error;
+  }
+}
+
+function assertReplacementPrLineage(
+  params: AcquireBuilderAgentParams,
+  context: ReplacementBuilderContext,
+): asserts context is ReplacementBuilderContext & {
+  branch: string;
+  prUrl: string;
+} {
+  if (params.phase === "implementation") {
+    return;
+  }
+  if (!context.branch || !context.prUrl) {
+    throw new BuilderThreadLineageError(
+      "missing_pr_lineage",
+      "Revision and integration-repair replacement requires an existing PR branch and prUrl",
+      {
+        phase: params.phase,
+        branch: context.branch,
+        prUrl: context.prUrl,
+        replacementReason: context.replacementReason,
+      },
+    );
+  }
+}
+
 export async function acquireBuilderAgent(
   params: AcquireBuilderAgentParams,
 ): Promise<AcquiredBuilderAgent> {
-  const prior = resolveBuilderThreadReference({
-    comments: params.context.comments,
-    orchestratorMarker: params.context.orchestratorMarker,
-    issueKey: params.context.issueKey,
-    targetRepo: params.context.targetRepo,
-    branch: params.context.branch,
-    prUrl: params.context.prUrl,
-    previousImplementationRunId: params.context.previousImplementationRunId,
-    previousRevisionRunId: params.context.previousRevisionRunId,
-  });
+  const prior = resolvePriorReference(params);
 
   if (prior) {
     await params.events.log("builder_thread_resolved", "info", {
@@ -172,6 +218,7 @@ export async function acquireBuilderAgent(
           ...params.context,
           replacementReason,
           previousAgentId: prior.agentId,
+          priorGeneration: prior.generation,
         },
       });
     }
@@ -200,24 +247,24 @@ export async function createReplacementBuilderAgent(
   },
 ): Promise<AcquiredBuilderAgent> {
   const { apiKey, config, context } = params;
-  const priorGeneration =
-    resolveBuilderThreadReference({
-      comments: context.comments,
-      orchestratorMarker: context.orchestratorMarker,
-      issueKey: context.issueKey,
-      targetRepo: context.targetRepo,
-      branch: context.branch,
-      prUrl: context.prUrl,
-      previousImplementationRunId: context.previousImplementationRunId,
-      previousRevisionRunId: context.previousRevisionRunId,
-    })?.generation ?? 0;
+  assertReplacementPrLineage(params, context);
 
-  const agent = await createImplementationCloudAgent({
-    apiKey,
-    config,
-    targetRepo: context.targetRepo,
-    baseBranch: context.baseBranch,
-  });
+  const priorGeneration = context.priorGeneration ?? 0;
+  const agent =
+    params.phase === "implementation"
+      ? await createImplementationCloudAgent({
+          apiKey,
+          config,
+          targetRepo: context.targetRepo,
+          baseBranch: context.baseBranch,
+        })
+      : await createReplacementBuilderCloudAgent({
+          apiKey,
+          config,
+          targetRepo: context.targetRepo,
+          branch: context.branch,
+          prUrl: context.prUrl,
+        });
   const reference: BuilderThreadReference = {
     agentId: agent.agentId,
     generation: Math.max(1, priorGeneration + 1),
