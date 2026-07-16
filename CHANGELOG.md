@@ -22,6 +22,8 @@ V0.3.0 is a **GitHub source release** plus a **public npm CLI package** (`p-dev-
 ### Fixed
 
 - Workflow revision success path visualization returns to **PM Review** (matching runtime revision behavior).
+- Configure GUI Step 3 dispatch resolution in linked and detached Git worktrees by reading repository-local `remote.origin.url` through `git config --local`, preserving precedence and fail-closed invalid explicit/env/process values.
+- Configure GUI Step 3 back-navigation regression coverage with browser-backed tests for desktop and mobile viewports.
 - Workflow model autosave: compare-and-swap fingerprints, sequence-id stale response protection, confirmed-failure rollback only, and post-transaction sync evidence.
 
 ### Changed

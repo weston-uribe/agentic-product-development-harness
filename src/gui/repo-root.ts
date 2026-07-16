@@ -17,6 +17,10 @@ export function resolveHarnessRepoRoot(startDir = process.cwd()): string {
     return path.resolve(fromWorkspace);
   }
 
+  return resolveHarnessSourceRoot(startDir);
+}
+
+export function resolveHarnessSourceRoot(startDir: string): string {
   let current = path.resolve(startDir);
   while (true) {
     const packageJsonPath = path.join(current, "package.json");
@@ -40,7 +44,7 @@ export function resolveHarnessRepoRoot(startDir = process.cwd()): string {
   }
 
   throw new Error(
-    `Could not resolve harness repo root from ${startDir}. Set HARNESS_REPO_ROOT or run harness:gui from the repo.`,
+    `Could not resolve harness source root from ${startDir}. Set HARNESS_REPO_ROOT or run harness:gui from the repo.`,
   );
 }
 

@@ -25,7 +25,8 @@
     "package:p-dev:prepare": "tsx scripts/prepare-p-dev-package.ts",
     "package:p-dev:pack": "npm run package:p-dev:prepare && sh -c 'cd packages/p-dev && npm pack --pack-destination .'",
     "package:p-dev:inspect": "sh -c 'cd packages/p-dev && npm pack --dry-run --json'",
-    "test:workflow:browser": "playwright test --config scripts/workflow-browser-matrix.config.ts"
+    "test:workflow:browser": "playwright test --config scripts/workflow-browser-matrix.config.ts",
+    "test:configure:browser": "playwright test --config scripts/configure-browser-matrix.config.ts"
   },
   "dependencies": {
     "@cursor/sdk": "^1.0.23",
