@@ -111,6 +111,23 @@ async function main(): Promise<void> {
     "utf8",
   );
 
+  const skipDisclosure = process.env.CONFIGURE_BROWSER_SKIP_DISCLOSURE === "1";
+  if (!skipDisclosure) {
+    await writeFile(
+      path.join(workspaceDir, ".harness/observability.local.json"),
+      `${JSON.stringify(
+        {
+          analyticsPreference: "disabled",
+          errorReportingPreference: "disabled",
+          disclosureShown: true,
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+  }
+
   process.stdout.write(`${workspaceDir}\n`);
 }
 

@@ -20,6 +20,21 @@ export function resolveHarnessRepoRoot(startDir = process.cwd()): string {
   return resolveHarnessSourceRoot(startDir);
 }
 
+/** Workspace for setup files, observability state, and operator-local artifacts. */
+export function resolveHarnessWorkspaceDir(startDir = process.cwd()): string {
+  const fromWorkspace = process.env[P_DEV_HOME_ENV]?.trim();
+  if (fromWorkspace) {
+    return path.resolve(fromWorkspace);
+  }
+
+  const fromEnv = process.env.HARNESS_REPO_ROOT?.trim();
+  if (fromEnv) {
+    return path.resolve(fromEnv);
+  }
+
+  return resolveHarnessSourceRoot(startDir);
+}
+
 export function resolveHarnessSourceRoot(startDir: string): string {
   let current = path.resolve(startDir);
   while (true) {

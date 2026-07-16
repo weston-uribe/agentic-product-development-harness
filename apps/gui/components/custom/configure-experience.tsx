@@ -54,11 +54,15 @@ import { GuidedLocalReadinessCard } from "@/components/custom/guided-local-readi
 import { GuidedCloudSecretsCard } from "@/components/custom/guided-cloud-secrets-card";
 import { GuidedTargetWorkflowCard } from "@/components/custom/guided-target-workflow-card";
 import { SectionCard } from "@/components/custom/section-card";
-import { ObservabilitySettingsCard } from "@/components/custom/observability-settings-card";
 import { postObservabilityAnalyticsEvent } from "@/lib/observability-client";
 import { bucketDurationMs } from "@harness/observability/privacy-schema.js";
 import { GuidedSetupProgress } from "@/components/custom/guided-setup-progress";
 import { GuidedStepTransition } from "@/components/custom/guided-step-transition";
+import { DataSharingPreferences } from "@/components/custom/data-sharing-preferences";
+import {
+  isUnifiedDataSharingEnabled,
+  type ObservabilityPreferencesSnapshot,
+} from "@/lib/observability-preferences";
 
 type ConfigureMode = "guided" | "advanced";
 
@@ -82,6 +86,7 @@ interface ConfigureExperienceProps {
     config: LocalConfigFormInput;
   };
   observabilityNonce: string | null;
+  initialObservabilityPreferences: ObservabilityPreferencesSnapshot;
 }
 
 function buildControlPlaneContext(input: {
@@ -106,8 +111,14 @@ export function ConfigureExperience({
   initialVercelSummary,
   formDefaults,
   observabilityNonce,
+  initialObservabilityPreferences,
 }: ConfigureExperienceProps) {
   const [mode, setMode] = useState<ConfigureMode>("guided");
+  const [observabilityPreferences, setObservabilityPreferences] =
+    useState(initialObservabilityPreferences);
+  const [setupDisclosureComplete, setSetupDisclosureComplete] = useState(
+    initialObservabilityPreferences.disclosureShown,
+  );
   const [summary, setSummary] = useState(initialSummary);
   const [remoteSummary, setRemoteSummary] = useState(initialRemoteSummary);
   const [linearSummary, setLinearSummary] = useState(initialLinearSummary);
@@ -719,6 +730,29 @@ export function ConfigureExperience({
       ? "Finalizing workflow install"
       : "Setup in progress";
 
+  const handleDataSharingOnboardingComplete = useCallback(
+    (preferences: ObservabilityPreferencesSnapshot) => {
+      setObservabilityPreferences(preferences);
+      setSetupDisclosureComplete(true);
+      if (isUnifiedDataSharingEnabled(preferences)) {
+        lastRecordedStepViewRef.current = null;
+        recordStepViewed(displayedGuidedStep);
+      }
+    },
+    [displayedGuidedStep, recordStepViewed],
+  );
+
+  if (!setupDisclosureComplete) {
+    return (
+      <DataSharingPreferences
+        mode="onboarding"
+        nonce={observabilityNonce}
+        initialPreferences={observabilityPreferences}
+        onOnboardingComplete={handleDataSharingOnboardingComplete}
+      />
+    );
+  }
+
   return (
     <div className={LAYOUT.sectionStack}>
       <section className={SPACING.section}>
@@ -777,14 +811,6 @@ export function ConfigureExperience({
           )}
         </div>
       </section>
-
-      <ObservabilitySettingsCard
-        nonce={observabilityNonce}
-        onAnalyticsEnabled={() => {
-          lastRecordedStepViewRef.current = null;
-          recordStepViewed(displayedGuidedStep);
-        }}
-      />
 
       {mode === "advanced" ? <ReadinessBanner readiness={readiness} /> : null}
 

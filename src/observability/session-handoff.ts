@@ -38,3 +38,10 @@ export function observabilityHandoffEnv(
     [P_DEV_OBSERVABILITY_NONCE_ENV]: handoff.nonce,
   };
 }
+
+/** Process-scoped nonce for source GUI launches without beginning a session. */
+export function resolveSourceGuiObservabilityNonce(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return env[P_DEV_OBSERVABILITY_NONCE_ENV]?.trim() || generateObservabilityNonce();
+}

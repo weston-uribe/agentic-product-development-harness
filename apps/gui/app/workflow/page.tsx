@@ -17,7 +17,7 @@ export default async function WorkflowPage({
   });
 
   return (
-    <AppShell>
+    <AppShell isWorkflowActive>
       <WorkflowPageClient initialBootstrap={bootstrap} />
     </AppShell>
   );

@@ -7,18 +7,22 @@ import {
   loadSetupSummary,
   loadVercelSetupSummary,
 } from "@/lib/setup-server";
+import { resolveHarnessWorkspaceDir } from "@harness/gui/repo-root";
+import { readObservabilityPreferences } from "@harness/observability/facade.js";
 import { P_DEV_OBSERVABILITY_NONCE_ENV } from "@harness/observability/constants.js";
 
 export const dynamic = "force-dynamic";
 
 export default async function ConfigurePage() {
-  const [summary, formDefaults, remoteSummary, linearSummary, vercelSummary] =
+  const workspaceDir = resolveHarnessWorkspaceDir();
+  const [summary, formDefaults, remoteSummary, linearSummary, vercelSummary, observabilityState] =
     await Promise.all([
       loadSetupSummary(),
       loadSetupFormDefaults(),
       loadRemoteSetupSummary(),
       loadLinearSetupSummary(),
       loadVercelSetupSummary(),
+      readObservabilityPreferences(workspaceDir),
     ]);
 
   const observabilityNonce =
@@ -33,6 +37,11 @@ export default async function ConfigurePage() {
         vercelSummary={vercelSummary}
         formDefaults={formDefaults}
         observabilityNonce={observabilityNonce}
+        observabilityPreferences={{
+          analyticsPreference: observabilityState.analyticsPreference,
+          errorReportingPreference: observabilityState.errorReportingPreference,
+          disclosureShown: observabilityState.disclosureShown,
+        }}
       />
     </AppShell>
   );

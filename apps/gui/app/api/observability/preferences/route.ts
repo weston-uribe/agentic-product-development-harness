@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { resolveHarnessRepoRoot } from "@harness/gui/repo-root";
+import { resolveHarnessWorkspaceDir } from "@harness/gui/repo-root";
 import {
   readObservabilityPreferences,
   resetObservabilityState,
@@ -24,7 +24,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return guard.response;
   }
 
-  const workspaceDir = resolveHarnessRepoRoot();
+  const workspaceDir = resolveHarnessWorkspaceDir();
   const state = await readObservabilityPreferences(workspaceDir);
   return NextResponse.json({
     analyticsPreference: state.analyticsPreference,
@@ -41,7 +41,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const body = guard.body as Record<string, unknown>;
-  const workspaceDir = resolveHarnessRepoRoot();
+  const workspaceDir = resolveHarnessWorkspaceDir();
 
   if (body.reset === true) {
     await resetObservabilityState(workspaceDir);

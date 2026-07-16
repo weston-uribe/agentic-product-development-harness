@@ -57,12 +57,9 @@ The public template repository `weston-uribe/p-dev-harness-template` is a **froz
 
 ## Optional telemetry (consent-gated)
 
-The Configure GUI includes a **Privacy and optional telemetry** card. Nothing is transmitted until you opt in separately to:
+Configure shows a first-run **Data sharing** screen before guided setup. The same unified choice can be edited later from **Settings → Data sharing**. Nothing is transmitted until you opt in; disabling the choice keeps both analytics and sanitized error reports off.
 
-- anonymous product analytics, and/or
-- automated sanitized error reports
-
-Disable globally with `DO_NOT_TRACK=1` or `P_DEV_OBSERVABILITY_DISABLED=1`. Reset local identity by deleting `.harness/observability.local.json` or using the Configure reset action.
+Disable globally with `DO_NOT_TRACK=1` or `P_DEV_OBSERVABILITY_DISABLED=1`. Delete `.harness/observability.local.json` to reset local preferences and identity.
 
 Details: [`docs/observability-and-privacy.md`](https://github.com/weston-uribe/agentic-product-development-harness/blob/main/docs/observability-and-privacy.md)
 

@@ -16,6 +16,8 @@ import { useThemeToggle } from "@/lib/use-theme-toggle";
 type SettingsMenuProps = {
   configureHref?: string;
   isConfigureActive?: boolean;
+  dataSharingHref?: string;
+  isDataSharingActive?: boolean;
   workflowHref?: string;
   isWorkflowActive?: boolean;
 };
@@ -23,6 +25,8 @@ type SettingsMenuProps = {
 export function SettingsMenu({
   configureHref = "/settings/configure",
   isConfigureActive = false,
+  dataSharingHref = "/settings/data-sharing",
+  isDataSharingActive = false,
   workflowHref = "/workflow",
   isWorkflowActive = false,
 }: SettingsMenuProps) {
@@ -65,6 +69,14 @@ export function SettingsMenu({
             aria-current={isConfigureActive ? "page" : undefined}
           >
             Configure
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link
+            href={dataSharingHref}
+            aria-current={isDataSharingActive ? "page" : undefined}
+          >
+            Data sharing
           </Link>
         </DropdownMenuItem>
       </DropdownMenuContent>

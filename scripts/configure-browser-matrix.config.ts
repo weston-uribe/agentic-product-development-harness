@@ -1,5 +1,6 @@
 // Prerequisite: npx playwright install chromium
 import { execSync } from "node:child_process";
+import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "@playwright/test";
@@ -9,7 +10,9 @@ const workspaceDir = execSync("npx tsx scripts/prepare-configure-browser-workspa
   cwd: repoRoot,
   encoding: "utf8",
 }).trim();
+const workspaceMarkerPath = "/tmp/configure-browser-workspace-path.txt";
 
+writeFileSync(workspaceMarkerPath, `${workspaceDir}\n`, "utf8");
 process.env.CONFIGURE_BROWSER_WORKSPACE = workspaceDir;
 
 export default defineConfig({

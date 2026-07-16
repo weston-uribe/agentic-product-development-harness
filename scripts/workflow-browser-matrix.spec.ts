@@ -139,4 +139,13 @@ test.describe("workflow browser matrix", () => {
     await expect(page.getByRole("heading", { name: "Workflow", level: 1 })).toBeVisible();
     await expect(page.getByRole("region", { name: "Workflow health" })).toBeVisible();
   });
+
+  test("settings menu exposes data sharing from workflow", async ({ page }) => {
+    await page.goto(FIXTURE_URL);
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Data sharing" }).click();
+    await expect(page).toHaveURL(/\/settings\/data-sharing$/);
+    await expect(page.getByText(/^Data sharing$/)).toBeVisible();
+    await expect(page.getByRole("button", { name: "Save changes" })).toBeVisible();
+  });
 });
