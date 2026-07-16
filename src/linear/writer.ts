@@ -142,6 +142,13 @@ export interface PostPhaseStartCommentInput {
   prUrl?: string;
   cursorAgentId?: string;
   cursorRunId?: string;
+  builderAgentId?: string;
+  builderThreadGeneration?: number;
+  builderThreadAction?: string;
+  builderOriginRunId?: string;
+  builderThreadIdempotencyKey?: string;
+  previousBuilderAgentId?: string;
+  builderThreadReplacementReason?: string;
 }
 
 export async function postPhaseStartCommentIfNeeded(
@@ -177,6 +184,13 @@ export async function postPhaseStartCommentIfNeeded(
     runId: input.runId,
     cursorAgentId: input.cursorAgentId,
     cursorRunId: input.cursorRunId,
+    builderAgentId: input.builderAgentId,
+    builderThreadGeneration: input.builderThreadGeneration,
+    builderThreadAction: input.builderThreadAction,
+    builderOriginRunId: input.builderOriginRunId,
+    builderThreadIdempotencyKey: input.builderThreadIdempotencyKey,
+    previousBuilderAgentId: input.previousBuilderAgentId,
+    builderThreadReplacementReason: input.builderThreadReplacementReason,
     model: input.model,
     promptVersion: input.promptVersion,
     targetRepo: input.targetRepo,

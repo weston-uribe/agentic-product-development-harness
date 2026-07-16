@@ -8,6 +8,9 @@ V0.3.0 is a **GitHub source release** plus a **public npm CLI package** (`p-dev-
 
 ### Added
 
+- **Builder thread continuity** — one canonical Cursor Builder conversation per implementation lineage, resumed across revision and agent-based integration repair via `Agent.get` / `Agent.unarchive` / `Agent.resume` with per-send `model`, `mode`, and stable `idempotencyKey` values derived from durable triggering events (not harness `run_id`). Lineage resolution fails closed on malformed generations and conflicting highest-generation agent IDs; revision/repair replacements attach to the existing PR branch via a dedicated factory (`autoCreatePR: false`).
+- Hidden Linear metadata fields for Builder lineage: `builder_agent_id`, `builder_thread_generation`, `builder_thread_action`, `builder_origin_run_id`, `builder_thread_idempotency_key`, `previous_builder_agent_id`, and `builder_thread_replacement_reason`.
+- Builder acquisition durability before first `send()` via phase-start comments; run-start evidence records `cursor_run_id` after `send()` returns.
 - Canonical product-development workflow descriptor (`src/workflow/canonical-product-development-workflow.ts`) with executable audit alignment, repository-specific merge paths, and optional Duplicate status contract.
 - Fail-closed canonical Linear workflow preflight before authoritative runner side effects, plus noncanonical status-name override detection in doctor/readiness paths.
 - Production Workflow page at `/workflow` with role-based Planner/Builder model configuration, local+cloud autosave via `PUT /api/workflow/models`, and trimmed bootstrap payload (`GET /api/workflow/bootstrap`).
@@ -23,6 +26,7 @@ V0.3.0 is a **GitHub source release** plus a **public npm CLI package** (`p-dev-
 
 ### Changed
 
+- Revision and agent-based integration repair no longer create separate Cursor cloud agents; they acquire and resume the canonical Builder from Linear metadata lineage.
 - Workflow GUI is cards-only (health panel + expandable workflow cards); removed Operations canvas, draft persistence, sidebar/toolbar, and `@xyflow/react` dependency.
 - Runtime agents resolve Planner vs Builder models from `roleModels` with truthful manifest evidence (Builder model recorded only when integration-repair agent actually runs).
 - Linear status contract, dispatch triggers, setup planning, and Workflow bootstrap derive required statuses and triggers from the canonical descriptor.

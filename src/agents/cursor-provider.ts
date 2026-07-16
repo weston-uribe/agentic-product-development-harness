@@ -1,20 +1,19 @@
 import {
   createImplementationCloudAgent,
-  createIntegrationRepairCloudAgent,
   createPlanningCloudAgent,
-  createRevisionCloudAgent,
   disposeCloudAgent,
 } from "../cursor/agent-factory.js";
 import { resolveModelId as cursorResolveModelId } from "../cursor/model.js";
 import { sendAndObserve as cursorSendAndObserve } from "../cursor/run-observer.js";
+import { acquireBuilderAgent as acquireBuilderAgentImpl } from "../runner/builder-thread-acquire.js";
 import type {
+  AcquiredBuilderAgent,
+  AcquireBuilderAgentParams,
   AgentHandle,
   AgentProvider,
   ImplementationAgentParams,
-  IntegrationRepairAgentParams,
   ObservedAgentRun,
   PlanningAgentParams,
-  RevisionAgentParams,
   SendAndObserveOptions,
 } from "./types.js";
 import type { HarnessConfig } from "../config/types.js";
@@ -44,6 +43,7 @@ function mapObservedRun(
   return {
     agentId: observed.agentId,
     runId: observed.runId,
+    requestId: observed.requestId,
     assistantText: observed.assistantText,
     gitResult: observed.gitResult,
     cancelOutcome: observed.cancelOutcome,
@@ -69,16 +69,14 @@ export const cursorAgentProvider: AgentProvider = {
     return wrapCursorAgent(agent);
   },
 
-  async createRevisionAgent(params: RevisionAgentParams): Promise<AgentHandle> {
-    const agent = await createRevisionCloudAgent(params);
-    return wrapCursorAgent(agent);
-  },
-
-  async createIntegrationRepairAgent(
-    params: IntegrationRepairAgentParams,
-  ): Promise<AgentHandle> {
-    const agent = await createIntegrationRepairCloudAgent(params);
-    return wrapCursorAgent(agent);
+  async acquireBuilderAgent(
+    params: AcquireBuilderAgentParams,
+  ): Promise<AcquiredBuilderAgent> {
+    const acquired = await acquireBuilderAgentImpl(params);
+    return {
+      agent: wrapCursorAgent(acquired.agent),
+      continuity: acquired.continuity,
+    };
   },
 
   async sendAndObserve(

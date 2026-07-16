@@ -162,7 +162,7 @@ Validated in WES-9 and WES-10 — see [`docs/research/003-cursor-automation-plan
 |--------------|--------|
 | **Ready for Planning** | Run planning flow (Planning Agent) |
 | **Ready for Build** | Run implementation flow (Implementation Agent) — **not yet validated** |
-| **Needs Revision** | Run revision flow (Revision Agent) — **not yet validated** |
+| **Needs Revision** | Run revision flow (Builder follow-up) — **implemented** |
 | Any other status | **Silent exit** — no changes, no Linear writes |
 
 The router may delegate logically to role-specific prompts. The planning spike implements this as **one Cursor Automation prompt** that routes based on Linear status.
@@ -214,16 +214,22 @@ Role maturity varies — see honest maturity table below. Planning Agent behavio
 | **GitHub writes** | Branch, commits, PR (link back to Linear issue) |
 | **Must not do** | Merge PRs; deploy without human gate; advance past **PR Open** without a PR |
 
-### Revision Agent
+### Builder (implementation, revision, repair)
 
 | Field | Detail |
 |-------|--------|
-| **Trigger / status** | **Needs Revision** (via router) |
-| **Input** | Linear issue, PM review feedback comments, existing PR and branch |
-| **Output** | Additional commits on branch; revision summary comment |
-| **Linear writes** | Revision summary comment; move to **Revising** while working; move back to **PM Review** when ready |
-| **GitHub writes** | Commits on existing PR branch |
-| **Must not do** | Merge PRs; ignore PM feedback |
+| **Trigger / status** | **Ready for Build** (create); **Needs Revision** (resume follow-up); **Merging** agent repair (resume follow-up when deterministic repair is insufficient) |
+| **Input** | Linear issue, plan comment (if `requires-plan`), repo context; revision adds PM feedback; repair adds PR/check context |
+| **Output** | Feature branch, commits, PR (implementation); additional commits and revision summary (revision); repair commits or summary (agent repair) |
+| **Linear writes** | Hidden metadata: `builder_agent_id`, `builder_thread_generation`, `builder_thread_action`, `builder_origin_run_id`, `builder_thread_idempotency_key`, and replacement fields when applicable; phase-specific `cursor_agent_id` / `cursor_run_id` remain as Cursor evidence |
+| **GitHub writes** | Branch, commits, PR (implementation); commits on existing branch (revision / repair) |
+| **Must not do** | Merge PRs; create a separate revision or repair cloud agent when lineage can be resumed; replace Builder on transient resume or uncertain-send failures |
+
+Implementation creates generation `1`. Revision and agent repair resolve the canonical Builder from durable Linear metadata, call `Agent.resume` (unarchive when needed), and send follow-up prompts with stable idempotency keys. Replacement Builders are created only for definitive agent loss or exhausted legacy lineage.
+
+### Revision Agent (deprecated role name)
+
+The historical **Revision Agent** label referred to a separate Cursor cloud agent. Current behavior uses the **Builder** thread resumed from handoff / implementation markers. Docs and prompts may still say "revision" for the phase, but there is no independent revision agent role.
 
 ### Merge / Deployment Reporter
 
@@ -245,8 +251,8 @@ Automations and agents must treat **durable artifacts** as the source of truth.
 | Principle | Detail |
 |-----------|--------|
 | **Durable state required** | Linear comments, GitHub PR/commits/branch, Vercel preview URLs, and issue fields must hold enough context to resume work |
-| **Session reuse is optional** | Reusing an existing agent session is a happy-path optimization when Cursor supports it and it saves tokens |
-| **Fresh agent recovery** | A new agent must always be able to reconstruct context from Linear, GitHub, branch, PR, commits, Vercel preview, and Linear comments |
+| **Session reuse is optional** | Resuming the canonical Builder via Cursor `Agent.resume` is the happy path when lineage is valid |
+| **Fresh agent recovery** | A replacement Builder (or Planner for planning-only work) must always be able to reconstruct context from Linear, GitHub, branch, PR, commits, Vercel preview, and Linear comments |
 | **No hidden memory** | Hidden agent or session memory must **never** be the source of truth |
 
 Before advancing Linear status, the agent must ensure the required durable artifact exists (plan comment, PR link, revision summary, etc.).

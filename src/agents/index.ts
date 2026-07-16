@@ -1,11 +1,11 @@
 import { cursorAgentProvider } from "./cursor-provider.js";
 import { getAgentProvider } from "./provider.js";
 import type {
+  AcquireBuilderAgentParams,
+  AcquiredBuilderAgent,
   AgentHandle,
   ImplementationAgentParams,
-  IntegrationRepairAgentParams,
   PlanningAgentParams,
-  RevisionAgentParams,
   SendAndObserveOptions,
 } from "./types.js";
 import type { HarnessConfig } from "../config/types.js";
@@ -27,16 +27,10 @@ export function createImplementationAgent(
   return getAgentProvider(params.config).createImplementationAgent(params);
 }
 
-export function createRevisionAgent(
-  params: RevisionAgentParams,
-): Promise<AgentHandle> {
-  return getAgentProvider(params.config).createRevisionAgent(params);
-}
-
-export function createIntegrationRepairAgent(
-  params: IntegrationRepairAgentParams,
-): Promise<AgentHandle> {
-  return getAgentProvider(params.config).createIntegrationRepairAgent(params);
+export function acquireBuilderAgent(
+  params: AcquireBuilderAgentParams,
+): Promise<AcquiredBuilderAgent> {
+  return getAgentProvider(params.config).acquireBuilderAgent(params);
 }
 
 export function sendAndObserve(
@@ -60,6 +54,8 @@ export function disposeAgent(agent: AgentHandle): Promise<void> {
 }
 
 export type {
+  AcquireBuilderAgentParams,
+  AcquiredBuilderAgent,
   AgentHandle,
   CapturedGitResult,
   CursorCancelOutcome,

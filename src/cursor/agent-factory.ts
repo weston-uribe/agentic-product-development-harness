@@ -42,6 +42,8 @@ export interface RevisionAgentParams {
 
 export type IntegrationRepairAgentParams = RevisionAgentParams;
 
+export type ReplacementBuilderAgentParams = RevisionAgentParams;
+
 export async function createPlanningCloudAgent(
   params: PlanningAgentParams,
 ): Promise<SDKAgent> {
@@ -79,6 +81,28 @@ export async function createImplementationCloudAgent(
         },
       ],
       autoCreatePR: true,
+      skipReviewerRequest: true,
+    },
+  });
+}
+
+export async function createReplacementBuilderCloudAgent(
+  params: ReplacementBuilderAgentParams,
+): Promise<SDKAgent> {
+  const model: ModelSelection = resolveBuilderModel(params.config);
+  return Agent.create({
+    apiKey: params.apiKey,
+    model,
+    mode: "agent",
+    cloud: {
+      repos: [
+        {
+          url: params.targetRepo,
+          startingRef: params.branch,
+          prUrl: params.prUrl,
+        },
+      ],
+      autoCreatePR: false,
       skipReviewerRequest: true,
     },
   });
@@ -126,4 +150,23 @@ export async function createIntegrationRepairCloudAgent(
       skipReviewerRequest: true,
     },
   });
+}
+
+export interface ResumeBuilderCloudAgentParams {
+  apiKey: string;
+  agentId: string;
+  events?: import("../artifacts/events.js").EventLogger;
+}
+
+export async function resumeBuilderCloudAgent(
+  params: ResumeBuilderCloudAgentParams,
+): Promise<SDKAgent> {
+  const info = await Agent.get(params.agentId, { apiKey: params.apiKey });
+  if (info.archived) {
+    await Agent.unarchive(params.agentId, { apiKey: params.apiKey });
+    await params.events?.log("builder_thread_unarchived", "info", {
+      agentId: params.agentId,
+    });
+  }
+  return Agent.resume(params.agentId, { apiKey: params.apiKey });
 }

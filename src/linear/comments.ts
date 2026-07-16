@@ -23,6 +23,7 @@ import {
   type PhaseStartPhase,
 } from "./phase-labels.js";
 import { appendExecutionEnvironmentMetadataLines } from "../runner/execution-environment.js";
+import type { BuilderThreadMarkerEvidence } from "../runner/builder-thread-types.js";
 
 export type { PhaseStartPhase, HarnessErrorPhase };
 
@@ -32,6 +33,13 @@ export interface HarnessCommentFooterInput {
   runId: string;
   cursorAgentId?: string;
   cursorRunId?: string;
+  builderAgentId?: string;
+  builderThreadGeneration?: number;
+  builderThreadAction?: string;
+  builderOriginRunId?: string;
+  builderThreadIdempotencyKey?: string;
+  previousBuilderAgentId?: string;
+  builderThreadReplacementReason?: string;
   model: string;
   promptVersion: string;
   targetRepo: string;
@@ -116,6 +124,29 @@ function buildHarnessMetadataLines(
   }
   if (input.cursorRunId) {
     lines.push(`cursor_run_id: ${input.cursorRunId}`);
+  }
+  if (input.builderAgentId) {
+    lines.push(`builder_agent_id: ${input.builderAgentId}`);
+  }
+  if (input.builderThreadGeneration !== undefined) {
+    lines.push(`builder_thread_generation: ${input.builderThreadGeneration}`);
+  }
+  if (input.builderThreadAction) {
+    lines.push(`builder_thread_action: ${input.builderThreadAction}`);
+  }
+  if (input.builderOriginRunId) {
+    lines.push(`builder_origin_run_id: ${input.builderOriginRunId}`);
+  }
+  if (input.builderThreadIdempotencyKey) {
+    lines.push(`builder_thread_idempotency_key: ${input.builderThreadIdempotencyKey}`);
+  }
+  if (input.previousBuilderAgentId) {
+    lines.push(`previous_builder_agent_id: ${input.previousBuilderAgentId}`);
+  }
+  if (input.builderThreadReplacementReason) {
+    lines.push(
+      `builder_thread_replacement_reason: ${input.builderThreadReplacementReason}`,
+    );
   }
   lines.push(
     `model: ${input.model}`,
@@ -888,4 +919,25 @@ export async function writeCommentsArtifact(
 export function parsePrNumberFromUrl(prUrl: string): string | null {
   const match = prUrl.match(/\/pull\/(\d+)/);
   return match?.[1] ?? null;
+}
+
+export function withBuilderThreadMarkerEvidence<
+  T extends HarnessCommentFooterInput,
+>(footer: T, evidence: BuilderThreadMarkerEvidence): T {
+  return {
+    ...footer,
+    builderAgentId: evidence.builderAgentId ?? footer.builderAgentId,
+    builderThreadGeneration:
+      evidence.builderThreadGeneration ?? footer.builderThreadGeneration,
+    builderThreadAction:
+      evidence.builderThreadAction ?? footer.builderThreadAction,
+    builderOriginRunId: evidence.builderOriginRunId ?? footer.builderOriginRunId,
+    builderThreadIdempotencyKey:
+      evidence.builderThreadIdempotencyKey ?? footer.builderThreadIdempotencyKey,
+    previousBuilderAgentId:
+      evidence.previousBuilderAgentId ?? footer.previousBuilderAgentId,
+    builderThreadReplacementReason:
+      evidence.builderThreadReplacementReason ??
+      footer.builderThreadReplacementReason,
+  };
 }

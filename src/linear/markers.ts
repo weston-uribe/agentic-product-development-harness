@@ -4,6 +4,13 @@ export interface HarnessMarkers {
   runId?: string;
   cursorAgentId?: string;
   cursorRunId?: string;
+  builderAgentId?: string;
+  builderThreadGeneration?: string;
+  builderThreadAction?: string;
+  builderOriginRunId?: string;
+  builderThreadIdempotencyKey?: string;
+  previousBuilderAgentId?: string;
+  builderThreadReplacementReason?: string;
   model?: string;
   promptVersion?: string;
   targetRepo?: string;
@@ -90,6 +97,27 @@ function parseHarnessMarkerLines(block: string): HarnessMarkers {
         break;
       case "cursor_run_id":
         markers.cursorRunId = value;
+        break;
+      case "builder_agent_id":
+        markers.builderAgentId = value;
+        break;
+      case "builder_thread_generation":
+        markers.builderThreadGeneration = value;
+        break;
+      case "builder_thread_action":
+        markers.builderThreadAction = value;
+        break;
+      case "builder_origin_run_id":
+        markers.builderOriginRunId = value;
+        break;
+      case "builder_thread_idempotency_key":
+        markers.builderThreadIdempotencyKey = value;
+        break;
+      case "previous_builder_agent_id":
+        markers.previousBuilderAgentId = value;
+        break;
+      case "builder_thread_replacement_reason":
+        markers.builderThreadReplacementReason = value;
         break;
       case "model":
         markers.model = value;

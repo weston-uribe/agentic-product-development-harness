@@ -1,5 +1,5 @@
 import { mkdir, writeFile } from "node:fs/promises";
-import { Agent, CursorAgentError, type Run, type RunResult, type SDKAgent } from "@cursor/sdk";
+import { Agent, CursorAgentError, type ModelSelection, type Run, type RunResult, type SDKAgent } from "@cursor/sdk";
 import type { EventLogger } from "../artifacts/events.js";
 import { getCursorRunResultPath } from "../artifacts/paths.js";
 import { classifyCursorError, classifyRunResultStatus } from "./errors.js";
@@ -23,6 +23,7 @@ export type ObservePhase =
 export interface ObservedRunResult {
   agentId: string;
   runId: string;
+  requestId?: string;
   result: RunResult;
   assistantText: string;
   gitResult: CapturedGitResult | null;
@@ -37,8 +38,12 @@ export interface SendAndObserveOptions {
   abortSignal?: AbortSignal;
   apiKey?: string;
   pollIntervalMs?: number;
+  model?: ModelSelection;
+  mode?: "agent" | "plan";
+  idempotencyKey?: string;
   fetchCloudRun?: typeof Agent.getRun;
   onAgentCreated?: (details: { agentId: string; runId: string }) => Promise<void>;
+  onBeforeSend?: (details: { agentId: string }) => Promise<void>;
 }
 
 const DEFAULT_CLOUD_RUN_POLL_INTERVAL_MS = 5_000;
@@ -203,7 +208,14 @@ export async function sendAndObserve(
   };
 
   try {
-    run = await agent.send(prompt);
+    if (options.onBeforeSend) {
+      await options.onBeforeSend({ agentId });
+    }
+    run = await agent.send(prompt, {
+      ...(options.model ? { model: options.model } : {}),
+      ...(options.mode ? { mode: options.mode } : {}),
+      ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
+    });
   } catch (error) {
     const classification = classifyCursorError(error);
     throw makePhaseError(
@@ -359,6 +371,7 @@ export async function sendAndObserve(
   return {
     agentId,
     runId: result.id,
+    requestId: result.requestId,
     result,
     assistantText,
     gitResult,

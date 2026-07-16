@@ -47,14 +47,21 @@ import {
 import { parsePrUrl } from "../../github/pr-url.js";
 import { pollForVercelPreview } from "../../preview/vercel-from-pr.js";
 import {
-  createRevisionAgent,
+  acquireBuilderAgent,
   disposeAgent,
   sendAndObserve,
   type CursorCancelOutcome,
 } from "../../agents/index.js";
-import { manifestModelEvidence } from "../../cursor/model.js";
+import { manifestModelEvidence, resolveBuilderModel } from "../../cursor/model.js";
 import { normalizeRepoUrl } from "../../resolver/normalize-repo.js";
 import { buildRevisionPrompt } from "../../prompts/revision-builder.js";
+import { buildRevisionIdempotencyKey } from "../builder-thread-idempotency.js";
+import {
+  builderManifestFieldsFromResolution,
+  builderMarkerEvidenceFromResolution,
+} from "../builder-thread-evidence.js";
+import type { BuilderThreadResolution } from "../builder-thread-types.js";
+import { BuilderThreadLineageError } from "../builder-thread-lineage.js";
 import { RevisionError } from "../errors.js";
 import { runPreflight } from "../preflight.js";
 import {
@@ -291,6 +298,8 @@ export async function executeRevisionPhase(
   let pmFeedbackCommentId: string | null = null;
   let enteredRevising = false;
   let cursorCleanup: CursorCancelOutcome | null = null;
+  let builderContinuity: BuilderThreadResolution | null = null;
+  let cursorRequestId: string | null = null;
   const builderModel = manifestModelEvidence(config, "builder");
   const model = builderModel.model;
   const commentsWritten: string[] = [];
@@ -491,6 +500,35 @@ export async function executeRevisionPhase(
       changedFileCount: changedFiles.length,
     });
 
+    const revisionIdempotencyKey = buildRevisionIdempotencyKey({
+      issueKey: issue.identifier,
+      pmFeedbackCommentId,
+    });
+    const acquired = await acquireBuilderAgent({
+      apiKey: cursorApiKey,
+      config,
+      phase: "revision",
+      events,
+      context: {
+        issueKey: issue.identifier,
+        harnessRunId: runId,
+        targetRepo: markerTargetRepo,
+        baseBranch: resolved.baseBranch,
+        branch: branch ?? undefined,
+        prUrl: prUrl ?? undefined,
+        idempotencyKey: revisionIdempotencyKey,
+        comments,
+        orchestratorMarker: config.orchestratorMarker,
+        previousImplementationRunId: previousImplementationRunId ?? undefined,
+      },
+    });
+    builderContinuity = acquired.continuity;
+    const builderEvidence = builderMarkerEvidenceFromResolution(
+      acquired.continuity,
+      revisionIdempotencyKey,
+    );
+    const agent = acquired.agent;
+
     const revisingStatus = getTransitionalStatus(config, "revisingInProgress");
     await transitionIssueStatus(client, issue, revisingStatus);
     enteredRevising = true;
@@ -517,14 +555,6 @@ export async function executeRevisionPhase(
     await mkdir(`${runDirectory}/prompts`, { recursive: true });
     await writeFile(getRevisionPromptPath(runDirectory), `${prompt}\n`, "utf8");
 
-    const agent = await createRevisionAgent({
-      apiKey: cursorApiKey,
-      config,
-      targetRepo: markerTargetRepo,
-      branch,
-      prUrl,
-    });
-
     try {
     const timeoutMs =
       (config.revision?.timeoutSeconds ?? DEFAULT_REVISION_TIMEOUT_SECONDS) * 1000;
@@ -547,7 +577,10 @@ export async function executeRevisionPhase(
         expectedPrUrl: prUrl,
         abortSignal: abortController.signal,
         apiKey: cursorApiKey,
-        onAgentCreated: async ({ agentId, runId: cursorRunId }) => {
+        model: resolveBuilderModel(config),
+        mode: "agent",
+        idempotencyKey: revisionIdempotencyKey,
+        onBeforeSend: async ({ agentId }) => {
           const commentId = await postPhaseStartCommentIfNeeded(client, issue.id, {
             orchestratorMarker: config.orchestratorMarker,
             phase: "revision_start",
@@ -560,7 +593,14 @@ export async function executeRevisionPhase(
             branch: branch ?? undefined,
             prUrl: prUrl ?? undefined,
             cursorAgentId: agentId,
-            cursorRunId,
+            builderAgentId: builderEvidence.builderAgentId,
+            builderThreadGeneration: builderEvidence.builderThreadGeneration,
+            builderThreadAction: builderEvidence.builderThreadAction,
+            builderOriginRunId: builderEvidence.builderOriginRunId,
+            builderThreadIdempotencyKey: builderEvidence.builderThreadIdempotencyKey,
+            previousBuilderAgentId: builderEvidence.previousBuilderAgentId,
+            builderThreadReplacementReason:
+              builderEvidence.builderThreadReplacementReason,
           });
           if (commentId) {
             await events.log("phase_start_comment_posted", "info", {
@@ -572,6 +612,13 @@ export async function executeRevisionPhase(
               commentId,
             });
           }
+        },
+        onAgentCreated: async ({ agentId, runId: createdRunId }) => {
+          await events.log("builder_followup_run_started", "info", {
+            agentId,
+            runId: createdRunId,
+            phase: "revision",
+          });
         },
       });
     } catch (error) {
@@ -586,6 +633,7 @@ export async function executeRevisionPhase(
     cursorCleanup = observed.cancelOutcome;
     cursorAgentId = observed.agentId;
     cursorRunId = observed.runId;
+    cursorRequestId = observed.requestId ?? null;
     branch = observed.gitResult?.branch ?? branch;
     prUrl = observed.gitResult?.prUrl ?? prUrl;
     validationSummary = observed.assistantText;
@@ -678,6 +726,13 @@ export async function executeRevisionPhase(
       previewUrl: previewUrl ?? undefined,
       previousHandoffRunId: previousHandoffRunId ?? undefined,
       pmFeedbackCommentId,
+      builderAgentId: builderEvidence.builderAgentId,
+      builderThreadGeneration: builderEvidence.builderThreadGeneration,
+      builderThreadAction: builderEvidence.builderThreadAction,
+      builderOriginRunId: builderEvidence.builderOriginRunId,
+      builderThreadIdempotencyKey: builderEvidence.builderThreadIdempotencyKey,
+      previousBuilderAgentId: builderEvidence.previousBuilderAgentId,
+      builderThreadReplacementReason: builderEvidence.builderThreadReplacementReason,
     });
     commentsWritten.push(revisionBody);
     await writeFile(getRevisionCommentPath(runDirectory), `${revisionBody}\n`, "utf8");
@@ -717,6 +772,8 @@ export async function executeRevisionPhase(
     if (error instanceof RevisionError) {
       errorClassification = error.classification;
       cursorCleanup = error.cancelOutcome;
+    } else if (error instanceof BuilderThreadLineageError) {
+      errorClassification = "builder_lineage_integrity";
     } else if (error instanceof Error) {
       errorClassification = "linear_write_failure";
     } else {
@@ -789,6 +846,17 @@ export async function executeRevisionPhase(
     model,
     modelRole: "builder",
     modelParams: builderModel.modelParams,
+    ...(builderContinuity
+      ? builderManifestFieldsFromResolution(builderContinuity, cursorRequestId ?? undefined)
+      : {
+          builderAgentId: null,
+          builderThreadAction: null,
+          builderThreadGeneration: null,
+          builderOriginRunId: null,
+          previousBuilderAgentId: null,
+          builderThreadReplacementReason: null,
+          cursorRequestId,
+        }),
   };
 
   return writeFinalManifest(

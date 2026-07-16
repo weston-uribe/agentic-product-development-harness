@@ -10,7 +10,8 @@ import type { ResolvedTarget } from "../../src/resolver/target-repo.js";
 
 const mocks = vi.hoisted(() => ({
   postIssueComment: vi.fn().mockResolvedValue("comment-1"),
-  createIntegrationRepairAgent: vi.fn(),
+  listIssueComments: vi.fn().mockResolvedValue([]),
+  acquireBuilderAgent: vi.fn(),
   disposeAgent: vi.fn().mockResolvedValue(undefined),
   sendAndObserve: vi.fn(),
 }));
@@ -20,11 +21,12 @@ vi.mock("../../src/linear/writer.js", async (importOriginal) => {
   return {
     ...actual,
     postIssueComment: mocks.postIssueComment,
+    listIssueComments: mocks.listIssueComments,
   };
 });
 
 vi.mock("../../src/agents/index.js", () => ({
-  createIntegrationRepairAgent: mocks.createIntegrationRepairAgent,
+  acquireBuilderAgent: mocks.acquireBuilderAgent,
   disposeAgent: mocks.disposeAgent,
   sendAndObserve: mocks.sendAndObserve,
 }));
@@ -182,7 +184,7 @@ describe("attemptIntegrationRepair", () => {
       23,
       { expectedHeadSha: "dirty-sha" },
     );
-    expect(mocks.createIntegrationRepairAgent).not.toHaveBeenCalled();
+    expect(mocks.acquireBuilderAgent).not.toHaveBeenCalled();
     expect(result.inspection.mergeableState).toBe("clean");
   });
 
@@ -238,9 +240,22 @@ describe("attemptIntegrationRepair", () => {
       }),
       getIssueComments: vi.fn().mockResolvedValue([]),
     };
-    mocks.createIntegrationRepairAgent.mockResolvedValue({
-      agentId: "agent-1",
-      [Symbol.asyncDispose]: async () => undefined,
+    mocks.acquireBuilderAgent.mockResolvedValue({
+      agent: {
+        agentId: "agent-1",
+        [Symbol.asyncDispose]: async () => undefined,
+      },
+      continuity: {
+        action: "resumed",
+        reference: {
+          agentId: "agent-1",
+          generation: 1,
+          originHarnessRunId: "impl-1",
+          latestHarnessRunId: "merge-1",
+          sourcePhase: "integration_repair",
+          targetRepo,
+        },
+      },
     });
     mocks.sendAndObserve.mockResolvedValue({
       agentId: "agent-1",
