@@ -49,7 +49,7 @@
     "server-only": "^0.0.1",
     "tailwind-merge": "^3.3.0",
     "tweetsodium": "^0.0.4",
-    "zod": "^3.24.2"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
