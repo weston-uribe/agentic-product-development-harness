@@ -310,18 +310,68 @@ kill "$PID"
 
 **Stop** if:
 
-- `observability.public.json` contains privileged credentials or non-empty ingestion tokens before maintainer approval
+- `observability.public.json` contains privileged credentials, PostHog personal API keys (`phx_`), or Sentry auth/management tokens
 - Tarball ships `.harness/observability.local.json`, nonce fixtures, or maintainer overrides
 - Pre-consent network transmission occurs in smoke
 - Sentry payloads include stable installation ID
+- the public DSN appears outside `config/observability.public.json` and the established generated package mirror
+- browser-side Sentry initialization, CI/Vercel source-map upload, source-context upload, or build/runtime `SENTRY_AUTH_TOKEN` dependency is introduced
 
-**Pending until sandbox evidence exists:**
+**Required before observability-enabled release approval:**
 
-- Real Sentry/PostHog project configuration
-- Vendor sandbox payload verification
-- Source-map upload decision
+- Sentry public DSN committed only to the tracked public config source
+- Legacy PostHog `Default Project` deleted and clean `p-dev-harness` project created (US region)
+- Public PostHog project ingestion token (`phc_…`, not `phx_`) committed only to `config/observability.public.json` and the package mirror
+- `p-dev Packaged Onboarding Health` dashboard matches [`src/observability/posthog-dashboard-contract.ts`](../src/observability/posthog-dashboard-contract.ts)
+- Vendor sandbox payload verification with raw stored event JSON (not UI summaries alone)
+- Mandatory Sentry project privacy settings verified live:
+  - Data Scrubber and Default Scrubbers enabled
+  - Prevent Storing of IP Addresses
+  - Advanced Data Scrubbing: `[Remove] [Anything] from [$user.geo.**]`
+  - Advanced Data Scrubbing: `[Remove] [Anything] from [contexts.trace]`
+- Source maps, JavaScript source fetching, and SCM source context remain disabled
+- Exposed Sentry client key revoked, deleted, disabled, or otherwise proven unusable before the replacement DSN is enabled
+
+### Sentry sandbox privacy revalidation (operator-run)
+
+Use the exact-head packaged tarball with the committed public DSN. Do not supply `P_DEV_SENTRY_DSN`, `SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN`, or `SENTRY_AUTH_TOKEN` through private environment variables for this gate.
+
+1. Fresh disposable `P_DEV_HOME` temp directory.
+2. Install and launch the packed tarball with `npx p-dev-harness@VERSION --no-open` (real launcher, not a direct facade import).
+3. Confirm zero Sentry traffic before consent (`GET /api/observability/preferences` undecided).
+4. Enable **Automated sanitized error reports** only in Configure.
+5. Trigger one captured product error without mutating GitHub, Linear, or Vercel:
+   - Enable **Automated sanitized error reports** only and confirm the preference persisted.
+   - `chmod -R a-w "$P_DEV_HOME/.harness"` for the same runtime user as the launcher.
+   - Prove a direct write by that user fails (for example `touch "$P_DEV_HOME/.harness/.write-test"` → `EACCES`).
+   - From Configure, submit a **normal preference write** (not **Reset local telemetry identity**) that keeps `errorReportingPreference: enabled`, does not enable analytics, and requires persistence—for example toggling `disclosureShown` through the real Configure session with the observability nonce.
+   - Expected capture: `configure_request_error` / `configure_route` via preferences route `handleObservabilityRouteFailure` when preference persistence fails (for example when `.harness` is read-only).
+   - **Do not use Reset local telemetry identity** as the trigger; reset disables observability transports before attempting the write.
+6. Keep the launcher running through consent-withdrawal validation below; do not stop after the first event.
+7. Inspect **raw stored event JSON** in Sentry:
+   - no `user`, `user.geo`, `ip_address`, `contexts.trace`, `trace_id`, or `span_id`
+   - `package_version` equals installed tarball version
+   - `release_sha` equals tarball `workspace-snapshot/manifest.json` `sourceCommit`
+   - exactly one event; zero user identity in Sentry Users
+8. Consent withdrawal: restore `.harness` write permissions, disable automated error reporting in Configure, make `.harness` read-only again, repeat the same preference-write failure once, and confirm the Sentry event count remains exactly one.
+9. Stop the launcher cleanly so observability flush/shutdown hooks run.
+10. Teardown: `unset P_DEV_SENTRY_DSN SENTRY_DSN NEXT_PUBLIC_SENTRY_DSN SENTRY_AUTH_TOKEN`, delete temp files.
 
 Do **not** bump package version, publish npm, tag, or create a GitHub release from observability validation work alone.
+
+### PostHog sandbox privacy revalidation (operator-run)
+
+Use the exact-head packaged tarball with the committed public PostHog project token. Unset `P_DEV_POSTHOG_PROJECT_TOKEN`, `P_DEV_POSTHOG_HOST`, `POSTHOG_PROJECT_API_KEY`, `POSTHOG_PERSONAL_API_KEY`, `POSTHOG_API_KEY`, and `NEXT_PUBLIC_POSTHOG_KEY`.
+
+1. Fresh disposable `P_DEV_HOME` temp directory.
+2. Install and launch the packed tarball with `npx p-dev-harness@VERSION --no-open`.
+3. Confirm zero PostHog traffic before analytics consent.
+4. Enable **Anonymous product analytics** only in Configure.
+5. Confirm exactly one `p_dev_session_started` and one deterministic Configure view/completion event from a real non-mutating product interaction.
+6. Inspect raw stored PostHog events for allowlisted properties only; confirm no person profile exists.
+7. Disable analytics in Configure and confirm no new events; relaunch and confirm session-start count remains `1`.
+8. Run every dashboard insight query and verify session, Configure, release-filter, and OS cards show validation data.
+9. Teardown: stop launcher, delete temp `P_DEV_HOME`, unset PostHog environment variables.
 
 ## Current example — v0.3.1 (published 2026-07-14)
 

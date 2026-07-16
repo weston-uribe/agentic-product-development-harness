@@ -34,6 +34,9 @@ import {
   installObservabilityUncaughtHandlers,
   releaseParentObservabilityOwnership,
 } from "../../src/observability/facade.js";
+import { P_DEV_RELEASE_SHA_ENV } from "../../src/observability/constants.js";
+
+const MANIFEST_SOURCE_COMMIT = "c0ffee".padEnd(40, "0");
 
 describe("p-dev launch", () => {
   let tempRoot = "";
@@ -64,6 +67,14 @@ describe("p-dev launch", () => {
     await mkdir(path.join(packageRoot, "node_modules", ".bin"), {
       recursive: true,
     });
+    await mkdir(path.join(packageRoot, "workspace-snapshot"), {
+      recursive: true,
+    });
+    await writeFile(
+      path.join(packageRoot, "workspace-snapshot", "manifest.json"),
+      JSON.stringify({ sourceCommit: MANIFEST_SOURCE_COMMIT }),
+      "utf8",
+    );
   });
 
   afterEach(async () => {
@@ -95,6 +106,9 @@ describe("p-dev launch", () => {
       return child;
     });
 
+    const previousReleaseSha = process.env[P_DEV_RELEASE_SHA_ENV];
+    process.env[P_DEV_RELEASE_SHA_ENV] = "d".repeat(40);
+
     const result = await launchPDev({
       argv: ["--workspace", workspaceDir, "--port", "3000"],
       moduleUrl: `file://${modulePath}`,
@@ -105,6 +119,12 @@ describe("p-dev launch", () => {
       },
       spawnImpl: spawnImpl as never,
     });
+
+    if (previousReleaseSha === undefined) {
+      delete process.env[P_DEV_RELEASE_SHA_ENV];
+    } else {
+      process.env[P_DEV_RELEASE_SHA_ENV] = previousReleaseSha;
+    }
 
     expect(result.url).toBe("http://localhost:3000/");
     expect(result.workspaceDir).toBe(workspaceDir);
@@ -130,6 +150,8 @@ describe("p-dev launch", () => {
     expect(spawnOptions.env.P_DEV_OBSERVABILITY_NONCE).toMatch(
       /^[0-9a-f-]{36}$/i,
     );
+    expect(spawnOptions.env[P_DEV_RELEASE_SHA_ENV]).toBe(MANIFEST_SOURCE_COMMIT);
+    expect(spawnOptions.env[P_DEV_RELEASE_SHA_ENV]).not.toBe("d".repeat(40));
     expect(installObservabilityUncaughtHandlers).toHaveBeenCalled();
     expect(releaseParentObservabilityOwnership).toHaveBeenCalled();
     expect(exitSpy).toHaveBeenCalledWith(0);

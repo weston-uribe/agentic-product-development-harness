@@ -40,6 +40,12 @@ import {
   createObservabilityHandoff,
   observabilityHandoffEnv,
 } from "../observability/session-handoff.js";
+import {
+  P_DEV_RELEASE_SHA_ENV,
+} from "../observability/constants.js";
+import {
+  resolvePackagedReleaseShaFromPackageRoot,
+} from "../observability/context.js";
 import { ENV_LOCAL, CONFIG_LOCAL } from "../setup/setup-state.js";
 
 export const STARTUP_TIMEOUT_MS = 90_000;
@@ -99,9 +105,14 @@ export async function launchPDev(
   }
 
   const handoff = createObservabilityHandoff();
+  const packagedReleaseSha = resolvePackagedReleaseShaFromPackageRoot(packageRoot);
+  const packagedObservabilityEnv = {
+    ...observabilityHandoffEnv(handoff),
+    [P_DEV_RELEASE_SHA_ENV]: packagedReleaseSha,
+  };
   const parentEnv = {
     ...process.env,
-    ...observabilityHandoffEnv(handoff),
+    ...packagedObservabilityEnv,
   };
 
   await beginObservabilitySession({
@@ -150,7 +161,7 @@ export async function launchPDev(
         HARNESS_REPO_ROOT: workspace.workspaceDir,
         P_DEV_RUNTIME_MODE: "packaged",
         [P_DEV_PACKAGE_VERSION_ENV]: packagedVersion,
-        ...observabilityHandoffEnv(handoff),
+        ...packagedObservabilityEnv,
         HARNESS_GUI_HOST: host,
         HARNESS_GUI_PORT: String(port),
       },

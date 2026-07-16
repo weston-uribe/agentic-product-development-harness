@@ -1,7 +1,16 @@
+import { serializeEnvelope } from "@sentry/core";
 import { describe, expect, it } from "vitest";
 import { createSentryErrorTransport } from "../../src/observability/adapters/sentry.js";
 import { ALLOWED_SENTRY_TAG_KEYS } from "../../src/observability/privacy-schema.js";
+import {
+  findSentryPrivacyViolation,
+  scrubOutboundSentryEvent,
+} from "../../src/observability/sentry-outbound-privacy.js";
 import type { ErrorEvent } from "@sentry/node";
+import {
+  assertCapturedSentryEnvelopePrivacy,
+  assertNdjsonSentryBodyPrivacy,
+} from "./sentry-privacy-assertions.js";
 
 const PRIVACY_FIXTURE = [
   "ghp_1234567890abcdef",
@@ -22,30 +31,26 @@ const BASE_CONTEXT = {
   lifecycle_phase: "provisioning",
 } as const;
 
-function envelopeEvent(envelope: unknown): ErrorEvent {
-  const event = (envelope as [unknown, Array<[unknown, ErrorEvent]>])[1]?.[0]?.[1];
-  if (!event) {
-    throw new Error(`Missing Sentry event in envelope: ${JSON.stringify(envelope)}`);
-  }
-  return event;
+function createCapturingTransport(captured: unknown[]) {
+  return createSentryErrorTransport({
+    dsn: "http://public@127.0.0.1:9999/1",
+    release: "p-dev-harness@0.3.1",
+    transport: () =>
+      ({
+        send: async (envelope: unknown) => {
+          captured.push(envelope);
+          return { statusCode: 200 };
+        },
+        flush: async () => true,
+        close: async () => undefined,
+      }) as never,
+  });
 }
 
 describe("observability sentry adapter envelope", () => {
   it("constructs the outbound event to the approved privacy schema", async () => {
     const captured: unknown[] = [];
-    const transport = createSentryErrorTransport({
-      dsn: "http://public@127.0.0.1:9999/1",
-      release: "p-dev-harness@0.3.1",
-      transport: () =>
-        ({
-          send: async (envelope: unknown) => {
-            captured.push(envelope);
-            return { statusCode: 200 };
-          },
-          flush: async () => true,
-          close: async () => undefined,
-        }) as never,
-    });
+    const transport = createCapturingTransport(captured);
 
     transport.captureError(
       {
@@ -60,17 +65,42 @@ describe("observability sentry adapter envelope", () => {
 
     await transport.flush(2_000);
 
-    const serialized = JSON.stringify(captured);
-    expect(serialized).toContain("provision_failed");
-    expect(serialized).not.toContain("ghp_1234567890abcdef");
-    expect(serialized).not.toContain("weston@example.com");
-    expect(serialized).not.toContain("/Users/weston");
-    expect(serialized).not.toContain("token=abc");
-    for (const key of ALLOWED_SENTRY_TAG_KEYS) {
-      if (serialized.includes(`"${key}"`)) {
-        expect(ALLOWED_SENTRY_TAG_KEYS).toContain(key);
-      }
-    }
+    expect(captured).toHaveLength(1);
+    const events = assertCapturedSentryEnvelopePrivacy(captured[0]);
+    expect(events).toHaveLength(1);
+    const event = events[0]!;
+    expect(event.tags?.product_error_code).toBe("provision_failed");
+    expect(event.fingerprint).toEqual(["provision_failed", "provisioning"]);
+    expect(event.user).toBeUndefined();
+    expect(event.request).toBeUndefined();
+    expect(event.contexts).toBeUndefined();
+    expect(event.breadcrumbs).toBeUndefined();
+    expect(event.transaction).toBeUndefined();
+    expect(event.server_name).toBeUndefined();
+    expect(JSON.stringify(event)).not.toMatch(/trace_id|span_id|parent_span_id|ip_address/);
+
+    const ndjson = String(serializeEnvelope(captured[0] as never));
+    const roundTripEvents = assertNdjsonSentryBodyPrivacy(ndjson);
+    expect(roundTripEvents[0]?.tags?.product_error_code).toBe("provision_failed");
+  });
+
+  it("omits tracing and profiling client options", async () => {
+    const captured: unknown[] = [];
+    const transport = createCapturingTransport(captured);
+    transport.captureError(
+      {
+        lifecyclePhase: "provisioning",
+        productErrorCode: "provision_failed",
+        errorCategory: "server",
+      },
+      BASE_CONTEXT,
+    );
+    await transport.flush(2_000);
+    expect(captured).toHaveLength(1);
+    const envelope = captured[0] as [Record<string, unknown>, unknown[]];
+    expect(envelope[0].trace).toBeUndefined();
+    const events = assertCapturedSentryEnvelopePrivacy(captured[0]);
+    expect(JSON.stringify(events[0])).not.toContain("trace_id");
   });
 
   it("keeps concurrent captures bound to their own product metadata", async () => {
@@ -119,7 +149,9 @@ describe("observability sentry adapter envelope", () => {
     await transport.flush(2_000);
 
     expect(captured).toHaveLength(2);
-    const events = captured.map(envelopeEvent);
+    const events = captured.flatMap((envelope) =>
+      assertCapturedSentryEnvelopePrivacy(envelope),
+    );
     expect(events.map((event) => event.tags?.product_error_code).sort()).toEqual([
       "configure_request_error",
       "provision_failed",
@@ -144,6 +176,9 @@ describe("observability sentry adapter envelope", () => {
       "configure_request_error",
       "configure_route",
     ]);
+    for (const key of ALLOWED_SENTRY_TAG_KEYS) {
+      expect(ALLOWED_SENTRY_TAG_KEYS).toContain(key);
+    }
   });
 
   it("drops uninitiated events on consent withdrawal without starting later sends", async () => {
@@ -176,7 +211,13 @@ describe("observability sentry adapter envelope", () => {
       },
       BASE_CONTEXT,
     );
-    await new Promise((resolve) => queueMicrotask(resolve));
+    const waitForFirstSend = async () => {
+      const deadline = Date.now() + 500;
+      while (initiated.length < 1 && Date.now() < deadline) {
+        await new Promise((resolve) => queueMicrotask(resolve));
+      }
+    };
+    await waitForFirstSend();
     expect(initiated).toHaveLength(1);
 
     transport.captureError(
@@ -206,9 +247,43 @@ describe("observability sentry adapter envelope", () => {
     expect(disableElapsed).toBeLessThan(150);
     expect(initiated).toHaveLength(1);
     expect(initiated.every((timestamp) => timestamp <= gateClosedAt)).toBe(true);
-    expect(captured.map(envelopeEvent)[0]?.tags?.product_error_code).toBe(
-      "provision_failed",
-    );
+    const survivingEvents = assertCapturedSentryEnvelopePrivacy(captured[0]);
+    expect(survivingEvents[0]?.tags?.product_error_code).toBe("provision_failed");
     expect(transport.isActive()).toBe(false);
+  });
+
+  it("drops non-compliant events in production without throwing", async () => {
+    const captured: unknown[] = [];
+    const transport = createCapturingTransport(captured);
+    const dirtyEvent = {
+      platform: "node",
+      level: "error",
+      message: "Harness workspace provisioning failed.",
+      tags: {
+        product_error_code: "provision_failed",
+        lifecycle_phase: "provisioning",
+        installationId: "must-not-send",
+      },
+      user: { ip_address: "203.0.113.1" },
+    } as ErrorEvent;
+
+    expect(scrubOutboundSentryEvent(dirtyEvent)).toBeNull();
+    expect(() =>
+      findSentryPrivacyViolation({
+        user: { ip_address: "203.0.113.1" },
+      }),
+    ).not.toThrow();
+
+    transport.captureError(
+      {
+        lifecyclePhase: "provisioning",
+        productErrorCode: "provision_failed",
+        errorCategory: "server",
+      },
+      BASE_CONTEXT,
+    );
+    await transport.flush(2_000);
+    expect(captured).toHaveLength(1);
+    expect(transport.isActive()).toBe(true);
   });
 });

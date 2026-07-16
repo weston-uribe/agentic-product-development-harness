@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { resolvePackageRootFromModule, normalizeModuleReferenceToPath } from "../p-dev/package-paths.js";
+import { isPackagedPDevRuntime } from "../p-dev/runtime-mode.js";
 import {
   OBSERVABILITY_PUBLIC_CONFIG_FILENAME,
   OBSERVABILITY_SCHEMA_VERSION,
@@ -130,7 +131,26 @@ export function readObservabilityPublicConfig(
   }
 
   if (!base) {
-    return null;
+    if (!isPackagedPDevRuntime(env)) {
+      return null;
+    }
+
+    const sentryPublicDsn = env[P_DEV_SENTRY_DSN_ENV]?.trim() ?? "";
+    const posthogProjectToken = env[P_DEV_POSTHOG_PROJECT_TOKEN_ENV]?.trim() ?? "";
+    const posthogIngestionHost =
+      env[P_DEV_POSTHOG_HOST_ENV]?.trim() || "https://us.i.posthog.com";
+
+    if (!sentryPublicDsn && !posthogProjectToken) {
+      return null;
+    }
+
+    return {
+      observabilitySchemaVersion: OBSERVABILITY_SCHEMA_VERSION,
+      sentryPublicDsn,
+      posthogProjectToken,
+      posthogIngestionHost,
+      sourcePath: "env",
+    };
   }
 
   return {

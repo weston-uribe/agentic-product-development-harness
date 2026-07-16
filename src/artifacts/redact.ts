@@ -1,12 +1,28 @@
-const SECRET_PATTERNS = [
+export const CREDENTIAL_SECRET_PATTERNS = [
   /lin_api_[A-Za-z0-9_]+/gi,
   /ghp_[A-Za-z0-9]+/gi,
+  /gho_[A-Za-z0-9]+/gi,
+  /ghu_[A-Za-z0-9]+/gi,
+  /ghs_[A-Za-z0-9]+/gi,
+  /ghr_[A-Za-z0-9]+/gi,
   /github_pat_[A-Za-z0-9_]+/gi,
   /cursor_[A-Za-z0-9_]+/gi,
   /sk-[A-Za-z0-9_-]+/gi,
   /xox[baprs]-[A-Za-z0-9-]+/gi,
   /Bearer\s+[A-Za-z0-9._-]+/gi,
-];
+] as const;
+
+const SECRET_PATTERNS = CREDENTIAL_SECRET_PATTERNS;
+
+export function stringContainsCredentialSecret(value: string): boolean {
+  for (const pattern of CREDENTIAL_SECRET_PATTERNS) {
+    pattern.lastIndex = 0;
+    if (pattern.test(value)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 const MAX_REDACTED_ERROR_LENGTH = 200;
 
