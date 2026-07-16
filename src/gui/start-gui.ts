@@ -3,6 +3,8 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveAvailableGuiPort } from "./port.js";
+import { P_DEV_OBSERVABILITY_NONCE_ENV } from "../observability/constants.js";
+import { resolveSourceGuiObservabilityNonce } from "../observability/session-handoff.js";
 
 import { resolveHarnessSourceRoot } from "./repo-root.js";
 
@@ -95,6 +97,8 @@ async function main(): Promise<void> {
     process.platform === "win32" ? "next.cmd" : "next",
   );
 
+  const observabilityNonce = resolveSourceGuiObservabilityNonce();
+
   const child = spawn(
     nextBin,
     ["dev", "--hostname", host, "--port", String(port)],
@@ -106,6 +110,7 @@ async function main(): Promise<void> {
         HARNESS_REPO_ROOT: repoRoot,
         HARNESS_GUI_HOST: host,
         HARNESS_GUI_PORT: String(port),
+        [P_DEV_OBSERVABILITY_NONCE_ENV]: observabilityNonce,
       },
     },
   );

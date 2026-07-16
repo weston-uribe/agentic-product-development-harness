@@ -206,12 +206,9 @@ See [`docs/getting-started.md`](getting-started.md) and [`README.md`](../README.
 
 ## Optional observability
 
-Packaged runs may offer two independent, opt-in telemetry categories in Configure:
+Packaged runs offer a unified, opt-in **Data sharing** choice in Configure before setup begins. The same preference can be changed later from **Settings → Data sharing**. When enabled, both anonymous product analytics and automated sanitized error reports may be sent; when disabled, both remain off.
 
-1. Anonymous product analytics (Configure funnel and provisioning outcomes)
-2. Automated sanitized error reports
-
-No network transmission occurs before you choose. Local preferences live in `.harness/observability.local.json` under your workspace. Source-development runs (`npm run harness:configure`) do not send telemetry.
+No network transmission occurs before you choose. Local preferences live in `.harness/observability.local.json` under your workspace. Source-development runs (`npm run harness:configure`) do not send telemetry, but source launchers still supply a process-scoped nonce so local preference writes can persist.
 
 Canonical contract: [`docs/observability-and-privacy.md`](observability-and-privacy.md)
 

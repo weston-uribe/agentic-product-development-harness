@@ -231,7 +231,7 @@ Before an observability-enabled npm release:
 
 ## Reset
 
-Delete `.harness/observability.local.json` or use Configure **Reset local telemetry identity**.
+Delete `.harness/observability.local.json` to clear local data-sharing preferences and telemetry identity. Configure no longer exposes a reset control; use **Settings → Data sharing** to change preferences after onboarding.
 
 ## Release validation
 

@@ -8,6 +8,9 @@ V0.3.0 is a **GitHub source release** plus a **public npm CLI package** (`p-dev-
 
 ### Added
 
+- Configure GUI data-sharing onboarding gate with server-seeded first paint, unified local preference choice, and a dedicated Settings **Data sharing** route.
+- Source GUI launchers (`harness:gui`, `harness:configure:stable`) now supply a process-scoped observability nonce for local preference writes without beginning an observability session.
+- Expanded Configure browser matrix coverage for the data-sharing gate, settings re-entry, keyboard operation, dark theme, and horizontal overflow checks.
 - **Builder thread continuity** — one canonical Cursor Builder conversation per implementation lineage, resumed across revision and agent-based integration repair via `Agent.get` / `Agent.unarchive` / `Agent.resume` with per-send `model`, `mode`, and stable `idempotencyKey` values derived from durable triggering events (not harness `run_id`). Lineage resolution fails closed on malformed generations and conflicting highest-generation agent IDs; revision/repair replacements attach to the existing PR branch via a dedicated factory (`autoCreatePR: false`).
 - Hidden Linear metadata fields for Builder lineage: `builder_agent_id`, `builder_thread_generation`, `builder_thread_action`, `builder_origin_run_id`, `builder_thread_idempotency_key`, `previous_builder_agent_id`, and `builder_thread_replacement_reason`.
 - Builder acquisition durability before first `send()` via phase-start comments; run-start evidence records `cursor_run_id` after `send()` returns.
@@ -28,6 +31,7 @@ V0.3.0 is a **GitHub source release** plus a **public npm CLI package** (`p-dev-
 
 ### Changed
 
+- Configure GUI telemetry controls: replaced the persistent privacy card with a first-run data-sharing gate and Settings edit route; removed separate analytics/error checkboxes and reset-local-identity controls from Configure.
 - Revision and agent-based integration repair no longer create separate Cursor cloud agents; they acquire and resume the canonical Builder from Linear metadata lineage.
 - Workflow GUI is cards-only (health panel + expandable workflow cards); removed Operations canvas, draft persistence, sidebar/toolbar, and `@xyflow/react` dependency.
 - Runtime agents resolve Planner vs Builder models from `roleModels` with truthful manifest evidence (Builder model recorded only when integration-repair agent actually runs).

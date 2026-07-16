@@ -4,11 +4,17 @@ import { LAYOUT } from "@/lib/constants/layout";
 type ApplicationHeaderProps = {
   configureHref?: string;
   isConfigureActive?: boolean;
+  dataSharingHref?: string;
+  isDataSharingActive?: boolean;
+  isWorkflowActive?: boolean;
 };
 
 export function ApplicationHeader({
   configureHref,
   isConfigureActive,
+  dataSharingHref,
+  isDataSharingActive,
+  isWorkflowActive = false,
 }: ApplicationHeaderProps) {
   return (
     <header className={LAYOUT.header}>
@@ -27,6 +33,9 @@ export function ApplicationHeader({
         <SettingsMenu
           configureHref={configureHref}
           isConfigureActive={isConfigureActive}
+          dataSharingHref={dataSharingHref}
+          isDataSharingActive={isDataSharingActive}
+          isWorkflowActive={isWorkflowActive}
         />
       </div>
     </header>

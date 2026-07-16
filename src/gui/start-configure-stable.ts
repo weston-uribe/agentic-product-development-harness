@@ -16,6 +16,8 @@ import {
   stopChildProcess,
   stopStaleGuiServers,
 } from "./dev-server-process.js";
+import { P_DEV_OBSERVABILITY_NONCE_ENV } from "../observability/constants.js";
+import { resolveSourceGuiObservabilityNonce } from "../observability/session-handoff.js";
 import { resolveHarnessSourceRoot } from "./repo-root.js";
 
 const STARTUP_TIMEOUT_MS = 90_000;
@@ -81,6 +83,7 @@ function spawnNextDev(repoRoot: string, guiDir: string) {
     ".bin",
     process.platform === "win32" ? "next.cmd" : "next",
   );
+  const observabilityNonce = resolveSourceGuiObservabilityNonce();
 
   console.log(
     `Starting Configure GUI at http://${STABLE_GUI_HOST}:${STABLE_GUI_PORT}/settings/configure`,
@@ -97,6 +100,7 @@ function spawnNextDev(repoRoot: string, guiDir: string) {
         HARNESS_REPO_ROOT: repoRoot,
         HARNESS_GUI_HOST: STABLE_GUI_HOST,
         HARNESS_GUI_PORT: String(STABLE_GUI_PORT),
+        [P_DEV_OBSERVABILITY_NONCE_ENV]: observabilityNonce,
       },
     },
   );

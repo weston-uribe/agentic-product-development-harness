@@ -6,6 +6,7 @@ import {
   normalizeHarnessEnvPaths,
   resolveHarnessRepoRoot,
   resolveHarnessSourceRoot,
+  resolveHarnessWorkspaceDir,
 } from "../../src/gui/repo-root.js";
 
 describe("resolveHarnessRepoRoot", () => {
@@ -57,6 +58,30 @@ describe("resolveHarnessRepoRoot", () => {
     expect(process.env.HARNESS_CONFIG_PATH).toBe(
       path.join(tempRoot, ".harness/config.local.json"),
     );
+  });
+});
+
+describe("resolveHarnessWorkspaceDir", () => {
+  let tempRoot = "";
+
+  beforeEach(async () => {
+    delete process.env.HARNESS_REPO_ROOT;
+    delete process.env.P_DEV_HOME;
+    tempRoot = await mkdtemp(path.join(tmpdir(), "harness-workspace-root-"));
+  });
+
+  afterEach(async () => {
+    delete process.env.HARNESS_REPO_ROOT;
+    delete process.env.P_DEV_HOME;
+    await rm(tempRoot, { recursive: true, force: true });
+  });
+
+  it("prefers P_DEV_HOME over HARNESS_REPO_ROOT for operator workspace reads", () => {
+    const workspaceRoot = path.join(tempRoot, "operator-workspace");
+    const sourceRoot = path.join(tempRoot, "source-root");
+    process.env.P_DEV_HOME = workspaceRoot;
+    process.env.HARNESS_REPO_ROOT = sourceRoot;
+    expect(resolveHarnessWorkspaceDir()).toBe(workspaceRoot);
   });
 });
 

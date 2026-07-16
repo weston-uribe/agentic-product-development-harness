@@ -3,6 +3,7 @@ import type { SetupGuiViewModel } from "@/lib/setup-server";
 import type { RemoteSetupSummary } from "@/lib/setup-server";
 import type { LinearSetupSummary } from "@harness/setup/linear-setup-summary";
 import type { VercelSetupSummary } from "@harness/setup/vercel-setup-summary";
+import type { ObservabilityPreferencesSnapshot } from "@/lib/observability-preferences";
 import { ConfigureExperience } from "@/components/custom/configure-experience";
 
 interface ConfigurePageContentProps {
@@ -11,6 +12,7 @@ interface ConfigurePageContentProps {
   linearSummary: LinearSetupSummary;
   vercelSummary: VercelSetupSummary;
   observabilityNonce: string | null;
+  observabilityPreferences: ObservabilityPreferencesSnapshot;
   formDefaults: {
     env: {
       harnessConfigPath: string;
@@ -34,6 +36,7 @@ export function ConfigurePageContent({
   vercelSummary,
   formDefaults,
   observabilityNonce,
+  observabilityPreferences,
 }: ConfigurePageContentProps) {
   return (
     <ConfigureExperience
@@ -43,6 +46,7 @@ export function ConfigurePageContent({
       initialVercelSummary={vercelSummary}
       formDefaults={formDefaults}
       observabilityNonce={observabilityNonce}
+      initialObservabilityPreferences={observabilityPreferences}
     />
   );
 }

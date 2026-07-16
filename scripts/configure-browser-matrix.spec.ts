@@ -1,7 +1,17 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import { test, expect, type Page } from "@playwright/test";
 
 const screenshotDir = "/tmp/configure-validation";
+const workspaceMarkerPath = "/tmp/configure-browser-workspace-path.txt";
+
+function resolveWorkspaceDir(): string {
+  const fromEnv = process.env.CONFIGURE_BROWSER_WORKSPACE?.trim();
+  if (fromEnv) {
+    return fromEnv;
+  }
+  return readFileSync(workspaceMarkerPath, "utf8").trim();
+}
 
 const VERCEL_BRIDGE_OPTIONS = {
   scopes: [{ id: "team-1", label: "Acme (acme)", kind: "team" }],
@@ -22,6 +32,40 @@ const VERCEL_BRIDGE_OPTIONS = {
   },
 };
 
+function observabilityFilePath(): string {
+  const workspaceDir = resolveWorkspaceDir();
+  if (!workspaceDir) {
+    throw new Error("Configure browser workspace path is not available.");
+  }
+  return path.join(workspaceDir, ".harness/observability.local.json");
+}
+
+function setDisclosureShown(shown: boolean): void {
+  const filePath = observabilityFilePath();
+  mkdirSync(path.dirname(filePath), { recursive: true });
+  writeFileSync(
+    filePath,
+    `${JSON.stringify(
+      shown
+        ? {
+            schemaVersion: 1,
+            analyticsPreference: "disabled",
+            errorReportingPreference: "disabled",
+            disclosureShown: true,
+          }
+        : {
+            schemaVersion: 1,
+            analyticsPreference: null,
+            errorReportingPreference: null,
+            disclosureShown: false,
+          },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+}
+
 async function mockConfigureApis(page: Page): Promise<void> {
   await page.route("**/api/setup/vercel-bridge-options**", async (route) => {
     await route.fulfill({
@@ -39,73 +83,141 @@ async function assertNoHorizontalOverflow(page: Page): Promise<void> {
   expect(overflow).toBe(false);
 }
 
+async function openSettingsMenu(page: Page): Promise<void> {
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+}
+
 test.describe("configure browser matrix", () => {
   test.beforeAll(() => {
     mkdirSync(screenshotDir, { recursive: true });
   });
 
-  test("step 3 shows dispatch eligibility and back navigation returns to step 2", async ({
-    page,
-  }) => {
-    await mockConfigureApis(page);
-    await page.goto("/settings/configure");
-
-    await expect(page.getByText(/Step 3 of 7 · Configure Vercel settings/)).toBeVisible({
-      timeout: 30_000,
+  test.describe("data sharing gate", () => {
+    test.beforeEach(() => {
+      setDisclosureShown(false);
     });
 
-    await expect(
-      page.getByText(/Could not resolve the harness dispatch repository/i),
-    ).toHaveCount(0);
+    test("blocks setup until continue succeeds", async ({ page }) => {
+      await page.goto("/settings/configure");
 
-    await page.getByRole("button", { name: "Back" }).click();
+      await expect(page.getByText(/^Data sharing$/)).toBeVisible({
+        timeout: 30_000,
+      });
+      await expect(
+        page.getByRole("heading", { name: "Initial Harness Configuration" }),
+      ).toHaveCount(0);
+      await expect(page.getByText(/Step 1 of 7/)).toHaveCount(0);
 
-    await expect(
-      page.getByText(/Step 2 of 7 · Set up Linear workspace/),
-    ).toBeVisible();
+      await page.getByRole("button", { name: "Continue setup" }).click();
 
-    await expect(page.getByText(/Step 3 of 7 · Configure Vercel settings/)).toHaveCount(
-      0,
-    );
+      await expect(
+        page.getByRole("heading", { name: "Initial Harness Configuration" }),
+      ).toBeVisible();
+      await expect(page.getByText(/Step 3 of 7 · Configure Vercel settings/)).toBeVisible();
+    });
 
-    await page.waitForTimeout(1_000);
+    test("supports keyboard continue setup", async ({ page }) => {
+      await page.goto("/settings/configure");
+      await expect(page.getByText(/^Data sharing$/)).toBeVisible({ timeout: 30_000 });
 
-    await expect(
-      page.getByText(/Step 2 of 7 · Set up Linear workspace/),
-    ).toBeVisible();
-    await expect(page.getByText(/Step 3 of 7 · Configure Vercel settings/)).toHaveCount(
-      0,
-    );
+      await page.getByRole("button", { name: "Continue setup" }).focus();
+      await page.keyboard.press("Enter");
 
-    await page.getByRole("button", { name: "Continue to Vercel bridge" }).click();
+      await expect(page.getByText(/Step 3 of 7 · Configure Vercel settings/)).toBeVisible();
+    });
 
-    await expect(page.getByText(/Step 3 of 7 · Configure Vercel settings/)).toBeVisible();
-    await expect(page.getByRole("button", { name: "Apply Vercel Settings" })).toBeVisible();
+    test("stays readable in dark theme", async ({ page }) => {
+      await page.emulateMedia({ colorScheme: "dark" });
+      await page.goto("/settings/configure");
 
-    await page.screenshot({
-      path: `${screenshotDir}/configure-step3-back-desktop.png`,
-      fullPage: true,
+      await expect(page.getByText(/^Data sharing$/)).toBeVisible({ timeout: 30_000 });
+      await assertNoHorizontalOverflow(page);
     });
   });
 
-  test("mobile configure step 3 back navigation remains usable", async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    await mockConfigureApis(page);
-    await page.goto("/settings/configure");
-
-    await expect(page.getByText(/Step 3 of 7 · Configure Vercel settings/)).toBeVisible({
-      timeout: 30_000,
+  test.describe("guided configure flow", () => {
+    test.beforeEach(() => {
+      setDisclosureShown(true);
     });
 
-    await page.getByRole("button", { name: "Back" }).click();
-    await expect(
-      page.getByText(/Step 2 of 7 · Set up Linear workspace/),
-    ).toBeVisible();
+    test("settings menu exposes data sharing from configure", async ({ page }) => {
+      await mockConfigureApis(page);
+      await page.goto("/settings/configure");
+      await expect(
+        page.getByRole("heading", { name: "Initial Harness Configuration" }),
+      ).toBeVisible({ timeout: 30_000 });
 
-    await assertNoHorizontalOverflow(page);
-    await page.screenshot({
-      path: `${screenshotDir}/configure-step3-back-mobile.png`,
-      fullPage: true,
+      await openSettingsMenu(page);
+      await page.getByRole("menuitem", { name: "Data sharing" }).click();
+
+      await expect(page).toHaveURL(/\/settings\/data-sharing$/);
+      await expect(page.getByText(/^Data sharing$/)).toBeVisible();
+      await expect(page.getByRole("button", { name: "Save changes" })).toBeVisible();
+    });
+
+    test("step 3 shows dispatch eligibility and back navigation returns to step 2", async ({
+      page,
+    }) => {
+      await mockConfigureApis(page);
+      await page.goto("/settings/configure");
+
+      await expect(page.getByText(/Step 3 of 7 · Configure Vercel settings/)).toBeVisible({
+        timeout: 30_000,
+      });
+
+      await expect(
+        page.getByText(/Could not resolve the harness dispatch repository/i),
+      ).toHaveCount(0);
+
+      await page.getByRole("button", { name: "Back" }).click();
+
+      await expect(
+        page.getByText(/Step 2 of 7 · Set up Linear workspace/),
+      ).toBeVisible();
+
+      await expect(page.getByText(/Step 3 of 7 · Configure Vercel settings/)).toHaveCount(
+        0,
+      );
+
+      await page.waitForTimeout(1_000);
+
+      await expect(
+        page.getByText(/Step 2 of 7 · Set up Linear workspace/),
+      ).toBeVisible();
+      await expect(page.getByText(/Step 3 of 7 · Configure Vercel settings/)).toHaveCount(
+        0,
+      );
+
+      await page.getByRole("button", { name: "Continue to Vercel bridge" }).click();
+
+      await expect(page.getByText(/Step 3 of 7 · Configure Vercel settings/)).toBeVisible();
+      await expect(page.getByRole("button", { name: "Apply Vercel Settings" })).toBeVisible();
+
+      await page.screenshot({
+        path: `${screenshotDir}/configure-step3-back-desktop.png`,
+        fullPage: true,
+      });
+    });
+
+    test("mobile step 3 back navigation remains usable", async ({ page }) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await mockConfigureApis(page);
+      await page.goto("/settings/configure");
+
+      await expect(page.getByText(/Step 3 of 7 · Configure Vercel settings/)).toBeVisible({
+        timeout: 30_000,
+      });
+
+      await page.getByRole("button", { name: "Back" }).click();
+      await expect(
+        page.getByText(/Step 2 of 7 · Set up Linear workspace/),
+      ).toBeVisible();
+
+      await assertNoHorizontalOverflow(page);
+      await page.screenshot({
+        path: `${screenshotDir}/configure-step3-back-mobile.png`,
+        fullPage: true,
+      });
     });
   });
 });
