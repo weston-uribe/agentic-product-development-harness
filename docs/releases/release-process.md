@@ -337,7 +337,7 @@ Prepare only. Do not run with a real DSN unless the operator supplies `P_DEV_SEN
    - `chmod -R a-w "$P_DEV_HOME/.harness"` for the same runtime user as the launcher.
    - Prove a direct write by that user fails (for example `touch "$P_DEV_HOME/.harness/.write-test"` → `EACCES`).
    - From Configure, submit a **normal preference write** (not **Reset local telemetry identity**) that keeps `errorReportingPreference: enabled`, does not enable analytics, and requires persistence—for example toggling `disclosureShown` through the real Configure session with the observability nonce.
-   - Expected capture: `configure_request_error` / `configure_route` via `onRequestError` when `.harness` is read-only.
+   - Expected capture: `configure_request_error` / `configure_route` via preferences route `handleObservabilityRouteFailure` when preference persistence fails (for example when `.harness` is read-only).
    - **Do not use Reset local telemetry identity** as the trigger; reset disables observability transports before attempting the write.
 6. Keep the launcher running through consent-withdrawal validation below; do not stop after the first event.
 7. Inspect **raw stored event JSON** in Sentry:

@@ -8,6 +8,8 @@ export interface ObservabilityRouteFailureInput {
   errorCategory?: ErrorCategory;
   cause?: unknown;
   message?: string;
+  publicMessage?: string;
+  status?: number;
   configureStepId?: string;
   capture?: boolean;
 }
@@ -47,7 +49,10 @@ export function handleObservabilityRouteFailure(
     });
   }
 
-  return NextResponse.json({ error: message }, { status: 400 });
+  return NextResponse.json(
+    { error: input.publicMessage ?? message },
+    { status: input.status ?? 400 },
+  );
 }
 
 export async function withObservabilityRoute<T>(
