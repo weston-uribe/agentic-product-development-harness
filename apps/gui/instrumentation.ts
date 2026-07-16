@@ -1,8 +1,3 @@
-import {
-  beginObservabilitySession,
-  captureProductError,
-  installObservabilityUncaughtHandlers,
-} from "@harness/observability/facade.js";
 import { resolveHarnessRepoRoot } from "@harness/gui/repo-root.js";
 
 function isTruthyEnv(value: string | undefined): boolean {
@@ -30,6 +25,10 @@ export async function register(): Promise<void> {
   }
 
   try {
+    const {
+      beginObservabilitySession,
+      installObservabilityUncaughtHandlers,
+    } = await import("@harness/observability/facade.js");
     const workspaceDir = resolveHarnessRepoRoot();
     await beginObservabilitySession({
       workspaceDir,
@@ -57,6 +56,7 @@ export async function onRequestError(
   }
 
   try {
+    const { captureProductError } = await import("@harness/observability/facade.js");
     captureProductError({
       lifecyclePhase: "configure_route",
       productErrorCode: "configure_request_error",
