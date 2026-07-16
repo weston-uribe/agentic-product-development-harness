@@ -113,16 +113,56 @@ Official Sentry server-side scrubbing documents that geographic information can 
 
 ### Mandatory Sentry project settings (release gate)
 
-Before committing a public DSN to `config/observability.public.json`, verify live sandbox evidence with these project settings:
+Before enabling a public DSN in `config/observability.public.json`, verify the target Sentry project (`kinterra/p-dev-harness`, US ingestion region) has all of the following settings and that live sandbox raw-event evidence matches them.
 
-1. **Security & Privacy → Prevent Storing of IP Addresses**
-2. **Advanced Data Scrubbing:** `[Remove] [Anything] from [$user.geo.**]`
+**Required privacy settings**
+
+- Data Scrubber: enabled
+- Default Scrubbers: enabled
+- Prevent Storing IP Addresses: enabled
+- Advanced Data Scrubbing: `[Remove] [Anything] from [$user.geo.**]`
+- Advanced Data Scrubbing: `[Remove] [Anything] from [contexts.trace]`
+
+**Required disabled capabilities**
+
+Keep these disabled unless repository evidence explicitly requires otherwise:
+
+- tracing / performance monitoring
+- profiling
+- replay
+- logs
+- metrics
+- AI monitoring
+- automatic HTTP instrumentation
+- automatic console instrumentation
+- source-map uploading
+- JavaScript source fetching
+- SCM source context
+
+**Other expected settings**
+
+- TLS verification enabled
+- Spike Protection enabled
+- Auto Resolve disabled
+- no user-identifying integrations enabled
+
+**Packaged credential boundary**
+
+- The public DSN is packaged in `config/observability.public.json` and copied into the npm tarball.
+- Sentry auth tokens, organization-management tokens, and source-map upload credentials must never be packaged.
+- Sentry capture starts only after affirmative error-reporting consent; consent withdrawal must stop subsequent capture.
+
+**Vendor UI vs stored fields**
+
+- Sentry may show trace-related issue UI even when stored `contexts.trace` has been scrubbed.
+- Raw stored event JSON and authoritative Discover fields are the release gate; do not treat UI chrome alone as proof of client transmission.
 
 Release remains blocked until:
 
 - automated envelope tests pass in CI
 - sandbox raw event JSON shows no `user`, `user.geo`, `ip_address`, or `contexts.trace`
 - the project settings above are verified on the target Sentry project
+- source maps, JavaScript source fetching, and SCM source context remain disabled
 
 ## Dashboard: p-dev Packaged Onboarding Health
 
