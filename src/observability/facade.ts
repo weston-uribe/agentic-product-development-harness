@@ -32,11 +32,6 @@ import {
   installObservabilityFatalHandlers,
   removeObservabilityFatalHandlers,
 } from "./fatal-handlers.js";
-import {
-  createAnalyticsLifecycle,
-  createErrorLifecycle,
-  type CategoryTransportLifecycle,
-} from "./transport-lifecycle.js";
 import type {
   AllowedSentryContext,
   AnalyticsEvent,
@@ -56,6 +51,14 @@ import {
   createFakeErrorTransport,
   createFakeTransportRecorder,
 } from "./adapters/fake.js";
+import {
+  getFacadeRuntimeState,
+  resetFacadeRuntimeState,
+} from "./facade-runtime-state.js";
+
+function runtime() {
+  return getFacadeRuntimeState();
+}
 
 export interface BeginObservabilitySessionInput {
   workspaceDir: string;
@@ -75,13 +78,6 @@ export interface ObservabilitySession {
   moduleUrl?: string;
 }
 
-let activeSession: ObservabilitySession | null = null;
-const analyticsLifecycle: CategoryTransportLifecycle<AnalyticsTransport> =
-  createAnalyticsLifecycle();
-const errorLifecycle: CategoryTransportLifecycle<ErrorTransport> =
-  createErrorLifecycle();
-let runtimeEligible = false;
-let activeFakeRecorder: FakeTransportRecorder | undefined;
 let analyticsAdapterFactory: (() => AnalyticsTransport) | null = null;
 let errorAdapterFactory:
   | ((input: {
@@ -90,9 +86,6 @@ let errorAdapterFactory:
       env?: NodeJS.ProcessEnv;
     }) => ErrorTransport)
   | null = null;
-let parentOwnershipReleased = false;
-let displayedConfigureStepId: GuidedDisplayStepId | null = null;
-let activeProvisioningOperationId: string | null = null;
 
 export function registerAnalyticsAdapterFactory(
   factory: () => AnalyticsTransport,
@@ -111,28 +104,30 @@ export function registerErrorAdapterFactory(
 }
 
 export function registerDisplayedConfigureStep(stepId: GuidedDisplayStepId): void {
-  displayedConfigureStepId = stepId;
+  runtime().displayedConfigureStepId = stepId;
 }
 
 export function registerProvisioningOperationId(operationId: string): void {
-  activeProvisioningOperationId = operationId;
+  runtime().activeProvisioningOperationId = operationId;
 }
 
 export function isAnalyticsCaptureEnabled(): boolean {
+  const state = runtime();
   return (
-    runtimeEligible &&
-    !parentOwnershipReleased &&
-    analyticsLifecycle.isCaptureEnabled() &&
-    Boolean(activeSession?.consent.analyticsEnabled)
+    state.runtimeEligible &&
+    !state.parentOwnershipReleased &&
+    state.analyticsLifecycle.isCaptureEnabled() &&
+    Boolean(state.activeSession?.consent.analyticsEnabled)
   );
 }
 
 export function isErrorReportingCaptureEnabled(): boolean {
+  const state = runtime();
   return (
-    runtimeEligible &&
-    !parentOwnershipReleased &&
-    errorLifecycle.isCaptureEnabled() &&
-    Boolean(activeSession?.consent.errorReportingEnabled)
+    state.runtimeEligible &&
+    !state.parentOwnershipReleased &&
+    state.errorLifecycle.isCaptureEnabled() &&
+    Boolean(state.activeSession?.consent.errorReportingEnabled)
   );
 }
 
@@ -242,6 +237,7 @@ async function syncAnalyticsTransport(input: {
   env?: NodeJS.ProcessEnv;
   fakeRecorder?: FakeTransportRecorder;
 }): Promise<void> {
+  const { analyticsLifecycle } = runtime();
   if (!input.consent.analyticsEnabled) {
     await analyticsLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS);
     return;
@@ -261,6 +257,7 @@ async function syncErrorTransport(input: {
   env?: NodeJS.ProcessEnv;
   fakeRecorder?: FakeTransportRecorder;
 }): Promise<void> {
+  const { errorLifecycle } = runtime();
   if (!input.consent.errorReportingEnabled) {
     await errorLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS);
     return;
@@ -299,12 +296,13 @@ async function configureTransports(input: {
 }
 
 function emitSessionStartedIfNeeded(): void {
-  if (!activeSession || !isAnalyticsCaptureEnabled()) {
+  const state = runtime();
+  if (!state.activeSession || !isAnalyticsCaptureEnabled()) {
     return;
   }
   const event: AnalyticsEvent = { type: "p_dev_session_started" };
   if (
-    shouldDedupeAnalyticsEvent(activeSession.sessionId, event)
+    shouldDedupeAnalyticsEvent(state.activeSession.sessionId, event)
   ) {
     return;
   }
@@ -312,10 +310,11 @@ function emitSessionStartedIfNeeded(): void {
 }
 
 function emitDisplayedConfigureStepViewIfNeeded(): void {
-  if (!activeSession || !displayedConfigureStepId || !isAnalyticsCaptureEnabled()) {
+  const state = runtime();
+  if (!state.activeSession || !state.displayedConfigureStepId || !isAnalyticsCaptureEnabled()) {
     return;
   }
-  const stepId = displayedConfigureStepId;
+  const stepId = state.displayedConfigureStepId;
   captureAnalyticsEvent({
     type: "p_dev_configure_step_viewed",
     stepId,
@@ -329,18 +328,19 @@ export async function beginObservabilitySession(
   input: BeginObservabilitySessionInput,
 ): Promise<ObservabilitySession | null> {
   const env = input.env ?? process.env;
-  parentOwnershipReleased = false;
-  runtimeEligible = isObservabilityRuntimeEligible({
+  const state = runtime();
+  state.parentOwnershipReleased = false;
+  state.runtimeEligible = isObservabilityRuntimeEligible({
     env,
     allowFakeTransport: Boolean(input.fakeRecorder),
   });
 
-  if (!runtimeEligible) {
-    activeSession = null;
-    activeFakeRecorder = undefined;
+  if (!state.runtimeEligible) {
+    state.activeSession = null;
+    state.activeFakeRecorder = undefined;
     await Promise.all([
-      analyticsLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS),
-      errorLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS),
+      state.analyticsLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS),
+      state.errorLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS),
     ]);
     return null;
   }
@@ -365,7 +365,7 @@ export async function beginObservabilitySession(
     env,
   });
 
-  activeFakeRecorder = input.fakeRecorder;
+  state.activeFakeRecorder = input.fakeRecorder;
   await configureTransports({
     consent,
     context,
@@ -374,7 +374,7 @@ export async function beginObservabilitySession(
     fakeRecorder: input.fakeRecorder,
   });
 
-  activeSession = {
+  state.activeSession = {
     workspaceDir: input.workspaceDir,
     sessionId: handoff.sessionId,
     nonce: handoff.nonce,
@@ -387,16 +387,17 @@ export async function beginObservabilitySession(
   emitSessionStartedIfNeeded();
   emitDisplayedConfigureStepViewIfNeeded();
 
-  return activeSession;
+  return state.activeSession;
 }
 
 export function getActiveObservabilitySession(): ObservabilitySession | null {
-  return activeSession;
+  return runtime().activeSession;
 }
 
 export function getObservabilityNonce(): string | null {
+  const state = runtime();
   return (
-    activeSession?.nonce ??
+    state.activeSession?.nonce ??
     process.env[P_DEV_OBSERVABILITY_NONCE_ENV]?.trim() ??
     null
   );
@@ -412,7 +413,8 @@ export async function writeObservabilityPreferences(
   workspaceDir: string,
   input: UpdateObservabilityPreferencesInput,
 ): Promise<ObservabilitySession | null> {
-  const previousConsent = activeSession?.consent;
+  const state = runtime();
+  const previousConsent = state.activeSession?.consent;
   let localState = await readObservabilityLocalState(workspaceDir);
 
   if (
@@ -426,8 +428,8 @@ export async function writeObservabilityPreferences(
 
   localState = await updateObservabilityPreferences(workspaceDir, input);
 
-  if (!activeSession || activeSession.workspaceDir !== workspaceDir) {
-    return activeSession;
+  if (!state.activeSession || state.activeSession.workspaceDir !== workspaceDir) {
+    return state.activeSession;
   }
 
   const consent = resolveEffectiveConsent({
@@ -436,12 +438,12 @@ export async function writeObservabilityPreferences(
     env: process.env,
   });
 
-  activeSession = {
-    ...activeSession,
+  state.activeSession = {
+    ...state.activeSession,
     consent,
     localState,
     context: {
-      ...activeSession.context,
+      ...state.activeSession.context,
       installationId: consent.analyticsEnabled
         ? localState.installationId
         : undefined,
@@ -457,10 +459,10 @@ export async function writeObservabilityPreferences(
     if (analyticsChanged) {
       await configureTransports({
         consent,
-        context: activeSession.context,
-        moduleUrl: activeSession.moduleUrl,
+        context: state.activeSession.context,
+        moduleUrl: state.activeSession.moduleUrl,
         env: process.env,
-        fakeRecorder: activeFakeRecorder,
+        fakeRecorder: state.activeFakeRecorder,
         analyticsOnly: true,
       });
       if (consent.analyticsEnabled) {
@@ -471,10 +473,10 @@ export async function writeObservabilityPreferences(
     if (errorChanged) {
       await configureTransports({
         consent,
-        context: activeSession.context,
-        moduleUrl: activeSession.moduleUrl,
+        context: state.activeSession.context,
+        moduleUrl: state.activeSession.moduleUrl,
         env: process.env,
-        fakeRecorder: activeFakeRecorder,
+        fakeRecorder: state.activeFakeRecorder,
         errorOnly: true,
       });
     }
@@ -482,28 +484,29 @@ export async function writeObservabilityPreferences(
     // vendor failures must not fail preference persistence
   }
 
-  return activeSession;
+  return state.activeSession;
 }
 
 export async function resetObservabilityState(
   workspaceDir: string,
 ): Promise<void> {
+  const state = runtime();
   await Promise.all([
-    analyticsLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS),
-    errorLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS),
+    state.analyticsLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS),
+    state.errorLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS),
   ]);
 
   await resetObservabilityLocalState(workspaceDir);
-  if (activeSession?.workspaceDir === workspaceDir) {
-    activeSession = {
-      ...activeSession,
+  if (state.activeSession?.workspaceDir === workspaceDir) {
+    state.activeSession = {
+      ...state.activeSession,
       localState: await readObservabilityLocalState(workspaceDir),
       consent: resolveEffectiveConsent({
         analyticsPreference: null,
         errorReportingPreference: null,
       }),
       context: {
-        ...activeSession.context,
+        ...state.activeSession.context,
         installationId: undefined,
       },
     };
@@ -511,19 +514,21 @@ export async function resetObservabilityState(
 }
 
 export async function releaseParentObservabilityOwnership(): Promise<void> {
-  if (parentOwnershipReleased) {
+  const state = runtime();
+  if (state.parentOwnershipReleased) {
     return;
   }
-  parentOwnershipReleased = true;
+  state.parentOwnershipReleased = true;
   removeObservabilityFatalHandlers();
   await Promise.all([
-    analyticsLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS),
-    errorLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS),
+    state.analyticsLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS),
+    state.errorLifecycle.disableAndDrop(OBSERVABILITY_FLUSH_DEADLINE_MS),
   ]);
 }
 
 export function captureAnalyticsEvent(event: AnalyticsEvent): void {
-  if (!isAnalyticsCaptureEnabled() || !activeSession) {
+  const state = runtime();
+  if (!isAnalyticsCaptureEnabled() || !state.activeSession) {
     return;
   }
 
@@ -531,10 +536,10 @@ export function captureAnalyticsEvent(event: AnalyticsEvent): void {
     event.type === "p_dev_workspace_provision_started" ||
     event.type === "p_dev_workspace_provision_completed" ||
     event.type === "p_dev_workspace_provision_failed"
-      ? activeProvisioningOperationId ?? undefined
+      ? state.activeProvisioningOperationId ?? undefined
       : undefined;
 
-  if (shouldDedupeAnalyticsEvent(activeSession.sessionId, event, operationId)) {
+  if (shouldDedupeAnalyticsEvent(state.activeSession.sessionId, event, operationId)) {
     return;
   }
 
@@ -543,7 +548,7 @@ export function captureAnalyticsEvent(event: AnalyticsEvent): void {
   assertAllowedPropertyKeys(eventProperties, allowedKeys);
 
   const properties = {
-    ...contextToCommonAnalyticsProperties(activeSession.context),
+    ...contextToCommonAnalyticsProperties(state.activeSession.context),
     ...eventProperties,
   };
   assertAllowedPropertyKeys(properties, allowedKeys);
@@ -553,9 +558,9 @@ export function captureAnalyticsEvent(event: AnalyticsEvent): void {
     properties,
   };
   try {
-    analyticsLifecycle.getAdapter().capture(payload);
+    state.analyticsLifecycle.getAdapter().capture(payload);
     recordAnalyticsEventEmission(
-      activeSession.sessionId,
+      state.activeSession.sessionId,
       event,
       operationId,
     );
@@ -569,12 +574,13 @@ export function captureProductError(input: ProductErrorCaptureInput): void {
     return;
   }
 
+  const state = runtime();
   const context = contextToSentryTags(
-    activeSession!.context,
+    state.activeSession!.context,
     input.lifecyclePhase,
   );
   try {
-    errorLifecycle.getAdapter().captureError(input, context);
+    state.errorLifecycle.getAdapter().captureError(input, context);
   } catch {
     // best-effort
   }
@@ -585,7 +591,7 @@ export function addObservabilityBreadcrumb(breadcrumb: TypedBreadcrumb): void {
     return;
   }
   try {
-    errorLifecycle.getAdapter().addBreadcrumb(breadcrumb);
+    runtime().errorLifecycle.getAdapter().addBreadcrumb(breadcrumb);
   } catch {
     // best-effort
   }
@@ -594,25 +600,23 @@ export function addObservabilityBreadcrumb(breadcrumb: TypedBreadcrumb): void {
 export async function flushObservability(
   deadlineMs = OBSERVABILITY_FLUSH_DEADLINE_MS,
 ): Promise<void> {
+  const state = runtime();
   await Promise.allSettled([
-    analyticsLifecycle.getAdapter().flush(deadlineMs),
-    errorLifecycle.getAdapter().flush(deadlineMs),
+    state.analyticsLifecycle.getAdapter().flush(deadlineMs),
+    state.errorLifecycle.getAdapter().flush(deadlineMs),
   ]);
 }
 
 export async function shutdownObservability(
   deadlineMs = OBSERVABILITY_FLUSH_DEADLINE_MS,
 ): Promise<void> {
+  const state = runtime();
   removeObservabilityFatalHandlers();
   await Promise.all([
-    analyticsLifecycle.shutdown(deadlineMs, { flush: true }),
-    errorLifecycle.shutdown(deadlineMs, { flush: true }),
+    state.analyticsLifecycle.shutdown(deadlineMs, { flush: true }),
+    state.errorLifecycle.shutdown(deadlineMs, { flush: true }),
   ]);
-  activeSession = null;
-  activeFakeRecorder = undefined;
-  parentOwnershipReleased = false;
-  displayedConfigureStepId = null;
-  activeProvisioningOperationId = null;
+  resetFacadeRuntimeState();
 }
 
 export function createObservabilityTestRecorder(): FakeTransportRecorder {

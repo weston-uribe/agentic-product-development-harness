@@ -1,7 +1,10 @@
 import os from "node:os";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { OBSERVABILITY_SCHEMA_VERSION } from "./constants.js";
+import {
+  OBSERVABILITY_SCHEMA_VERSION,
+  P_DEV_RELEASE_SHA_ENV,
+} from "./constants.js";
 import type {
   CpuArchFamily,
   ObservabilityContext,
@@ -44,6 +47,16 @@ export function resolveNodeMajorVersion(
   return Number.isFinite(major) ? major : 0;
 }
 
+const RELEASE_SHA_PATTERN = /^[0-9a-f]{40}$/;
+
+export function validateReleaseSha(value: string | undefined): string | null {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized || !RELEASE_SHA_PATTERN.test(normalized)) {
+    return null;
+  }
+  return normalized;
+}
+
 export function readReleaseShaFromPackageRoot(packageRoot: string): string {
   const manifestPath = path.join(
     packageRoot,
@@ -53,10 +66,50 @@ export function readReleaseShaFromPackageRoot(packageRoot: string): string {
   try {
     const raw = readFileSync(manifestPath, "utf8");
     const parsed = JSON.parse(raw) as { sourceCommit?: string };
-    return parsed.sourceCommit?.trim() || "unknown";
+    return validateReleaseSha(parsed.sourceCommit) ?? "unknown";
   } catch {
     return "unknown";
   }
+}
+
+export function resolveReleaseSha(input: {
+  env?: NodeJS.ProcessEnv;
+  moduleUrl?: string;
+}): string {
+  const env = input.env ?? process.env;
+  const handoff = validateReleaseSha(env[P_DEV_RELEASE_SHA_ENV]);
+  if (handoff) {
+    return handoff;
+  }
+
+  const moduleUrl = input.moduleUrl ?? import.meta.url;
+  try {
+    const packageRoot = resolvePackageRootFromModule(moduleUrl);
+    const fromManifest = validateReleaseSha(
+      readReleaseShaFromPackageRoot(packageRoot),
+    );
+    if (fromManifest) {
+      return fromManifest;
+    }
+  } catch {
+    // fall through to unknown
+  }
+
+  return "unknown";
+}
+
+export function resolvePackagedReleaseShaFromPackageRoot(
+  packageRoot: string,
+): string {
+  const releaseSha = validateReleaseSha(
+    readReleaseShaFromPackageRoot(packageRoot),
+  );
+  if (!releaseSha) {
+    throw new Error(
+      "Packaged workspace snapshot manifest is missing a valid sourceCommit.",
+    );
+  }
+  return releaseSha;
 }
 
 export interface BuildObservabilityContextInput {
@@ -74,15 +127,14 @@ export function buildObservabilityContext(
   const env = input.env ?? process.env;
   const moduleUrl = input.moduleUrl ?? import.meta.url;
   let packageVersion: string;
-  let releaseSha = "unknown";
 
   try {
     packageVersion = resolveHarnessPackageVersion(env, moduleUrl);
-    const packageRoot = resolvePackageRootFromModule(moduleUrl);
-    releaseSha = readReleaseShaFromPackageRoot(packageRoot);
   } catch {
     packageVersion = env.P_DEV_PACKAGE_VERSION?.trim() || "0.0.0";
   }
+
+  const releaseSha = resolveReleaseSha({ env, moduleUrl });
 
   return {
     observabilitySchemaVersion: OBSERVABILITY_SCHEMA_VERSION,

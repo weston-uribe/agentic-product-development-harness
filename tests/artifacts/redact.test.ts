@@ -13,6 +13,17 @@ describe("redactSecretsString", () => {
     expect(redactSecretsString(input)).not.toContain("ghp_");
   });
 
+  it.each([
+    "gho_abcdefghijklmnopqrst",
+    "ghu_abcdefghijklmnopqrst",
+    "ghs_abcdefghijklmnopqrst",
+    "ghr_abcdefghijklmnopqrst",
+  ])("redacts GitHub token prefix %s", (token) => {
+    const input = `auth failed: ${token}`;
+    expect(redactSecretsString(input)).toBe("auth failed: [REDACTED]");
+    expect(redactSecretsString(input)).not.toContain(token.slice(0, 4));
+  });
+
   it("redacts Bearer tokens", () => {
     const input = "Authorization: Bearer eyJhbGciOi.test";
     expect(redactSecretsString(input)).toContain("[REDACTED]");

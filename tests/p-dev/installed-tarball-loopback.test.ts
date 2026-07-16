@@ -7,6 +7,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { assertNdjsonSentryBodyPrivacy } from "../observability/sentry-privacy-assertions.js";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -173,6 +174,22 @@ function extractPostHogEvents(requests: CollectorRequest[]): Array<{
       return [];
     }
   });
+}
+
+function expectedPackagedMetadata(
+  currentTarballPath: string,
+): { packageVersion: string; releaseSha: string | null } {
+  const packageJson = JSON.parse(
+    readFileSync(path.join(packageDir, "package.json"), "utf8"),
+  ) as { version: string };
+  return {
+    packageVersion: packageJson.version,
+    releaseSha: tarballSourceCommit(currentTarballPath),
+  };
+}
+
+function assertSentryRequestPrivacy(body: string): ReturnType<typeof assertNdjsonSentryBodyPrivacy> {
+  return assertNdjsonSentryBodyPrivacy(body);
 }
 
 function forbiddenFixtureValues(): string[] {
@@ -447,10 +464,66 @@ return { state, sessionId: session?.sessionId };
       expect(sentryRequests.length).toBeGreaterThanOrEqual(1);
       expect(posthogRequests).toHaveLength(0);
       const sentryBody = sentryRequests.map((request) => request.body).join("\n");
-      expect(sentryBody).toContain("configure_request_error");
-      expect(sentryBody).toContain(output.sessionId);
+      const events = assertSentryRequestPrivacy(sentryBody);
+      expect(events).toHaveLength(1);
+      const event = events[0]!;
+      expect(event.tags?.product_error_code).toBe("configure_request_error");
+      expect(event.tags?.session_id).toBe(output.sessionId);
+      const metadata = expectedPackagedMetadata(tarballPath);
+      expect(event.tags?.package_version).toBe(metadata.packageVersion);
+      expect(event.tags?.release_sha).toBe(metadata.releaseSha);
+      expect(event.fingerprint).toEqual([
+        "configure_request_error",
+        "configure_route",
+      ]);
       expect(output.state?.installationId).toBeUndefined();
       expect(sentryBody).not.toContain("installationId");
+    });
+
+    it("uses launcher handoff release_sha when bundled moduleUrl cannot resolve package root", async () => {
+      sentryRequests = [];
+      posthogRequests = [];
+      const home = await makeHome();
+      const metadata = expectedPackagedMetadata(tarballPath);
+      const bundledModuleUrl =
+        "file:///tmp/gui/.next/server/chunks/preferences-route.js";
+
+      const output = await runScenario(
+        "bundled-child-release-sha",
+        home,
+        `
+const metadata = ${JSON.stringify(metadata)};
+process.env.P_DEV_RELEASE_SHA = metadata.releaseSha;
+await facade.beginObservabilitySession({
+  workspaceDir,
+  moduleUrl: ${JSON.stringify(bundledModuleUrl)},
+  env: process.env,
+});
+await facade.writeObservabilityPreferences(workspaceDir, {
+  analyticsPreference: "disabled",
+  errorReportingPreference: "enabled",
+  disclosureShown: true,
+});
+facade.captureProductError({
+  lifecyclePhase: "configure_route",
+  productErrorCode: "configure_request_error",
+  errorCategory: "server",
+});
+await facade.flushObservability(5000);
+const session = facade.getActiveObservabilitySession();
+await facade.shutdownObservability();
+return { sessionId: session?.sessionId, releaseSha: session?.context.releaseSha };
+`,
+      );
+
+      expect(sentryRequests.length).toBeGreaterThanOrEqual(1);
+      expect(metadata.releaseSha).toMatch(/^[0-9a-f]{40}$/);
+      const sentryBody = sentryRequests.map((request) => request.body).join("\n");
+      const events = assertSentryRequestPrivacy(sentryBody);
+      expect(events).toHaveLength(1);
+      expect(events[0]?.tags?.release_sha).toBe(metadata.releaseSha);
+      expect(events[0]?.tags?.package_version).toBe(metadata.packageVersion);
+      expect(output.releaseSha).toBe(metadata.releaseSha);
     });
 
     it("correlates both enabled categories without leaking installation ID to Sentry", async () => {
@@ -488,8 +561,9 @@ return { state, sessionId: session?.sessionId };
 
       const posthogBody = posthogRequests.map((request) => request.body).join("\n");
       const sentryBody = sentryRequests.map((request) => request.body).join("\n");
+      const sentryEvents = assertSentryRequestPrivacy(sentryBody);
+      expect(sentryEvents[0]?.tags?.session_id).toBe(output.sessionId);
       expect(posthogBody).toContain(output.sessionId);
-      expect(sentryBody).toContain(output.sessionId);
       expect(posthogBody).toContain(output.state?.installationId);
       expect(sentryBody).not.toContain(output.state?.installationId);
     });
@@ -665,6 +739,7 @@ return {};
 
       const sentryBody = sentryRequests.map((request) => request.body).join("\n");
       const posthogEvents = extractPostHogEvents(posthogRequests);
+      assertSentryRequestPrivacy(sentryBody);
       for (const forbidden of forbiddenFixtureValues()) {
         expect(sentryBody).not.toContain(forbidden);
         expect(JSON.stringify(posthogEvents)).not.toContain(forbidden);

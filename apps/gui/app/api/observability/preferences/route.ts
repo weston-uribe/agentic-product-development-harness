@@ -7,6 +7,7 @@ import {
 } from "@harness/observability/facade.js";
 import type { ConsentPreference } from "@harness/observability/types.js";
 import { guardObservabilityRequest } from "@/lib/observability-request-guard";
+import { handleObservabilityRouteFailure } from "@/lib/observability-route";
 
 export const dynamic = "force-dynamic";
 
@@ -60,17 +61,28 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const disclosureShown =
     typeof body.disclosureShown === "boolean" ? body.disclosureShown : undefined;
 
-  const state = await writeObservabilityPreferences(workspaceDir, {
-    analyticsPreference,
-    errorReportingPreference,
-    disclosureShown,
-  });
+  try {
+    const state = await writeObservabilityPreferences(workspaceDir, {
+      analyticsPreference,
+      errorReportingPreference,
+      disclosureShown,
+    });
 
-  const persisted = state?.localState ?? (await readObservabilityPreferences(workspaceDir));
-  return NextResponse.json({
-    analyticsPreference: persisted.analyticsPreference,
-    errorReportingPreference: persisted.errorReportingPreference,
-    disclosureShown: persisted.disclosureShown,
-    hasInstallationId: Boolean(persisted.installationId),
-  });
+    const persisted =
+      state?.localState ?? (await readObservabilityPreferences(workspaceDir));
+    return NextResponse.json({
+      analyticsPreference: persisted.analyticsPreference,
+      errorReportingPreference: persisted.errorReportingPreference,
+      disclosureShown: persisted.disclosureShown,
+      hasInstallationId: Boolean(persisted.installationId),
+    });
+  } catch (error) {
+    return await handleObservabilityRouteFailure(error, {
+      lifecyclePhase: "configure_route",
+      productErrorCode: "configure_request_error",
+      errorCategory: "unexpected",
+      publicMessage: "Could not save observability preferences.",
+      status: 500,
+    });
+  }
 }

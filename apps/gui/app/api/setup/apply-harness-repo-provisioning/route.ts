@@ -27,7 +27,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json(result);
   } catch (error) {
-    return handleObservabilityRouteFailure(error, {
+    return await handleObservabilityRouteFailure(error, {
       lifecyclePhase: "provisioning",
       productErrorCode: "harness_repo_provisioning_route_failed",
       errorCategory: "server",
