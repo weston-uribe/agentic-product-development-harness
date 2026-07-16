@@ -133,6 +133,77 @@ test.describe("configure browser matrix", () => {
       await expect(page.getByText(/^Data sharing$/)).toBeVisible({ timeout: 30_000 });
       await assertNoHorizontalOverflow(page);
     });
+
+    test("stays readable in light theme", async ({ page }) => {
+      await page.emulateMedia({ colorScheme: "light" });
+      await page.goto("/settings/configure");
+
+      await expect(page.getByText(/^Data sharing$/)).toBeVisible({ timeout: 30_000 });
+      await assertNoHorizontalOverflow(page);
+    });
+
+    test("remains usable with reduced motion", async ({ page }) => {
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      await page.goto("/settings/configure");
+
+      await expect(page.getByText(/^Data sharing$/)).toBeVisible({ timeout: 30_000 });
+      await page.getByRole("button", { name: "Continue setup" }).click();
+      await expect(page.getByText(/Step 3 of 7 · Configure Vercel settings/)).toBeVisible();
+    });
+
+    test("unchecked continue persists disabled preferences locally", async ({ page }) => {
+      await page.goto("/settings/configure");
+      await expect(page.getByText(/^Data sharing$/)).toBeVisible({ timeout: 30_000 });
+
+      await page.getByRole("button", { name: "Continue setup" }).click();
+      await expect(
+        page.getByRole("heading", { name: "Initial Harness Configuration" }),
+      ).toBeVisible();
+
+      const persisted = JSON.parse(readFileSync(observabilityFilePath(), "utf8")) as {
+        analyticsPreference: string;
+        errorReportingPreference: string;
+        disclosureShown: boolean;
+      };
+      expect(persisted.disclosureShown).toBe(true);
+      expect(persisted.analyticsPreference).toBe("disabled");
+      expect(persisted.errorReportingPreference).toBe("disabled");
+    });
+
+    test("failed save keeps the data sharing gate visible", async ({ page }) => {
+      await page.route("**/api/observability/preferences", async (route) => {
+        if (route.request().method() === "POST") {
+          await route.fulfill({ status: 500, body: JSON.stringify({ error: "fail" }) });
+          return;
+        }
+        await route.continue();
+      });
+
+      await page.goto("/settings/configure");
+      await expect(page.getByText(/^Data sharing$/)).toBeVisible({ timeout: 30_000 });
+      await page.getByRole("button", { name: "Continue setup" }).click();
+
+      await expect(page.getByText(/^Data sharing$/)).toBeVisible();
+      await expect(
+        page.getByRole("heading", { name: "Initial Harness Configuration" }),
+      ).toHaveCount(0);
+      await expect(page.getByText(/Could not save data sharing preferences/i)).toBeVisible();
+    });
+
+    test("reload bypasses onboarding when disclosure was already shown", async ({ page }) => {
+      setDisclosureShown(true);
+      await page.goto("/settings/configure");
+      await expect(
+        page.getByRole("heading", { name: "Initial Harness Configuration" }),
+      ).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByText(/^Data sharing$/)).toHaveCount(0);
+
+      await page.reload();
+      await expect(
+        page.getByRole("heading", { name: "Initial Harness Configuration" }),
+      ).toBeVisible();
+      await expect(page.getByText(/^Data sharing$/)).toHaveCount(0);
+    });
   });
 
   test.describe("guided configure flow", () => {

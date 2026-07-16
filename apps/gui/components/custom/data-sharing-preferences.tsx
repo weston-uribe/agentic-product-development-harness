@@ -125,8 +125,8 @@ export function DataSharingPreferences({
             data-guided-step-focus
           />
           <span>
-            Share anonymous product analytics and automated sanitized error reports
-            to help improve the harness.
+            Allow anonymous product analytics and error reports to improve
+            functionality and performance.
           </span>
         </label>
         {mode === "onboarding" ? (
