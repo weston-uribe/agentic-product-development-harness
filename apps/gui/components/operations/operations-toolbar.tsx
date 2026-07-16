@@ -76,7 +76,6 @@ export function OperationsToolbar({
       >
         {sidebarCollapsed ? "Show sidebar" : "Hide sidebar"}
       </Button>
-      <h1 className="text-base font-semibold">Operations</h1>
       <div className="ml-auto flex flex-wrap items-center gap-2">
         <span
           className={`rounded-md border px-2 py-0.5 text-xs ${

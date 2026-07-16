@@ -37,6 +37,7 @@ const edgeTypes = { operationsOutcome: OutcomeEdge };
 type OperationsCanvasInnerProps = {
   bootstrap: OperationsBootstrapPayload;
   draft: OperationsWorkflowDraft;
+  selection: OperationsSelection;
   onDraftChange: (draft: OperationsWorkflowDraft, pushHistory?: boolean) => void;
   onSelect: (selection: OperationsSelection) => void;
   fitViewSignal: number;
@@ -46,6 +47,7 @@ type OperationsCanvasInnerProps = {
 function OperationsCanvasInner({
   bootstrap,
   draft,
+  selection,
   onDraftChange,
   onSelect,
   fitViewSignal,
@@ -60,6 +62,7 @@ function OperationsCanvasInner({
   const lastSyncedDraftFingerprint = useRef("");
   const isPersistingViewportRef = useRef(false);
   const lastAppliedDraftViewportRef = useRef<string | null>(null);
+  const suppressSelectionClearRef = useRef(false);
   const [initialViewport] = useState(
     () => draft.layout.viewport ?? { x: 0, y: 0, zoom: 1 },
   );
@@ -74,7 +77,17 @@ function OperationsCanvasInner({
     () => domainDraftToFlow({ draft, statuses: bootstrap.statuses }),
     [bootstrap.statuses, draft],
   );
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node>(derived.nodes);
+  const flowNodes = useMemo(() => {
+    if (selection.kind !== "status") {
+      return derived.nodes;
+    }
+    const selectedNodeId = statusNodeId(selection.statusId);
+    return derived.nodes.map((node) => ({
+      ...node,
+      selected: node.id === selectedNodeId,
+    }));
+  }, [derived.nodes, selection]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>(flowNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(derived.edges);
 
   const persistViewportFromFlow = useCallback(() => {
@@ -103,9 +116,13 @@ function OperationsCanvasInner({
       return;
     }
     lastSyncedDraftFingerprint.current = fingerprint;
-    setNodes(derived.nodes);
+    suppressSelectionClearRef.current = true;
+    setNodes(flowNodes);
     setEdges(derived.edges);
-  }, [draft, derived.edges, derived.nodes, setEdges, setNodes]);
+    queueMicrotask(() => {
+      suppressSelectionClearRef.current = false;
+    });
+  }, [draft, derived.edges, flowNodes, setEdges, setNodes]);
 
   useEffect(() => {
     if (isPersistingViewportRef.current) {
@@ -207,6 +224,9 @@ function OperationsCanvasInner({
         }
         return;
       }
+      if (suppressSelectionClearRef.current) {
+        return;
+      }
       onSelect({ kind: "none" });
     },
     [onSelect],
@@ -284,7 +304,9 @@ function OperationsCanvasInner({
   );
 }
 
-export function OperationsCanvas(props: OperationsCanvasInnerProps) {
+export function OperationsCanvas(
+  props: OperationsCanvasInnerProps & { draft: OperationsWorkflowDraft },
+) {
   return (
     <ReactFlowProvider key={props.draft.draftId}>
       <OperationsCanvasInner {...props} />

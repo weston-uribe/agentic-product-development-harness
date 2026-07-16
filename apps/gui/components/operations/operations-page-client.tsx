@@ -272,7 +272,6 @@ export function OperationsPageClient({
       const nextDraft = addStatusToCanvas(state.draft, statusId, anchor);
       commitDraft(nextDraft);
       dispatch({ type: "select", selection: { kind: "status", statusId } });
-      setFitViewSignal((value) => value + 1);
     },
     [commitDraft, state.draft],
   );
@@ -296,6 +295,7 @@ export function OperationsPageClient({
   if (state.unavailableReason) {
     return (
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <h1 className="shrink-0 px-4 pt-3 text-lg font-semibold">Operations</h1>
         <DraftModeBanner />
         <OperationsToolbar
           requestState={state.requestState}
@@ -333,6 +333,7 @@ export function OperationsPageClient({
       className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
       aria-busy={isRequestActive}
     >
+      <h1 className="shrink-0 px-4 pt-3 text-lg font-semibold">Operations</h1>
       <DraftModeBanner />
       <OperationsToolbar
         requestState={state.requestState}
@@ -413,6 +414,7 @@ export function OperationsPageClient({
           <OperationsCanvas
             bootstrap={state.bootstrap}
             draft={state.draft}
+            selection={state.selection}
             onDraftChange={commitDraft}
             onSelect={(selection) => dispatch({ type: "select", selection })}
             fitViewSignal={fitViewSignal}

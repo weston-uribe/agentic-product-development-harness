@@ -120,18 +120,56 @@ export function RuleInspector({
     : undefined;
 
   if (connectionView && selectedOutcome) {
-    const destination = statuses.find(
-      (status) => status.id === selectedOutcome.destinationStatusId,
-    );
     return (
-      <fieldset disabled={disabled} className="space-y-2 text-sm disabled:opacity-60">
-        <div>
-          <p className="text-xs text-muted-foreground">Connection</p>
-          <p className="font-medium">{selectedOutcome.label}</p>
-          {destination ? (
-            <p className="text-xs text-muted-foreground">→ {destination.name}</p>
-          ) : null}
+      <fieldset disabled={disabled} className="space-y-3 text-sm disabled:opacity-60">
+        <p className="text-xs text-muted-foreground">Connection</p>
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={selectedOutcome.enabled}
+            onChange={(event) =>
+              onUpdateOutcome(selectedOutcome.id, { enabled: event.target.checked })
+            }
+          />
+          Enabled
+        </label>
+        <div className="space-y-1">
+          <Label htmlFor="connection-outcome-name">Name</Label>
+          <input
+            id="connection-outcome-name"
+            className="w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+            value={selectedOutcome.label}
+            disabled={disabled}
+            onChange={(event) =>
+              onUpdateOutcome(selectedOutcome.id, { label: event.target.value })
+            }
+          />
         </div>
+        <SimpleSelect
+          label="Destination"
+          value={selectedOutcome.destinationStatusId ?? ""}
+          disabled={disabled}
+          options={[
+            { value: "", label: "Unresolved" },
+            ...statuses.map((status) => ({
+              value: status.id,
+              label: status.name,
+            })),
+          ]}
+          onChange={(destinationStatusId) =>
+            onUpdateOutcome(selectedOutcome.id, {
+              destinationStatusId: destinationStatusId || undefined,
+            })
+          }
+        />
+        <button
+          type="button"
+          className="rounded-md border border-input px-2 py-1 text-xs hover:bg-accent disabled:opacity-60"
+          disabled={disabled}
+          onClick={() => onDeleteOutcome(selectedOutcome.id)}
+        >
+          Remove outcome
+        </button>
       </fieldset>
     );
   }
