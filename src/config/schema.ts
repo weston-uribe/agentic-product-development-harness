@@ -4,6 +4,7 @@ import {
   DEFAULT_LOG_DIRECTORY,
   DEFAULT_ORCHESTRATOR_MARKER,
 } from "./defaults.js";
+import { roleModelsSchema } from "./role-models.js";
 
 const githubRepoUrl = z
   .string()
@@ -33,6 +34,7 @@ const repoMappingSchema = z.object({
 
 const linearConfigSchema = z.object({
   teamKey: z.string().optional(),
+  teamId: z.string().optional(),
   eligibleStatuses: z
     .object({
       planning: z.array(z.string()).optional(),
@@ -102,6 +104,7 @@ export const harnessConfigSchema = z
     logDirectory: z.string().default(DEFAULT_LOG_DIRECTORY),
     agentProvider: agentProviderSchema.optional(),
     defaultModel: z.object({ id: z.string() }).optional(),
+    roleModels: roleModelsSchema.optional(),
     linear: linearConfigSchema.optional(),
     planning: planningConfigSchema.optional(),
     implementation: implementationConfigSchema.optional(),

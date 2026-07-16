@@ -65,7 +65,7 @@ export interface LaunchPDevResult {
   host: string;
 }
 
-function buildConfigureUrl(host: string, port: number, route: string): string {
+function buildGuiUrl(host: string, port: number, route: string): string {
   const normalizedRoute = route.startsWith("/") ? route : `/${route}`;
   return `http://${host}:${port}${normalizedRoute}`;
 }
@@ -133,7 +133,7 @@ export async function launchPDev(
     port: cli.port,
   });
 
-  const url = buildConfigureUrl(host, port, cli.route);
+  const url = buildGuiUrl(host, port, cli.route);
   const nextBin = resolveNextBin(packageRoot);
   const packagedVersion = readPDevPackageVersionFromPackageRoot(packageRoot);
 
@@ -146,7 +146,7 @@ export async function launchPDev(
     );
   }
 
-  console.log(`Starting Product Development Harness Configure GUI at ${url}`);
+  console.log(`Starting Product Development Harness at ${url}`);
   console.log(`Operator workspace: ${workspace.workspaceDir}`);
 
   const child = spawnImpl(
@@ -189,7 +189,7 @@ export async function launchPDev(
       errorCategory: "unexpected",
       cause: error,
     });
-    console.error(`p-dev failed to start Configure GUI: ${error.message}`);
+    console.error(`p-dev failed to start harness GUI: ${error.message}`);
     void shutdownObservability().finally(() => {
       process.exit(1);
     });
@@ -209,14 +209,14 @@ export async function launchPDev(
     removeFatalHandlers();
     await shutdownObservability();
     throw new Error(
-      health.reason ?? "Configure GUI health check failed after startup.",
+      health.reason ?? "Harness GUI health check failed after startup.",
     );
   }
 
   removeFatalHandlers();
   await releaseParentObservabilityOwnership();
 
-  console.log(`Configure GUI is ready at ${url}`);
+  console.log(`Harness GUI is ready at ${url}`);
 
   if (cli.openBrowser) {
     const browserOpener = options.browserOpener ?? defaultBrowserOpener;
@@ -227,11 +227,11 @@ export async function launchPDev(
     child.once("error", reject);
     child.once("exit", (code, signal) => {
       if (signal) {
-        reject(new Error(`Configure GUI exited from signal ${signal}`));
+        reject(new Error(`Harness GUI exited from signal ${signal}`));
         return;
       }
       if (code && code !== 0) {
-        reject(new Error(`Configure GUI exited with code ${code}`));
+        reject(new Error(`Harness GUI exited with code ${code}`));
         return;
       }
       resolve();

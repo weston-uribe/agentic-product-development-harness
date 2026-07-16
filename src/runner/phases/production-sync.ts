@@ -22,10 +22,15 @@ import {
 } from "../../linear/writer.js";
 import { GitHubClient } from "../../github/client.js";
 import { resolvePromotionProof } from "../../github/commit-reachability.js";
-import { resolveModelId } from "../../agents/index.js";
 import { resolveTargetRepo } from "../../resolver/target-repo.js";
 import { loadHarnessConfig } from "../../config/load-config.js";
+import { resolveHarnessWorkspaceRootFromConfigSource } from "../../config/workspace-root.js";
 import { checkProductionSyncIdempotency } from "../idempotency.js";
+import {
+  CanonicalWorkflowGateError,
+  classifyCanonicalGateError,
+  runAuthoritativeCanonicalWorkflowGate,
+} from "../../workflow/canonical-workflow-gate.js";
 import type { RunManifest, FinalOutcome, ErrorClassification } from "../../types/run.js";
 import type { LinearIssueSnapshot } from "../../linear/client.js";
 import type { ResolvedTarget } from "../../resolver/target-repo.js";
@@ -93,14 +98,16 @@ export async function executeProductionSyncForIssue(
 ): Promise<ProductionSyncIssueResult> {
   const startedAt = new Date();
   const runId = createRunId(options.issueKey, startedAt);
-  const { config } = await loadHarnessConfig({ configPath: options.configPath });
+  const loaded = await loadHarnessConfig({ configPath: options.configPath });
+  const config = loaded.config;
+  const workspaceRoot = resolveHarnessWorkspaceRootFromConfigSource(loaded.source);
   const runDirectory = getRunDirectory(
     config.logDirectory,
     options.issueKey,
     runId,
   );
   const events = new EventLogger(runDirectory);
-  const model = resolveModelId(config);
+  const model = "";
 
   let issue: LinearIssueSnapshot | null = null;
   let resolved: ResolvedTarget | null = null;
@@ -130,6 +137,20 @@ export async function executeProductionSyncForIssue(
       },
       config,
     );
+
+    const gateResult = await runAuthoritativeCanonicalWorkflowGate({
+      linearApiKey,
+      config,
+      issue,
+      workspaceRoot,
+      configPath: options.configPath,
+    });
+    if (!gateResult.ok) {
+      throw new CanonicalWorkflowGateError(
+        gateResult.message,
+        gateResult.errorClassification,
+      );
+    }
 
     if (resolved.baseBranch === resolved.productionBranch) {
       finalOutcome = "skipped";
@@ -261,7 +282,11 @@ export async function executeProductionSyncForIssue(
     }
   } catch (error) {
     finalOutcome = "failed";
-    errorClassification = "github_api_failure";
+    errorClassification =
+      classifyCanonicalGateError(error) ??
+      (error instanceof Error && error.message.includes("GITHUB_TOKEN")
+        ? "github_auth_failure"
+        : "github_api_failure");
     skippedReason = error instanceof Error ? error.message : String(error);
   }
 

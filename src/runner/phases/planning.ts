@@ -25,9 +25,9 @@ import {
 import {
   createPlanningAgent,
   disposeAgent,
-  resolveModelId,
   sendAndObserve,
 } from "../../agents/index.js";
+import { manifestModelEvidence } from "../../cursor/model.js";
 import { buildPlanningPrompt } from "../../prompts/builder.js";
 import { PlanningError } from "../errors.js";
 import { runPreflight } from "../preflight.js";
@@ -143,7 +143,13 @@ export async function executePlanningPhase(
       previousHandoffRunId: null,
       pmFeedbackCommentId: null,
       ...emptyMergeManifestFields(),
-      model: preflight.config ? resolveModelId(preflight.config) : null,
+      model: preflight.config
+        ? manifestModelEvidence(preflight.config, "planner").model
+        : null,
+      modelRole: preflight.config ? "planner" : null,
+      modelParams: preflight.config
+        ? manifestModelEvidence(preflight.config, "planner").modelParams
+        : null,
     };
     return writeFinalManifest(
       manifest,
@@ -176,7 +182,8 @@ export async function executePlanningPhase(
   let cursorAgentId: string | null = null;
   let cursorRunId: string | null = null;
   let promptVersion: string | null = null;
-  const model = resolveModelId(config);
+  const plannerModel = manifestModelEvidence(config, "planner");
+  const model = plannerModel.model;
   let enteredPlanning = false;
   const commentsWritten: string[] = [];
 
@@ -442,6 +449,8 @@ export async function executePlanningPhase(
     pmFeedbackCommentId: null,
     ...emptyMergeManifestFields(),
     model,
+    modelRole: "planner",
+    modelParams: plannerModel.modelParams,
   };
 
   return writeFinalManifest(

@@ -133,7 +133,7 @@ export async function waitForConfigureServer(
   timeoutMs: number,
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
-  const healthUrl = `${baseUrl.replace(/\/$/, "")}/settings/configure`;
+  const healthUrl = `${baseUrl.replace(/\/$/, "")}/`;
 
   while (Date.now() < deadline) {
     try {
@@ -149,7 +149,7 @@ export async function waitForConfigureServer(
   }
 
   throw new Error(
-    `Configure GUI did not become reachable at ${healthUrl} within ${timeoutMs}ms`,
+    `Harness GUI did not become reachable at ${healthUrl} within ${timeoutMs}ms`,
   );
 }
 

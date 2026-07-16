@@ -1,6 +1,5 @@
 import { SettingsMenu } from "@/components/custom/settings-menu";
 import { LAYOUT } from "@/lib/constants/layout";
-import { cn } from "@/lib/utils";
 
 type ApplicationHeaderProps = {
   configureHref?: string;
@@ -12,7 +11,7 @@ export function ApplicationHeader({
   isConfigureActive,
 }: ApplicationHeaderProps) {
   return (
-    <header className={cn(LAYOUT.header)}>
+    <header className={LAYOUT.header}>
       <div className={LAYOUT.headerInner}>
         <div className="flex min-w-0 items-center gap-2.5">
           <span

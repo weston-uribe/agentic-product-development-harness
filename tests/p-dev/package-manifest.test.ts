@@ -22,6 +22,7 @@ describe("p-dev package manifest", () => {
       files: string[];
       publishConfig: { access: string };
       repository: { directory: string };
+      dependencies: Record<string, string>;
     };
 
     expect(manifest.name).toBe("p-dev-harness");
@@ -43,5 +44,6 @@ describe("p-dev package manifest", () => {
         "LICENSE",
       ]),
     );
+    expect(manifest.dependencies["posthog-node"]).toBeDefined();
   });
 });

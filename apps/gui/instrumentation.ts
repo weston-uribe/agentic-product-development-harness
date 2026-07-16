@@ -1,10 +1,3 @@
-import {
-  beginObservabilitySession,
-  captureProductError,
-  installObservabilityUncaughtHandlers,
-} from "@harness/observability/facade.js";
-import { resolveHarnessRepoRoot } from "@harness/gui/repo-root.js";
-
 function isTruthyEnv(value: string | undefined): boolean {
   const normalized = value?.trim().toLowerCase();
   return normalized === "1" || normalized === "true" || normalized === "yes";
@@ -20,6 +13,14 @@ function shouldSkipInstrumentation(): boolean {
   return process.env.P_DEV_RUNTIME_MODE?.trim().toLowerCase() !== "packaged";
 }
 
+function resolveWorkspaceDir(): string {
+  return (
+    process.env.P_DEV_HOME?.trim() ||
+    process.env.HARNESS_REPO_ROOT?.trim() ||
+    process.cwd()
+  );
+}
+
 export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME !== "nodejs") {
     return;
@@ -30,9 +31,15 @@ export async function register(): Promise<void> {
   }
 
   try {
-    const workspaceDir = resolveHarnessRepoRoot();
+    const {
+      beginObservabilitySession,
+      installObservabilityUncaughtHandlers,
+    } = await import(
+      /* webpackIgnore: true */
+      "@harness/observability/facade.js"
+    );
     await beginObservabilitySession({
-      workspaceDir,
+      workspaceDir: resolveWorkspaceDir(),
       moduleUrl: import.meta.url,
     });
     installObservabilityUncaughtHandlers();
@@ -57,6 +64,10 @@ export async function onRequestError(
   }
 
   try {
+    const { captureProductError } = await import(
+      /* webpackIgnore: true */
+      "@harness/observability/facade.js"
+    );
     captureProductError({
       lifecyclePhase: "configure_route",
       productErrorCode: "configure_request_error",

@@ -58,7 +58,7 @@ import { parsePrUrl, type ParsedPrUrl } from "../../github/pr-url.js";
 import { pollForProductionDeployment, inferVercelReadyFromComments } from "../../preview/production-from-merge.js";
 import { resolvePreviewLinks } from "../../preview/urls.js";
 import { normalizeRepoUrl } from "../../resolver/normalize-repo.js";
-import { resolveModelId } from "../../agents/index.js";
+import { manifestModelEvidence } from "../../cursor/model.js";
 import { MergeError } from "../errors.js";
 import { attemptIntegrationRepair } from "./integration-repair.js";
 import { runPreflight } from "../preflight.js";
@@ -352,7 +352,7 @@ export async function executeMergePhase(
       prUrl: null,
       previewUrl: null,
       validationSummary: null,
-      model: preflight.config ? resolveModelId(preflight.config) : null,
+      model: null,
       ...emptyMergeManifestFields(),
     };
     return writeFinalManifest(
@@ -398,14 +398,18 @@ export async function executeMergePhase(
   let deploymentUrl: string | null = null;
   let enteredMerging = false;
   let prMerged = false;
-  const model = resolveModelId(config);
+  let manifestModel: string | null = null;
+  let manifestModelRole: "builder" | null = null;
+  let manifestModelParams: Array<{ id: string; value: string }> | null = null;
+  let repairCursorAgentId: string | null = null;
+  let repairCursorRunId: string | null = null;
   const commentsWritten: string[] = [];
 
+  let footerModel = "";
   const footerBase = {
     orchestratorMarker: config.orchestratorMarker,
     phase: "merge",
     runId,
-    model,
     promptVersion: MERGE_PROMPT_VERSION,
     targetRepo: resolved.targetRepo,
     baseBranch: resolved.baseBranch,
@@ -512,7 +516,7 @@ export async function executeMergePhase(
         mergeMethod,
         mergedAt: null,
         deploymentUrl,
-        model,
+        model: null,
       };
       return writeFinalManifest(
         manifest,
@@ -546,7 +550,7 @@ export async function executeMergePhase(
           issueKey: issue.identifier,
           targetRepo: markerTargetRepo,
           baseBranch: resolved.baseBranch,
-          model,
+          model: footerModel,
           promptVersion: MERGE_PROMPT_VERSION,
           branch: branch ?? undefined,
           prUrl,
@@ -647,7 +651,7 @@ export async function executeMergePhase(
         mergeMethod,
         mergedAt: preInspection.mergedAt,
         deploymentUrl,
-        model,
+        model: null,
       };
       return writeFinalManifest(
         manifest,
@@ -819,11 +823,19 @@ export async function executeMergePhase(
             runId,
             runDirectory,
             events,
-            model,
+            model: manifestModelEvidence(config, "builder").model,
             initialInspection: preInspection,
             cursorApiKey: process.env.CURSOR_API_KEY,
           });
           preInspection = repair.inspection;
+          if (repair.agentEvidence) {
+            manifestModel = repair.agentEvidence.model;
+            manifestModelRole = repair.agentEvidence.modelRole;
+            manifestModelParams = repair.agentEvidence.modelParams;
+            repairCursorAgentId = repair.agentEvidence.cursorAgentId;
+            repairCursorRunId = repair.agentEvidence.cursorRunId;
+            footerModel = repair.agentEvidence.model;
+          }
           changedFiles = preInspection.changedFiles.map((f) => f.path);
           checkSummary = preInspection.checkSummary;
           validationSummary = [validationSummary, repair.validationSummary]
@@ -1030,6 +1042,7 @@ export async function executeMergePhase(
 
     const mergeFooter = {
       ...footerBase,
+      model: footerModel,
       issueKey: options.issueKey,
       productionBranch: resolved.productionBranch,
       integrationSuccessStatus:
@@ -1090,6 +1103,7 @@ export async function executeMergePhase(
 
     const mergeFooter = {
       ...footerBase,
+      model: footerModel,
       branch: branch ?? undefined,
       prUrl: prUrl ?? undefined,
       previewUrl: previewUrl ?? undefined,
@@ -1171,8 +1185,8 @@ export async function executeMergePhase(
     finishedAt: new Date().toISOString(),
     milestone: MILESTONE,
     promptVersion: MERGE_PROMPT_VERSION,
-    cursorAgentId: null,
-    cursorRunId: null,
+    cursorAgentId: repairCursorAgentId,
+    cursorRunId: repairCursorRunId,
     branch,
     prUrl,
     previewUrl,
@@ -1187,7 +1201,9 @@ export async function executeMergePhase(
     mergeMethod,
     mergedAt,
     deploymentUrl,
-    model,
+    model: manifestModel,
+    modelRole: manifestModelRole,
+    modelParams: manifestModelParams,
   };
 
   return writeFinalManifest(

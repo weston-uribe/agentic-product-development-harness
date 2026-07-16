@@ -8,7 +8,6 @@ const repoRoot = path.resolve(
 );
 
 const nextConfig: NextConfig = {
-  transpilePackages: [],
   serverExternalPackages: ["@cursor/sdk", "@linear/sdk", "@sentry/node"],
   // GitHub Codespaces / forwarded dev URLs use *.app.github.dev as the browser Host.
   allowedDevOrigins: ["*.app.github.dev"],
@@ -18,7 +17,7 @@ const nextConfig: NextConfig = {
       allowedOrigins: ["localhost:3000", "*.app.github.dev"],
     },
   },
-  webpack: (config) => {
+  webpack: (config, { isServer }) => {
     config.resolve.alias = {
       ...config.resolve.alias,
       "@harness": path.join(repoRoot, "src"),
@@ -27,6 +26,12 @@ const nextConfig: NextConfig = {
       ...config.resolve.extensionAlias,
       ".js": [".ts", ".tsx", ".js"],
     };
+    if (isServer) {
+      config.externals = [
+        ...(Array.isArray(config.externals) ? config.externals : []),
+        "diagnostics_channel",
+      ];
+    }
     return config;
   },
 };

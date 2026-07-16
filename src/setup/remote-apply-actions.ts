@@ -21,6 +21,7 @@ import {
   readValidatedConfigLocalBytes,
   type HarnessSecretOperatorInput,
 } from "./harness-secret-setup.js";
+import { recordWorkflowModelsSyncEvidence } from "./workflow-models-sync-evidence.js";
 import {
   REMOTE_SETUP_ACTIONS,
   assertRemoteSetupConfirmed,
@@ -230,6 +231,27 @@ export async function applyRemoteHarnessSecrets(
     for (const secret of knownSecrets) {
       if (serialized.includes(secret)) {
         throw new Error("Remote apply result leaked secret material");
+      }
+    }
+
+    const wroteHarnessConfigB64 = writtenSecrets.some(
+      (entry) =>
+        entry.name === "HARNESS_CONFIG_JSON_B64" &&
+        (entry.status === "created" || entry.status === "updated"),
+    );
+    if (wroteHarnessConfigB64) {
+      try {
+        const { hash } = await readValidatedConfigLocalBytes(options.cwd);
+        await recordWorkflowModelsSyncEvidence(
+          {
+            configFingerprint: hash,
+            harnessRepository: preview.harnessDispatchRepo,
+            syncedAt: new Date().toISOString(),
+          },
+          options.cwd,
+        );
+      } catch {
+        // Sync evidence is bookkeeping; do not fail the secret apply transaction.
       }
     }
 

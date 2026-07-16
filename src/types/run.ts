@@ -58,6 +58,11 @@ export type ErrorClassification =
   | "deployment_not_found"
   | "recovery_handoff"
   | "implementation_in_progress"
+  | "canonical_workflow_invalid"
+  | "linear_team_unresolved"
+  | "linear_team_mismatch"
+  | "linear_team_identity_missing"
+  | "canonical_workflow_load_failed"
   | null;
 
 export interface RunManifest {
@@ -94,6 +99,8 @@ export interface RunManifest {
   mergedAt: string | null;
   deploymentUrl: string | null;
   model: string | null;
+  modelRole?: "planner" | "builder" | null;
+  modelParams?: Array<{ id: string; value: string }> | null;
 }
 
 export type RunEventName =
@@ -105,6 +112,7 @@ export type RunEventName =
   | "repo_resolved"
   | "repo_resolution_failed"
   | "phase_inferred"
+  | "canonical_workflow_preflight"
   | "idempotency_skip"
   | "planning_comment_loaded"
   | "implementation_comment_loaded"

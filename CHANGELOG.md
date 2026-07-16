@@ -6,12 +6,26 @@ V0.3.0 is a **GitHub source release** plus a **public npm CLI package** (`p-dev-
 
 ## Unreleased
 
+### Added
+
+- Canonical product-development workflow descriptor (`src/workflow/canonical-product-development-workflow.ts`) with executable audit alignment, repository-specific merge paths, and optional Duplicate status contract.
+- Fail-closed canonical Linear workflow preflight before authoritative runner side effects, plus noncanonical status-name override detection in doctor/readiness paths.
+- Production Workflow page at `/workflow` with role-based Planner/Builder model configuration, local+cloud autosave via `PUT /api/workflow/models`, and trimmed bootstrap payload (`GET /api/workflow/bootstrap`).
+- `roleModels` harness config schema with durable-shape Zod validation at load time and Cursor catalog validation on save.
+- Setup-aware launcher default route (`/`) with fail-safe redirect to Configure or Workflow based on durable local evidence only.
+- Configure completion handoff: **Continue to Workflow** button after setup completes.
+- Doctor diagnostics for Planner/Builder model resolution, workflow cloud sync fingerprint, and sync evidence bookkeeping.
+
 ### Fixed
 
-- Configure GUI development launcher: skip server observability instrumentation during source-repo `next dev` and when observability is globally disabled, and lazy-load Sentry/PostHog adapters so development bundling no longer fails on Node built-in `diagnostics_channel`.
+- Workflow revision success path visualization returns to **PM Review** (matching runtime revision behavior).
+- Workflow model autosave: compare-and-swap fingerprints, sequence-id stale response protection, confirmed-failure rollback only, and post-transaction sync evidence.
 
 ### Changed
 
+- Workflow GUI is cards-only (health panel + expandable workflow cards); removed Operations canvas, draft persistence, sidebar/toolbar, and `@xyflow/react` dependency.
+- Runtime agents resolve Planner vs Builder models from `roleModels` with truthful manifest evidence (Builder model recorded only when integration-repair agent actually runs).
+- Linear status contract, dispatch triggers, setup planning, and Workflow bootstrap derive required statuses and triggers from the canonical descriptor.
 - Configure GUI application header: compact `PDev Harness` brand lockup, sticky background-matched header, and Settings dropdown with theme toggle and Configure navigation.
 - Guided Configure flow: seven-stage display-only progress indicator and refined Step 1 service setup copy and workspace button labels.
 - Configure GUI copy: page title `Initial Harness Configuration`, simplified Cursor/Vercel connected-account status messages, and updated Step 3 Vercel settings description.

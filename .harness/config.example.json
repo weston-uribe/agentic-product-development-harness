@@ -9,6 +9,7 @@
   "defaultModel": { "id": "composer-2.5" },
   "linear": {
     "teamKey": "TEAM",
+    "teamId": "00000000-0000-0000-0000-000000000000",
     "eligibleStatuses": {
       "planning": ["Ready for Planning"],
       "implementation": ["Ready for Build"],

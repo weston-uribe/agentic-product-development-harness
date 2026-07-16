@@ -111,8 +111,20 @@ describe.skipIf(!isCleanEnoughForPackagePack())("p-dev packed artifact", () => {
     expect(listing).toContain("package/README.md");
     expect(listing).toContain("package/workspace-snapshot/manifest.json");
     expect(listing).toMatch(/package\/workspace-snapshot\/files\/src\//);
+    expect(listing).toContain(
+      "package/workspace-snapshot/files/apps/gui/app/workflow/page.tsx",
+    );
+    expect(listing).toContain(
+      "package/workspace-snapshot/files/apps/gui/lib/workflow-server.ts",
+    );
+    expect(listing).toContain(
+      "package/workspace-snapshot/files/apps/gui/components/workflow/workflow-page-client.tsx",
+    );
+    expect(listing).not.toContain("operations-canvas.tsx");
+    expect(listing).not.toMatch(/@xyflow\/react/);
     expect(listing).not.toMatch(/\.env\.local/);
     expect(listing).not.toMatch(/config\.local\.json/);
+    expect(listing).not.toMatch(/operations-workflow-draft\.local\.json/);
     expect(listing).not.toMatch(/\.tgz$/);
   });
 
@@ -122,12 +134,17 @@ describe.skipIf(!isCleanEnoughForPackagePack())("p-dev packed artifact", () => {
       ["-xOf", tarballPath, "package/package.json"],
       { encoding: "utf8" },
     );
-    const manifest = JSON.parse(raw) as { version: string; private?: boolean };
+    const manifest = JSON.parse(raw) as {
+      version: string;
+      private?: boolean;
+      dependencies: Record<string, string>;
+    };
     const sourcePackageJson = JSON.parse(
       readFileSync(path.join(packageDir, "package.json"), "utf8"),
     ) as { version: string };
     expect(manifest.version).toBe(sourcePackageJson.version);
     expect(manifest.private).toBeUndefined();
+    expect(manifest.dependencies["posthog-node"]).toBeDefined();
   });
 
   it("ships a valid workspace snapshot manifest", () => {

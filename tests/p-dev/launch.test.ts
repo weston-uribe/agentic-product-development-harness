@@ -110,7 +110,7 @@ describe("p-dev launch", () => {
     process.env[P_DEV_RELEASE_SHA_ENV] = "d".repeat(40);
 
     const result = await launchPDev({
-      argv: ["--workspace", workspaceDir, "--port", "3000"],
+      argv: ["--workspace", workspaceDir, "--port", "34567"],
       moduleUrl: `file://${modulePath}`,
       browserOpener: {
         open: async (url: string) => {
@@ -126,9 +126,9 @@ describe("p-dev launch", () => {
       process.env[P_DEV_RELEASE_SHA_ENV] = previousReleaseSha;
     }
 
-    expect(result.url).toBe("http://localhost:3000/settings/configure");
+    expect(result.url).toBe("http://localhost:34567/");
     expect(result.workspaceDir).toBe(workspaceDir);
-    expect(openedUrls).toEqual(["http://localhost:3000/settings/configure"]);
+    expect(openedUrls).toEqual(["http://localhost:34567/"]);
     expect(spawnImpl).toHaveBeenCalledOnce();
 
     const spawnArgs = spawnImpl.mock.calls[0] as [string, string[]];

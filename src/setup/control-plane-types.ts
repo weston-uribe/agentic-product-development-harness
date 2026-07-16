@@ -138,6 +138,11 @@ export interface ControlPlaneSetupState {
   version: 1;
   linear?: LinearWorkspaceSelection;
   vercel?: VercelBridgeSelection;
+  workflowModels?: {
+    configFingerprint: string;
+    harnessRepository: string;
+    syncedAt: string;
+  };
 }
 
 export interface ControlPlaneReadinessContext {

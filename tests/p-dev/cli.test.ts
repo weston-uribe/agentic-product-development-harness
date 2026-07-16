@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { parsePDevCliOptions } from "../../src/p-dev/cli.js";
 
 describe("p-dev cli", () => {
-  it("defaults to configure route and browser open", () => {
+  it("defaults to root route and browser open", () => {
     expect(parsePDevCliOptions([])).toEqual({
-      route: "/settings/configure",
+      route: "/",
       openBrowser: true,
     });
   });

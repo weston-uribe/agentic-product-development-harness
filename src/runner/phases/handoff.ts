@@ -40,7 +40,6 @@ import {
 import { parsePrUrl } from "../../github/pr-url.js";
 import { pollForVercelPreview } from "../../preview/vercel-from-pr.js";
 import { normalizeRepoUrl } from "../../resolver/normalize-repo.js";
-import { resolveModelId } from "../../agents/index.js";
 import { HandoffError } from "../errors.js";
 import { runPreflight } from "../preflight.js";
 import {
@@ -216,7 +215,7 @@ export async function executeHandoffPhase(
       previousHandoffRunId: null,
       pmFeedbackCommentId: null,
       ...emptyMergeManifestFields(),
-      model: preflight.config ? resolveModelId(preflight.config) : null,
+      model: null,
     };
     return writeFinalManifest(
       manifest,
@@ -253,7 +252,7 @@ export async function executeHandoffPhase(
   let checkSummary: string | null = null;
   let previousImplementationRunId: string | null = null;
   let enteredHandoff = false;
-  const model = resolveModelId(config);
+  const model = "";
   const commentsWritten: string[] = [];
 
   const footerBase = {

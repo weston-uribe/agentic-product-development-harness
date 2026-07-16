@@ -1,4 +1,4 @@
-export const DEFAULT_CONFIGURE_ROUTE = "/settings/configure";
+export const DEFAULT_CONFIGURE_ROUTE = "/";
 
 export interface PDevCliOptions {
   host?: string;

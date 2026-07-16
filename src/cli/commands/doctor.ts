@@ -3,12 +3,26 @@ import path from "node:path";
 import { Cursor } from "@cursor/sdk";
 import { loadHarnessConfig, validateRepoClosure } from "../../config/load-config.js";
 import type { HarnessConfig } from "../../config/types.js";
+import { roleModelsSchema } from "../../config/role-models.js";
+import {
+  resolveBuilderModel,
+  resolveModelForRole,
+  resolvePlannerModel,
+  summarizeRoleModelSource,
+} from "../../cursor/model.js";
+import {
+  isWorkflowCloudConfigSynchronized,
+  readWorkflowModelsSyncEvidence,
+} from "../../setup/workflow-models-sync-evidence.js";
+import { resolveLocalFilePaths } from "../../setup/setup-state.js";
+import { formatHarnessDispatchRepo, resolveHarnessDispatchRepo } from "../../setup/harness-dispatch-repo.js";
 import {
   assertBaseBranchExists,
   assertHeadBranchWritePermission,
 } from "../../github/base-branch.js";
 import { GitHubClient, pingGitHub } from "../../github/client.js";
 import { pingLinear } from "../../linear/client.js";
+import { detectNoncanonicalConfigOverrides } from "../../workflow/canonical-workflow-validation.js";
 import {
   doctorChecksFailed,
   formatDoctorCheckLine,
@@ -41,6 +55,16 @@ export async function runDoctor(options: DoctorOptions): Promise<number> {
       ok: true,
     });
 
+    const overrideViolations = detectNoncanonicalConfigOverrides(config);
+    checks.push({
+      label: "canonical workflow status names",
+      ok: overrideViolations.length === 0,
+      detail:
+        overrideViolations.length === 0
+          ? "no noncanonical linear status overrides"
+          : overrideViolations.map((violation) => violation.message).join("; "),
+    });
+
     const runsDir = path.resolve(config.logDirectory);
     await mkdir(runsDir, { recursive: true });
     await access(runsDir, constants.W_OK);
@@ -49,6 +73,116 @@ export async function runDoctor(options: DoctorOptions): Promise<number> {
       ok: true,
       detail: runsDir,
     });
+
+    if (config) {
+      const roleModelsParse = roleModelsSchema.safeParse(config.roleModels ?? {});
+      checks.push({
+        label: "roleModels durable shape",
+        ok: roleModelsParse.success,
+        detail: roleModelsParse.success
+          ? "planner/builder selections structurally valid"
+          : roleModelsParse.error.issues
+              .map((issue: { message: string }) => issue.message)
+              .join("; "),
+      });
+
+      const planner = resolvePlannerModel(config);
+      const builder = resolveBuilderModel(config);
+      checks.push({
+        label: "Planner model resolves",
+        ok: Boolean(planner.id),
+        detail: `configured (${planner.id}) via ${summarizeRoleModelSource(config, "planner")}`,
+      });
+      checks.push({
+        label: "Builder model resolves",
+        ok: Boolean(builder.id),
+        detail: `configured (${builder.id}) via ${summarizeRoleModelSource(config, "builder")}`,
+      });
+
+      const obsoleteKeys = ["revisionModel", "repairModel"].filter(
+        (key) => key in (config as Record<string, unknown>),
+      );
+      checks.push({
+        label: "obsolete revision/repair model keys absent",
+        ok: obsoleteKeys.length === 0,
+        detail:
+          obsoleteKeys.length === 0
+            ? "no legacy per-phase model keys"
+            : `found: ${obsoleteKeys.join(", ")}`,
+      });
+
+      try {
+        const cwd = path.dirname(path.resolve(options.configPath));
+        const localPaths = resolveLocalFilePaths(cwd);
+        let packagedConfigPresent = false;
+        try {
+          await access(localPaths.configLocal);
+          packagedConfigPresent = true;
+        } catch {
+          packagedConfigPresent = false;
+        }
+
+        if (!packagedConfigPresent) {
+          checks.push({
+            label: "Workflow cloud configuration",
+            ok: true,
+            skipped: true,
+            detail: "skipped for explicit config path without .harness/config.local.json",
+          });
+          checks.push({
+            label: "Workflow sync evidence",
+            ok: true,
+            skipped: true,
+            detail: "skipped for explicit config path without packaged local config",
+          });
+          checks.push({
+            label: "Harness dispatch repository",
+            ok: true,
+            skipped: true,
+            detail: "skipped for explicit config path without packaged local config",
+          });
+        } else {
+          const { readCurrentConfigFingerprint } = await import(
+            "../../setup/workflow-model-sync.js"
+          );
+          const fingerprint = await readCurrentConfigFingerprint(cwd);
+          const evidence = await readWorkflowModelsSyncEvidence(cwd);
+          const synchronized = isWorkflowCloudConfigSynchronized({
+            currentFingerprint: fingerprint,
+            evidence,
+          });
+          checks.push({
+            label: "Workflow cloud configuration",
+            ok: synchronized,
+            detail: synchronized
+              ? "synchronized"
+              : evidence
+                ? "needs synchronization"
+                : "needs synchronization (no sync evidence)",
+          });
+          checks.push({
+            label: "Workflow sync evidence",
+            ok: Boolean(evidence),
+            detail: evidence
+              ? `recorded at ${evidence.syncedAt}`
+              : "needs reconstruction (bookkeeping may be missing)",
+          });
+
+          const dispatchRepo = await resolveHarnessDispatchRepo({ cwd });
+          checks.push({
+            label: "Harness dispatch repository",
+            ok: dispatchRepo.resolved,
+            detail: formatHarnessDispatchRepo(dispatchRepo),
+          });
+        }
+      } catch (error) {
+        checks.push({
+          label: "Workflow cloud configuration",
+          ok: false,
+          detail: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
   } catch (error) {
     checks.push({
       label: "harness.config.json valid",
@@ -96,6 +230,20 @@ export async function runDoctor(options: DoctorOptions): Promise<number> {
         ok: true,
         detail: `${count} model(s) available`,
       });
+
+      if (config) {
+        for (const role of ["planner", "builder"] as const) {
+          const selection = resolveModelForRole(config, role);
+          const knownModel = models.some((model) => model.id === selection.id);
+          checks.push({
+            label: `${role} model catalog validation`,
+            ok: knownModel,
+            detail: knownModel
+              ? "model available in current Cursor catalog"
+              : `model "${selection.id}" not found in current catalog`,
+          });
+        }
+      }
     } catch (error) {
       checks.push({
         label: "Cursor models.list()",

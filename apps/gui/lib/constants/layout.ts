@@ -4,7 +4,7 @@ export const LAYOUT = {
   header: "sticky top-0 z-50 border-b border-border bg-background",
   headerInner:
     "mx-auto flex w-full max-w-5xl items-center justify-between gap-4 px-4 py-3 sm:px-6",
-  main: "mx-auto w-full max-w-5xl px-4 py-8 md:px-6 md:py-10",
+  main: "mx-auto w-full max-w-7xl px-4 py-8 md:px-6 md:py-10",
   sectionStack: "flex flex-col gap-6",
   cardGrid: "grid grid-cols-1 gap-4 md:grid-cols-2",
 } as const;
