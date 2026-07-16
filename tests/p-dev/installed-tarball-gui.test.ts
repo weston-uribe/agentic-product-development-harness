@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { buildConfigFingerprint } from "../../src/workflow-page/bootstrap.js";
+import { readCurrentConfigFingerprint } from "../../src/setup/workflow-model-sync.js";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -240,7 +240,6 @@ async function seedCompletedWorkspace(workspaceDir: string): Promise<string> {
     `${JSON.stringify(COMPLETED_CONFIG, null, 2)}\n`,
     "utf8",
   );
-  const fingerprint = buildConfigFingerprint(COMPLETED_CONFIG);
   await writeFile(
     path.join(workspaceDir, ".harness", "control-plane-setup.json"),
     `${JSON.stringify(
@@ -257,7 +256,7 @@ async function seedCompletedWorkspace(workspaceDir: string): Promise<string> {
           statusCoverageComplete: true,
         },
         workflowModels: {
-          configFingerprint: fingerprint,
+          configFingerprint: await readCurrentConfigFingerprint(workspaceDir),
           harnessRepository: "owner/harness-repo",
           syncedAt: "2026-01-01T00:00:00.000Z",
         },
@@ -267,7 +266,7 @@ async function seedCompletedWorkspace(workspaceDir: string): Promise<string> {
     )}\n`,
     "utf8",
   );
-  return fingerprint;
+  return readCurrentConfigFingerprint(workspaceDir);
 }
 
 describe.skipIf(!isCleanEnoughForPackagePack())(
