@@ -82,6 +82,6 @@ describe("packaged workspace setup", () => {
     const resolution = await resolveHarnessDispatchRepo({ cwd: workspaceDir });
     expect(resolution.resolved).toBe(true);
     expect(resolution.repo).toBe("owner/private-harness");
-    expect(resolution.source).toBe("explicit-config");
+    expect(resolution.source).toBe("env-local");
   });
 });
