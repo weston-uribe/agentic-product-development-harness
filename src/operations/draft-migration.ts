@@ -4,7 +4,7 @@ import {
   CANONICAL_STATUSES,
   CANONICAL_WORKFLOW_FINGERPRINT,
   getDefaultCanonicalLayout,
-  lookupCanonicalStatusByName,
+  lookupCanonicalStatusByExactName,
   type CanonicalAgentPhaseKey,
   type CanonicalStatusKey,
 } from "../workflow/canonical-product-development-workflow.js";
@@ -37,7 +37,7 @@ function resolveCanonicalKeyForStatusId(
   if (status.canonicalStatusKey) {
     return status.canonicalStatusKey;
   }
-  return lookupCanonicalStatusByName(status.name)?.key;
+  return lookupCanonicalStatusByExactName(status.name)?.key;
 }
 
 export function migrateV1DraftToV2(input: {

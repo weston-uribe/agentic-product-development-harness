@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { MILESTONE } from "../config/defaults.js";
 import { loadHarnessConfig } from "../config/load-config.js";
+import { resolveHarnessWorkspaceRootFromConfigSource } from "../config/workspace-root.js";
 import type { HarnessConfig } from "../config/types.js";
 import { EventLogger } from "../artifacts/events.js";
 import { createRunId } from "../artifacts/run-id.js";
@@ -18,10 +19,11 @@ import { inferPhaseFromStatus } from "./phase-infer.js";
 import { logExecutionEnvironmentMarker } from "./execution-environment.js";
 import { loadIssueFixture } from "./fixture.js";
 import {
-  canonicalPreflightErrorMessage,
-  resolveLinearTeamId,
-  runCanonicalWorkflowPreflight,
-} from "../workflow/preflight-canonical.js";
+  assertAuthoritativeCanonicalWorkflowGate,
+  CanonicalWorkflowGateError,
+  classifyCanonicalGateError,
+  runAuthoritativeCanonicalWorkflowGate,
+} from "../workflow/canonical-workflow-gate.js";
 import type { ErrorClassification, RunPhase } from "../types/run.js";
 import type { ParsedIssue } from "../types/parsed-issue.js";
 import type { LinearIssueSnapshot } from "../linear/client.js";
@@ -84,10 +86,12 @@ export async function runPreflight(
   let resolved: ResolvedTarget | null = null;
   let phase: RunPhase = "none";
   let phaseInferredFromStatus: string | null = null;
+  let workspaceRoot: string | undefined;
 
   try {
     const loaded = await loadHarnessConfig({ configPath: options.configPath });
     config = loaded.config;
+    workspaceRoot = resolveHarnessWorkspaceRootFromConfigSource(loaded.source);
     runDirectory = getRunDirectory(config.logDirectory, options.issueKey, runId);
     events = new EventLogger(runDirectory);
     await events.init();
@@ -121,7 +125,10 @@ export async function runPreflight(
     } else {
       const apiKey = options.linearApiKey ?? process.env.LINEAR_API_KEY ?? "";
       if (!apiKey) {
-        throw new Error("LINEAR_API_KEY is required for live issue fetch");
+        throw new CanonicalWorkflowGateError(
+          "linear_auth_failure: LINEAR_API_KEY is required for live issue fetch",
+          "linear_auth_failure",
+        );
       }
       issue = await fetchLinearIssue(options.issueKey, apiKey);
       await events.log("issue_fetched", "info", { issueKey: issue.identifier });
@@ -162,25 +169,19 @@ export async function runPreflight(
     }
     await events.log("repo_resolved", "info", { ...resolved });
 
-    if (!options.fixturePath) {
-      const linearApiKey = options.linearApiKey ?? process.env.LINEAR_API_KEY ?? "";
-      const teamId = issue.teamId ?? resolveLinearTeamId(config) ?? "";
-      if (linearApiKey && teamId) {
-        const canonicalResult = await runCanonicalWorkflowPreflight({
-          linearApiKey,
-          teamId,
-          config,
-          expectedTeamId: resolveLinearTeamId(config),
-        });
-        await events.log("canonical_workflow_preflight", "info", {
-          valid: canonicalResult.valid,
-          violationCount: canonicalResult.violations.length,
-        });
-        if (!canonicalResult.valid) {
-          throw new Error(canonicalPreflightErrorMessage(canonicalResult));
-        }
-      }
-    }
+    const gateResult = await runAuthoritativeCanonicalWorkflowGate({
+      linearApiKey: options.linearApiKey,
+      config,
+      issue,
+      fixturePath: options.fixturePath,
+      workspaceRoot,
+      configPath: options.configPath,
+    });
+    await events.log("canonical_workflow_preflight", "info", {
+      valid: gateResult.ok,
+      violationCount: gateResult.ok ? 0 : 1,
+    });
+    assertAuthoritativeCanonicalWorkflowGate(gateResult);
 
     return {
       success: true,
@@ -198,7 +199,7 @@ export async function runPreflight(
       },
     };
   } catch (error) {
-    let errorClassification: ErrorClassification = null;
+    let errorClassification: ErrorClassification = classifyCanonicalGateError(error);
     if (error instanceof ResolverError) {
       errorClassification = error.classification;
     } else if (error instanceof Error && error.message.startsWith("wrong_status")) {

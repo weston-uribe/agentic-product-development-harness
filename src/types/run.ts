@@ -58,6 +58,11 @@ export type ErrorClassification =
   | "deployment_not_found"
   | "recovery_handoff"
   | "implementation_in_progress"
+  | "canonical_workflow_invalid"
+  | "linear_team_unresolved"
+  | "linear_team_mismatch"
+  | "linear_team_identity_missing"
+  | "canonical_workflow_load_failed"
   | null;
 
 export interface RunManifest {

@@ -250,6 +250,7 @@ export async function buildOperationsBootstrap(
     canonicalWorkflow: {
       healthState,
       violations: canonicalValidation?.violations ?? [],
+      informationalWarnings: canonicalValidation?.informationalWarnings ?? [],
       resolvedStatusIds: Object.fromEntries(
         Object.entries(canonicalValidation?.resolvedStatuses ?? {}).map(
           ([key, value]) => [key, value.id],
@@ -295,6 +296,7 @@ function rejectedPayload(
     canonicalWorkflow: {
       healthState: "linear-unavailable",
       violations: [],
+      informationalWarnings: [],
       resolvedStatusIds: {},
       mergePathVariant: "direct-production",
     },

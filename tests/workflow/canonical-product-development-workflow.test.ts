@@ -13,6 +13,7 @@ import {
   getPreflightRequiredCanonicalStatuses,
   isCanonicalDispatchTriggerStatusName,
   lookupCanonicalStatus,
+  lookupCanonicalStatusByExactName,
   lookupCanonicalStatusByName,
   resolveMergePathVariant,
 } from "../../src/workflow/canonical-product-development-workflow.js";
@@ -55,6 +56,14 @@ describe("canonical product development workflow descriptor", () => {
     expect(preflightRequired.some((status) => status.key === "duplicate")).toBe(
       false,
     );
+  });
+
+  it("represents PM Review as human gate only", () => {
+    const pmReview = lookupCanonicalStatus("pm-review");
+    expect(pmReview?.role).toBe("human-gate");
+    expect(pmReview?.actorRole).toBe("human-gate");
+    expect(pmReview?.agentPhaseKey).toBeUndefined();
+    expect(pmReview?.automationTrigger).toBe(false);
   });
 
   it("represents Engineering Review as human gate only", () => {
@@ -166,7 +175,14 @@ describe("canonical product development workflow descriptor", () => {
     expect(isCanonicalDispatchTriggerStatusName("PM Review")).toBe(false);
   });
 
-  it("looks up statuses by exact canonical name", () => {
+  it("looks up statuses by exact canonical name only in authoritative helper", () => {
+    expect(lookupCanonicalStatusByExactName("Merged / Deployed")?.key).toBe(
+      "merged-deployed",
+    );
+    expect(lookupCanonicalStatusByExactName("merged / deployed")).toBeUndefined();
+  });
+
+  it("looks up statuses case-insensitively only in non-authoritative helper", () => {
     expect(lookupCanonicalStatusByName("Merged / Deployed")?.key).toBe(
       "merged-deployed",
     );

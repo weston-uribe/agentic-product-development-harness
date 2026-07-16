@@ -33,6 +33,7 @@ const repoMappingSchema = z.object({
 
 const linearConfigSchema = z.object({
   teamKey: z.string().optional(),
+  teamId: z.string().optional(),
   eligibleStatuses: z
     .object({
       planning: z.array(z.string()).optional(),

@@ -70,6 +70,7 @@ export function OperationsPageClient({
         canonicalValidation: {
           valid: state.bootstrap.canonicalWorkflow.healthState === "healthy",
           violations: state.bootstrap.canonicalWorkflow.violations,
+          informationalWarnings: state.bootstrap.canonicalWorkflow.informationalWarnings,
           resolvedStatuses: {},
         },
       });

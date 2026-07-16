@@ -218,7 +218,7 @@ export const CANONICAL_STATUSES: readonly CanonicalStatusDefinition[] = [
     key: "pm-review",
     name: "PM Review",
     category: "started",
-    role: "transitional",
+    role: "human-gate",
     creatable: true,
     systemManaged: false,
     automationTrigger: false,
@@ -484,6 +484,13 @@ export function lookupCanonicalStatus(
   return CANONICAL_STATUSES.find((status) => status.key === key);
 }
 
+export function lookupCanonicalStatusByExactName(
+  name: string,
+): CanonicalStatusDefinition | undefined {
+  return CANONICAL_STATUSES.find((status) => status.name === name);
+}
+
+/** Non-authoritative convenience lookup (webhook/dispatch helpers only). */
 export function lookupCanonicalStatusByName(
   name: string,
 ): CanonicalStatusDefinition | undefined {

@@ -44,6 +44,7 @@ describe("canonical workflow preflight", () => {
     });
     expect(result.valid).toBe(true);
     expect(result.violations).toEqual([]);
+    expect(result.informationalWarnings).toEqual([]);
     expect(result.resolvedStatuses["ready-for-build"]?.id).toBe("s-rfb");
   });
 

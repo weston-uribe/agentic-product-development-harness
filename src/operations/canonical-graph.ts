@@ -57,9 +57,7 @@ function resolveStatusIdForKey(
   if (!canonical) {
     return undefined;
   }
-  const matches = statuses.filter(
-    (status) => status.name.toLowerCase() === canonical.name.toLowerCase(),
-  );
+  const matches = statuses.filter((status) => status.name === canonical.name);
   return matches.length === 1 ? matches[0]?.id : undefined;
 }
 

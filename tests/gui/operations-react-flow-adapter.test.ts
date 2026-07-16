@@ -80,6 +80,7 @@ describe("operations react flow adapter", () => {
     canonicalWorkflow: {
       healthState: "healthy",
       violations: [],
+      informationalWarnings: [],
       resolvedStatusIds: {
         planning: "status-planning",
         building: "status-building",

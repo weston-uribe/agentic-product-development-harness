@@ -170,6 +170,7 @@ describe("operations validation", () => {
             statusKey: "blocked",
           },
         ],
+        informationalWarnings: [],
         resolvedStatuses: {},
       },
     });

@@ -55,7 +55,7 @@ GUI-assisted fields:
 | Surface | Fields |
 |---------|--------|
 | `.env.local` | `HARNESS_CONFIG_PATH`, `LINEAR_API_KEY`, `CURSOR_API_KEY`, `GITHUB_TOKEN` |
-| `.harness/config.local.json` | `linear.teamKey`, model id, per-repo `id`, `targetRepo`, branches, preview provider/URLs, Linear status names, validation commands |
+| `.harness/config.local.json` | `linear.teamKey`, `linear.teamId`, model id, per-repo `id`, `targetRepo`, branches, preview provider/URLs, Linear status names, validation commands |
 
 Local GUI docs: [`docs/gui-local.md`](../gui-local.md)
 

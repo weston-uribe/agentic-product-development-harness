@@ -123,6 +123,18 @@ export function validateOperationsDraft(
     }
   }
 
+  if (context.canonicalValidation?.informationalWarnings.length) {
+    for (const warning of context.canonicalValidation.informationalWarnings) {
+      infos.push(
+        issue({
+          id: `canonical-${warning.kind}`,
+          severity: "info",
+          message: warning.message,
+        }),
+      );
+    }
+  }
+
   for (const phase of CANONICAL_AGENT_PHASES) {
     if (!phase.supportsModelConfiguration) {
       continue;

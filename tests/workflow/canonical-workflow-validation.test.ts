@@ -55,6 +55,34 @@ describe("canonical workflow validation", () => {
     expect(result.resolvedStatuses.duplicate?.id).toBe("s-dup");
   });
 
+  it("fails when Duplicate is present with wrong category", () => {
+    const result = validateCanonicalLinearWorkflow({
+      workflowStates: [
+        ...buildValidLinearStates(),
+        { id: "s-dup", name: "Duplicate", category: "started" },
+      ],
+    });
+    expect(result.valid).toBe(false);
+    expect(
+      result.violations.some(
+        (v) => v.kind === "wrong-category" && v.statusKey === "duplicate",
+      ),
+    ).toBe(true);
+  });
+
+  it("fails when a case-only Duplicate variant is present", () => {
+    const result = validateCanonicalLinearWorkflow({
+      workflowStates: [
+        ...buildValidLinearStates(),
+        { id: "s-dup", name: "duplicate", category: "canceled" },
+      ],
+    });
+    expect(result.valid).toBe(false);
+    expect(
+      result.violations.some((v) => v.kind === "malformed-canonical-status-collision"),
+    ).toBe(true);
+  });
+
   it("reports missing, wrong-category, and duplicate-name violations together", () => {
     const result = validateCanonicalLinearWorkflow({
       workflowStates: [
@@ -86,7 +114,43 @@ describe("canonical workflow validation", () => {
     expect(recreated.resolvedStatuses.planning?.id).toBe("s-planning-new");
   });
 
-  it("reports noncanonical configured status-name overrides", () => {
+  it("fails case-only renames for required canonical statuses", () => {
+    for (const renamed of ["ready for build", "READY FOR BUILD"]) {
+      const result = validateCanonicalLinearWorkflow({
+        workflowStates: buildValidLinearStates().map((state) =>
+          state.name === "Ready for Build"
+            ? { ...state, id: "s-wrong-case", name: renamed }
+            : state,
+        ),
+      });
+      expect(result.valid).toBe(false);
+      expect(
+        result.violations.some(
+          (v) => v.kind === "missing-status" && v.statusKey === "ready-for-build",
+        ),
+      ).toBe(true);
+    }
+  });
+
+  it("fails whitespace deviations for required canonical statuses", () => {
+    for (const renamed of [" Ready for Build", "Ready for Build "]) {
+      const result = validateCanonicalLinearWorkflow({
+        workflowStates: buildValidLinearStates().map((state) =>
+          state.name === "Ready for Build"
+            ? { ...state, id: "s-wrong-space", name: renamed }
+            : state,
+        ),
+      });
+      expect(result.valid).toBe(false);
+      expect(
+        result.violations.some(
+          (v) => v.kind === "missing-status" && v.statusKey === "ready-for-build",
+        ),
+      ).toBe(true);
+    }
+  });
+
+  it("reports noncanonical configured status-name overrides with exact matching", () => {
     const config = {
       linear: {
         eligibleStatuses: {
@@ -123,16 +187,16 @@ describe("canonical workflow validation", () => {
     expect(result.valid).toBe(true);
   });
 
-  it("flags deprecated Plan Review when present", () => {
+  it("does not block when Plan Review is present", () => {
     const result = validateCanonicalLinearWorkflow({
       workflowStates: [
         ...buildValidLinearStates(),
         { id: "s-pr-review", name: "Plan Review", category: "started" },
       ],
     });
-    expect(result.valid).toBe(false);
-    expect(result.violations.some((v) => v.kind === "deprecated-status-present")).toBe(
-      true,
-    );
+    expect(result.valid).toBe(true);
+    expect(result.informationalWarnings).toHaveLength(1);
+    expect(result.informationalWarnings[0]?.kind).toBe("deprecated-status-present");
+    expect(result.informationalWarnings[0]?.statusName).toBe("Plan Review");
   });
 });

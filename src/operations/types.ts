@@ -237,6 +237,7 @@ export interface OperationsSourceContext {
 export interface OperationsCanonicalWorkflowView {
   healthState: OperationsWorkflowHealthState;
   violations: CanonicalValidationViolation[];
+  informationalWarnings: import("../workflow/canonical-workflow-validation.js").CanonicalInformationalWarning[];
   resolvedStatusIds: Partial<Record<CanonicalStatusKey, string>>;
   mergePathVariant: "integration-then-production" | "direct-production";
 }

@@ -54,6 +54,7 @@ describe("operations performance fixtures", () => {
       canonicalWorkflow: {
         healthState: "healthy",
         violations: [],
+        informationalWarnings: [],
         resolvedStatusIds: {},
         mergePathVariant: "direct-production",
       },

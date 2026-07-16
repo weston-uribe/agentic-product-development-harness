@@ -12,6 +12,10 @@ export const OPERATIONS_FIXTURE_IDS = [
   "empty-linear-statuses",
   "credential-errors",
   "hundred-node-performance",
+  "canonical-case-rename",
+  "canonical-wrong-category",
+  "canonical-whitespace-name",
+  "canonical-plan-review-present",
 ] as const;
 
 export type OperationsFixtureId = (typeof OPERATIONS_FIXTURE_IDS)[number];

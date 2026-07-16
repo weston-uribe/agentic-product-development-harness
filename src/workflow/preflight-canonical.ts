@@ -38,7 +38,3 @@ export function canonicalPreflightErrorMessage(
 ): string {
   return `canonical_workflow_invalid: ${formatCanonicalValidationViolations(result.violations)}`;
 }
-
-export function resolveLinearTeamId(_config: HarnessConfig): string | undefined {
-  return undefined;
-}

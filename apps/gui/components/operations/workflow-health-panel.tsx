@@ -42,6 +42,13 @@ export function WorkflowHealthPanel({ bootstrap }: WorkflowHealthPanelProps) {
           ))}
         </ul>
       ) : null}
+      {bootstrap.canonicalWorkflow.informationalWarnings.length > 0 ? (
+        <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+          {bootstrap.canonicalWorkflow.informationalWarnings.slice(0, 4).map((warning, index) => (
+            <li key={`${warning.kind}-${index}`}>{warning.message}</li>
+          ))}
+        </ul>
+      ) : null}
     </section>
   );
 }

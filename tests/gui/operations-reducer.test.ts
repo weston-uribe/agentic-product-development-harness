@@ -83,6 +83,7 @@ function bootstrap(initialDraft = draft()): OperationsBootstrapPayload {
     canonicalWorkflow: {
       healthState: "healthy",
       violations: [],
+      informationalWarnings: [],
       resolvedStatusIds: {},
       mergePathVariant: "direct-production",
     },

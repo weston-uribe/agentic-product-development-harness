@@ -1,8 +1,9 @@
 import type { HarnessConfig } from "../config/types.js";
 import {
   CANONICAL_STATUSES,
+  DEPRECATED_CANONICAL_STATUS_NAMES,
   DUPLICATE_STATUS_CONTRACT,
-  lookupCanonicalStatusByName,
+  lookupCanonicalStatusByExactName,
   type CanonicalStatusDefinition,
   type CanonicalStatusKey,
 } from "./canonical-product-development-workflow.js";
@@ -14,7 +15,7 @@ export type CanonicalValidationViolationKind =
   | "duplicate-name"
   | "ambiguous-resolution"
   | "noncanonical-config-override"
-  | "deprecated-status-present"
+  | "malformed-canonical-status-collision"
   | "wrong-team";
 
 export interface LinearWorkflowStateInput {
@@ -32,9 +33,17 @@ export interface CanonicalValidationViolation {
   path?: string;
 }
 
+export interface CanonicalInformationalWarning {
+  kind: "deprecated-status-present";
+  message: string;
+  statusName: string;
+  linearStatusId?: string;
+}
+
 export interface CanonicalValidationResult {
   valid: boolean;
   violations: CanonicalValidationViolation[];
+  informationalWarnings: CanonicalInformationalWarning[];
   resolvedStatuses: Partial<Record<CanonicalStatusKey, LinearWorkflowStateInput>>;
 }
 
@@ -44,6 +53,8 @@ export interface CanonicalConfigOverrideViolation {
   canonicalValue: string;
   message: string;
 }
+
+const DUPLICATE_CANONICAL_NAME = "Duplicate";
 
 const DEFAULT_TRANSITIONAL = {
   planningInProgress: "Planning",
@@ -68,23 +79,18 @@ const DEFAULT_ELIGIBLE = {
   merge: ["Ready to Merge"],
 } as const;
 
-function normalizeName(name: string): string {
-  return name.trim().toLowerCase();
-}
-
 function categoriesMatch(
   linearCategory: string,
   canonicalCategory: CanonicalStatusDefinition["category"],
 ): boolean {
-  return normalizeName(linearCategory) === normalizeName(canonicalCategory);
+  return linearCategory === canonicalCategory;
 }
 
 function findLinearStatesByName(
   states: LinearWorkflowStateInput[],
   name: string,
 ): LinearWorkflowStateInput[] {
-  const normalized = normalizeName(name);
-  return states.filter((state) => normalizeName(state.name) === normalized);
+  return states.filter((state) => state.name === name);
 }
 
 export function detectNoncanonicalConfigOverrides(
@@ -99,10 +105,7 @@ export function detectNoncanonicalConfigOverrides(
       continue;
     }
     const canonicalDefault = defaults[0];
-    if (
-      configured.length !== 1 ||
-      normalizeName(configured[0]) !== normalizeName(canonicalDefault)
-    ) {
+    if (configured.length !== 1 || configured[0] !== canonicalDefault) {
       violations.push({
         path: `linear.eligibleStatuses.${phaseKey}`,
         configuredValue: configured.join(", "),
@@ -118,7 +121,7 @@ export function detectNoncanonicalConfigOverrides(
     if (!configured) {
       continue;
     }
-    if (normalizeName(configured) !== normalizeName(canonicalValue)) {
+    if (configured !== canonicalValue) {
       violations.push({
         path: `linear.transitionalStatuses.${key}`,
         configuredValue: configured,
@@ -131,6 +134,26 @@ export function detectNoncanonicalConfigOverrides(
   return violations;
 }
 
+function detectDuplicateNameCollisions(
+  workflowStates: LinearWorkflowStateInput[],
+): CanonicalValidationViolation[] {
+  const violations: CanonicalValidationViolation[] = [];
+  for (const state of workflowStates) {
+    if (
+      state.name !== DUPLICATE_CANONICAL_NAME &&
+      state.name.toLowerCase() === DUPLICATE_CANONICAL_NAME.toLowerCase()
+    ) {
+      violations.push({
+        kind: "malformed-canonical-status-collision",
+        statusName: state.name,
+        linearStatusId: state.id,
+        message: `Malformed canonical status collision: "${state.name}" is a case-only variant of "${DUPLICATE_CANONICAL_NAME}".`,
+      });
+    }
+  }
+  return violations;
+}
+
 export function validateCanonicalLinearWorkflow(input: {
   workflowStates: LinearWorkflowStateInput[];
   config?: HarnessConfig;
@@ -138,6 +161,7 @@ export function validateCanonicalLinearWorkflow(input: {
   expectedTeamId?: string;
 }): CanonicalValidationResult {
   const violations: CanonicalValidationViolation[] = [];
+  const informationalWarnings: CanonicalInformationalWarning[] = [];
   const resolvedStatuses: Partial<Record<CanonicalStatusKey, LinearWorkflowStateInput>> = {};
 
   if (
@@ -161,10 +185,12 @@ export function validateCanonicalLinearWorkflow(input: {
     }
   }
 
-  for (const deprecated of ["Plan Review"]) {
+  violations.push(...detectDuplicateNameCollisions(input.workflowStates));
+
+  for (const deprecated of DEPRECATED_CANONICAL_STATUS_NAMES) {
     const matches = findLinearStatesByName(input.workflowStates, deprecated);
     if (matches.length > 0) {
-      violations.push({
+      informationalWarnings.push({
         kind: "deprecated-status-present",
         message: `Deprecated status "${deprecated}" is present in the Linear workflow.`,
         statusName: deprecated,
@@ -183,6 +209,14 @@ export function validateCanonicalLinearWorkflow(input: {
         const match = duplicateMatches[0];
         if (categoriesMatch(match.category, canonical.category)) {
           resolvedStatuses[canonical.key] = match;
+        } else {
+          violations.push({
+            kind: "wrong-category",
+            statusKey: canonical.key,
+            statusName: canonical.name,
+            linearStatusId: match.id,
+            message: `Status "${canonical.name}" has wrong category: expected "${canonical.category}", got "${match.category}".`,
+          });
         }
       }
       continue;
@@ -226,7 +260,7 @@ export function validateCanonicalLinearWorkflow(input: {
   }
 
   for (const state of input.workflowStates) {
-    const canonical = lookupCanonicalStatusByName(state.name);
+    const canonical = lookupCanonicalStatusByExactName(state.name);
     if (!canonical) {
       continue;
     }
@@ -244,6 +278,7 @@ export function validateCanonicalLinearWorkflow(input: {
   return {
     valid: violations.length === 0,
     violations,
+    informationalWarnings,
     resolvedStatuses,
   };
 }

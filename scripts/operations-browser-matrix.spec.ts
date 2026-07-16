@@ -27,6 +27,14 @@ async function assertNoDocumentOverflow(page: Page): Promise<void> {
   expect(overflow).toBe(false);
 }
 
+async function setTheme(page: Page, theme: "light" | "dark"): Promise<void> {
+  await page.evaluate((nextTheme) => {
+    document.documentElement.classList.remove("light", "dark");
+    document.documentElement.classList.add(nextTheme);
+    document.documentElement.style.colorScheme = nextTheme;
+  }, theme);
+}
+
 test.describe("operations browser matrix", () => {
   test.beforeAll(() => {
     mkdirSync(screenshotDir, { recursive: true });
@@ -77,7 +85,7 @@ test.describe("operations browser matrix", () => {
     await workflowRegion.getByRole("button", { name: /Ready for Planning/i }).click();
     await workflowRegion.getByRole("button", { name: /PM Review/i }).click();
     const pmReviewPanel = workflowRegion
-      .getByRole("button", { name: /PM Review transitional/i })
+      .getByRole("button", { name: /PM Review human gate/i })
       .locator("xpath=following-sibling::*[1]");
     await expect(pmReviewPanel.getByText("Human destinations:")).toBeVisible();
     await expect(pmReviewPanel.getByLabel("Model")).toHaveCount(0);
@@ -113,6 +121,28 @@ test.describe("operations browser matrix", () => {
     });
   });
 
+  test("fast mode renders as a switch and persists", async ({ page }) => {
+    await page.goto(FIXTURE_URL);
+    await resetFixtureDraft(page);
+
+    const workflowRegion = page.getByRole("region", { name: "Workflow", exact: true });
+    await workflowRegion.getByRole("button", { name: /Ready for Planning/i }).click();
+    await workflowRegion.getByLabel("Model").selectOption("composer-2.5");
+    await expect(page.getByText("Unsaved changes")).toBeVisible();
+
+    const fastModeSwitch = workflowRegion.getByRole("switch", { name: "Fast mode" });
+    await expect(fastModeSwitch).toBeVisible();
+    await fastModeSwitch.click();
+    await expect(page.getByText("Unsaved changes")).toBeVisible();
+
+    await page.getByRole("button", { name: "Save draft" }).click();
+    await expect(page.getByText("Saved").first()).toBeVisible({ timeout: 20_000 });
+
+    await page.reload();
+    await workflowRegion.getByRole("button", { name: /Ready for Planning/i }).click();
+    await expect(workflowRegion.getByRole("switch", { name: "Fast mode" })).toBeVisible();
+  });
+
   test("branching merge path and healthy fixture state", async ({ page }) => {
     await page.goto(FIXTURE_URL);
     await resetFixtureDraft(page);
@@ -121,6 +151,88 @@ test.describe("operations browser matrix", () => {
     ).toBeVisible();
     await expect(page.getByText("Healthy")).toBeVisible();
     await expect(page.getByText("Blocking configuration error")).toHaveCount(0);
+  });
+
+  test("case-only renamed canonical status produces a blocking error", async ({ page }) => {
+    await page.goto(
+      "/operations?source=fixture&fixture=canonical-case-rename&scope=harness-repo",
+    );
+    await expect(page.getByText("Blocking configuration error")).toBeVisible();
+    await expect(
+      page
+        .getByRole("region", { name: "Workflow health" })
+        .getByText(/Missing canonical status "Ready for Build"/),
+    ).toBeVisible();
+  });
+
+  test("missing canonical status produces a blocking error", async ({ page }) => {
+    await page.goto(
+      "/operations?source=fixture&fixture=empty-linear-statuses&scope=harness-repo",
+    );
+    await expect(page.getByText("Blocking configuration error")).toBeVisible();
+    await expect(page.getByText(/Missing canonical status/i).first()).toBeVisible();
+  });
+
+  test("wrong-category status produces a blocking error", async ({ page }) => {
+    await page.goto(
+      "/operations?source=fixture&fixture=canonical-wrong-category&scope=harness-repo",
+    );
+    await expect(page.getByText("Blocking configuration error")).toBeVisible();
+    await expect(page.getByText(/wrong category/i).first()).toBeVisible();
+  });
+
+  test("whitespace deviation produces a blocking error", async ({ page }) => {
+    await page.goto(
+      "/operations?source=fixture&fixture=canonical-whitespace-name&scope=harness-repo",
+    );
+    await expect(page.getByText("Blocking configuration error")).toBeVisible();
+    await expect(
+      page
+        .getByRole("region", { name: "Workflow health" })
+        .getByText(/Missing canonical status "Ready for Build"/),
+    ).toBeVisible();
+  });
+
+  test("Plan Review remains informational and does not block the workflow", async ({ page }) => {
+    await page.goto(
+      "/operations?source=fixture&fixture=canonical-plan-review-present&scope=harness-repo",
+    );
+    await expect(page.getByText("Healthy")).toBeVisible();
+    await expect(page.getByText("Blocking configuration error")).toHaveCount(0);
+    await expect(page.getByText(/Deprecated status "Plan Review"/)).toBeVisible();
+    await expect(page.locator(".react-flow__node").filter({ hasText: "Plan Review" })).toHaveCount(0);
+  });
+
+  test("connectors cannot be drawn or reconnected and arrowheads are present", async ({ page }) => {
+    await page.goto(FIXTURE_URL);
+    await expect(page.locator(".react-flow__node").first()).toBeVisible();
+    const edgeMetrics = await page.evaluate(() => {
+      const paths = Array.from(document.querySelectorAll(".react-flow__edge-path"));
+      return {
+        edgePathCount: paths.length,
+        markerEndCount: paths.filter((path) => path.getAttribute("marker-end")).length,
+        connectable: document.querySelector(".react-flow")?.classList.contains("connectable") ?? false,
+      };
+    });
+    expect(edgeMetrics.edgePathCount).toBeGreaterThan(0);
+    expect(edgeMetrics.markerEndCount).toBeGreaterThan(0);
+    expect(edgeMetrics.connectable).toBe(false);
+  });
+
+  test("light mode renders workflow health and canvas", async ({ page }) => {
+    await page.goto(FIXTURE_URL);
+    await setTheme(page, "light");
+    await expect(page.getByRole("region", { name: "Workflow health" })).toBeVisible();
+    await expect(page.locator(".react-flow__node").first()).toBeVisible();
+    await page.screenshot({ path: `${screenshotDir}/canonical-light-mode.png`, fullPage: true });
+  });
+
+  test("dark mode renders workflow health and canvas", async ({ page }) => {
+    await page.goto(FIXTURE_URL);
+    await setTheme(page, "dark");
+    await expect(page.getByRole("region", { name: "Workflow health" })).toBeVisible();
+    await expect(page.locator(".react-flow__node").first()).toBeVisible();
+    await page.screenshot({ path: `${screenshotDir}/canonical-dark-mode.png`, fullPage: true });
   });
 
   test("fixture scopes isolate drafts between repositories", async ({ page }) => {
