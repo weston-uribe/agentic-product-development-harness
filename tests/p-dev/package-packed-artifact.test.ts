@@ -205,13 +205,13 @@ describe.skipIf(!isCleanEnoughForPackagePack())("p-dev packed artifact", () => {
       encoding: "utf8",
     });
     expect(listing).toContain(
-      "package/workspace-snapshot/src/runner/builder-thread-lineage.ts",
+      "package/workspace-snapshot/files/src/runner/builder-thread-lineage.ts",
     );
     expect(listing).toContain(
-      "package/workspace-snapshot/src/runner/builder-thread-acquire.ts",
+      "package/workspace-snapshot/files/src/runner/builder-thread-acquire.ts",
     );
     expect(listing).toContain(
-      "package/workspace-snapshot/src/cursor/builder-resume-errors.ts",
+      "package/workspace-snapshot/files/src/cursor/builder-resume-errors.ts",
     );
   });
 
