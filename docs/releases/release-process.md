@@ -320,7 +320,9 @@ kill "$PID"
 **Required before observability-enabled release approval:**
 
 - Sentry public DSN committed only to the tracked public config source
-- PostHog project token remains empty
+- Legacy PostHog `Default Project` deleted and clean `p-dev-harness` project created (US region)
+- Public PostHog project ingestion token (`phc_…`, not `phx_`) committed only to `config/observability.public.json` and the package mirror
+- `p-dev Packaged Onboarding Health` dashboard matches [`src/observability/posthog-dashboard-contract.ts`](../src/observability/posthog-dashboard-contract.ts)
 - Vendor sandbox payload verification with raw stored event JSON (not UI summaries alone)
 - Mandatory Sentry project privacy settings verified live:
   - Data Scrubber and Default Scrubbers enabled
@@ -356,6 +358,20 @@ Use the exact-head packaged tarball with the committed public DSN. Do not supply
 10. Teardown: `unset P_DEV_SENTRY_DSN SENTRY_DSN NEXT_PUBLIC_SENTRY_DSN SENTRY_AUTH_TOKEN`, delete temp files.
 
 Do **not** bump package version, publish npm, tag, or create a GitHub release from observability validation work alone.
+
+### PostHog sandbox privacy revalidation (operator-run)
+
+Use the exact-head packaged tarball with the committed public PostHog project token. Unset `P_DEV_POSTHOG_PROJECT_TOKEN`, `P_DEV_POSTHOG_HOST`, `POSTHOG_PROJECT_API_KEY`, `POSTHOG_PERSONAL_API_KEY`, `POSTHOG_API_KEY`, and `NEXT_PUBLIC_POSTHOG_KEY`.
+
+1. Fresh disposable `P_DEV_HOME` temp directory.
+2. Install and launch the packed tarball with `npx p-dev-harness@VERSION --no-open`.
+3. Confirm zero PostHog traffic before analytics consent.
+4. Enable **Anonymous product analytics** only in Configure.
+5. Confirm exactly one `p_dev_session_started` and one deterministic Configure view/completion event from a real non-mutating product interaction.
+6. Inspect raw stored PostHog events for allowlisted properties only; confirm no person profile exists.
+7. Disable analytics in Configure and confirm no new events; relaunch and confirm session-start count remains `1`.
+8. Run every dashboard insight query and verify session, Configure, release-filter, and OS cards show validation data.
+9. Teardown: stop launcher, delete temp `P_DEV_HOME`, unset PostHog environment variables.
 
 ## Current example — v0.3.1 (published 2026-07-14)
 

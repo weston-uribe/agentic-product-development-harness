@@ -175,7 +175,9 @@ describe.skipIf(!isCleanEnoughForPackagePack())("p-dev packed artifact", () => {
     expect(parsed.observabilitySchemaVersion).toBe(1);
     expect(typeof parsed.sentryPublicDsn).toBe("string");
     expect((parsed.sentryPublicDsn as string).length).toBeGreaterThan(0);
-    expect(parsed.posthogProjectToken).toBe("");
+    expect(typeof parsed.posthogProjectToken).toBe("string");
+    expect((parsed.posthogProjectToken as string).length).toBeGreaterThan(0);
+    expect((parsed.posthogProjectToken as string).startsWith("phc_")).toBe(true);
     expect(JSON.stringify(parsed)).not.toMatch(/phx_/i);
     expect(JSON.stringify(parsed)).not.toMatch(/authToken/i);
     expect(JSON.stringify(parsed)).not.toMatch(/\.harness/);
