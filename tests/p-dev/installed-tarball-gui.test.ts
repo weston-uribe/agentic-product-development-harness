@@ -229,6 +229,7 @@ async function seedCompletedWorkspace(workspaceDir: string): Promise<string> {
   await writeFile(
     path.join(workspaceDir, ".env.local"),
     [
+      "HARNESS_CONFIG_PATH=.harness/config.local.json",
       "LINEAR_API_KEY=linear-test-key",
       "CURSOR_API_KEY=cursor-test-key",
       "GITHUB_TOKEN=github-test-token",
@@ -241,7 +242,10 @@ async function seedCompletedWorkspace(workspaceDir: string): Promise<string> {
     `${JSON.stringify(COMPLETED_CONFIG, null, 2)}\n`,
     "utf8",
   );
-  const { config } = await loadHarnessConfig({ baseDir: workspaceDir });
+  const { config } = await loadHarnessConfig({
+    baseDir: workspaceDir,
+    configPath: ".harness/config.local.json",
+  });
   const fingerprint = buildConfigFingerprint(config);
   await writeFile(
     path.join(workspaceDir, ".harness", "control-plane-setup.json"),
