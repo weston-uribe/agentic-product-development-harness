@@ -480,6 +480,52 @@ return { state, sessionId: session?.sessionId };
       expect(sentryBody).not.toContain("installationId");
     });
 
+    it("uses launcher handoff release_sha when bundled moduleUrl cannot resolve package root", async () => {
+      sentryRequests = [];
+      posthogRequests = [];
+      const home = await makeHome();
+      const metadata = expectedPackagedMetadata(tarballPath);
+      const bundledModuleUrl =
+        "file:///tmp/gui/.next/server/chunks/preferences-route.js";
+
+      const output = await runScenario(
+        "bundled-child-release-sha",
+        home,
+        `
+const metadata = ${JSON.stringify(metadata)};
+await facade.beginObservabilitySession({
+  workspaceDir,
+  moduleUrl: ${JSON.stringify(bundledModuleUrl)},
+  env: {
+    ...process.env,
+    P_DEV_RELEASE_SHA: metadata.releaseSha,
+  },
+});
+await facade.writeObservabilityPreferences(workspaceDir, {
+  analyticsPreference: "disabled",
+  errorReportingPreference: "enabled",
+  disclosureShown: true,
+});
+facade.captureProductError({
+  lifecyclePhase: "configure_route",
+  productErrorCode: "configure_request_error",
+  errorCategory: "server",
+});
+await facade.flushObservability(5000);
+const session = facade.getActiveObservabilitySession();
+await facade.shutdownObservability();
+return { sessionId: session?.sessionId, releaseSha: session?.context.releaseSha };
+`,
+      );
+
+      const sentryBody = sentryRequests.map((request) => request.body).join("\n");
+      const events = assertSentryRequestPrivacy(sentryBody);
+      expect(events).toHaveLength(1);
+      expect(events[0]?.tags?.release_sha).toBe(metadata.releaseSha);
+      expect(events[0]?.tags?.package_version).toBe(metadata.packageVersion);
+      expect(output.releaseSha).toBe(metadata.releaseSha);
+    });
+
     it("correlates both enabled categories without leaking installation ID to Sentry", async () => {
       sentryRequests = [];
       posthogRequests = [];
