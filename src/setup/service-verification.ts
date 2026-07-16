@@ -8,6 +8,11 @@ import {
   resolveGitHubTokenType,
   type GitHubTokenMetadata,
 } from "./github-workflow-permissions.js";
+import {
+  inspectAuthenticatedUserWithTransientRetry,
+  isGitHubVerificationNetworkFailure,
+  type SleepFn,
+} from "../github/auth-verification-retry.js";
 import { GitHubApiError, GitHubClient } from "../github/client.js";
 import { parseGitHubRepoUrl } from "../github/base-branch.js";
 import { pingLinear } from "../linear/client.js";
@@ -37,11 +42,20 @@ export interface RepoVerificationResult {
   limitation?: string;
 }
 
+function isTransientGitHubHttpStatus(status: number): boolean {
+  return status === 500 || status === 502 || status === 503 || status === 504;
+}
+
 export async function inspectGitHubTokenMetadata(
   token: string,
+  options?: { retryTransientFailures?: boolean; sleep?: SleepFn },
 ): Promise<GitHubTokenMetadata> {
   const client = new GitHubClient({ token: token.trim() });
-  const inspected = await client.inspectAuthenticatedUser();
+  const inspected = options?.retryTransientFailures
+    ? await inspectAuthenticatedUserWithTransientRetry(client, {
+        sleep: options.sleep,
+      })
+    : await client.inspectAuthenticatedUser();
   const tokenType = resolveGitHubTokenType(
     inspected.tokenType,
     inspected.oauthScopes,
@@ -77,10 +91,16 @@ function formatGitHubTokenError(error: unknown, token: string): string {
     if (error.status === 403) {
       return "GitHub accepted the request but denied access. The token may lack required scopes.";
     }
+    if (isTransientGitHubHttpStatus(error.status)) {
+      return `GitHub is temporarily unavailable (HTTP ${error.status}). Your token was not rejected. Try again.`;
+    }
     return sanitizeMessage(
       `GitHub API returned HTTP ${error.status}. Check the token and try again.`,
       [token],
     );
+  }
+  if (isGitHubVerificationNetworkFailure(error)) {
+    return "GitHub is temporarily unreachable. Your token was not rejected. Check your connection and try again.";
   }
   const raw = error instanceof Error ? error.message : String(error);
   return sanitizeMessage(raw, [token]);
@@ -188,7 +208,9 @@ export async function verifyGitHubToken(
   }
 
   try {
-    const metadata = await inspectGitHubTokenMetadata(trimmed);
+    const metadata = await inspectGitHubTokenMetadata(trimmed, {
+      retryTransientFailures: true,
+    });
     const capability = assessClassicPatGuidedCapabilities(metadata);
     if (!capability.ok) {
       return {

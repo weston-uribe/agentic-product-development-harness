@@ -162,16 +162,117 @@ describe("service-verification", () => {
   });
 
   it("verifies GitHub tokens without leaking secrets on auth failure", async () => {
-    mockGitHubClient({
-      inspectAuthenticatedUser: vi
-        .fn()
-        .mockRejectedValue(new GitHubApiError(401, SENTINEL_GITHUB)),
-    });
+    const inspectAuthenticatedUser = vi
+      .fn()
+      .mockRejectedValue(new GitHubApiError(401, SENTINEL_GITHUB));
+
+    mockGitHubClient({ inspectAuthenticatedUser });
 
     const failure = await verifyGitHubToken(SENTINEL_GITHUB);
     expect(failure.status).toBe("failed");
     expect(failure.message).toContain("GitHub rejected");
     expect(failure.message).not.toContain(SENTINEL_GITHUB);
+    expect(inspectAuthenticatedUser).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries transient GitHub failures during Step 1 token verification", async () => {
+    const inspectAuthenticatedUser = vi
+      .fn()
+      .mockRejectedValueOnce(new GitHubApiError(503, "Service Unavailable"))
+      .mockResolvedValueOnce({
+        login: "weston-uribe",
+        oauthScopes: ["repo", "workflow"],
+        tokenType: "classic",
+      });
+
+    mockGitHubClient({ inspectAuthenticatedUser });
+
+    const success = await verifyGitHubToken(SENTINEL_GITHUB);
+    expect(success.status).toBe("connected");
+    expect(inspectAuthenticatedUser).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries two transient failures before Step 1 success", async () => {
+    const inspectAuthenticatedUser = vi
+      .fn()
+      .mockRejectedValueOnce(new GitHubApiError(503, "Service Unavailable"))
+      .mockRejectedValueOnce(new GitHubApiError(502, "Bad Gateway"))
+      .mockResolvedValueOnce({
+        login: "weston-uribe",
+        oauthScopes: ["repo", "workflow"],
+        tokenType: "classic",
+      });
+
+    mockGitHubClient({ inspectAuthenticatedUser });
+
+    const success = await verifyGitHubToken(SENTINEL_GITHUB);
+    expect(success.status).toBe("connected");
+    expect(inspectAuthenticatedUser).toHaveBeenCalledTimes(3);
+  });
+
+  it("returns temporary-unavailability message after exhausted 503 retries", async () => {
+    const inspectAuthenticatedUser = vi
+      .fn()
+      .mockRejectedValue(new GitHubApiError(503, "Service Unavailable"));
+
+    mockGitHubClient({ inspectAuthenticatedUser });
+
+    const failure = await verifyGitHubToken(SENTINEL_GITHUB);
+    expect(failure.status).toBe("failed");
+    expect(failure.message).toBe(
+      "GitHub is temporarily unavailable (HTTP 503). Your token was not rejected. Try again.",
+    );
+    expect(failure.message).not.toContain("Check the token");
+    expect(failure.message).not.toContain(SENTINEL_GITHUB);
+    expect(inspectAuthenticatedUser).toHaveBeenCalledTimes(3);
+  });
+
+  it("retries network failures during Step 1 token verification", async () => {
+    const inspectAuthenticatedUser = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce({
+        login: "weston-uribe",
+        oauthScopes: ["repo", "workflow"],
+        tokenType: "classic",
+      });
+
+    mockGitHubClient({ inspectAuthenticatedUser });
+
+    const success = await verifyGitHubToken(SENTINEL_GITHUB);
+    expect(success.status).toBe("connected");
+    expect(inspectAuthenticatedUser).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns temporarily-unreachable message after exhausted network failures", async () => {
+    const inspectAuthenticatedUser = vi
+      .fn()
+      .mockRejectedValue(new TypeError("fetch failed"));
+
+    mockGitHubClient({ inspectAuthenticatedUser });
+
+    const failure = await verifyGitHubToken(SENTINEL_GITHUB);
+    expect(failure.status).toBe("failed");
+    expect(failure.message).toBe(
+      "GitHub is temporarily unreachable. Your token was not rejected. Check your connection and try again.",
+    );
+    expect(failure.message).not.toContain(SENTINEL_GITHUB);
+    expect(inspectAuthenticatedUser).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not retry HTTP 403 during Step 1 token verification", async () => {
+    const inspectAuthenticatedUser = vi
+      .fn()
+      .mockRejectedValue(new GitHubApiError(403, "Forbidden"));
+
+    mockGitHubClient({ inspectAuthenticatedUser });
+
+    const failure = await verifyGitHubToken(SENTINEL_GITHUB);
+    expect(failure.status).toBe("failed");
+    expect(failure.message).toBe(
+      "GitHub accepted the request but denied access. The token may lack required scopes.",
+    );
+    expect(inspectAuthenticatedUser).toHaveBeenCalledTimes(1);
   });
 
   it("formats Cursor account identity with deterministic fallback order", () => {

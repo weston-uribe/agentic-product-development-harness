@@ -853,6 +853,32 @@ describe("M6 configure GUI boundaries", () => {
     expect(workflowSource).toContain("onConnectServicesComplete?.()");
   });
 
+  it("Step 1 verification returns to a retryable failed state without clearing the token", () => {
+    const workflowSource = readFileSync(
+      path.join(repoRoot, "apps/gui/components/custom/configure-workflow.tsx"),
+      "utf8",
+    );
+    const formSource = readFileSync(
+      path.join(
+        repoRoot,
+        "apps/gui/components/custom/environment-config-form.tsx",
+      ),
+      "utf8",
+    );
+
+    const verifyBlock = workflowSource.match(
+      /const verifyAndSaveService = useCallback\([\s\S]*?\n  \);/,
+    )?.[0];
+
+    expect(verifyBlock).toContain('state: "checking"');
+    expect(verifyBlock).toContain('state: "failed"');
+    expect(verifyBlock).toContain("setVerifyingServiceKey(null)");
+    expect(verifyBlock).not.toContain("setEnvValues");
+    expect(formSource).toContain("verifyButtonDisabled =");
+    expect(formSource).toContain("verifying ||");
+    expect(formSource).toContain("verifiedForCurrentValue");
+  });
+
   it("explicit Continue handler remains the Step 1 to Step 2 transition", () => {
     const experienceSource = readFileSync(
       path.join(repoRoot, "apps/gui/components/custom/configure-experience.tsx"),
