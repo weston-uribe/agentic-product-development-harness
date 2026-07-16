@@ -1,10 +1,3 @@
-import {
-  beginObservabilitySession,
-  captureProductError,
-  installObservabilityUncaughtHandlers,
-} from "@harness/observability/facade.js";
-import { resolveHarnessRepoRoot } from "@harness/gui/repo-root.js";
-
 function isTruthyEnv(value: string | undefined): boolean {
   const normalized = value?.trim().toLowerCase();
   return normalized === "1" || normalized === "true" || normalized === "yes";
@@ -20,6 +13,14 @@ function shouldSkipInstrumentation(): boolean {
   return process.env.P_DEV_RUNTIME_MODE?.trim().toLowerCase() !== "packaged";
 }
 
+async function dynamicHarnessImport<T>(moduleName: string): Promise<T> {
+  const dynamicImport = new Function(
+    "moduleName",
+    "return import(moduleName)",
+  ) as (moduleName: string) => Promise<T>;
+  return dynamicImport(moduleName);
+}
+
 export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME !== "nodejs") {
     return;
@@ -30,12 +31,18 @@ export async function register(): Promise<void> {
   }
 
   try {
+    const facade = await dynamicHarnessImport<
+      typeof import("@harness/observability/facade.js")
+    >("@harness/observability/facade.js");
+    const { resolveHarnessRepoRoot } = await dynamicHarnessImport<
+      typeof import("@harness/gui/repo-root.js")
+    >("@harness/gui/repo-root.js");
     const workspaceDir = resolveHarnessRepoRoot();
-    await beginObservabilitySession({
+    await facade.beginObservabilitySession({
       workspaceDir,
       moduleUrl: import.meta.url,
     });
-    installObservabilityUncaughtHandlers();
+    facade.installObservabilityUncaughtHandlers();
   } catch {
     // observability must remain best-effort
   }
@@ -57,7 +64,10 @@ export async function onRequestError(
   }
 
   try {
-    captureProductError({
+    const facade = await dynamicHarnessImport<
+      typeof import("@harness/observability/facade.js")
+    >("@harness/observability/facade.js");
+    facade.captureProductError({
       lifecyclePhase: "configure_route",
       productErrorCode: "configure_request_error",
       errorCategory: "unexpected",
