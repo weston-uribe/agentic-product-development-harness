@@ -14,11 +14,30 @@ import {
 } from "../../src/operations/draft-store.js";
 import { resetFixtureStoreForTests } from "../../src/operations/fixture-store.js";
 import { OPERATIONS_DRAFT_FILENAME } from "../../src/operations/constants.js";
+import { CANONICAL_WORKFLOW_FINGERPRINT } from "../../src/workflow/canonical-product-development-workflow.js";
 import {
   isForbiddenSnapshotPath,
 } from "../../src/p-dev/workspace-snapshot-policy.js";
 
 const sampleDraft = {
+  schemaVersion: 2 as const,
+  draftId: "draft-1",
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+  savedByRuntime: "source-gui" as const,
+  sourceMode: "live" as const,
+  baseSnapshot: {
+    configFingerprint: "abc",
+    statusCatalogFingerprint: "def",
+    modelCatalogFingerprint: "ghi",
+    workflowFingerprint: CANONICAL_WORKFLOW_FINGERPRINT,
+    scopeId: "default",
+  },
+  layout: { statusPositions: {} },
+  phaseModelSettings: {},
+};
+
+const legacyV1Draft = {
   schemaVersion: 1 as const,
   draftId: "draft-1",
   createdAt: "2026-01-01T00:00:00.000Z",
@@ -67,6 +86,7 @@ describe("operations draft store", () => {
       TEST_SCOPES,
     );
     expect(loaded?.draftId).toBe("draft-1");
+    expect(loaded?.schemaVersion).toBe(2);
     await access(resolveScopedDraftPath(tempRoot, "default"));
   });
 
@@ -169,7 +189,7 @@ describe("operations draft store", () => {
 
   it("auto-migrates legacy draft only when exactly one live scope exists", async () => {
     await mkdir(path.join(tempRoot, ".harness"), { recursive: true });
-    await writeFile(resolveDraftPath(tempRoot), `${JSON.stringify(sampleDraft, null, 2)}\n`, "utf8");
+    await writeFile(resolveDraftPath(tempRoot), `${JSON.stringify(legacyV1Draft, null, 2)}\n`, "utf8");
     const result = await migrateLegacyDraftIfNeeded({
       cwd: tempRoot,
       scopes: [{ id: "default", targetRepo: "owner/repo" }],
@@ -180,7 +200,7 @@ describe("operations draft store", () => {
 
   it("requires manual review when multiple scopes exist and legacy draft remains", async () => {
     await mkdir(path.join(tempRoot, ".harness"), { recursive: true });
-    await writeFile(resolveDraftPath(tempRoot), `${JSON.stringify(sampleDraft, null, 2)}\n`, "utf8");
+    await writeFile(resolveDraftPath(tempRoot), `${JSON.stringify(legacyV1Draft, null, 2)}\n`, "utf8");
     const result = await migrateLegacyDraftIfNeeded({
       cwd: tempRoot,
       scopes: [
@@ -199,7 +219,7 @@ describe("operations draft store", () => {
     ).toBe(true);
     expect(summarizeDraftForReport(sampleDraft)).toEqual({
       present: true,
-      schemaVersion: 1,
+      schemaVersion: 2,
       draftId: "draft-1",
       sourceMode: "live",
       scopeId: "default",

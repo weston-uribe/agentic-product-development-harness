@@ -1,11 +1,14 @@
-import { DISPATCH_TRIGGER_STATUSES } from "../webhook/dispatch-statuses.js";
+import {
+  CANONICAL_STATUSES,
+  DEPRECATED_CANONICAL_STATUS_NAMES,
+  getCanonicalDispatchTriggerStatusNames,
+  getCreatableCanonicalStatuses,
+  isCanonicalDispatchTriggerStatusName,
+  lookupCanonicalStatusByName,
+  type LinearWorkflowStateCategory,
+} from "../workflow/canonical-product-development-workflow.js";
 
-export type LinearWorkflowStateCategory =
-  | "backlog"
-  | "unstarted"
-  | "started"
-  | "completed"
-  | "canceled";
+export type { LinearWorkflowStateCategory };
 
 export interface RequiredWorkflowStatus {
   name: string;
@@ -19,77 +22,22 @@ export interface RequiredWorkflowStatus {
   creatable: boolean;
 }
 
-export const DEPRECATED_STATUS_NAMES = ["Plan Review"] as const;
+export const DEPRECATED_STATUS_NAMES = DEPRECATED_CANONICAL_STATUS_NAMES;
 
-export const REQUIRED_WORKFLOW_STATUSES: readonly RequiredWorkflowStatus[] = [
-  { name: "Backlog", category: "backlog", role: "transitional", creatable: true },
-  {
-    name: "Ready for Planning",
-    category: "unstarted",
-    role: "dispatch-trigger",
-    creatable: true,
-  },
-  { name: "Planning", category: "started", role: "transitional", creatable: true },
-  {
-    name: "Ready for Build",
-    category: "unstarted",
-    role: "dispatch-trigger",
-    creatable: true,
-  },
-  { name: "Building", category: "started", role: "transitional", creatable: true },
-  { name: "PR Open", category: "started", role: "dispatch-trigger", creatable: true },
-  { name: "PM Review", category: "started", role: "transitional", creatable: true },
-  {
-    name: "Engineering Review",
-    category: "started",
-    role: "human-gate",
-    creatable: true,
-  },
-  {
-    name: "Needs Revision",
-    category: "unstarted",
-    role: "dispatch-trigger",
-    creatable: true,
-  },
-  { name: "Revising", category: "started", role: "transitional", creatable: true },
-  {
-    name: "Ready to Merge",
-    category: "started",
-    role: "dispatch-trigger",
-    creatable: true,
-  },
-  { name: "Merging", category: "started", role: "transitional", creatable: true },
-  {
-    name: "Merged to Dev",
-    category: "completed",
-    role: "transitional",
-    creatable: true,
-  },
-  {
-    name: "Merged / Deployed",
-    category: "completed",
-    role: "transitional",
-    creatable: true,
-  },
-  { name: "Blocked", category: "started", role: "terminal", creatable: true },
-  { name: "Canceled", category: "canceled", role: "terminal", creatable: true },
-  {
-    name: "Duplicate",
-    category: "canceled",
-    role: "system-managed",
-    creatable: false,
-  },
-] as const;
+export const REQUIRED_WORKFLOW_STATUSES: readonly RequiredWorkflowStatus[] =
+  CANONICAL_STATUSES.map((status) => ({
+    name: status.name,
+    category: status.category,
+    role: status.role,
+    creatable: status.creatable,
+  }));
 
 export function getDispatchTriggerStatuses(): readonly string[] {
-  return DISPATCH_TRIGGER_STATUSES;
+  return getCanonicalDispatchTriggerStatusNames();
 }
 
 export function isDispatchTriggerStatusName(name: string): boolean {
-  const normalized = name.trim().toLowerCase();
-  return DISPATCH_TRIGGER_STATUSES.some(
-    (status) => status.toLowerCase() === normalized,
-  );
+  return isCanonicalDispatchTriggerStatusName(name);
 }
 
 export function requiredStatusNames(): string[] {
@@ -97,14 +45,25 @@ export function requiredStatusNames(): string[] {
 }
 
 export function requiredCreatableStatuses(): RequiredWorkflowStatus[] {
-  return REQUIRED_WORKFLOW_STATUSES.filter((status) => status.creatable);
+  return getCreatableCanonicalStatuses().map((status) => ({
+    name: status.name,
+    category: status.category,
+    role: status.role,
+    creatable: status.creatable,
+  }));
 }
 
 export function lookupRequiredStatus(
   name: string,
 ): RequiredWorkflowStatus | undefined {
-  const normalized = name.trim().toLowerCase();
-  return REQUIRED_WORKFLOW_STATUSES.find(
-    (status) => status.name.toLowerCase() === normalized,
-  );
+  const canonical = lookupCanonicalStatusByName(name);
+  if (!canonical) {
+    return undefined;
+  }
+  return {
+    name: canonical.name,
+    category: canonical.category,
+    role: canonical.role,
+    creatable: canonical.creatable,
+  };
 }

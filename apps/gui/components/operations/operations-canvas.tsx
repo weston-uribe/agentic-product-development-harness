@@ -9,8 +9,6 @@ import {
   useEdgesState,
   useNodesState,
   useReactFlow,
-  type Connection,
-  type Edge,
   type Node,
 } from "@xyflow/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -18,17 +16,14 @@ import { StatusNode } from "./status-node";
 import { OutcomeEdge } from "./outcome-edge";
 import type { OperationsBootstrapPayload, OperationsWorkflowDraft } from "@harness/operations/types";
 import {
-  applyEdgeChangesToDraft,
   applyNodeChangesToDraft,
-  connectOutcome,
   domainDraftToFlow,
   fingerprintOperationsDraft,
   mergeViewportIfChanged,
   shouldInitialFit,
   statusNodeId,
-  reconnectOutcome,
   viewportsEqual,
-} from "@/lib/operations/react-flow-adapter";
+} from "@/lib/operations/reducer";
 import type { OperationsSelection } from "@/lib/operations/reducer";
 
 const nodeTypes = { operationsStatus: StatusNode };
@@ -74,21 +69,21 @@ function OperationsCanvasInner({
   }, [draft, getViewport, setViewport]);
 
   const derived = useMemo(
-    () => domainDraftToFlow({ draft, statuses: bootstrap.statuses }),
-    [bootstrap.statuses, draft],
+    () => domainDraftToFlow({ draft, bootstrap }),
+    [bootstrap, draft],
   );
   const flowNodes = useMemo(() => {
     if (selection.kind !== "status") {
       return derived.nodes;
     }
-    const selectedNodeId = statusNodeId(selection.statusId);
+    const selectedNodeId = statusNodeId(selection.canonicalStatusKey);
     return derived.nodes.map((node) => ({
       ...node,
       selected: node.id === selectedNodeId,
     }));
   }, [derived.nodes, selection]);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>(flowNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(derived.edges);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(derived.edges);
 
   const persistViewportFromFlow = useCallback(() => {
     if (isRequestActive || isPersistingViewportRef.current) {
@@ -119,196 +114,108 @@ function OperationsCanvasInner({
     suppressSelectionClearRef.current = true;
     setNodes(flowNodes);
     setEdges(derived.edges);
-    queueMicrotask(() => {
-      suppressSelectionClearRef.current = false;
-    });
   }, [draft, derived.edges, flowNodes, setEdges, setNodes]);
 
   useEffect(() => {
-    if (isPersistingViewportRef.current) {
-      return;
+    if (shouldInitialFit(draft.layout.viewport) && !initialFitApplied.current) {
+      initialFitApplied.current = true;
+      queueMicrotask(() => fitView({ padding: 0.2, duration: 200 }));
     }
-    const draftViewport = draft.layout.viewport;
-    const draftViewportKey = JSON.stringify(draftViewport ?? null);
-    if (draftViewportKey === lastAppliedDraftViewportRef.current) {
-      return;
-    }
-    if (
-      !draftViewport ||
-      viewportsEqual(draftViewport, getViewportRef.current())
-    ) {
-      lastAppliedDraftViewportRef.current = draftViewportKey;
-      return;
-    }
-    isPersistingViewportRef.current = true;
-    setViewportRef.current(draftViewport);
-    lastAppliedDraftViewportRef.current = draftViewportKey;
-    queueMicrotask(() => {
-      isPersistingViewportRef.current = false;
-    });
-  }, [draft.layout.viewport]);
+  }, [draft.layout.viewport, fitView]);
 
   useEffect(() => {
-    if (initialFitApplied.current) {
-      return;
-    }
-    initialFitApplied.current = true;
-    if (!shouldInitialFit(draftRef.current.layout.viewport)) {
-      return;
-    }
-    void fitView({ padding: 0.18, maxZoom: 1.1, minZoom: 0.45 }).then(() => {
-      persistViewportFromFlow();
-    });
-  }, [fitView, persistViewportFromFlow]);
-
-  useEffect(() => {
-    if (fitViewSignal <= 0 || fitViewSignal === lastHandledFitViewSignal.current) {
+    if (fitViewSignal === 0 || fitViewSignal === lastHandledFitViewSignal.current) {
       return;
     }
     lastHandledFitViewSignal.current = fitViewSignal;
-    void fitView({ padding: 0.18, maxZoom: 1.1, minZoom: 0.45 }).then(() => {
-      persistViewportFromFlow();
-    });
-  }, [fitViewSignal, fitView, persistViewportFromFlow]);
+    fitView({ padding: 0.2, duration: 250 });
+  }, [fitViewSignal, fitView]);
 
-  const onConnect = useCallback(
-    (connection: Connection) => {
-      if (isRequestActive) {
-        return;
+  useEffect(() => {
+    const viewportJson = JSON.stringify(draft.layout.viewport ?? null);
+    if (
+      isPersistingViewportRef.current ||
+      viewportJson === lastAppliedDraftViewportRef.current
+    ) {
+      return;
+    }
+    if (draft.layout.viewport && !viewportsEqual(getViewportRef.current(), draft.layout.viewport)) {
+      setViewportRef.current(draft.layout.viewport, { duration: 0 });
+      lastAppliedDraftViewportRef.current = viewportJson;
+    }
+  }, [draft.layout.viewport]);
+
+  const handleNodesChange = useCallback(
+    (changes: Parameters<typeof onNodesChange>[0]) => {
+      onNodesChange(changes);
+      const nextDraft = applyNodeChangesToDraft(draftRef.current, changes);
+      if (nextDraft !== draftRef.current) {
+        onDraftChange(nextDraft);
       }
-      onDraftChange(
-        connectOutcome(draft, connection, { statuses: bootstrap.statuses }),
-      );
     },
-    [bootstrap.statuses, draft, isRequestActive, onDraftChange],
+    [onDraftChange, onNodesChange],
   );
 
-  const onNodeDragStop = useCallback(
-    (_event: unknown, node: Node) => {
-      if (isRequestActive) {
+  const handleNodeClick = useCallback(
+    (_event: React.MouseEvent, node: Node) => {
+      const canonicalStatusKey = String(node.data.canonicalStatusKey ?? "");
+      if (!canonicalStatusKey) {
         return;
       }
-      const statusId = node.id.replace(/^status:/, "");
-      onDraftChange(
-        applyNodeChangesToDraft(draft, [
-          {
-            id: node.id,
-            type: "position",
-            position: node.position,
-          },
-        ]),
-        true,
-      );
-      onSelect({ kind: "status", statusId });
-    },
-    [draft, isRequestActive, onDraftChange, onSelect],
-  );
-
-  const onSelectionChange = useCallback(
-    ({ nodes: selectedNodes, edges: selectedEdges }: { nodes: Node[]; edges: Edge[] }) => {
-      if (selectedNodes[0]) {
-        onSelect({
-          kind: "status",
-          statusId: selectedNodes[0].id.replace(/^status:/, ""),
-        });
-        return;
-      }
-      if (selectedEdges[0]) {
-        const data = selectedEdges[0].data as { ruleId?: string; outcomeId?: string };
-        if (data.ruleId && data.outcomeId) {
-          onSelect({
-            kind: "outcome",
-            ruleId: data.ruleId,
-            outcomeId: data.outcomeId,
-          });
-        }
-        return;
-      }
-      if (suppressSelectionClearRef.current) {
-        return;
-      }
-      onSelect({ kind: "none" });
+      onSelect({
+        kind: "status",
+        canonicalStatusKey: canonicalStatusKey as OperationsSelection & {
+          kind: "status";
+        } extends { canonicalStatusKey: infer K }
+          ? K
+          : never,
+      });
     },
     [onSelect],
   );
 
-  const onEdgesDelete = useCallback(
-    (deletedEdges: Edge[]) => {
-      if (isRequestActive) {
-        return;
-      }
-      let next = draft;
-      for (const edge of deletedEdges) {
-        next = applyEdgeChangesToDraft(next, [{ id: edge.id, type: "remove" }]);
-      }
-      onDraftChange(next);
-    },
-    [draft, isRequestActive, onDraftChange],
-  );
-
-  const onReconnect = useCallback(
-    (oldEdge: Edge, newConnection: Connection) => {
-      if (isRequestActive) {
-        return;
-      }
-      const targetStatusId = newConnection.target?.replace(/^status:/, "");
-      if (!targetStatusId) {
-        return;
-      }
-      onDraftChange(reconnectOutcome(draft, oldEdge.id, targetStatusId));
-    },
-    [draft, isRequestActive, onDraftChange],
-  );
-
-  const onMoveEnd = useCallback(() => {
-    persistViewportFromFlow();
-  }, [persistViewportFromFlow]);
-
-  const locked = isRequestActive;
+  const handlePaneClick = useCallback(() => {
+    if (suppressSelectionClearRef.current) {
+      suppressSelectionClearRef.current = false;
+      return;
+    }
+    onSelect({ kind: "none" });
+  }, [onSelect]);
 
   return (
-    <ReactFlow
-      nodes={nodes}
-      edges={edges}
-      nodeTypes={nodeTypes}
-      edgeTypes={edgeTypes}
-      onNodesChange={onNodesChange}
-      onEdgesChange={onEdgesChange}
-      onConnect={onConnect}
-      onNodeDragStop={onNodeDragStop}
-      onSelectionChange={onSelectionChange}
-      onEdgesDelete={onEdgesDelete}
-      onReconnect={onReconnect}
-      onMoveEnd={onMoveEnd}
-      defaultViewport={initialViewport}
-      nodesDraggable={!locked}
-      nodesConnectable={!locked}
-      elementsSelectable={!locked}
-      proOptions={{ hideAttribution: true }}
-      minZoom={0.35}
-      maxZoom={1.5}
-      connectionRadius={28}
-      className="h-full min-h-0 w-full min-w-0 bg-background"
-      aria-busy={locked}
-    >
-      <Background />
-      <Controls className="!shadow-sm" />
-      <MiniMap
-        pannable
-        zoomable
-        className="!rounded-md !border !border-border !bg-card/90 dark:!bg-card/80"
-        nodeColor={() => "hsl(var(--primary))"}
-        maskColor="hsl(var(--background) / 0.65)"
-      />
-    </ReactFlow>
+    <div className="h-full min-h-[420px] w-full">
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
+        onNodesChange={handleNodesChange}
+        onEdgesChange={onEdgesChange}
+        onNodeClick={handleNodeClick}
+        onPaneClick={handlePaneClick}
+        onMoveEnd={persistViewportFromFlow}
+        nodesConnectable={false}
+        nodesDraggable={!isRequestActive}
+        edgesReconnectable={false}
+        elementsSelectable
+        fitView={false}
+        defaultViewport={initialViewport}
+        proOptions={{ hideAttribution: true }}
+        aria-label="Canonical product development workflow"
+      >
+        <Background gap={16} />
+        <Controls showInteractive={false} />
+        <MiniMap pannable zoomable />
+      </ReactFlow>
+    </div>
   );
 }
 
-export function OperationsCanvas(
-  props: OperationsCanvasInnerProps & { draft: OperationsWorkflowDraft },
-) {
+type OperationsCanvasProps = OperationsCanvasInnerProps;
+
+export function OperationsCanvas(props: OperationsCanvasProps) {
   return (
-    <ReactFlowProvider key={props.draft.draftId}>
+    <ReactFlowProvider>
       <OperationsCanvasInner {...props} />
     </ReactFlowProvider>
   );

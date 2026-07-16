@@ -1,5 +1,24 @@
 import { z } from "zod";
+import {
+  CANONICAL_AGENT_PHASES,
+  CANONICAL_STATUSES,
+  CANONICAL_WORKFLOW_FINGERPRINT,
+} from "../workflow/canonical-product-development-workflow.js";
 import { OPERATIONS_DRAFT_SCHEMA_VERSION } from "./constants.js";
+
+const canonicalStatusKeySchema = z.enum(
+  CANONICAL_STATUSES.map((status) => status.key) as [
+    (typeof CANONICAL_STATUSES)[number]["key"],
+    ...(typeof CANONICAL_STATUSES)[number]["key"][],
+  ],
+);
+
+const canonicalAgentPhaseKeySchema = z.enum(
+  CANONICAL_AGENT_PHASES.map((phase) => phase.key) as [
+    (typeof CANONICAL_AGENT_PHASES)[number]["key"],
+    ...(typeof CANONICAL_AGENT_PHASES)[number]["key"][],
+  ],
+);
 
 export const operationsSourceModeSchema = z.enum(["live", "fixture"]);
 
@@ -14,29 +33,6 @@ export const operationsDraftModelSelectionSchema = z.object({
   parameters: z.array(operationsModelParameterSchema).default([]),
 });
 
-export const operationsNestedRecoveryPolicySchema = z.object({
-  deterministicRepairEnabled: z.boolean().default(true),
-  cursorAgentFallbackEnabled: z.boolean().default(true),
-  prototypeFutureModelOverride: operationsDraftModelSelectionSchema.optional(),
-});
-
-export const operationsOutcomeSchema = z.object({
-  id: z.string().min(1),
-  label: z.string().min(1),
-  destinationStatusId: z.string().min(1).optional(),
-  enabled: z.boolean().default(true),
-});
-
-export const operationsRuleSchema = z.object({
-  id: z.string().min(1),
-  sourceStatusId: z.string().min(1),
-  enabled: z.boolean().default(true),
-  executorId: z.string().min(1),
-  modelSelection: operationsDraftModelSelectionSchema.optional(),
-  nestedRecoveryPolicy: operationsNestedRecoveryPolicySchema.optional(),
-  outcomes: z.array(operationsOutcomeSchema).default([]),
-});
-
 export const operationsLayoutPositionSchema = z.object({
   x: z.number(),
   y: z.number(),
@@ -49,9 +45,10 @@ export const operationsViewportSchema = z.object({
 });
 
 export const operationsLayoutSchema = z.object({
-  statusPositions: z.record(operationsLayoutPositionSchema).default({}),
+  statusPositions: z
+    .record(canonicalStatusKeySchema, operationsLayoutPositionSchema)
+    .default({}),
   viewport: operationsViewportSchema.optional(),
-  inspectorCollapsed: z.boolean().optional(),
 });
 
 export const operationsBaseSnapshotSchema = z.object({
@@ -64,6 +61,11 @@ export const operationsBaseSnapshotSchema = z.object({
   workflowFingerprint: z.string().min(1),
 });
 
+export const operationsDraftMetadataSchema = z.object({
+  migratedFromV1: z.boolean().optional(),
+  migrationNotice: z.string().optional(),
+});
+
 export const operationsWorkflowDraftSchema = z.object({
   schemaVersion: z.literal(OPERATIONS_DRAFT_SCHEMA_VERSION),
   draftId: z.string().min(1),
@@ -72,14 +74,40 @@ export const operationsWorkflowDraftSchema = z.object({
   savedByRuntime: z.enum(["source-gui", "packaged-gui", "fixture-test"]),
   sourceMode: operationsSourceModeSchema,
   baseSnapshot: operationsBaseSnapshotSchema,
-  statusIdsOnCanvas: z.array(z.string().min(1)).default([]),
-  rules: z.array(operationsRuleSchema).default([]),
   layout: operationsLayoutSchema.default({ statusPositions: {} }),
+  phaseModelSettings: z
+    .record(canonicalAgentPhaseKeySchema, operationsDraftModelSelectionSchema)
+    .default({}),
+  metadata: operationsDraftMetadataSchema.optional(),
   warningsAtSave: z.array(z.string()).optional(),
 });
 
 export const operationsDraftSaveRequestSchema = operationsWorkflowDraftSchema;
 
+/** Legacy V1 schema retained for migration only. */
+export const operationsWorkflowDraftV1Schema = z.object({
+  schemaVersion: z.literal(1),
+  draftId: z.string().min(1),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  savedByRuntime: z.enum(["source-gui", "packaged-gui", "fixture-test"]),
+  sourceMode: operationsSourceModeSchema,
+  baseSnapshot: operationsBaseSnapshotSchema,
+  statusIdsOnCanvas: z.array(z.string().min(1)).default([]),
+  rules: z.array(z.any()).default([]),
+  layout: z
+    .object({
+      statusPositions: z.record(operationsLayoutPositionSchema).default({}),
+      viewport: operationsViewportSchema.optional(),
+      inspectorCollapsed: z.boolean().optional(),
+    })
+    .default({ statusPositions: {} }),
+  warningsAtSave: z.array(z.string()).optional(),
+});
+
 export type OperationsWorkflowDraftInput = z.infer<
   typeof operationsWorkflowDraftSchema
 >;
+
+export const CANONICAL_OPERATIONS_WORKFLOW_FINGERPRINT =
+  CANONICAL_WORKFLOW_FINGERPRINT;

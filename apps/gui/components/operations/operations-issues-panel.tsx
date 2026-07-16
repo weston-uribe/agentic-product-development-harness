@@ -38,9 +38,10 @@ export function OperationsIssuesPanel({
       ) : (
         <ul className="max-h-48 space-y-1 overflow-y-auto text-xs">
           {items.map((item, index) => (
-            <li key={`${index}-${item.id}-${item.path ?? ""}-${item.ruleId ?? ""}-${item.statusId ?? ""}`}>
-              {onIssueClick &&
-              (item.statusId || item.ruleId || item.outcomeId) ? (
+            <li
+              key={`${index}-${item.id}-${item.path ?? ""}-${item.canonicalStatusKey ?? ""}-${item.phaseKey ?? ""}`}
+            >
+              {onIssueClick && item.canonicalStatusKey ? (
                 <button
                   type="button"
                   className={`w-full rounded-md px-2 py-1.5 text-left hover:bg-accent ${

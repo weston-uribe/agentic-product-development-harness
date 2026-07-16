@@ -1,7 +1,7 @@
 export {
   domainDraftToFlow,
   statusNodeId,
-  outcomeEdgeId,
+  canonicalEdgeId,
   applyNodeChangesToDraft,
   applyEdgeChangesToDraft,
   mergeViewport,

@@ -4,40 +4,35 @@ import type {
   OperationsDraftModelSelection,
   OperationsLayout,
   OperationsModelCatalogEntry,
-  OperationsNestedRecoveryPolicy,
-  OperationsOutcome,
-  OperationsRule,
   OperationsSourceContext,
   OperationsWorkflowDraft,
 } from "../types.js";
-import { OPERATIONS_DRAFT_SCHEMA_VERSION } from "../constants.js";
+import { createCanonicalBaselineDraft } from "../draft-migration.js";
+import { getDefaultCanonicalLayout } from "../../workflow/canonical-product-development-workflow.js";
+import type { CanonicalStatusKey } from "../../workflow/canonical-product-development-workflow.js";
 
 export const FIXTURE_DRAFT_TIMESTAMP = "2026-01-01T00:00:00.000Z";
 
 /** Stable fixture status ids from basic-current-workflow. */
 export const FIXTURE_STATUS_IDS = {
+  backlog: "status-backlog",
   readyPlanning: "status-ready-planning",
+  planning: "status-planning",
   readyBuild: "status-ready-build",
+  building: "status-building",
   prOpen: "status-pr-open",
   pmReview: "status-pm-review",
   engReview: "status-eng-review",
   needsRevision: "status-needs-revision",
+  revising: "status-revising",
   readyMerge: "status-ready-merge",
-  blocked: "status-blocked",
+  merging: "status-merging",
   mergedDev: "status-merged-dev",
+  mergedDeployed: "status-merged-deployed",
+  blocked: "status-blocked",
+  canceled: "status-canceled",
+  duplicate: "status-duplicate",
 } as const;
-
-export function resolveStatusId(
-  mappings: OperationsCurrentWorkflowMapping[],
-  mappingKey: string,
-  fallbackId?: string,
-): string | undefined {
-  const mapping = mappings.find((entry) => entry.mappingKey === mappingKey);
-  if (mapping?.resolvedStatusIds.length === 1) {
-    return mapping.resolvedStatusIds[0];
-  }
-  return fallbackId;
-}
 
 export function buildCursorModelSelection(
   modelCatalog: OperationsModelCatalogEntry[],
@@ -61,118 +56,37 @@ export function buildCursorModelSelection(
   };
 }
 
-export function defaultMergeRecoveryPolicy(): OperationsNestedRecoveryPolicy {
-  return {
-    deterministicRepairEnabled: true,
-    cursorAgentFallbackEnabled: true,
-  };
-}
-
-export function buildOutcome(
-  id: string,
-  label: string,
-  destinationStatusId: string,
-): OperationsOutcome {
-  return { id, label, destinationStatusId, enabled: true };
-}
-
 export function buildBasicWorkflowLayout(): OperationsLayout["statusPositions"] {
-  const rowY = 80;
-  const gap = 260;
-  return {
-    [FIXTURE_STATUS_IDS.readyPlanning]: { x: 0, y: rowY },
-    [FIXTURE_STATUS_IDS.readyBuild]: { x: gap, y: rowY },
-    [FIXTURE_STATUS_IDS.prOpen]: { x: gap * 2, y: rowY },
-    [FIXTURE_STATUS_IDS.pmReview]: { x: gap * 3, y: rowY },
-    [FIXTURE_STATUS_IDS.needsRevision]: { x: gap * 3, y: rowY + 140 },
-    [FIXTURE_STATUS_IDS.readyMerge]: { x: gap * 4, y: rowY },
-    [FIXTURE_STATUS_IDS.blocked]: { x: gap * 2, y: rowY + 140 },
-    [FIXTURE_STATUS_IDS.mergedDev]: { x: gap * 5, y: rowY },
-    [FIXTURE_STATUS_IDS.engReview]: { x: gap * 3.5, y: rowY - 100 },
-  };
+  const layout = getDefaultCanonicalLayout();
+  layout["engineering-review"] = { x: 1960, y: -40 };
+  layout["needs-revision"] = { x: 1680, y: 200 };
+  layout["revising"] = { x: 1400, y: 200 };
+  layout["blocked"] = { x: 1120, y: 400 };
+  return layout;
 }
 
-export function buildBasicWorkflowRules(
+export function buildBranchingWorkflowLayout(): OperationsLayout["statusPositions"] {
+  const layout = buildBasicWorkflowLayout();
+  layout["merged-to-dev"] = { x: 2800, y: 0 };
+  layout["merged-deployed"] = { x: 3080, y: 0 };
+  return layout;
+}
+
+export function buildFixturePhaseModelSettings(
   modelCatalog: OperationsModelCatalogEntry[],
-): OperationsRule[] {
+): OperationsWorkflowDraft["phaseModelSettings"] {
   const modelSelection = buildCursorModelSelection(modelCatalog, "composer-2.5", {
     fast: "false",
   });
-  const ids = FIXTURE_STATUS_IDS;
-
-  return [
-    {
-      id: "rule-fixture-planning",
-      sourceStatusId: ids.readyPlanning,
-      enabled: true,
-      executorId: "planner-agent",
-      modelSelection,
-      outcomes: [
-        buildOutcome("outcome-fixture-plan-complete", "Plan completed", ids.readyBuild),
-        buildOutcome("outcome-fixture-plan-blocked", "Unable to proceed", ids.blocked),
-      ],
-    },
-    {
-      id: "rule-fixture-implementation",
-      sourceStatusId: ids.readyBuild,
-      enabled: true,
-      executorId: "implementation-agent",
-      modelSelection,
-      outcomes: [
-        buildOutcome(
-          "outcome-fixture-build-complete",
-          "Build completed / PR created",
-          ids.prOpen,
-        ),
-        buildOutcome("outcome-fixture-build-blocked", "Unable to proceed", ids.blocked),
-      ],
-    },
-    {
-      id: "rule-fixture-handoff",
-      sourceStatusId: ids.prOpen,
-      enabled: true,
-      executorId: "handoff-pm-review-prep",
-      outcomes: [
-        buildOutcome("outcome-fixture-handoff-complete", "Handoff completed", ids.pmReview),
-      ],
-    },
-    {
-      id: "rule-fixture-pm-review",
-      sourceStatusId: ids.pmReview,
-      enabled: true,
-      executorId: "human-decision",
-      outcomes: [
-        buildOutcome(
-          "outcome-fixture-pm-changes",
-          "Changes requested",
-          ids.needsRevision,
-        ),
-        buildOutcome("outcome-fixture-pm-approved", "Approved", ids.readyMerge),
-      ],
-    },
-    {
-      id: "rule-fixture-revision",
-      sourceStatusId: ids.needsRevision,
-      enabled: true,
-      executorId: "revision-agent",
-      modelSelection,
-      outcomes: [
-        buildOutcome("outcome-fixture-revision-complete", "Revision completed", ids.prOpen),
-        buildOutcome("outcome-fixture-revision-blocked", "Unable to proceed", ids.blocked),
-      ],
-    },
-    {
-      id: "rule-fixture-merge",
-      sourceStatusId: ids.readyMerge,
-      enabled: true,
-      executorId: "merge-runner",
-      nestedRecoveryPolicy: defaultMergeRecoveryPolicy(),
-      outcomes: [
-        buildOutcome("outcome-fixture-merge-success", "Merged", ids.mergedDev),
-        buildOutcome("outcome-fixture-merge-blocked", "Unable to proceed", ids.blocked),
-      ],
-    },
-  ];
+  if (!modelSelection) {
+    return {};
+  }
+  return {
+    planning: modelSelection,
+    implementation: modelSelection,
+    revision: modelSelection,
+    "merge-integration-repair": modelSelection,
+  };
 }
 
 export function buildFixtureDraftShell(input: {
@@ -180,20 +94,62 @@ export function buildFixtureDraftShell(input: {
   context: OperationsSourceContext;
   scopeId: string;
   baseSnapshot: OperationsBaseSnapshot;
-  statusIdsOnCanvas: string[];
-  rules: OperationsRule[];
   layout: OperationsLayout;
+  phaseModelSettings?: OperationsWorkflowDraft["phaseModelSettings"];
 }): OperationsWorkflowDraft {
+  const draft = createCanonicalBaselineDraft({
+    baseSnapshot: { ...input.baseSnapshot, scopeId: input.scopeId },
+    sourceMode: input.context.mode,
+    savedByRuntime: "fixture-test",
+    layout: input.layout,
+    phaseModelSettings: input.phaseModelSettings ?? {},
+  });
   return {
-    schemaVersion: OPERATIONS_DRAFT_SCHEMA_VERSION,
+    ...draft,
     draftId: input.draftId,
     createdAt: FIXTURE_DRAFT_TIMESTAMP,
     updatedAt: FIXTURE_DRAFT_TIMESTAMP,
-    savedByRuntime: "fixture-test",
-    sourceMode: input.context.mode,
-    baseSnapshot: { ...input.baseSnapshot, scopeId: input.scopeId },
-    statusIdsOnCanvas: input.statusIdsOnCanvas,
-    rules: input.rules,
-    layout: input.layout,
   };
+}
+
+export function resolveStatusId(
+  mappings: OperationsCurrentWorkflowMapping[],
+  mappingKey: string,
+  fallbackId?: string,
+): string | undefined {
+  const mapping = mappings.find((entry) => entry.mappingKey === mappingKey);
+  if (mapping?.resolvedStatusIds.length === 1) {
+    return mapping.resolvedStatusIds[0];
+  }
+  return fallbackId;
+}
+
+export function fixtureKeyForStatusId(statusId: string): CanonicalStatusKey | undefined {
+  const entries = Object.entries(FIXTURE_STATUS_IDS) as Array<
+    [string, string]
+  >;
+  const match = entries.find(([, id]) => id === statusId);
+  if (!match) {
+    return undefined;
+  }
+  const keyMap: Record<string, CanonicalStatusKey> = {
+    backlog: "backlog",
+    readyPlanning: "ready-for-planning",
+    planning: "planning",
+    readyBuild: "ready-for-build",
+    building: "building",
+    prOpen: "pr-open",
+    pmReview: "pm-review",
+    engReview: "engineering-review",
+    needsRevision: "needs-revision",
+    revising: "revising",
+    readyMerge: "ready-to-merge",
+    merging: "merging",
+    mergedDev: "merged-to-dev",
+    mergedDeployed: "merged-deployed",
+    blocked: "blocked",
+    canceled: "canceled",
+    duplicate: "duplicate",
+  };
+  return keyMap[match[0]];
 }

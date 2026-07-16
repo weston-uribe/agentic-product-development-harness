@@ -11,7 +11,8 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { OPERATIONS_DRAFT_FILENAME } from "./constants.js";
 import { operationsWorkflowDraftSchema } from "./schema.js";
-import type { OperationsSourceContext } from "./types.js";
+import { parseAndMigrateOperationsDraft } from "./draft-migration.js";
+import type { OperationsSourceContext, OperationsStatusRecord } from "./types.js";
 import type { OperationsWorkflowDraft } from "./types.js";
 import {
   deleteFixtureDraft,
@@ -105,17 +106,15 @@ export async function loadLiveDraft(cwd: string): Promise<OperationsWorkflowDraf
 export async function loadScopedLiveDraft(
   cwd: string,
   validatedScopeId: string,
+  statuses: OperationsStatusRecord[] = [],
 ): Promise<OperationsWorkflowDraft | null> {
   const filePath = resolveScopedDraftPath(cwd, validatedScopeId);
   try {
     await access(filePath);
     const raw = await readFile(filePath, "utf8");
     const parsed = JSON.parse(raw) as unknown;
-    const result = operationsWorkflowDraftSchema.safeParse(parsed);
-    if (!result.success) {
-      return null;
-    }
-    return result.data;
+    const migrated = parseAndMigrateOperationsDraft({ raw: parsed, statuses });
+    return migrated.draft;
   } catch {
     return null;
   }
@@ -232,6 +231,7 @@ export async function loadDraft(
   cwd: string,
   context: OperationsSourceContext,
   scopes: OperationsWorkflowScope[],
+  statuses: OperationsStatusRecord[] = [],
 ): Promise<OperationsWorkflowDraft | null> {
   if (context.rejectionReason) {
     return null;
@@ -248,7 +248,7 @@ export async function loadDraft(
   }
 
   await migrateLegacyDraftIfNeeded({ cwd, scopes });
-  return loadScopedLiveDraft(cwd, scope.id);
+  return loadScopedLiveDraft(cwd, scope.id, statuses);
 }
 
 export async function saveDraft(

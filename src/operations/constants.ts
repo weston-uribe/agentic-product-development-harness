@@ -1,6 +1,8 @@
 export const OPERATIONS_DRAFT_FILENAME = "operations-workflow-draft.local.json";
 
-export const OPERATIONS_DRAFT_SCHEMA_VERSION = 1 as const;
+export const OPERATIONS_DRAFT_SCHEMA_VERSION = 2 as const;
+
+export const OPERATIONS_DRAFT_SCHEMA_VERSION_LEGACY = 1 as const;
 
 export const P_DEV_OPERATIONS_FIXTURES_ENV = "P_DEV_OPERATIONS_FIXTURES";
 

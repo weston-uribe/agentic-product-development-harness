@@ -1,13 +1,17 @@
 import type { NodeProps } from "@xyflow/react";
 import { Handle, Position } from "@xyflow/react";
+import type { CanonicalStatusKey } from "@harness/workflow/canonical-product-development-workflow";
 
 export type StatusNodeData = {
-  statusId: string;
+  canonicalStatusKey: CanonicalStatusKey;
   name: string;
   category: string;
   color?: string;
-  automationTriggerStatus: boolean;
-  executorLabel?: string;
+  automationTrigger: boolean;
+  actorLabel?: string;
+  role: string;
+  agentPhaseKey?: string;
+  healthIssue?: string;
   modelId?: string;
 };
 
@@ -17,13 +21,14 @@ export function StatusNode({ data, selected }: NodeProps) {
     <div
       className={`group min-w-[220px] rounded-lg border bg-card px-3 py-2 shadow-sm ${
         selected ? "ring-2 ring-ring" : "border-border"
-      }`}
+      } ${nodeData.healthIssue ? "border-destructive/60" : ""}`}
       aria-label={`Status ${nodeData.name}`}
     >
       <Handle
         type="target"
-        position={Position.Top}
-        className="!size-3 !border-2 !border-primary !bg-background opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 data-[selected=true]:opacity-100"
+        position={Position.Left}
+        isConnectable={false}
+        className="!size-2 !border-2 !border-primary !bg-background"
       />
       <div className="flex items-start justify-between gap-2">
         <div>
@@ -39,15 +44,33 @@ export function StatusNode({ data, selected }: NodeProps) {
         ) : null}
       </div>
       <div className="mt-2 rounded-md bg-muted/60 px-2 py-1 text-xs">
-        <div>{nodeData.executorLabel ?? "No automation"}</div>
+        <div>{nodeData.actorLabel ?? "No automation"}</div>
         {nodeData.modelId ? (
-          <div className="text-muted-foreground">{nodeData.modelId}</div>
+          <div className="text-muted-foreground">Draft: {nodeData.modelId}</div>
+        ) : null}
+        {nodeData.healthIssue ? (
+          <div className="mt-1 text-destructive">{nodeData.healthIssue}</div>
         ) : null}
       </div>
       <Handle
         type="source"
+        position={Position.Right}
+        isConnectable={false}
+        className="!size-2 !border-2 !border-emerald-600 !bg-background"
+      />
+      <Handle
+        type="source"
+        position={Position.Top}
+        id="top"
+        isConnectable={false}
+        className="!size-2 !border-2 !border-emerald-600 !bg-background opacity-0"
+      />
+      <Handle
+        type="source"
         position={Position.Bottom}
-        className="!size-3 !border-2 !border-emerald-600 !bg-background opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 data-[selected=true]:opacity-100"
+        id="bottom"
+        isConnectable={false}
+        className="!size-2 !border-2 !border-emerald-600 !bg-background opacity-0"
       />
     </div>
   );

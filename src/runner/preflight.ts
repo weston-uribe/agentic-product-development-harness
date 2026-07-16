@@ -17,6 +17,11 @@ import { GitHubClient } from "../github/client.js";
 import { inferPhaseFromStatus } from "./phase-infer.js";
 import { logExecutionEnvironmentMarker } from "./execution-environment.js";
 import { loadIssueFixture } from "./fixture.js";
+import {
+  canonicalPreflightErrorMessage,
+  resolveLinearTeamId,
+  runCanonicalWorkflowPreflight,
+} from "../workflow/preflight-canonical.js";
 import type { ErrorClassification, RunPhase } from "../types/run.js";
 import type { ParsedIssue } from "../types/parsed-issue.js";
 import type { LinearIssueSnapshot } from "../linear/client.js";
@@ -156,6 +161,26 @@ export async function runPreflight(
       );
     }
     await events.log("repo_resolved", "info", { ...resolved });
+
+    if (!options.fixturePath) {
+      const linearApiKey = options.linearApiKey ?? process.env.LINEAR_API_KEY ?? "";
+      const teamId = issue.teamId ?? resolveLinearTeamId(config) ?? "";
+      if (linearApiKey && teamId) {
+        const canonicalResult = await runCanonicalWorkflowPreflight({
+          linearApiKey,
+          teamId,
+          config,
+          expectedTeamId: resolveLinearTeamId(config),
+        });
+        await events.log("canonical_workflow_preflight", "info", {
+          valid: canonicalResult.valid,
+          violationCount: canonicalResult.violations.length,
+        });
+        if (!canonicalResult.valid) {
+          throw new Error(canonicalPreflightErrorMessage(canonicalResult));
+        }
+      }
+    }
 
     return {
       success: true,

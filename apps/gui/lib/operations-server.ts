@@ -204,7 +204,6 @@ async function composeOperationsContext(
     config: effectiveConfig,
     statuses: linearStatuses,
     modelCatalog,
-    mappingsFingerprint: buildWorkflowFingerprint(currentWorkflowMappings),
   });
 
   return {
@@ -264,11 +263,11 @@ export async function persistOperationsDraft(input: {
   const validation = validateOperationsDraft({
     draft: draftToSave,
     statuses: composed.statuses,
-    executors: composed.executors,
     modelCatalog: composed.modelCatalog,
     currentWorkflowMappings: composed.currentWorkflowMappings,
     baseSnapshot: composed.baseSnapshot,
     catalogLoadMetadata: composed.catalogLoadMetadata,
+    config: composed.effectiveConfig,
   });
   const saved = await saveDraft(
     composed.cwd,

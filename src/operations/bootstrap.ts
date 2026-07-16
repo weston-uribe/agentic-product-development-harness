@@ -2,21 +2,16 @@ import type {
   OperationsBaseSnapshot,
   OperationsBootstrapPayload,
   OperationsSourceContext,
-  OperationsValidationResult,
   OperationsWorkflowScope,
 } from "./types.js";
-import { getExecutorCatalog, getNestedCapabilities } from "./executor-catalog.js";
-import {
-  buildCurrentWorkflowMappings,
-  buildWorkflowFingerprint,
-  enrichStatusRecords,
-  type LinearStatusInput,
-} from "./current-workflow.js";
 import { buildCurrentModelSummary } from "./model-catalog.js";
 import { buildModelCatalogFingerprint } from "./model-catalog-utils.js";
 import { buildStatusCatalogFingerprint } from "./linear-status-source.js";
 import { hashOperationsFingerprint } from "./fingerprint.js";
-import { validateOperationsDraft } from "./validation.js";
+import {
+  deriveWorkflowHealthState,
+  validateOperationsDraft,
+} from "./validation.js";
 import { dataSourceLabel } from "./source-context.js";
 import {
   loadDraft,
@@ -26,6 +21,18 @@ import { getFixtureDefinition } from "./fixtures/index.js";
 import { getFixtureWorkflowScopes } from "./fixtures/workflow-scopes.js";
 import { createLiveBaselineDraft } from "./baseline-workflow.js";
 import { buildLiveWorkflowScopes, validateRequestedScopeId } from "./workflow-scopes.js";
+import { enrichWorkflowScopes } from "./scope-branches.js";
+import {
+  buildCurrentWorkflowMappings,
+  buildWorkflowFingerprint,
+  enrichStatusRecords,
+  type LinearStatusInput,
+} from "./current-workflow.js";
+import {
+  validateCanonicalLinearWorkflow,
+  type CanonicalValidationResult,
+} from "../workflow/canonical-workflow-validation.js";
+import { CANONICAL_WORKFLOW_FINGERPRINT } from "../workflow/canonical-product-development-workflow.js";
 import type { HarnessConfig } from "../config/types.js";
 import type {
   OperationsCatalogLoadMetadata,
@@ -54,7 +61,6 @@ export function buildOperationsBaseSnapshot(input: {
   config?: HarnessConfig;
   statuses: LinearStatusInput[];
   modelCatalog: OperationsModelCatalogEntry[];
-  mappingsFingerprint: string;
 }): OperationsBaseSnapshot {
   return {
     teamId: input.teamId,
@@ -63,18 +69,36 @@ export function buildOperationsBaseSnapshot(input: {
     configFingerprint: hashOperationsFingerprint(input.config ?? {}),
     statusCatalogFingerprint: buildStatusCatalogFingerprint(input.statuses),
     modelCatalogFingerprint: buildModelCatalogFingerprint(input.modelCatalog),
-    workflowFingerprint: hashOperationsFingerprint(input.mappingsFingerprint),
+    workflowFingerprint: CANONICAL_WORKFLOW_FINGERPRINT,
   };
 }
 
 function resolveScopes(deps: BootstrapDependencies): OperationsWorkflowScope[] {
-  if (deps.scopes?.length) {
-    return deps.scopes;
+  const raw =
+    deps.scopes?.length
+      ? deps.scopes
+      : deps.context.mode === "fixture"
+        ? getFixtureWorkflowScopes()
+        : buildLiveWorkflowScopes(deps.config ?? emptyConfig());
+  return enrichWorkflowScopes(raw, deps.config);
+}
+
+function buildCanonicalValidation(input: {
+  statuses: LinearStatusInput[];
+  config?: HarnessConfig;
+  catalogLoadMetadata: OperationsCatalogLoadMetadata;
+}): CanonicalValidationResult | undefined {
+  if (input.catalogLoadMetadata.statusCatalog !== "loaded") {
+    return undefined;
   }
-  if (deps.context.mode === "fixture") {
-    return getFixtureWorkflowScopes();
-  }
-  return buildLiveWorkflowScopes(deps.config ?? emptyConfig());
+  return validateCanonicalLinearWorkflow({
+    workflowStates: input.statuses.map((status) => ({
+      id: status.id,
+      name: status.name,
+      category: status.type,
+    })),
+    config: input.config,
+  });
 }
 
 export async function buildOperationsBootstrap(
@@ -137,6 +161,11 @@ export async function buildOperationsBootstrap(
     statuses: linearStatuses,
     source: context.mode === "fixture" ? "fixture" : "linear-live",
   });
+  const canonicalValidation = buildCanonicalValidation({
+    statuses: linearStatuses,
+    config,
+    catalogLoadMetadata,
+  });
   const baseSnapshot = buildOperationsBaseSnapshot({
     teamId: deps.teamId,
     teamKey: deps.teamKey,
@@ -144,7 +173,6 @@ export async function buildOperationsBootstrap(
     config,
     statuses: linearStatuses,
     modelCatalog,
-    mappingsFingerprint: buildWorkflowFingerprint(mappings),
   });
 
   let legacyDraftReviewRequired = false;
@@ -161,7 +189,7 @@ export async function buildOperationsBootstrap(
     }
   }
 
-  let draft = await loadDraft(deps.cwd, contextWithScope, scopes);
+  let draft = await loadDraft(deps.cwd, contextWithScope, scopes, statusRecords);
   if (!draft) {
     const fixture =
       context.mode === "fixture" && context.fixtureId
@@ -181,8 +209,6 @@ export async function buildOperationsBootstrap(
       draft = createLiveBaselineDraft({
         context: contextWithScope,
         baseSnapshot,
-        statuses: statusRecords,
-        mappings,
         savedByRuntime:
           context.mode === "fixture" ? "fixture-test" : "source-gui",
       });
@@ -192,11 +218,18 @@ export async function buildOperationsBootstrap(
   const validation = validateOperationsDraft({
     draft,
     statuses: statusRecords,
-    executors: getExecutorCatalog(),
     modelCatalog,
     currentWorkflowMappings: mappings,
     baseSnapshot,
     catalogLoadMetadata,
+    config,
+    canonicalValidation,
+  });
+
+  const healthState = deriveWorkflowHealthState({
+    catalogLoadMetadata,
+    validation,
+    canonicalValidation,
   });
 
   return {
@@ -208,14 +241,25 @@ export async function buildOperationsBootstrap(
     debugEnabled: deps.debugEnabled ?? false,
     dataSourceLabel: dataSourceLabel(context),
     statuses: statusRecords,
-    executors: getExecutorCatalog(),
-    nestedCapabilities: getNestedCapabilities(),
     currentWorkflowMappings: mappings,
     currentModel: buildCurrentModelSummary(config),
     modelCatalog,
     catalogLoadMetadata,
     draft,
     validation,
+    canonicalWorkflow: {
+      healthState,
+      violations: canonicalValidation?.violations ?? [],
+      resolvedStatusIds: Object.fromEntries(
+        Object.entries(canonicalValidation?.resolvedStatuses ?? {}).map(
+          ([key, value]) => [key, value.id],
+        ),
+      ),
+      mergePathVariant:
+        selectedScope.baseBranch === selectedScope.productionBranch
+          ? "direct-production"
+          : "integration-then-production",
+    },
     warnings,
   };
 }
@@ -235,8 +279,6 @@ function rejectedPayload(
     debugEnabled: false,
     dataSourceLabel: dataSourceLabel(context),
     statuses: [],
-    executors: getExecutorCatalog(),
-    nestedCapabilities: getNestedCapabilities(),
     currentWorkflowMappings: [],
     currentModel: buildCurrentModelSummary(undefined),
     modelCatalog: [],
@@ -250,7 +292,13 @@ function rejectedPayload(
       warnings: [],
       infos: [],
     },
-    warnings: [...warnings, reason],
+    canonicalWorkflow: {
+      healthState: "linear-unavailable",
+      violations: [],
+      resolvedStatusIds: {},
+      mergePathVariant: "direct-production",
+    },
+    warnings,
   };
 }
 
@@ -271,13 +319,4 @@ function emptyConfig(): HarnessConfig {
   };
 }
 
-export function mergeValidationResults(
-  left: OperationsValidationResult,
-  right: OperationsValidationResult,
-): OperationsValidationResult {
-  return {
-    errors: [...left.errors, ...right.errors],
-    warnings: [...left.warnings, ...right.warnings],
-    infos: [...left.infos, ...right.infos],
-  };
-}
+export { buildWorkflowFingerprint };

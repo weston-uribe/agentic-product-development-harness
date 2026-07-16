@@ -105,6 +105,7 @@ export type RunEventName =
   | "repo_resolved"
   | "repo_resolution_failed"
   | "phase_inferred"
+  | "canonical_workflow_preflight"
   | "idempotency_skip"
   | "planning_comment_loaded"
   | "implementation_comment_loaded"

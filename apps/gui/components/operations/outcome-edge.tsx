@@ -2,13 +2,13 @@ import {
   BaseEdge,
   EdgeLabelRenderer,
   getBezierPath,
+  MarkerType,
   type EdgeProps,
 } from "@xyflow/react";
 
 export type OutcomeEdgeData = {
-  ruleId: string;
-  outcomeId: string;
-  enabled: boolean;
+  kind?: string;
+  readOnly?: boolean;
 };
 
 export function OutcomeEdge(props: EdgeProps) {
@@ -21,7 +21,6 @@ export function OutcomeEdge(props: EdgeProps) {
     sourcePosition,
     targetPosition,
     label,
-    data,
     selected,
   } = props;
   const [edgePath, labelX, labelY] = getBezierPath({
@@ -32,17 +31,17 @@ export function OutcomeEdge(props: EdgeProps) {
     sourcePosition,
     targetPosition,
   });
-  const edgeData = (data ?? {}) as OutcomeEdgeData;
 
   return (
     <>
       <BaseEdge
         id={id}
         path={edgePath}
+        markerEnd={MarkerType.ArrowClosed}
         style={{
-          stroke: selected ? "var(--ring)" : "var(--border)",
-          strokeWidth: selected ? 2 : 1.5,
-          opacity: edgeData.enabled === false ? 0.45 : 1,
+          stroke: selected ? "var(--ring)" : "var(--foreground)",
+          strokeWidth: selected ? 3 : 2.25,
+          opacity: 0.92,
         }}
       />
       <EdgeLabelRenderer>
@@ -50,7 +49,7 @@ export function OutcomeEdge(props: EdgeProps) {
           style={{
             transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
           }}
-          className="pointer-events-none absolute rounded bg-background px-1.5 py-0.5 text-[10px] text-foreground shadow-sm"
+          className="pointer-events-none absolute rounded bg-background px-1.5 py-0.5 text-[11px] font-medium text-foreground shadow-sm"
         >
           {label}
         </div>

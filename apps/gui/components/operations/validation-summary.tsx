@@ -24,7 +24,7 @@ export function ValidationSummary({ validation }: ValidationSummaryProps) {
       <h2 className="mb-2 text-sm font-medium">Validation</h2>
       <ul className="space-y-2 text-sm">
         {items.map((item, index) => (
-          <li key={`${index}-${item.id}-${item.path ?? ""}-${item.ruleId ?? ""}-${item.statusId ?? ""}`}>
+          <li key={`${index}-${item.id}-${item.path ?? ""}-${item.canonicalStatusKey ?? ""}-${item.phaseKey ?? ""}`}>
             <span
               className={
                 item.severity === "error"

@@ -9,6 +9,7 @@ import {
 } from "../../github/base-branch.js";
 import { GitHubClient, pingGitHub } from "../../github/client.js";
 import { pingLinear } from "../../linear/client.js";
+import { detectNoncanonicalConfigOverrides } from "../../workflow/canonical-workflow-validation.js";
 import {
   doctorChecksFailed,
   formatDoctorCheckLine,
@@ -39,6 +40,16 @@ export async function runDoctor(options: DoctorOptions): Promise<number> {
     checks.push({
       label: "allowedTargetRepos covers all repo mappings",
       ok: true,
+    });
+
+    const overrideViolations = detectNoncanonicalConfigOverrides(config);
+    checks.push({
+      label: "canonical workflow status names",
+      ok: overrideViolations.length === 0,
+      detail:
+        overrideViolations.length === 0
+          ? "no noncanonical linear status overrides"
+          : overrideViolations.map((violation) => violation.message).join("; "),
     });
 
     const runsDir = path.resolve(config.logDirectory);

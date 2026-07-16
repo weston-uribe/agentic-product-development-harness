@@ -9,9 +9,9 @@ import {
   enrichStatusRecords,
 } from "../../src/operations/current-workflow.js";
 import { validateOperationsDraft } from "../../src/operations/validation.js";
-import { getExecutorCatalog } from "../../src/operations/executor-catalog.js";
 import { deleteDraft } from "../../src/operations/draft-store.js";
 import { getFixtureWorkflowScopes } from "../../src/operations/fixtures/workflow-scopes.js";
+import { CANONICAL_STATUSES } from "../../src/workflow/canonical-product-development-workflow.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -21,7 +21,7 @@ describe("fixture seeds", () => {
   const targetAppScope = fixtureScopes.find((scope) => scope.id === "target-app")!;
   const harnessRepoScope = fixtureScopes.find((scope) => scope.id === "harness-repo")!;
 
-  it("builds a connected basic workflow with stable ids and outcomes", () => {
+  it("builds a V2 basic workflow seed with canonical layout and phase model settings", () => {
     const fixture = getFixtureDefinition("basic-current-workflow");
     const config = fixture.config;
     const mappings = buildCurrentWorkflowMappings({
@@ -49,15 +49,17 @@ describe("fixture seeds", () => {
     });
 
     expect(seed.draftId).toBe("draft-fixture-basic-target-app");
-    expect(seed.rules.every((rule) => rule.enabled && rule.outcomes.some((o) => o.enabled))).toBe(true);
-    expect(seed.rules.find((rule) => rule.executorId === "planner-agent")?.outcomes).toHaveLength(2);
-    expect(
-      seed.rules.find((rule) => rule.id === "rule-fixture-pm-review")?.outcomes.find((o) => o.label === "Approved")
-        ?.destinationStatusId,
-    ).toBe("status-ready-merge");
+    expect(seed.schemaVersion).toBe(2);
+    expect(seed.layout.statusPositions.planning).toBeDefined();
+    expect(seed.layout.statusPositions["ready-for-planning"]).toBeDefined();
+    expect(seed.phaseModelSettings.planning?.modelId).toBe("composer-2.5");
+    expect(seed.phaseModelSettings.implementation?.modelId).toBe("composer-2.5");
+    expect(Object.keys(seed.layout.statusPositions).every((key) =>
+      CANONICAL_STATUSES.some((status) => status.key === key),
+    )).toBe(true);
   });
 
-  it("builds branching fixture with one PR Review Agent rule and PM Review routing", () => {
+  it("builds branching fixture with extended merge layout for harness-repo scope", () => {
     const fixture = getFixtureDefinition("branching-pr-review");
     const mappings = buildCurrentWorkflowMappings({
       config: emptyConfig(),
@@ -83,18 +85,11 @@ describe("fixture seeds", () => {
       mappings,
     });
 
-    const prReviewRules = seed.rules.filter((rule) => rule.executorId === "pr-review-agent");
-    expect(prReviewRules).toHaveLength(1);
-    expect(prReviewRules[0]?.sourceStatusId).toBe("status-eng-review");
-    expect(prReviewRules[0]?.outcomes.map((o) => o.label).sort()).toEqual([
-      "Approved",
-      "Changes requested",
-      "Unable to proceed",
-    ]);
-    expect(
-      seed.rules.find((rule) => rule.id === "rule-fixture-pm-review")?.outcomes.find((o) => o.label === "Approved")
-        ?.destinationStatusId,
-    ).toBe("status-eng-review");
+    expect(seed.draftId).toBe("draft-fixture-branching-harness-repo");
+    expect(seed.layout.statusPositions["engineering-review"]).toBeDefined();
+    expect(seed.layout.statusPositions["merged-to-dev"]).toEqual({ x: 2800, y: 0 });
+    expect(seed.layout.statusPositions["merged-deployed"]).toEqual({ x: 3080, y: 0 });
+    expect(seed.phaseModelSettings.revision?.modelId).toBe("composer-2.5");
   });
 
   it("produces identical seeds across two fresh bootstraps and reset restores seed", async () => {
@@ -132,13 +127,12 @@ describe("fixture seeds", () => {
       const validation = validateOperationsDraft({
         draft: afterReset.draft!,
         statuses: afterReset.statuses,
-        executors: getExecutorCatalog(),
         modelCatalog: afterReset.modelCatalog,
         currentWorkflowMappings: afterReset.currentWorkflowMappings,
         baseSnapshot: afterReset.draft!.baseSnapshot,
         catalogLoadMetadata: afterReset.catalogLoadMetadata,
       });
-      expect(validation.errors.filter((e) => e.id === "enabled-rule-without-outcomes")).toHaveLength(0);
+      expect(validation.errors).toHaveLength(0);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }

@@ -1,4 +1,9 @@
+import type {
+  CanonicalAgentPhaseKey,
+  CanonicalStatusKey,
+} from "../workflow/canonical-product-development-workflow.js";
 import type { RequiredWorkflowStatus } from "../setup/linear-status-contract.js";
+import type { CanonicalValidationViolation } from "../workflow/canonical-workflow-validation.js";
 
 export type OperationsSourceMode = "live" | "fixture";
 
@@ -20,19 +25,6 @@ export type OperationsModelSelectionMode =
   | "draft-configurable"
   | "draft-only-planned"
   | "none";
-
-export interface OperationsStatusRecord {
-  id: string;
-  name: string;
-  category: string;
-  color?: string;
-  source: "linear-live" | "fixture";
-  requiredWorkflowRole?: RequiredWorkflowStatus["role"];
-  participatesInCurrentHarnessWorkflow: boolean;
-  automationTriggerStatus: boolean;
-  currentMappingKeys: string[];
-  mappingState: "resolved" | "ambiguous" | "missing" | "unmapped";
-}
 
 export interface OperationsExecutorCatalogEntry {
   id: string;
@@ -56,6 +48,25 @@ export interface OperationsNestedCapability {
   currentRuntimeBehavior: string;
   prototypeOptions?: string[];
   honestyNote: string;
+}
+
+export type OperationsWorkflowHealthState =
+  | "healthy"
+  | "blocking-configuration-error"
+  | "linear-unavailable";
+
+export interface OperationsStatusRecord {
+  id: string;
+  name: string;
+  category: string;
+  color?: string;
+  source: "linear-live" | "fixture";
+  requiredWorkflowRole?: RequiredWorkflowStatus["role"];
+  participatesInCurrentHarnessWorkflow: boolean;
+  automationTriggerStatus: boolean;
+  currentMappingKeys: string[];
+  mappingState: "resolved" | "ambiguous" | "missing" | "unmapped";
+  canonicalStatusKey?: CanonicalStatusKey;
 }
 
 export interface OperationsModelParameterDefinition {
@@ -98,29 +109,6 @@ export interface OperationsDraftModelSelection {
   parameters: Array<{ id: string; value: string }>;
 }
 
-export interface OperationsNestedRecoveryPolicy {
-  deterministicRepairEnabled: boolean;
-  cursorAgentFallbackEnabled: boolean;
-  prototypeFutureModelOverride?: OperationsDraftModelSelection;
-}
-
-export interface OperationsOutcome {
-  id: string;
-  label: string;
-  destinationStatusId?: string;
-  enabled: boolean;
-}
-
-export interface OperationsRule {
-  id: string;
-  sourceStatusId: string;
-  enabled: boolean;
-  executorId: string;
-  modelSelection?: OperationsDraftModelSelection;
-  nestedRecoveryPolicy?: OperationsNestedRecoveryPolicy;
-  outcomes: OperationsOutcome[];
-}
-
 export interface OperationsLayoutPosition {
   x: number;
   y: number;
@@ -133,14 +121,15 @@ export interface OperationsViewport {
 }
 
 export interface OperationsLayout {
-  statusPositions: Record<string, OperationsLayoutPosition>;
+  statusPositions: Partial<Record<CanonicalStatusKey, OperationsLayoutPosition>>;
   viewport?: OperationsViewport;
-  inspectorCollapsed?: boolean;
 }
 
 export interface OperationsWorkflowScope {
   id: string;
   targetRepo: string;
+  baseBranch?: string;
+  productionBranch?: string;
   linearTeams?: string[];
   linearProjects?: string[];
 }
@@ -155,7 +144,29 @@ export interface OperationsBaseSnapshot {
   workflowFingerprint: string;
 }
 
+export interface OperationsDraftMetadata {
+  migratedFromV1?: boolean;
+  migrationNotice?: string;
+}
+
 export interface OperationsWorkflowDraft {
+  schemaVersion: 2;
+  draftId: string;
+  createdAt: string;
+  updatedAt: string;
+  savedByRuntime: "source-gui" | "packaged-gui" | "fixture-test";
+  sourceMode: OperationsSourceMode;
+  baseSnapshot: OperationsBaseSnapshot;
+  layout: OperationsLayout;
+  phaseModelSettings: Partial<
+    Record<CanonicalAgentPhaseKey, OperationsDraftModelSelection>
+  >;
+  metadata?: OperationsDraftMetadata;
+  warningsAtSave?: string[];
+}
+
+/** Legacy V1 prototype draft shape — loaded only for migration. */
+export interface OperationsWorkflowDraftV1 {
   schemaVersion: 1;
   draftId: string;
   createdAt: string;
@@ -164,8 +175,29 @@ export interface OperationsWorkflowDraft {
   sourceMode: OperationsSourceMode;
   baseSnapshot: OperationsBaseSnapshot;
   statusIdsOnCanvas: string[];
-  rules: OperationsRule[];
-  layout: OperationsLayout;
+  rules: Array<{
+    id: string;
+    sourceStatusId: string;
+    enabled: boolean;
+    executorId: string;
+    modelSelection?: OperationsDraftModelSelection;
+    nestedRecoveryPolicy?: {
+      deterministicRepairEnabled: boolean;
+      cursorAgentFallbackEnabled: boolean;
+      prototypeFutureModelOverride?: OperationsDraftModelSelection;
+    };
+    outcomes: Array<{
+      id: string;
+      label: string;
+      destinationStatusId?: string;
+      enabled: boolean;
+    }>;
+  }>;
+  layout: {
+    statusPositions: Record<string, OperationsLayoutPosition>;
+    viewport?: OperationsViewport;
+    inspectorCollapsed?: boolean;
+  };
   warningsAtSave?: string[];
 }
 
@@ -177,8 +209,8 @@ export interface OperationsValidationIssue {
   message: string;
   path?: string;
   statusId?: string;
-  ruleId?: string;
-  outcomeId?: string;
+  canonicalStatusKey?: CanonicalStatusKey;
+  phaseKey?: CanonicalAgentPhaseKey;
 }
 
 export interface OperationsValidationResult {
@@ -202,6 +234,13 @@ export interface OperationsSourceContext {
   rejectionReason?: string;
 }
 
+export interface OperationsCanonicalWorkflowView {
+  healthState: OperationsWorkflowHealthState;
+  violations: CanonicalValidationViolation[];
+  resolvedStatusIds: Partial<Record<CanonicalStatusKey, string>>;
+  mergePathVariant: "integration-then-production" | "direct-production";
+}
+
 export interface OperationsBootstrapPayload {
   sourceMode: OperationsSourceMode;
   fixtureId?: string;
@@ -211,13 +250,12 @@ export interface OperationsBootstrapPayload {
   debugEnabled?: boolean;
   dataSourceLabel: string;
   statuses: OperationsStatusRecord[];
-  executors: OperationsExecutorCatalogEntry[];
-  nestedCapabilities: OperationsNestedCapability[];
   currentWorkflowMappings: OperationsCurrentWorkflowMapping[];
   currentModel: OperationsCurrentModelSummary;
   modelCatalog: OperationsModelCatalogEntry[];
   catalogLoadMetadata: OperationsCatalogLoadMetadata;
   draft: OperationsWorkflowDraft | null;
   validation: OperationsValidationResult;
+  canonicalWorkflow: OperationsCanonicalWorkflowView;
   warnings: string[];
 }

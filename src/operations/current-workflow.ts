@@ -4,6 +4,7 @@ import {
   isDispatchTriggerStatusName,
   lookupRequiredStatus,
 } from "../setup/linear-status-contract.js";
+import { lookupCanonicalStatusByName } from "../workflow/canonical-product-development-workflow.js";
 import {
   getEligibleHandoffStatuses,
   getEligibleImplementationStatuses,
@@ -162,6 +163,7 @@ export function enrichStatusRecords(
 
   return context.statuses.map((status) => {
     const required = lookupRequiredStatus(status.name);
+    const canonical = lookupCanonicalStatusByName(status.name);
     const normalizedName = normalizeStatusName(status.name);
     const mappingKeys = collectMappingKeysForStatus(status.name, mappings);
     const participates =
@@ -189,6 +191,8 @@ export function enrichStatusRecords(
       automationTriggerStatus: isDispatchTriggerStatusName(status.name),
       currentMappingKeys: mappingKeys,
       mappingState,
+      canonicalStatusKey:
+        canonical && canonical.category === status.type ? canonical.key : undefined,
     };
   });
 }

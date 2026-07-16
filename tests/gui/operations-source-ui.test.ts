@@ -19,16 +19,14 @@ describe("operations source UI coverage", () => {
     ).not.toContain("Apply to harness");
   });
 
-  it("includes rule, model, parameter, and outcome semantic controls", () => {
-    const inspector = read("apps/gui/components/operations/rule-inspector.tsx");
-    expect(inspector).toContain("Automation enabled");
-    expect(inspector).toContain('label="Model"');
-    expect(inspector).toContain("supportedParameters");
-    expect(inspector).toContain('role="switch"');
-    expect(inspector).toContain("Add outcome");
-    expect(inspector).toContain("Outcome label");
-    expect(inspector).toContain("Destination status");
-    expect(inspector).toContain("Remove outcome");
+  it("includes phase model and parameter controls in workflow cards", () => {
+    const workflowCards = read("apps/gui/components/operations/workflow-cards-section.tsx");
+    expect(workflowCards).toContain("Draft model (not active)");
+    expect(workflowCards).toContain("<span>Model</span>");
+    expect(workflowCards).toContain("supportedParameters");
+    expect(workflowCards).toContain('role="switch"');
+    expect(workflowCards).toContain("onSelectModel");
+    expect(workflowCards).toContain("onUpdateModelParameter");
   });
 
   it("uses production-facing sidebar sections instead of prototype disclosures", () => {
@@ -38,7 +36,7 @@ describe("operations source UI coverage", () => {
     expect(read("apps/gui/components/operations/operations-sidebar.tsx")).toContain(
       "OperationsIssuesPanel",
     );
-    expect(read("apps/gui/components/operations/rule-inspector.tsx")).not.toContain(
+    expect(read("apps/gui/components/operations/workflow-cards-section.tsx")).not.toContain(
       "Prototype only",
     );
   });

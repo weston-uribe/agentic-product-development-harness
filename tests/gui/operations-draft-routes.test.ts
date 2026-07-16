@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveScopedDraftPath } from "../../src/operations/draft-store.js";
+import { CANONICAL_WORKFLOW_FINGERPRINT } from "../../src/workflow/canonical-product-development-workflow.js";
 
 vi.mock("../../apps/gui/lib/operations-server.ts", async () => {
   const draftStore = await vi.importActual<
@@ -83,7 +84,7 @@ vi.mock("../../apps/gui/lib/operations-server.ts", async () => {
 });
 
 const sampleDraft = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   draftId: "draft-route",
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
@@ -93,12 +94,11 @@ const sampleDraft = {
     configFingerprint: "abc",
     statusCatalogFingerprint: "def",
     modelCatalogFingerprint: "ghi",
-    workflowFingerprint: "jkl",
+    workflowFingerprint: CANONICAL_WORKFLOW_FINGERPRINT,
     scopeId: "target-app",
   },
-  statusIdsOnCanvas: ["status-1"],
-  rules: [],
   layout: { statusPositions: {} },
+  phaseModelSettings: {},
 };
 
 describe("operations draft routes", () => {
@@ -126,7 +126,7 @@ describe("operations draft routes", () => {
     expect(response.status).toBe(200);
     const payload = await response.json();
     expect(JSON.stringify(payload.validation)).not.toMatch(
-      /missing-source-status|missing-destination-status|model-not-in-catalog/,
+      /invalid-phase-model|unsupported-model-parameter/,
     );
     await access(resolveScopedDraftPath(tempRoot, "target-app"));
   });
@@ -143,7 +143,7 @@ describe("operations draft routes", () => {
     expect(response.status).toBe(200);
     const payload = await response.json();
     expect(JSON.stringify(payload.validation)).not.toMatch(
-      /missing-source-status|missing-destination-status|model-not-in-catalog/,
+      /invalid-phase-model|unsupported-model-parameter/,
     );
     await expect(access(resolveScopedDraftPath(tempRoot, "target-app"))).rejects.toThrow();
   });

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import type { CanonicalStatusKey } from "@harness/workflow/canonical-product-development-workflow";
 import type { OperationsBootstrapPayload, OperationsValidationIssue } from "@harness/operations/types";
 import { DraftModeBanner } from "./draft-mode-banner";
 import { OperationsToolbar } from "./operations-toolbar";
@@ -8,20 +9,11 @@ import { OperationsCanvas } from "./operations-canvas";
 import { OperationsSidebar } from "./operations-sidebar";
 import { OperationsIssuesPanel } from "./operations-issues-panel";
 import {
-  addStatusToCanvas,
-  addOutcomeToRule,
-  computeNextStatusPosition,
   createInitialOperationsState,
-  createRuleForStatus,
-  deleteOutcome,
-  findRuleForStatus,
   isDraftDirty,
   operationsReducer,
-  removeStatusFromCanvas,
-  updateOutcome,
-  updateRuleModelParameter,
-  updateRuleModelSelection,
-  updateRuleWithExecutorCleanup,
+  updatePhaseModelParameter,
+  updatePhaseModelSelection,
 } from "@/lib/operations/reducer";
 import {
   fetchOperationsBootstrap,
@@ -45,6 +37,9 @@ export function OperationsPageClient({
     createInitialOperationsState,
   );
   const [fitViewSignal, setFitViewSignal] = useState(0);
+  const [scrollToCardSignal, setScrollToCardSignal] = useState<CanonicalStatusKey | null>(
+    null,
+  );
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === "undefined") {
       return false;
@@ -67,11 +62,16 @@ export function OperationsPageClient({
       return validateOperationsDraft({
         draft: state.draft,
         statuses: state.bootstrap.statuses,
-        executors: state.bootstrap.executors,
         modelCatalog: state.bootstrap.modelCatalog,
         currentWorkflowMappings: state.bootstrap.currentWorkflowMappings,
         baseSnapshot: state.draft.baseSnapshot,
         catalogLoadMetadata: state.bootstrap.catalogLoadMetadata,
+        config: undefined,
+        canonicalValidation: {
+          valid: state.bootstrap.canonicalWorkflow.healthState === "healthy",
+          violations: state.bootstrap.canonicalWorkflow.violations,
+          resolvedStatuses: {},
+        },
       });
     },
     [state.bootstrap, state.draft, state.unavailableReason],
@@ -246,43 +246,22 @@ export function OperationsPageClient({
   );
 
   const handleIssueClick = useCallback((issue: OperationsValidationIssue) => {
-    if (issue.outcomeId && issue.ruleId) {
+    if (issue.canonicalStatusKey) {
       dispatch({
         type: "select",
-        selection: {
-          kind: "outcome",
-          ruleId: issue.ruleId,
-          outcomeId: issue.outcomeId,
-        },
+        selection: { kind: "status", canonicalStatusKey: issue.canonicalStatusKey },
       });
-      return;
-    }
-    if (issue.ruleId) {
-      dispatch({ type: "select", selection: { kind: "rule", ruleId: issue.ruleId } });
-      return;
-    }
-    if (issue.statusId) {
-      dispatch({ type: "select", selection: { kind: "status", statusId: issue.statusId } });
+      setScrollToCardSignal(issue.canonicalStatusKey);
     }
   }, []);
 
-  const handleAddStatus = useCallback(
-    (statusId: string) => {
-      const anchor = computeNextStatusPosition(state.draft);
-      const nextDraft = addStatusToCanvas(state.draft, statusId, anchor);
-      commitDraft(nextDraft);
-      dispatch({ type: "select", selection: { kind: "status", statusId } });
-    },
-    [commitDraft, state.draft],
-  );
-
-  const handleCreateAutomation = useCallback(
-    (statusId: string) => {
-      commitDraft(createRuleForStatus(state.draft, statusId));
-      dispatch({ type: "select", selection: { kind: "status", statusId } });
-    },
-    [commitDraft, state.draft],
-  );
+  const handleSelectStatus = useCallback((canonicalStatusKey: CanonicalStatusKey) => {
+    dispatch({
+      type: "select",
+      selection: { kind: "status", canonicalStatusKey },
+    });
+    setScrollToCardSignal(canonicalStatusKey);
+  }, []);
 
   const toggleSidebar = useCallback(() => {
     if (typeof window !== "undefined" && window.innerWidth < 1024) {
@@ -360,54 +339,25 @@ export function OperationsPageClient({
           disabled={isRequestActive}
           collapsed={sidebarCollapsed}
           mobileOpen={mobileSidebarOpen}
+          scrollToCardSignal={scrollToCardSignal}
           onScopeChange={(scopeId) => void handleScopeChange(scopeId)}
           onIssueClick={handleIssueClick}
-          onUpdateRule={(ruleId, patch) =>
+          onSelectStatus={handleSelectStatus}
+          onSelectModel={(phaseKey, modelId) =>
             commitDraft(
-              updateRuleWithExecutorCleanup(
+              updatePhaseModelSelection(
                 state.draft,
-                ruleId,
-                patch,
-                state.bootstrap.executors,
-              ),
-            )
-          }
-          onSelectModel={(ruleId, modelId) =>
-            commitDraft(
-              updateRuleModelSelection(
-                state.draft,
-                ruleId,
+                phaseKey,
                 modelId,
                 state.bootstrap.modelCatalog,
               ),
             )
           }
-          onUpdateModelParameter={(ruleId, parameterId, value) =>
+          onUpdateModelParameter={(phaseKey, parameterId, value) =>
             commitDraft(
-              updateRuleModelParameter(state.draft, ruleId, parameterId, value),
+              updatePhaseModelParameter(state.draft, phaseKey, parameterId, value),
             )
           }
-          onAddOutcome={(ruleId) => commitDraft(addOutcomeToRule(state.draft, ruleId))}
-          onUpdateOutcome={(ruleId, outcomeId, patch) =>
-            commitDraft(updateOutcome(state.draft, ruleId, outcomeId, patch))
-          }
-          onDeleteOutcome={(ruleId, outcomeId) => {
-            const rule = findRuleForStatus(state.draft, ruleId)
-              ?? state.draft.rules.find((entry) => entry.id === ruleId);
-            commitDraft(deleteOutcome(state.draft, ruleId, outcomeId));
-            if (rule) {
-              dispatch({
-                type: "select",
-                selection: { kind: "status", statusId: rule.sourceStatusId },
-              });
-            }
-          }}
-          onRemoveStatus={(statusId) => {
-            commitDraft(removeStatusFromCanvas(state.draft, statusId));
-            dispatch({ type: "select", selection: { kind: "none" } });
-          }}
-          onCreateAutomation={handleCreateAutomation}
-          onAddStatus={handleAddStatus}
           onCloseMobile={() => setMobileSidebarOpen(false)}
         />
         <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -416,7 +366,12 @@ export function OperationsPageClient({
             draft={state.draft}
             selection={state.selection}
             onDraftChange={commitDraft}
-            onSelect={(selection) => dispatch({ type: "select", selection })}
+            onSelect={(selection) => {
+              dispatch({ type: "select", selection });
+              if (selection.kind === "status") {
+                setScrollToCardSignal(selection.canonicalStatusKey);
+              }
+            }}
             fitViewSignal={fitViewSignal}
             isRequestActive={isRequestActive}
           />

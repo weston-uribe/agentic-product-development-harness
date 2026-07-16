@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { validateOperationsDraft } from "../../src/operations/validation.js";
-import { getExecutorCatalog } from "../../src/operations/executor-catalog.js";
+import { CANONICAL_WORKFLOW_FINGERPRINT } from "../../src/workflow/canonical-product-development-workflow.js";
+import type { HarnessConfig } from "../../src/config/types.js";
 
 describe("operations validation", () => {
   const baseDraft = {
-    schemaVersion: 1 as const,
+    schemaVersion: 2 as const,
     draftId: "draft-1",
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
@@ -14,82 +15,104 @@ describe("operations validation", () => {
       configFingerprint: "abc",
       statusCatalogFingerprint: "def",
       modelCatalogFingerprint: "ghi",
-      workflowFingerprint: "jkl",
+      workflowFingerprint: CANONICAL_WORKFLOW_FINGERPRINT,
     },
-    statusIdsOnCanvas: ["status-a", "status-b"],
     layout: { statusPositions: {} },
+    phaseModelSettings: {},
   };
-  const statuses = ["status-a", "status-b", "status-c"].map((id) => ({
-    id,
-    name: id,
-    category: "started",
-    source: "fixture" as const,
-    participatesInCurrentHarnessWorkflow: true,
-    automationTriggerStatus: false,
-    currentMappingKeys: [],
-    mappingState: "resolved" as const,
-  }));
 
-  function validateRules(rules: Array<{
-    id: string;
-    sourceStatusId: string;
-    enabled: boolean;
-    executorId: string;
-    outcomes: Array<{
-      id: string;
-      label: string;
-      destinationStatusId?: string;
-      enabled: boolean;
-    }>;
-  }>) {
-    return validateOperationsDraft({
-      draft: {
-        ...baseDraft,
-        statusIdsOnCanvas: ["status-a", "status-b", "status-c"],
-        rules,
-      },
-      statuses,
-      executors: getExecutorCatalog(),
-      modelCatalog: [],
-      currentWorkflowMappings: [],
-    });
-  }
-
-  it("rejects non-assignable executors", () => {
+  it("warns on stale workflow fingerprint", () => {
     const result = validateOperationsDraft({
       draft: {
         ...baseDraft,
-        rules: [
-          {
-            id: "rule-1",
-            sourceStatusId: "status-a",
-            enabled: true,
-            executorId: "integration-repair",
-            outcomes: [
-              {
-                id: "outcome-1",
-                label: "Repair",
-                destinationStatusId: "status-b",
-                enabled: true,
-              },
-            ],
-          },
-        ],
+        baseSnapshot: {
+          ...baseDraft.baseSnapshot,
+          workflowFingerprint: "legacy-fingerprint",
+        },
       },
+      statuses: [],
+      modelCatalog: [],
+      currentWorkflowMappings: [],
+    });
+    expect(result.warnings.some((issue) => issue.id === "stale-workflow-fingerprint")).toBe(
+      true,
+    );
+  });
+
+  it("reports invalid phase model when catalog metadata is loaded", () => {
+    const result = validateOperationsDraft({
+      draft: {
+        ...baseDraft,
+        phaseModelSettings: {
+          planning: {
+            modelId: "missing-model",
+            displayNameAtSelection: "Missing",
+            parameters: [],
+          },
+        },
+      },
+      statuses: [],
+      modelCatalog: [],
+      currentWorkflowMappings: [],
+      catalogLoadMetadata: { statusCatalog: "loaded", modelCatalog: "loaded" },
+    });
+    expect(result.errors.some((issue) => issue.id === "invalid-phase-model")).toBe(true);
+  });
+
+  it("reports unsupported model parameters for configured phases", () => {
+    const result = validateOperationsDraft({
+      draft: {
+        ...baseDraft,
+        phaseModelSettings: {
+          implementation: {
+            modelId: "composer-2.5",
+            displayNameAtSelection: "Composer 2.5",
+            parameters: [{ id: "unsupported-param", value: "true" }],
+          },
+        },
+      },
+      statuses: [],
+      modelCatalog: [
+        {
+          id: "composer-2.5",
+          displayName: "Composer 2.5",
+          availability: "available",
+          supportedParameters: [
+            {
+              id: "fast",
+              label: "Fast",
+              type: "boolean",
+              allowedValues: ["true", "false"],
+            },
+          ],
+          source: "fixture",
+        },
+      ],
+      currentWorkflowMappings: [],
+      catalogLoadMetadata: { statusCatalog: "loaded", modelCatalog: "loaded" },
+    });
+    expect(result.errors.some((issue) => issue.id === "unsupported-model-parameter")).toBe(
+      true,
+    );
+  });
+
+  it("reports duplicate normalized status names", () => {
+    const result = validateOperationsDraft({
+      draft: baseDraft,
       statuses: [
         {
           id: "status-a",
-          name: "Ready to Merge",
+          name: "Planning",
           category: "started",
           source: "fixture",
           participatesInCurrentHarnessWorkflow: true,
-          automationTriggerStatus: true,
+          automationTriggerStatus: false,
           currentMappingKeys: [],
           mappingState: "resolved",
         },
         {
           id: "status-b",
-          name: "Merging",
+          name: " planning ",
           category: "started",
           source: "fixture",
           participatesInCurrentHarnessWorkflow: true,
@@ -98,277 +121,74 @@ describe("operations validation", () => {
           mappingState: "resolved",
         },
       ],
-      executors: getExecutorCatalog(),
       modelCatalog: [],
       currentWorkflowMappings: [],
     });
-    expect(result.errors.some((issue) => issue.id === "non-assignable-executor")).toBe(
+    expect(result.errors.some((issue) => issue.id === "duplicate-normalized-status-name")).toBe(
       true,
     );
   });
 
-  it("warns on stale base snapshot fingerprints", () => {
-    const result = validateOperationsDraft({
-      draft: {
-        ...baseDraft,
-        rules: [],
-        baseSnapshot: {
-          ...baseDraft.baseSnapshot,
-          configFingerprint: "stale",
+  it("reports noncanonical config overrides", () => {
+    const config = {
+      version: 1,
+      orchestratorMarker: "harness-orchestrator-v1",
+      logDirectory: "runs",
+      repos: [],
+      allowedTargetRepos: [],
+      linear: {
+        eligibleStatuses: {
+          planning: ["Custom Planning Gate"],
         },
       },
-      statuses: [],
-      executors: getExecutorCatalog(),
-      modelCatalog: [],
-      currentWorkflowMappings: [],
-      baseSnapshot: baseDraft.baseSnapshot,
-    });
-    expect(
-      result.warnings.some((issue) => issue.id === "stale-config-fingerprint"),
-    ).toBe(true);
-  });
+    } as HarnessConfig;
 
-  it("does not warn for a normal linear workflow with one entry", () => {
-    const result = validateRules([
-      {
-        id: "rule-a",
-        sourceStatusId: "status-a",
-        enabled: true,
-        executorId: "human-decision",
-        outcomes: [
-          {
-            id: "outcome-a",
-            label: "Next",
-            destinationStatusId: "status-b",
-            enabled: true,
-          },
-        ],
-      },
-      {
-        id: "rule-b",
-        sourceStatusId: "status-b",
-        enabled: true,
-        executorId: "human-decision",
-        outcomes: [
-          {
-            id: "outcome-b",
-            label: "Next",
-            destinationStatusId: "status-c",
-            enabled: true,
-          },
-        ],
-      },
-    ]);
-    expect(result.warnings.some((issue) => issue.id === "graph-has-no-entry-status")).toBe(false);
-    expect(result.warnings.some((issue) => issue.id === "unreachable-status")).toBe(false);
-  });
-
-  it("does not warn for a branching workflow with one entry", () => {
-    const result = validateRules([
-      {
-        id: "rule-a",
-        sourceStatusId: "status-a",
-        enabled: true,
-        executorId: "human-decision",
-        outcomes: [
-          {
-            id: "outcome-b",
-            label: "B",
-            destinationStatusId: "status-b",
-            enabled: true,
-          },
-          {
-            id: "outcome-c",
-            label: "C",
-            destinationStatusId: "status-c",
-            enabled: true,
-          },
-        ],
-      },
-    ]);
-    expect(result.warnings.some((issue) => issue.id === "graph-has-no-entry-status")).toBe(false);
-    expect(result.warnings.some((issue) => issue.id === "unreachable-status")).toBe(false);
-  });
-
-  it("warns for a completely cyclic graph with no entry", () => {
-    const result = validateRules([
-      {
-        id: "rule-a",
-        sourceStatusId: "status-a",
-        enabled: true,
-        executorId: "human-decision",
-        outcomes: [
-          {
-            id: "outcome-a",
-            label: "B",
-            destinationStatusId: "status-b",
-            enabled: true,
-          },
-        ],
-      },
-      {
-        id: "rule-b",
-        sourceStatusId: "status-b",
-        enabled: true,
-        executorId: "human-decision",
-        outcomes: [
-          {
-            id: "outcome-b",
-            label: "C",
-            destinationStatusId: "status-c",
-            enabled: true,
-          },
-        ],
-      },
-      {
-        id: "rule-c",
-        sourceStatusId: "status-c",
-        enabled: true,
-        executorId: "revision-agent",
-        outcomes: [
-          {
-            id: "outcome-c",
-            label: "A",
-            destinationStatusId: "status-a",
-            enabled: true,
-          },
-        ],
-      },
-    ]);
-    expect(result.warnings.some((issue) => issue.id === "graph-has-no-entry-status")).toBe(true);
-  });
-
-  it("warns for unreachable statuses and ignores disabled outcomes as paths", () => {
-    const result = validateRules([
-      {
-        id: "rule-a",
-        sourceStatusId: "status-a",
-        enabled: true,
-        executorId: "human-decision",
-        outcomes: [
-          {
-            id: "outcome-a",
-            label: "Disabled",
-            destinationStatusId: "status-b",
-            enabled: false,
-          },
-        ],
-      },
-      {
-        id: "rule-b",
-        sourceStatusId: "status-b",
-        enabled: true,
-        executorId: "human-decision",
-        outcomes: [
-          {
-            id: "outcome-b",
-            label: "C",
-            destinationStatusId: "status-c",
-            enabled: true,
-          },
-        ],
-      },
-      {
-        id: "rule-c",
-        sourceStatusId: "status-c",
-        enabled: true,
-        executorId: "revision-agent",
-        outcomes: [
-          {
-            id: "outcome-c",
-            label: "B",
-            destinationStatusId: "status-b",
-            enabled: true,
-          },
-        ],
-      },
-    ]);
-    expect(result.warnings.some((issue) => issue.id === "unreachable-status")).toBe(true);
-  });
-
-  it("allows legitimate revision self-loops", () => {
-    const result = validateRules([
-      {
-        id: "rule-a",
-        sourceStatusId: "status-a",
-        enabled: true,
-        executorId: "revision-agent",
-        outcomes: [
-          {
-            id: "outcome-a",
-            label: "Retry",
-            destinationStatusId: "status-a",
-            enabled: true,
-          },
-        ],
-      },
-    ]);
-    expect(result.errors.some((issue) => issue.id === "invalid-self-loop")).toBe(false);
-  });
-
-  it("reports model-not-in-catalog when catalog metadata is loaded", () => {
     const result = validateOperationsDraft({
-      draft: {
-        ...baseDraft,
-        rules: [
-          {
-            id: "rule-1",
-            sourceStatusId: "status-a",
-            enabled: true,
-            executorId: "planner-agent",
-            modelSelection: {
-              modelId: "missing-model",
-              displayNameAtSelection: "Missing",
-              parameters: [],
-            },
-            outcomes: [
-              {
-                id: "outcome-1",
-                label: "Done",
-                destinationStatusId: "status-b",
-                enabled: true,
-              },
-            ],
-          },
-        ],
-      },
-      statuses,
-      executors: getExecutorCatalog(),
+      draft: baseDraft,
+      statuses: [],
       modelCatalog: [],
       currentWorkflowMappings: [],
-      catalogLoadMetadata: { statusCatalog: "loaded", modelCatalog: "loaded" },
+      config,
     });
-    expect(result.errors.some((issue) => issue.id === "model-not-in-catalog")).toBe(true);
+    expect(result.errors.some((issue) => issue.id === "noncanonical-config-override")).toBe(
+      true,
+    );
+  });
+
+  it("forwards canonical validation violations as errors", () => {
+    const result = validateOperationsDraft({
+      draft: baseDraft,
+      statuses: [],
+      modelCatalog: [],
+      currentWorkflowMappings: [],
+      canonicalValidation: {
+        valid: false,
+        violations: [
+          {
+            kind: "missing-status",
+            message: 'Required status "Blocked" is missing.',
+            statusKey: "blocked",
+          },
+        ],
+        resolvedStatuses: {},
+      },
+    });
+    expect(result.errors.some((issue) => issue.id === "canonical-missing-status")).toBe(true);
   });
 
   it("emits limitation warnings instead of false catalog errors when unavailable", () => {
     const result = validateOperationsDraft({
       draft: {
         ...baseDraft,
-        rules: [
-          {
-            id: "rule-1",
-            sourceStatusId: "missing-status",
-            enabled: true,
-            executorId: "human-decision",
-            modelSelection: {
-              modelId: "missing-model",
-              displayNameAtSelection: "Missing",
-              parameters: [],
-            },
-            outcomes: [
-              {
-                id: "outcome-1",
-                label: "Done",
-                destinationStatusId: "missing-dest",
-                enabled: true,
-              },
-            ],
+        phaseModelSettings: {
+          planning: {
+            modelId: "missing-model",
+            displayNameAtSelection: "Missing",
+            parameters: [],
           },
-        ],
+        },
       },
       statuses: [],
-      executors: getExecutorCatalog(),
       modelCatalog: [
         {
           id: "catalog-unavailable",
@@ -381,9 +201,24 @@ describe("operations validation", () => {
       currentWorkflowMappings: [],
       catalogLoadMetadata: { statusCatalog: "unavailable", modelCatalog: "unavailable" },
     });
-    expect(result.errors.some((issue) => issue.id === "missing-source-status")).toBe(false);
-    expect(result.errors.some((issue) => issue.id === "model-not-in-catalog")).toBe(false);
+    expect(result.errors.some((issue) => issue.id === "invalid-phase-model")).toBe(false);
     expect(result.warnings.some((issue) => issue.id === "status-catalog-unavailable")).toBe(true);
     expect(result.warnings.some((issue) => issue.id === "model-catalog-unavailable")).toBe(true);
+  });
+
+  it("surfaces migration notice as info", () => {
+    const result = validateOperationsDraft({
+      draft: {
+        ...baseDraft,
+        metadata: {
+          migratedFromV1: true,
+          migrationNotice: "Prototype workflow rules were discarded.",
+        },
+      },
+      statuses: [],
+      modelCatalog: [],
+      currentWorkflowMappings: [],
+    });
+    expect(result.infos.some((issue) => issue.id === "draft-migration-notice")).toBe(true);
   });
 });
