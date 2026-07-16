@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   normalizeHarnessEnvPaths,
   resolveHarnessRepoRoot,
+  resolveHarnessSourceRoot,
 } from "../../src/gui/repo-root.js";
 
 describe("resolveHarnessRepoRoot", () => {
@@ -56,5 +57,34 @@ describe("resolveHarnessRepoRoot", () => {
     expect(process.env.HARNESS_CONFIG_PATH).toBe(
       path.join(tempRoot, ".harness/config.local.json"),
     );
+  });
+});
+
+describe("resolveHarnessSourceRoot", () => {
+  let tempRoot = "";
+
+  beforeEach(async () => {
+    delete process.env.HARNESS_REPO_ROOT;
+    delete process.env.P_DEV_HOME;
+    tempRoot = await mkdtemp(path.join(tmpdir(), "harness-source-root-"));
+    await writeFile(
+      path.join(tempRoot, "package.json"),
+      JSON.stringify({ name: "agentic-product-development-harness" }),
+      "utf8",
+    );
+    const guiDir = path.join(tempRoot, "apps", "gui");
+    await mkdir(guiDir, { recursive: true });
+  });
+
+  afterEach(async () => {
+    delete process.env.HARNESS_REPO_ROOT;
+    delete process.env.P_DEV_HOME;
+    await rm(tempRoot, { recursive: true, force: true });
+  });
+
+  it("walks up from apps/gui even when P_DEV_HOME points elsewhere", () => {
+    process.env.P_DEV_HOME = path.join(tempRoot, "operator-workspace");
+    const guiDir = path.join(tempRoot, "apps", "gui");
+    expect(resolveHarnessSourceRoot(guiDir)).toBe(tempRoot);
   });
 });

@@ -147,6 +147,11 @@ export function ConfigureExperience({
   >({});
   const [workflowAwaitingMerge, setWorkflowAwaitingMerge] = useState(false);
   const previousReadinessStepRef = useRef<FirstRunStepId | null>(null);
+  const pinnedGuidedDisplayStepRef = useRef<GuidedDisplayStepId | null>(null);
+
+  const clearPinnedGuidedDisplayStep = useCallback(() => {
+    pinnedGuidedDisplayStepRef.current = null;
+  }, []);
   const stepVisitCountsRef = useRef<Partial<Record<GuidedDisplayStepId, number>>>(
     {},
   );
@@ -234,12 +239,14 @@ export function ConfigureExperience({
       return;
     }
     if (shouldReadinessAdvanceGuidedDisplay(previousStepId, nextStepId)) {
-      setDisplayedGuidedStep(
-        defaultGuidedDisplayStep({
-          currentStepId: nextStepId,
-          summary,
-        }),
-      );
+      if (pinnedGuidedDisplayStepRef.current === null) {
+        setDisplayedGuidedStep(
+          defaultGuidedDisplayStep({
+            currentStepId: nextStepId,
+            summary,
+          }),
+        );
+      }
     }
     previousReadinessStepRef.current = nextStepId;
   }, [readiness.currentStepId, summary]);
@@ -382,6 +389,7 @@ export function ConfigureExperience({
   );
 
   const handleConnectServicesComplete = useCallback(async () => {
+    clearPinnedGuidedDisplayStep();
     recordStepCompleted("connect-services");
     setDisplayedGuidedStep(GUIDED_DISPLAY_STEP_AFTER_CONNECT_SERVICES);
     try {
@@ -393,35 +401,39 @@ export function ConfigureExperience({
     } catch {
       // Fall back to env presence synced via handleSummaryUpdated after Step 1 save.
     }
-  }, [recordStepCompleted]);
+  }, [clearPinnedGuidedDisplayStep, recordStepCompleted]);
 
   const handleLinearWorkspaceContinue = useCallback(() => {
+    clearPinnedGuidedDisplayStep();
     recordStepCompleted("linear-workspace");
     setDisplayedGuidedStep("vercel-bridge");
-  }, [recordStepCompleted]);
+  }, [clearPinnedGuidedDisplayStep, recordStepCompleted]);
 
   const handleVercelBridgeContinue = useCallback(() => {
+    clearPinnedGuidedDisplayStep();
     recordStepCompleted("vercel-bridge");
     setDisplayedGuidedStep("choose-target-repos");
-  }, [recordStepCompleted]);
+  }, [clearPinnedGuidedDisplayStep, recordStepCompleted]);
 
   const handleLocalReadinessReviewed = useCallback(() => {
+    clearPinnedGuidedDisplayStep();
     recordStepCompleted("local-readiness");
     setUiState((current) => ({
       ...current,
       localReadinessReviewed: true,
     }));
     setDisplayedGuidedStep(GUIDED_DISPLAY_STEP_AFTER_LOCAL_READINESS);
-  }, [recordStepCompleted]);
+  }, [clearPinnedGuidedDisplayStep, recordStepCompleted]);
 
   const handleCloudSecretsReviewed = useCallback(() => {
+    clearPinnedGuidedDisplayStep();
     recordStepCompleted("cloud-secrets");
     setUiState((current) => ({
       ...current,
       cloudSecretsReviewed: true,
     }));
     setDisplayedGuidedStep(GUIDED_DISPLAY_STEP_AFTER_CLOUD_SECRETS);
-  }, [recordStepCompleted]);
+  }, [clearPinnedGuidedDisplayStep, recordStepCompleted]);
 
   const handleSummaryUpdated = useCallback((nextSummary: SetupGuiViewModel) => {
     setSummary(nextSummary);
@@ -474,6 +486,7 @@ export function ConfigureExperience({
   }, [observabilityNonce, recordStepCompleted]);
 
   const handleGuidedLocalApplySuccess = useCallback(() => {
+    clearPinnedGuidedDisplayStep();
     recordStepCompleted("choose-target-repos");
     setUiState((current) => ({
       ...current,
@@ -484,7 +497,7 @@ export function ConfigureExperience({
       localPreviewStale: false,
     }));
     setDisplayedGuidedStep(GUIDED_DISPLAY_STEP_AFTER_LOCAL_APPLY);
-  }, [recordStepCompleted]);
+  }, [clearPinnedGuidedDisplayStep, recordStepCompleted]);
 
   const handleGuidedLocalStepChange = useCallback((step: GuidedLocalSetupStep) => {
     setDisplayedGuidedStep(step);
@@ -538,6 +551,7 @@ export function ConfigureExperience({
       currentStepId: readiness.currentStepId,
     });
     setDisplayedGuidedStep(nextDisplay);
+    pinnedGuidedDisplayStepRef.current = nextDisplay;
     invalidateDownstreamFromGuidedStep(nextDisplay);
   }, [
     displayedGuidedStep,

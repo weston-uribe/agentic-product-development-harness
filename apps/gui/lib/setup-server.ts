@@ -1,6 +1,7 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
+import path from "node:path";
 import { resolveHarnessRepoRoot } from "@harness/gui/repo-root";
 import {
   applyLocalSetupFiles,
@@ -149,6 +150,10 @@ export interface RemoteTargetWorkflowFormPayload {
 }
 
 function resolveCwd(): string {
+  const workspace = process.env.P_DEV_HOME?.trim();
+  if (workspace) {
+    return path.resolve(workspace);
+  }
   return resolveHarnessRepoRoot();
 }
 

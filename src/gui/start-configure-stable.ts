@@ -16,12 +16,12 @@ import {
   stopChildProcess,
   stopStaleGuiServers,
 } from "./dev-server-process.js";
-import { resolveHarnessRepoRoot } from "./repo-root.js";
+import { resolveHarnessSourceRoot } from "./repo-root.js";
 
 const STARTUP_TIMEOUT_MS = 90_000;
 
 async function main(): Promise<void> {
-  const repoRoot = resolveHarnessRepoRoot(
+  const repoRoot = resolveHarnessSourceRoot(
     path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.."),
   );
   const guiDir = path.join(repoRoot, "apps", "gui");

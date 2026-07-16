@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveAvailableGuiPort } from "./port.js";
 
-import { resolveHarnessRepoRoot } from "./repo-root.js";
+import { resolveHarnessSourceRoot } from "./repo-root.js";
 
 interface CliOptions {
   port?: number;
@@ -73,7 +73,7 @@ async function main(): Promise<void> {
     port: cli.port,
   });
 
-  const repoRoot = resolveHarnessRepoRoot(
+  const repoRoot = resolveHarnessSourceRoot(
     path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.."),
   );
   const guiDir = path.join(repoRoot, "apps", "gui");
