@@ -77,7 +77,7 @@ async function main(): Promise<void> {
     path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../.."),
   );
   const guiDir = path.join(repoRoot, "apps", "gui");
-  const route = cli.route ?? "/settings/configure";
+  const route = cli.route ?? "/";
   const url = `http://${host}:${port}${route}`;
 
   if (port !== requestedPort) {

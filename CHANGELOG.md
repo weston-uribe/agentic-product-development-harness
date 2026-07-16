@@ -10,18 +10,22 @@ V0.3.0 is a **GitHub source release** plus a **public npm CLI package** (`p-dev-
 
 - Canonical product-development workflow descriptor (`src/workflow/canonical-product-development-workflow.ts`) with executable audit alignment, repository-specific merge paths, and optional Duplicate status contract.
 - Fail-closed canonical Linear workflow preflight before authoritative runner side effects, plus noncanonical status-name override detection in doctor/readiness paths.
-- Operations V2 draft schema: canonical layout and draft-only phase model settings with safe migration from prototype V1 drafts.
-- Canonical Operations UI: read-only workflow canvas, workflow health panel, expandable workflow cards, and session-scoped sidebar card state.
+- Production Workflow page at `/workflow` with role-based Planner/Builder model configuration, local+cloud autosave via `PUT /api/workflow/models`, and trimmed bootstrap payload (`GET /api/workflow/bootstrap`).
+- `roleModels` harness config schema with durable-shape Zod validation at load time and Cursor catalog validation on save.
+- Setup-aware launcher default route (`/`) with fail-safe redirect to Configure or Workflow based on durable local evidence only.
+- Configure completion handoff: **Continue to Workflow** button after setup completes.
+- Doctor diagnostics for Planner/Builder model resolution, workflow cloud sync fingerprint, and sync evidence bookkeeping.
 
 ### Fixed
 
-- Operations revision success path visualization now returns to **PM Review** (matching runtime revision behavior) instead of the obsolete handoff/PR Open prototype edge.
-- Operations GUI: repaired draft save-state semantics, truthful save-time validation, null-bootstrap handling, graph entry/unreachable warnings, viewport persistence and Fit View loop prevention, visible request-lock during save/reset, fingerprint-derived dirty state separate from request errors, explicit catalog load metadata for validation limitations, selection clearing, status removal/restoration disclosure, and unsaved-change protection.
+- Workflow revision success path visualization returns to **PM Review** (matching runtime revision behavior).
+- Workflow model autosave: compare-and-swap fingerprints, sequence-id stale response protection, confirmed-failure rollback only, and post-transaction sync evidence.
 
 ### Changed
 
-- Operations GUI refactored from generic workflow editor to canonical workflow visualization and draft-only model configuration; removed rule/outcome builder, Inspector, and PR Review Agent prototype surface.
-- Linear status contract, dispatch triggers, setup planning, and Operations bootstrap now derive required statuses and triggers from the canonical descriptor.
+- Workflow GUI is cards-only (health panel + expandable workflow cards); removed Operations canvas, draft persistence, sidebar/toolbar, and `@xyflow/react` dependency.
+- Runtime agents resolve Planner vs Builder models from `roleModels` with truthful manifest evidence (Builder model recorded only when integration-repair agent actually runs).
+- Linear status contract, dispatch triggers, setup planning, and Workflow bootstrap derive required statuses and triggers from the canonical descriptor.
 - Configure GUI application header: compact `PDev Harness` brand lockup, sticky background-matched header, and Settings dropdown with theme toggle and Configure navigation.
 - Guided Configure flow: seven-stage display-only progress indicator and refined Step 1 service setup copy and workspace button labels.
 - Configure GUI copy: page title `Initial Harness Configuration`, simplified Cursor/Vercel connected-account status messages, and updated Step 3 Vercel settings description.

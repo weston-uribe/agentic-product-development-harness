@@ -139,7 +139,7 @@ describe.skipIf(!isCleanEnoughForPackagePack())("p-dev packed artifact", () => {
     ) as { version: string };
     expect(manifest.version).toBe(sourcePackageJson.version);
     expect(manifest.private).toBeUndefined();
-    expect(manifest.dependencies["@xyflow/react"]).toBe("^12.11.2");
+    expect(manifest.dependencies["posthog-node"]).toBeDefined();
   });
 
   it("ships a valid workspace snapshot manifest", () => {

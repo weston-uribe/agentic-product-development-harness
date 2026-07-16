@@ -33,14 +33,24 @@ import { inferVercelReadyFromComments } from "../../preview/production-from-merg
 import { buildIntegrationRepairPrompt } from "../../prompts/integration-repair-builder.js";
 import type { ResolvedTarget } from "../../resolver/target-repo.js";
 import type { ParsedIssue } from "../../types/parsed-issue.js";
+import { manifestModelEvidence } from "../../cursor/model.js";
 import { MergeError } from "../errors.js";
 
 const DETERMINISTIC_UPDATE_ATTEMPTS = 2;
 const AGENT_REPAIR_ATTEMPTS = 1;
 
+export interface IntegrationRepairAgentEvidence {
+  model: string;
+  modelRole: "builder";
+  modelParams: Array<{ id: string; value: string }> | null;
+  cursorAgentId: string;
+  cursorRunId: string;
+}
+
 export interface IntegrationRepairResult {
   inspection: PrInspectionResult;
   validationSummary: string | null;
+  agentEvidence?: IntegrationRepairAgentEvidence;
 }
 
 export interface IntegrationRepairOptions {
@@ -406,6 +416,9 @@ async function attemptAgentRepair(
 
   try {
     let observed;
+    let repairAgentId: string | null = null;
+    let repairRunId: string | null = null;
+    const builderEvidence = manifestModelEvidence(options.config, "builder");
     for (let attempt = 1; attempt <= AGENT_REPAIR_ATTEMPTS; attempt += 1) {
       await options.events.log("repair_agent_started", "info", {
         attempt,
@@ -423,6 +436,8 @@ async function attemptAgentRepair(
           expectedPrUrl: inspectionBeforeAgent.url,
           apiKey: options.cursorApiKey,
           onAgentCreated: async ({ agentId, runId: cursorRunId }) => {
+            repairAgentId = agentId;
+            repairRunId = cursorRunId;
             await postRepairComment(options, {
               phase: "repair_agent_start",
               title: "Integration repair agent started",
@@ -515,6 +530,17 @@ async function attemptAgentRepair(
       inspection: checked.inspection,
       validationSummary:
         report.validation_summary ?? checked.validationSummary ?? observed.assistantText,
+      ...(repairAgentId && repairRunId
+        ? {
+            agentEvidence: {
+              model: builderEvidence.model,
+              modelRole: "builder" as const,
+              modelParams: builderEvidence.modelParams,
+              cursorAgentId: repairAgentId,
+              cursorRunId: repairRunId,
+            },
+          }
+        : {}),
     };
   } catch (error) {
     await options.events.log("repair_failed", "error", {

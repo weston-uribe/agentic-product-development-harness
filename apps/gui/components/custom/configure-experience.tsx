@@ -43,6 +43,7 @@ import {
 import type { RemoteTargetWorkflowApplyResult } from "@harness/setup/remote-actions";
 import type { TargetWorkflowFinalizationResult } from "@harness/setup/target-workflow-finalization-types";
 import { Button } from "@/components/ui/button";
+import Link from "next/link";
 import { StatusBadge } from "@/components/custom/status-badge";
 import { ReadinessBanner } from "@/components/custom/readiness-banner";
 import { SetupDashboard } from "@/components/custom/setup-dashboard";
@@ -669,19 +670,20 @@ export function ConfigureExperience({
         return (
           <SectionCard
             title="Setup complete"
-            description="Harness setup is ready for a future first run."
+            description="Harness setup is ready for workflow configuration and future runs."
           >
             <div className={SPACING.stackSm}>
               <StatusBadge label="Setup complete" variant="success" />
               <p className="text-sm text-muted-foreground">
                 Your harness setup is ready. The target workflow install finished
                 automatically when production verification succeeded.
-                A later milestone can add a safe first-issue dry run or no-op
-                harness validation.
               </p>
               <p className="text-sm text-muted-foreground">
                 {readiness.prohibitedActionsNote}
               </p>
+              <Button asChild>
+                <Link href="/workflow">Continue to Workflow</Link>
+              </Button>
             </div>
           </SectionCard>
         );

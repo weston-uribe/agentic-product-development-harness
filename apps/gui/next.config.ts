@@ -8,7 +8,6 @@ const repoRoot = path.resolve(
 );
 
 const nextConfig: NextConfig = {
-  transpilePackages: ["@xyflow/react"],
   serverExternalPackages: ["@cursor/sdk", "@linear/sdk", "@sentry/node"],
   // GitHub Codespaces / forwarded dev URLs use *.app.github.dev as the browser Host.
   allowedDevOrigins: ["*.app.github.dev"],

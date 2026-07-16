@@ -106,9 +106,9 @@ describe("p-dev launch", () => {
       spawnImpl: spawnImpl as never,
     });
 
-    expect(result.url).toBe("http://localhost:3000/settings/configure");
+    expect(result.url).toBe("http://localhost:3000/");
     expect(result.workspaceDir).toBe(workspaceDir);
-    expect(openedUrls).toEqual(["http://localhost:3000/settings/configure"]);
+    expect(openedUrls).toEqual(["http://localhost:3000/"]);
     expect(spawnImpl).toHaveBeenCalledOnce();
 
     const spawnArgs = spawnImpl.mock.calls[0] as [string, string[]];

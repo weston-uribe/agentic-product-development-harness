@@ -49,10 +49,10 @@ import { pollForVercelPreview } from "../../preview/vercel-from-pr.js";
 import {
   createRevisionAgent,
   disposeAgent,
-  resolveModelId,
   sendAndObserve,
   type CursorCancelOutcome,
 } from "../../agents/index.js";
+import { manifestModelEvidence } from "../../cursor/model.js";
 import { normalizeRepoUrl } from "../../resolver/normalize-repo.js";
 import { buildRevisionPrompt } from "../../prompts/revision-builder.js";
 import { RevisionError } from "../errors.js";
@@ -241,7 +241,13 @@ export async function executeRevisionPhase(
       prUrl: null,
       previewUrl: null,
       validationSummary: null,
-      model: preflight.config ? resolveModelId(preflight.config) : null,
+      model: preflight.config
+        ? manifestModelEvidence(preflight.config, "builder").model
+        : null,
+      modelRole: preflight.config ? "builder" : null,
+      modelParams: preflight.config
+        ? manifestModelEvidence(preflight.config, "builder").modelParams
+        : null,
       ...emptyManifestFields(),
     };
     return writeFinalManifest(
@@ -285,7 +291,8 @@ export async function executeRevisionPhase(
   let pmFeedbackCommentId: string | null = null;
   let enteredRevising = false;
   let cursorCleanup: CursorCancelOutcome | null = null;
-  const model = resolveModelId(config);
+  const builderModel = manifestModelEvidence(config, "builder");
+  const model = builderModel.model;
   const commentsWritten: string[] = [];
 
   const footerBase = {
@@ -780,6 +787,8 @@ export async function executeRevisionPhase(
     pmFeedbackCommentId,
     ...emptyMergeManifestFields(),
     model,
+    modelRole: "builder",
+    modelParams: builderModel.modelParams,
   };
 
   return writeFinalManifest(

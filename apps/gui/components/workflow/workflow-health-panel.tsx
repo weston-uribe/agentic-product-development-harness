@@ -1,13 +1,13 @@
 "use client";
 
-import type { OperationsBootstrapPayload } from "@harness/operations/types";
+import type { WorkflowBootstrapPayload } from "@harness/workflow-page/types";
 import {
   countUnhealthyStatuses,
   isWorkflowGloballyHealthy,
-} from "@/lib/operations/workflow-health";
+} from "@/lib/workflow/workflow-health";
 
 type WorkflowHealthPanelProps = {
-  bootstrap: OperationsBootstrapPayload;
+  bootstrap: WorkflowBootstrapPayload;
 };
 
 export function WorkflowHealthPanel({ bootstrap }: WorkflowHealthPanelProps) {

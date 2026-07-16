@@ -22,7 +22,6 @@ import {
 } from "../../linear/writer.js";
 import { GitHubClient } from "../../github/client.js";
 import { resolvePromotionProof } from "../../github/commit-reachability.js";
-import { resolveModelId } from "../../agents/index.js";
 import { resolveTargetRepo } from "../../resolver/target-repo.js";
 import { loadHarnessConfig } from "../../config/load-config.js";
 import { resolveHarnessWorkspaceRootFromConfigSource } from "../../config/workspace-root.js";
@@ -108,7 +107,7 @@ export async function executeProductionSyncForIssue(
     runId,
   );
   const events = new EventLogger(runDirectory);
-  const model = resolveModelId(config);
+  const model = "";
 
   let issue: LinearIssueSnapshot | null = null;
   let resolved: ResolvedTarget | null = null;

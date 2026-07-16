@@ -1,6 +1,6 @@
 import type { CanonicalStatusKey } from "@harness/workflow/canonical-product-development-workflow";
 import type { CanonicalValidationViolation } from "@harness/workflow/canonical-workflow-validation";
-import type { OperationsBootstrapPayload } from "@harness/operations/types";
+import type { WorkflowBootstrapPayload } from "@harness/workflow-page/types";
 
 export function isIgnorableStatusViolation(
   violation: CanonicalValidationViolation,
@@ -40,7 +40,7 @@ export function countUnhealthyStatuses(
 }
 
 export function isWorkflowGloballyHealthy(
-  bootstrap: OperationsBootstrapPayload,
+  bootstrap: WorkflowBootstrapPayload,
 ): boolean {
   const { healthState, violations } = bootstrap.canonicalWorkflow;
   if (healthState === "linear-unavailable") {

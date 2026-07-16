@@ -1,6 +1,7 @@
 import { harnessConfigSchema, type HarnessConfig } from "../config/schema.js";
 import { validateRepoClosure } from "../config/load-config.js";
 import { DEFAULT_MODEL_ID } from "../config/defaults.js";
+import { LEGACY_COMPOSER_MODEL_ID, STANDARD_MODEL_PARAMS } from "../cursor/model.js";
 import type { SetupConfigBuildInput } from "./setup-state.js";
 
 const EXAMPLE_LINEAR_STATUSES = {
@@ -30,6 +31,15 @@ const EXAMPLE_LINEAR_STATUSES = {
 export function buildHarnessConfig(input: SetupConfigBuildInput): HarnessConfig {
   const modelId = input.modelId ?? DEFAULT_MODEL_ID;
   const allowedTargetRepos = [...new Set(input.repos.map((repo) => repo.targetRepo))];
+  const defaultParams =
+    modelId === LEGACY_COMPOSER_MODEL_ID || modelId === DEFAULT_MODEL_ID
+      ? [...STANDARD_MODEL_PARAMS]
+      : [];
+
+  const roleSelection = {
+    id: modelId,
+    ...(defaultParams.length ? { params: defaultParams } : {}),
+  };
 
   const config = harnessConfigSchema.parse({
     version: 1,
@@ -38,6 +48,10 @@ export function buildHarnessConfig(input: SetupConfigBuildInput): HarnessConfig 
       model: { id: modelId },
     },
     defaultModel: { id: modelId },
+    roleModels: {
+      planner: roleSelection,
+      builder: roleSelection,
+    },
     linear: {
       teamKey: input.linearTeamKey ?? "TEAM",
       ...EXAMPLE_LINEAR_STATUSES,

@@ -44,6 +44,6 @@ describe("p-dev package manifest", () => {
         "LICENSE",
       ]),
     );
-    expect(manifest.dependencies["@xyflow/react"]).toBe("^12.11.2");
+    expect(manifest.dependencies["posthog-node"]).toBeDefined();
   });
 });

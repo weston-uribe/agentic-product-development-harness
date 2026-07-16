@@ -17,7 +17,10 @@ export async function disposeCloudAgent(agent: SDKAgent): Promise<void> {
     }),
   ]);
 }
-import { resolveModel } from "./model.js";
+import {
+  resolveBuilderModel,
+  resolvePlannerModel,
+} from "./model.js";
 import type { HarnessConfig } from "../config/types.js";
 
 export interface PlanningAgentParams {
@@ -42,7 +45,7 @@ export type IntegrationRepairAgentParams = RevisionAgentParams;
 export async function createPlanningCloudAgent(
   params: PlanningAgentParams,
 ): Promise<SDKAgent> {
-  const model: ModelSelection = resolveModel(params.config);
+  const model: ModelSelection = resolvePlannerModel(params.config);
   return Agent.create({
     apiKey: params.apiKey,
     model,
@@ -63,7 +66,7 @@ export async function createPlanningCloudAgent(
 export async function createImplementationCloudAgent(
   params: ImplementationAgentParams,
 ): Promise<SDKAgent> {
-  const model: ModelSelection = resolveModel(params.config);
+  const model: ModelSelection = resolveBuilderModel(params.config);
   return Agent.create({
     apiKey: params.apiKey,
     model,
@@ -84,7 +87,7 @@ export async function createImplementationCloudAgent(
 export async function createRevisionCloudAgent(
   params: RevisionAgentParams,
 ): Promise<SDKAgent> {
-  const model: ModelSelection = resolveModel(params.config);
+  const model: ModelSelection = resolveBuilderModel(params.config);
   return Agent.create({
     apiKey: params.apiKey,
     model,
@@ -106,7 +109,7 @@ export async function createRevisionCloudAgent(
 export async function createIntegrationRepairCloudAgent(
   params: IntegrationRepairAgentParams,
 ): Promise<SDKAgent> {
-  const model: ModelSelection = resolveModel(params.config);
+  const model: ModelSelection = resolveBuilderModel(params.config);
   return Agent.create({
     apiKey: params.apiKey,
     model,

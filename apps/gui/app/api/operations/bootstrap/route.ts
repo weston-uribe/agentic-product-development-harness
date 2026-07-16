@@ -1,24 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
-import {
-  loadOperationsBootstrap,
-  sanitizeBootstrapPayload,
-} from "@/lib/operations-server";
-import { resolveOperationsSourceContext } from "@harness/operations/source-context";
+import { NextResponse } from "next/server";
 
-export const dynamic = "force-dynamic";
-
-export async function GET(request: NextRequest): Promise<NextResponse> {
-  const source = request.nextUrl.searchParams.get("source");
-  const fixture = request.nextUrl.searchParams.get("fixture");
-  const scope = request.nextUrl.searchParams.get("scope");
-  const context = resolveOperationsSourceContext({ source, fixture, scope });
-  const payload = sanitizeBootstrapPayload(
-    await loadOperationsBootstrap({
-      source,
-      fixture,
-      scope,
-      fixturesEnabled: context.fixturesEnabled,
-    }),
-  );
-  return NextResponse.json(payload);
+export async function GET(request: Request) {
+  const url = new URL(request.url);
+  const target = new URL("/api/workflow/bootstrap", url.origin);
+  target.search = url.search;
+  return NextResponse.redirect(target, 307);
 }

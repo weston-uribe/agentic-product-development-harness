@@ -99,6 +99,8 @@ export interface RunManifest {
   mergedAt: string | null;
   deploymentUrl: string | null;
   model: string | null;
+  modelRole?: "planner" | "builder" | null;
+  modelParams?: Array<{ id: string; value: string }> | null;
 }
 
 export type RunEventName =

@@ -30,10 +30,10 @@ import {
 import {
   createImplementationAgent,
   disposeAgent,
-  resolveModelId,
   sendAndObserve,
   type CursorCancelOutcome,
 } from "../../agents/index.js";
+import { manifestModelEvidence } from "../../cursor/model.js";
 import { assertPrBaseBranchMatches } from "../../github/base-branch.js";
 import { GitHubClient } from "../../github/client.js";
 import { classifyGitHubError, inspectPullRequest } from "../../github/pr-inspector.js";
@@ -175,7 +175,13 @@ export async function executeImplementationPhase(
       previousHandoffRunId: null,
       pmFeedbackCommentId: null,
       ...emptyMergeManifestFields(),
-      model: preflight.config ? resolveModelId(preflight.config) : null,
+      model: preflight.config
+        ? manifestModelEvidence(preflight.config, "builder").model
+        : null,
+      modelRole: preflight.config ? "builder" : null,
+      modelParams: preflight.config
+        ? manifestModelEvidence(preflight.config, "builder").modelParams
+        : null,
     };
     return writeFinalManifest(
       manifest,
@@ -213,7 +219,8 @@ export async function executeImplementationPhase(
   let validationSummary: string | null = null;
   let enteredBuilding = false;
   let cursorCleanup: CursorCancelOutcome | null = null;
-  const model = resolveModelId(config);
+  const builderModel = manifestModelEvidence(config, "builder");
+  const model = builderModel.model;
   const commentsWritten: string[] = [];
   const branchName = buildBranchName(issue.identifier, issue.title, config);
 
@@ -602,6 +609,8 @@ export async function executeImplementationPhase(
     pmFeedbackCommentId: null,
     ...emptyMergeManifestFields(),
     model,
+    modelRole: "builder",
+    modelParams: builderModel.modelParams,
   };
 
   return writeFinalManifest(

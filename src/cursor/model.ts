@@ -1,37 +1,20 @@
 import type { HarnessConfig } from "../config/types.js";
 import { DEFAULT_MODEL_ID } from "../config/defaults.js";
+import type { RoleModelRole } from "../config/role-models.js";
 import type { ModelParameterValue, ModelSelection } from "@cursor/sdk";
 
 /**
- * Standard Composer 2.5 model parameters for every harness-created Cursor Cloud
- * agent.
+ * Standard Composer 2.5 model parameters for legacy global-model resolution.
  *
- * The harness intentionally launches Cursor Cloud agents with the standard /
- * basic Composer 2.5 configuration to control Cursor usage cost. It must NOT
- * request any premium / faster / max variant.
- *
- * The Cursor SDK exposes model selection as `ModelSelection = { id, params? }`
- * (see `@cursor/sdk`). `params` (an array of `{ id, value }`) is the lever the
- * public SDK surface exposes for opting into model variants.
- *
- * Evidence from `Cursor.models.list()` for `composer-2.5`:
- *   - Its only parameter is `fast` (`"true"` / `"false"`).
- *   - The **default variant is `fast: "true"`** — so when `params` is omitted,
- *     the cloud server resolves the Fast variant, which is why harness agents
- *     showed up as "Composer 2.5 Fast" in the usage dashboard.
- *   - There is no `max_mode` / reasoning parameter exposed for this model, so
- *     the SDK cannot request Max mode / high reasoning here; the safest,
- *     lowest-cost configuration is simply Fast disabled.
- *
- * We therefore pin `fast: "false"` explicitly so agents always use standard
- * Composer 2.5 instead of the Fast default. Changing model or mode must be a
- * deliberate config/code change here — never an accidental default.
+ * When roleModels is absent, legacy configs resolve with fast:false pinned.
  */
 export const STANDARD_MODEL_PARAMS: readonly ModelParameterValue[] = [
   { id: "fast", value: "false" },
 ];
 
-export function resolveModelId(config: HarnessConfig): string {
+export const LEGACY_COMPOSER_MODEL_ID = "composer-2.5";
+
+function resolveLegacyModelId(config: HarnessConfig): string {
   return (
     config.agentProvider?.model?.id ??
     config.defaultModel?.id ??
@@ -39,9 +22,107 @@ export function resolveModelId(config: HarnessConfig): string {
   );
 }
 
-export function resolveModel(config: HarnessConfig): ModelSelection {
+function legacyParamsForModelId(modelId: string): ModelParameterValue[] {
+  if (modelId === LEGACY_COMPOSER_MODEL_ID || modelId === DEFAULT_MODEL_ID) {
+    return [...STANDARD_MODEL_PARAMS];
+  }
+  return [];
+}
+
+function resolveExplicitRoleSelection(
+  config: HarnessConfig,
+  role: RoleModelRole,
+): ModelSelection | undefined {
+  const selection = config.roleModels?.[role];
+  if (!selection?.id) {
+    return undefined;
+  }
+
   return {
-    id: resolveModelId(config),
-    params: [...STANDARD_MODEL_PARAMS],
+    id: selection.id,
+    ...(selection.params?.length ? { params: [...selection.params] } : {}),
+  };
+}
+
+export function resolveModelId(config: HarnessConfig): string {
+  return resolveLegacyModelId(config);
+}
+
+export function resolveModelIdForRole(
+  config: HarnessConfig,
+  role: RoleModelRole,
+): string {
+  const explicit = config.roleModels?.[role]?.id;
+  if (explicit) {
+    return explicit;
+  }
+  return resolveLegacyModelId(config);
+}
+
+export function resolvePlannerModel(config: HarnessConfig): ModelSelection {
+  const explicit = resolveExplicitRoleSelection(config, "planner");
+  if (explicit) {
+    return explicit;
+  }
+
+  const id = resolveLegacyModelId(config);
+  const params = legacyParamsForModelId(id);
+  return params.length ? { id, params } : { id };
+}
+
+export function resolveBuilderModel(config: HarnessConfig): ModelSelection {
+  const explicit = resolveExplicitRoleSelection(config, "builder");
+  if (explicit) {
+    return explicit;
+  }
+
+  const id = resolveLegacyModelId(config);
+  const params = legacyParamsForModelId(id);
+  return params.length ? { id, params } : { id };
+}
+
+export function resolveModelForRole(
+  config: HarnessConfig,
+  role: RoleModelRole,
+): ModelSelection {
+  return role === "planner"
+    ? resolvePlannerModel(config)
+    : resolveBuilderModel(config);
+}
+
+/** @deprecated Use resolveModelForRole(config, role) or role-specific helpers. */
+export function resolveModel(config: HarnessConfig): ModelSelection {
+  return resolvePlannerModel(config);
+}
+
+export function summarizeRoleModelSource(
+  config: HarnessConfig,
+  role: RoleModelRole,
+): "roleModels" | "agentProvider.model.id" | "defaultModel.id" | "code-default" {
+  if (config.roleModels?.[role]?.id) {
+    return "roleModels";
+  }
+  if (config.agentProvider?.model?.id) {
+    return "agentProvider.model.id";
+  }
+  if (config.defaultModel?.id) {
+    return "defaultModel.id";
+  }
+  return "code-default";
+}
+
+export function manifestModelEvidence(
+  config: HarnessConfig,
+  role: RoleModelRole,
+): {
+  model: string;
+  modelRole: RoleModelRole;
+  modelParams: Array<{ id: string; value: string }> | null;
+} {
+  const selection = resolveModelForRole(config, role);
+  return {
+    model: selection.id,
+    modelRole: role,
+    modelParams: selection.params?.length ? [...selection.params] : null,
   };
 }

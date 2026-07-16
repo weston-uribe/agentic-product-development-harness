@@ -3,33 +3,28 @@
 import { useEffect, useState } from "react";
 import type { CanonicalStatusKey } from "@harness/workflow/canonical-product-development-workflow";
 import { lookupCanonicalStatus } from "@harness/workflow/canonical-product-development-workflow";
-import type {
-  OperationsBootstrapPayload,
-  OperationsWorkflowDraft,
-} from "@harness/operations/types";
-import { getPhaseModelSetting } from "@harness/operations/canonical-graph";
+import type { WorkflowBootstrapPayload } from "@harness/workflow-page/types";
 import { AlertTriangle } from "lucide-react";
-import { WORKFLOW_OWNERSHIP_COLUMNS } from "@/lib/operations/workflow-ownership";
-import { getViolationForStatus } from "@/lib/operations/workflow-health";
-import { resolveStatusContent } from "@/lib/operations/workflow-status-content";
+import { WORKFLOW_OWNERSHIP_COLUMNS } from "@/lib/workflow/workflow-ownership";
+import { getViolationForStatus } from "@/lib/workflow/workflow-health";
+import { resolveStatusContent } from "@/lib/workflow/workflow-status-content";
 import {
   resolveModelDisplayName,
-  type PrototypeModelPhaseKey,
-} from "@/lib/operations/use-model-autosave";
+  type WorkflowModelPhaseKey,
+} from "@/lib/workflow/use-model-autosave";
 
 const EXPANDED_CARDS_KEY = "workflow-expanded-cards";
 
 type WorkflowCardsSectionProps = {
-  bootstrap: OperationsBootstrapPayload;
-  draft: OperationsWorkflowDraft;
+  bootstrap: WorkflowBootstrapPayload;
   disabled?: boolean;
-  onSelectModel: (phaseKey: PrototypeModelPhaseKey, modelId: string) => void;
+  onSelectModel: (phaseKey: WorkflowModelPhaseKey, modelId: string) => void;
   onUpdateModelParameter: (
-    phaseKey: PrototypeModelPhaseKey,
+    phaseKey: WorkflowModelPhaseKey,
     parameterId: string,
     value: string,
   ) => void;
-  saveStateLabel: (phaseKey: PrototypeModelPhaseKey) => string | null;
+  saveStateLabel: (phaseKey: WorkflowModelPhaseKey) => string | null;
 };
 
 function readExpandedCards(): Set<CanonicalStatusKey> {
@@ -53,7 +48,6 @@ function writeExpandedCards(keys: Set<CanonicalStatusKey>): void {
 
 export function WorkflowCardsSection({
   bootstrap,
-  draft,
   disabled = false,
   onSelectModel,
   onUpdateModelParameter,
@@ -79,10 +73,9 @@ export function WorkflowCardsSection({
     });
   };
 
-  const builderModelId = getPhaseModelSetting(draft, "implementation")?.modelId;
   const builderDisplayName = resolveModelDisplayName(
     bootstrap.modelCatalog,
-    builderModelId,
+    bootstrap.builderSelection.modelId,
   );
 
   return (
@@ -108,8 +101,6 @@ export function WorkflowCardsSection({
                 statusKey,
                 bootstrap.canonicalWorkflow.mergePathVariant,
               );
-              const plannerSelection = getPhaseModelSetting(draft, "planning");
-              const builderSelection = getPhaseModelSetting(draft, "implementation");
 
               return (
                 <div
@@ -157,8 +148,8 @@ export function WorkflowCardsSection({
                           phaseKey="planning"
                           disabled={disabled}
                           modelCatalog={bootstrap.modelCatalog}
-                          modelId={plannerSelection?.modelId ?? ""}
-                          parameters={plannerSelection?.parameters ?? []}
+                          modelId={bootstrap.plannerSelection.modelId}
+                          parameters={bootstrap.plannerSelection.parameters}
                           saveLabel={saveStateLabel("planning")}
                           onSelectModel={onSelectModel}
                           onUpdateModelParameter={onUpdateModelParameter}
@@ -170,8 +161,8 @@ export function WorkflowCardsSection({
                           phaseKey="implementation"
                           disabled={disabled}
                           modelCatalog={bootstrap.modelCatalog}
-                          modelId={builderSelection?.modelId ?? ""}
-                          parameters={builderSelection?.parameters ?? []}
+                          modelId={bootstrap.builderSelection.modelId}
+                          parameters={bootstrap.builderSelection.parameters}
                           saveLabel={saveStateLabel("implementation")}
                           onSelectModel={onSelectModel}
                           onUpdateModelParameter={onUpdateModelParameter}
@@ -197,15 +188,15 @@ export function WorkflowCardsSection({
 
 type ModelControlProps = {
   label: string;
-  phaseKey: PrototypeModelPhaseKey;
+  phaseKey: WorkflowModelPhaseKey;
   disabled: boolean;
-  modelCatalog: OperationsBootstrapPayload["modelCatalog"];
+  modelCatalog: WorkflowBootstrapPayload["modelCatalog"];
   modelId: string;
   parameters: Array<{ id: string; value: string }>;
   saveLabel: string | null;
-  onSelectModel: (phaseKey: PrototypeModelPhaseKey, modelId: string) => void;
+  onSelectModel: (phaseKey: WorkflowModelPhaseKey, modelId: string) => void;
   onUpdateModelParameter: (
-    phaseKey: PrototypeModelPhaseKey,
+    phaseKey: WorkflowModelPhaseKey,
     parameterId: string,
     value: string,
   ) => void;
@@ -242,7 +233,6 @@ function ModelControl({
           value={modelId}
           onChange={(event) => onSelectModel(phaseKey, event.target.value)}
         >
-          <option value="">Use global default</option>
           {modelCatalog
             .filter((model) => model.availability === "available")
             .map((model) => (

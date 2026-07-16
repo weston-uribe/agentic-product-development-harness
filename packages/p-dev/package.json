@@ -44,7 +44,6 @@
   "dependencies": {
     "@cursor/sdk": "^1.0.23",
     "@linear/sdk": "^40.0.0",
-    "@xyflow/react": "^12.11.2",
     "posthog-node": "^5.26.1",
     "@sentry/node": "^9.47.1",
     "@radix-ui/react-dropdown-menu": "^2.1.16",
