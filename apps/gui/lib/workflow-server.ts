@@ -1,6 +1,6 @@
 import "server-only";
 
-import { resolveHarnessRepoRoot } from "@harness/gui/repo-root";
+import { resolveHarnessWorkspaceDir } from "@harness/gui/repo-root";
 import { loadHarnessDotenv } from "@harness/config/load-dotenv";
 import { loadHarnessConfig } from "@harness/config/load-config";
 import {
@@ -56,7 +56,7 @@ const FALLBACK_CONFIG: HarnessConfig = {
 export async function loadWorkflowBootstrap(
   request: SourceContextRequest,
 ): Promise<WorkflowBootstrapPayload> {
-  const cwd = resolveHarnessRepoRoot();
+  const cwd = resolveHarnessWorkspaceDir();
   loadHarnessDotenv(cwd);
   const context = resolveWorkflowSourceContext(request);
   const warnings: string[] = [];
@@ -197,7 +197,7 @@ export async function saveWorkflowModel(
     );
   }
 
-  const cwd = resolveHarnessRepoRoot();
+  const cwd = resolveHarnessWorkspaceDir();
   loadHarnessDotenv(cwd);
 
   if (input.sourceMode === "fixture") {

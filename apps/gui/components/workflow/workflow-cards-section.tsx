@@ -111,7 +111,7 @@ export function WorkflowCardsSection({
                 >
                   <button
                     type="button"
-                    className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left"
+                    className="flex w-full cursor-pointer items-center justify-between gap-2 px-3 py-2.5 text-left"
                     aria-expanded={isExpanded}
                     onClick={() => toggleExpanded(statusKey)}
                   >

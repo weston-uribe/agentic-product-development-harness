@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useCallback, useRef } from "react";
 import { ChevronDown, Moon, Sun } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -11,6 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { markConfigureClient } from "@/lib/configure-navigation-timing";
 import { useThemeToggle } from "@/lib/use-theme-toggle";
 
 type SettingsMenuProps = {
@@ -31,11 +34,40 @@ export function SettingsMenu({
   isWorkflowActive = false,
 }: SettingsMenuProps) {
   const { mounted, isDark, toggleTheme } = useThemeToggle();
+  const router = useRouter();
+  const prefetchedRoutesRef = useRef<Set<string>>(new Set());
+
+  const prefetchRoute = useCallback(
+    (href: string) => {
+      if (prefetchedRoutesRef.current.has(href)) {
+        return;
+      }
+      prefetchedRoutesRef.current.add(href);
+      router.prefetch(href);
+    },
+    [router],
+  );
+
+  const handleOpenChange = useCallback(
+    (open: boolean) => {
+      if (!open) {
+        return;
+      }
+      prefetchRoute(configureHref);
+      prefetchRoute(workflowHref);
+    },
+    [configureHref, prefetchRoute, workflowHref],
+  );
+
+  const handleConfigureIntent = useCallback(() => {
+    markConfigureClient("configure_nav_start");
+    prefetchRoute(configureHref);
+  }, [configureHref, prefetchRoute]);
 
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={handleOpenChange}>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className="gap-1.5">
+        <Button variant="outline" size="sm" className="cursor-pointer gap-1.5">
           Settings
           <ChevronDown className="size-4" />
         </Button>
@@ -59,6 +91,8 @@ export function SettingsMenu({
           <Link
             href={workflowHref}
             aria-current={isWorkflowActive ? "page" : undefined}
+            onMouseEnter={() => prefetchRoute(workflowHref)}
+            onFocus={() => prefetchRoute(workflowHref)}
           >
             Workflow
           </Link>
@@ -67,6 +101,8 @@ export function SettingsMenu({
           <Link
             href={configureHref}
             aria-current={isConfigureActive ? "page" : undefined}
+            onMouseEnter={handleConfigureIntent}
+            onFocus={handleConfigureIntent}
           >
             Configure
           </Link>

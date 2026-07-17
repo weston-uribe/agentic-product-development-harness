@@ -1,8 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useReducedMotion } from "framer-motion";
 import type { FirstRunReadiness } from "@harness/setup/first-run-readiness";
-import type { LocalReadinessCheckResult } from "@harness/setup/local-readiness-checks";
+import type {
+  LocalReadinessCheckResult,
+  LocalReadinessProgressEvent,
+} from "@harness/setup/local-readiness-checks";
 
 import { SPACING } from "@/lib/constants";
 import { GUIDED_SETUP_STEP_COUNT } from "@/lib/guided-setup";
@@ -12,6 +16,7 @@ import {
   LocalReadinessChecklist,
   type LocalReadinessUiStatus,
 } from "@/components/custom/setup-checklist";
+import { LocalReadinessVisualQueue } from "@/lib/local-readiness-visual-queue";
 
 interface GuidedLocalReadinessCardProps {
   readiness: FirstRunReadiness;
@@ -26,67 +31,166 @@ interface UiCheckRow {
   action?: string;
 }
 
-function mapResultToUi(
-  results: LocalReadinessCheckResult[],
-): UiCheckRow[] {
-  return results.map((check) => ({
+function mapCompletedCheck(check: LocalReadinessCheckResult): UiCheckRow {
+  return {
     id: check.id,
     label: check.label,
     status: check.status === "passed" ? "passed" : "failed",
     detail: check.detail,
     action: check.action,
-  }));
+  };
+}
+
+function parseNdjsonLine(line: string): LocalReadinessProgressEvent | null {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return null;
+  }
+  try {
+    return JSON.parse(trimmed) as LocalReadinessProgressEvent;
+  } catch {
+    return null;
+  }
 }
 
 export function GuidedLocalReadinessCard({
   readiness,
   onContinue,
 }: GuidedLocalReadinessCardProps) {
+  const prefersReducedMotion = useReducedMotion() ?? false;
   const [checks, setChecks] = useState<UiCheckRow[]>([]);
   const [running, setRunning] = useState(true);
   const [runError, setRunError] = useState<string | null>(null);
   const [allPassed, setAllPassed] = useState(false);
+  const runGenerationRef = useRef(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const visualQueueRef = useRef<LocalReadinessVisualQueue | null>(null);
+
+  const applyCheckUpdate = useCallback((updater: (current: UiCheckRow[]) => UiCheckRow[]) => {
+    setChecks(updater);
+  }, []);
 
   const runChecks = useCallback(async () => {
+    abortControllerRef.current?.abort();
+    visualQueueRef.current?.cancel();
+
+    const generation = runGenerationRef.current + 1;
+    runGenerationRef.current = generation;
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
     setRunning(true);
     setRunError(null);
     setAllPassed(false);
     setChecks([]);
 
+    const queue = new LocalReadinessVisualQueue((event) => {
+      if (runGenerationRef.current !== generation) {
+        return;
+      }
+      if (event.type === "check-started") {
+        applyCheckUpdate((current) => {
+          if (current.some((row) => row.id === event.id)) {
+            return current;
+          }
+          return [
+            ...current,
+            {
+              id: event.id,
+              label: event.label,
+              status: "checking",
+            },
+          ];
+        });
+        return;
+      }
+      applyCheckUpdate((current) =>
+        current.map((row) =>
+          row.id === event.check.id ? mapCompletedCheck(event.check) : row,
+        ),
+      );
+    }, prefersReducedMotion);
+    visualQueueRef.current = queue;
+
     try {
-      const response = await fetch("/api/setup/local-readiness");
-      const data = await response.json();
+      const response = await fetch("/api/setup/local-readiness?stream=1", {
+        signal: abortController.signal,
+      });
       if (!response.ok) {
+        const data = (await response.json()) as { error?: string };
         throw new Error(data.error ?? "Local readiness check failed");
       }
+      if (!response.body) {
+        throw new Error("Local readiness stream was empty");
+      }
 
-      const results = data.checks as LocalReadinessCheckResult[];
-      setChecks(
-        results.map((check) => ({
-          id: check.id,
-          label: check.label,
-          status: "checking" as const,
-        })),
-      );
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
 
-      await new Promise((resolve) => setTimeout(resolve, 0));
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+        if (runGenerationRef.current !== generation) {
+          return;
+        }
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
 
-      setChecks(mapResultToUi(results));
-      setAllPassed(Boolean(data.allPassed));
+        for (const line of lines) {
+          const event = parseNdjsonLine(line);
+          if (!event || runGenerationRef.current !== generation) {
+            continue;
+          }
+          if (event.type === "run-failed") {
+            throw new Error(event.message);
+          }
+          if (event.type === "run-completed") {
+            setAllPassed(event.allPassed);
+            continue;
+          }
+          queue.enqueue(event);
+        }
+      }
+
+      const trailing = parseNdjsonLine(buffer);
+      if (trailing && runGenerationRef.current === generation) {
+        if (trailing.type === "run-failed") {
+          throw new Error(trailing.message);
+        }
+        if (trailing.type === "run-completed") {
+          setAllPassed(trailing.allPassed);
+        } else {
+          queue.enqueue(trailing);
+        }
+      }
     } catch (error) {
+      if (abortController.signal.aborted) {
+        return;
+      }
       setRunError(
         error instanceof Error
           ? error.message
           : "Could not run local readiness checks",
       );
       setChecks([]);
+      setAllPassed(false);
     } finally {
-      setRunning(false);
+      if (runGenerationRef.current === generation) {
+        setRunning(false);
+      }
     }
-  }, []);
+  }, [applyCheckUpdate, prefersReducedMotion]);
 
   useEffect(() => {
     void runChecks();
+    return () => {
+      abortControllerRef.current?.abort();
+      visualQueueRef.current?.cancel();
+    };
   }, [runChecks]);
 
   const canContinue =

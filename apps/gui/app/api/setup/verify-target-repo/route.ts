@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { resolveHarnessRepoRoot } from "@harness/gui/repo-root";
+import { resolveHarnessWorkspaceDir } from "@harness/gui/repo-root";
 import { verifySetupTargetRepo } from "@harness/setup/service-verification";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +19,7 @@ export async function POST(request: Request) {
     }
 
     const result = await verifySetupTargetRepo({
-      cwd: resolveHarnessRepoRoot(),
+      cwd: resolveHarnessWorkspaceDir(),
       targetRepo: body.targetRepo,
       githubToken: body.githubToken,
     });

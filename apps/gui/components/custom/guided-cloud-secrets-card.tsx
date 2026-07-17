@@ -25,6 +25,7 @@ import {
   type FirstRunReadiness,
   type ReadinessBlocker,
 } from "@harness/setup/first-run-readiness";
+import { deriveStep6AutomaticControlState } from "@harness/setup/step6-automatic-control-state";
 import { generateGitHubSecretInstructions } from "@harness/setup/generated-instructions";
 import {
   beginStep6RemoteStateRevision,
@@ -49,6 +50,7 @@ interface GuidedCloudSecretsCardProps {
   readiness: FirstRunReadiness;
   setupSummary: SetupGuiViewModel;
   controlPlaneContext?: ControlPlaneReadinessContext;
+  cloudSecretsPreviewOpened?: boolean;
   remoteSecretPreviewStale?: boolean;
   cloudSecretsApplyEvidence?: CloudSecretsApplyEvidence;
   initialSummary: RemoteSetupSummary;
@@ -100,6 +102,7 @@ export function GuidedCloudSecretsCard({
   readiness,
   setupSummary,
   controlPlaneContext,
+  cloudSecretsPreviewOpened = false,
   remoteSecretPreviewStale = false,
   cloudSecretsApplyEvidence,
   initialSummary,
@@ -117,6 +120,7 @@ export function GuidedCloudSecretsCard({
       : null,
   );
   const [previewStaleCleared, setPreviewStaleCleared] = useState(false);
+  const [previewOpened, setPreviewOpened] = useState(cloudSecretsPreviewOpened);
   const [preview, setPreview] = useState<RemoteHarnessSecretPreview | null>(null);
   const [previewGenerated, setPreviewGenerated] = useState(false);
   const [disclosureOpen, setDisclosureOpen] = useState(false);
@@ -236,10 +240,19 @@ export function GuidedCloudSecretsCard({
   const previewIsCurrent = preview !== null && previewGenerated;
 
   useEffect(() => {
+    setPreviewOpened(cloudSecretsPreviewOpened);
+  }, [cloudSecretsPreviewOpened]);
+
+  const effectivePreviewOpened = previewOpened || cloudSecretsPreviewOpened;
+
+  useEffect(() => {
+    if (!effectivePreviewOpened) {
+      return;
+    }
     onUiStateChange?.({
       remoteSecretPreviewStale: preview !== null && !previewIsCurrent,
     });
-  }, [onUiStateChange, preview, previewIsCurrent]);
+  }, [effectivePreviewOpened, onUiStateChange, preview, previewIsCurrent]);
 
   const remoteActionEligibility = useMemo(
     () => deriveStep6RemoteActionEligibility(summary),
@@ -351,6 +364,7 @@ export function GuidedCloudSecretsCard({
   }, []);
 
   const markPreviewOpened = useCallback(() => {
+    setPreviewOpened(true);
     onUiStateChange?.({ cloudSecretsPreviewOpened: true });
   }, [onUiStateChange]);
 
@@ -550,6 +564,7 @@ export function GuidedCloudSecretsCard({
         uiState: {
           remoteSecretPreviewStale,
           cloudSecretsApplyEvidence,
+          cloudSecretsPreviewOpened: effectivePreviewOpened,
         },
         staleSmokeDiagnostics: readiness.staleSmokeDiagnostics,
         controlPlaneContext,
@@ -564,6 +579,7 @@ export function GuidedCloudSecretsCard({
       cloudSecretsApplyEvidence,
       controlPlaneContext,
       previewStaleCleared,
+      effectivePreviewOpened,
     ],
   );
 
@@ -585,19 +601,21 @@ export function GuidedCloudSecretsCard({
     harnessDispatchRepo: summary.harnessDispatchRepo,
   });
 
-  const confirmDisabledReason = remoteActionsBlocked
-    ? remoteActionsBlockedReason
-    : preview?.validationError
-      ? "Fix validation errors before confirming this write."
-      : undefined;
+  const automaticControlState = deriveStep6AutomaticControlState({
+    setupType,
+    confirmed,
+    loading,
+    remoteActionsBlocked,
+    remoteActionsBlockedReason,
+    previewValidationError: preview?.validationError,
+    automaticOutcomeKind: automaticOutcome.kind,
+    cloudSecretsPreviewOpened: effectivePreviewOpened,
+    remoteSecretPreviewStale,
+  });
 
-  const applyDisabledReason =
-    confirmDisabledReason ??
-    (!confirmed
-      ? "Confirm the GitHub Actions secret write before applying."
-      : automaticOutcome.kind === "success"
-        ? "Automatic secret write already verified for the current config."
-        : undefined);
+  const confirmDisabledReason = automaticControlState.confirmDisabledReason;
+  const applyDisabledReason = automaticControlState.applyDisabledReason;
+  const automaticApplyDisabled = automaticControlState.applyDisabled;
 
   const userVerifiedSuccess =
     (setupType === "automatic" &&
@@ -632,12 +650,6 @@ export function GuidedCloudSecretsCard({
     !eligibility.canContinue;
 
   const primaryBlocker = eligibility.blockers[0];
-  const automaticApplyDisabled =
-    loading !== null ||
-    !confirmed ||
-    Boolean(preview?.validationError) ||
-    remoteActionsBlocked ||
-    automaticOutcome.kind === "success";
 
   return (
     <SectionCard
@@ -756,9 +768,7 @@ export function GuidedCloudSecretsCard({
                   scope="remote-secret-write"
                   variant="guided"
                   confirmed={confirmed}
-                  disabled={
-                    remoteActionsBlocked || Boolean(preview?.validationError)
-                  }
+                  disabled={automaticControlState.confirmDisabled}
                   disabledReason={confirmDisabledReason}
                   onConfirmedChange={setConfirmed}
                 />

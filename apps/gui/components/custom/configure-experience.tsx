@@ -15,6 +15,7 @@ import {
   type FirstRunStepId,
 } from "@harness/setup/first-run-readiness";
 import { computeCloudSecretsConfigStateFingerprint } from "@harness/setup/control-plane-readiness";
+import { markConfigureClient } from "@/lib/configure-navigation-timing";
 
 import { LAYOUT, RESPONSIVE, SPACING } from "@/lib/constants";
 import {
@@ -124,6 +125,11 @@ export function ConfigureExperience({
   const [linearSummary, setLinearSummary] = useState(initialLinearSummary);
   const [vercelSummary, setVercelSummary] = useState(initialVercelSummary);
   const [uiState, setUiState] = useState<FirstRunReadinessUiState>({});
+
+  useEffect(() => {
+    markConfigureClient("configure_content_ready");
+  }, []);
+
   const controlPlaneContext = useMemo(
     () =>
       buildControlPlaneContext({
@@ -338,11 +344,21 @@ export function ConfigureExperience({
 
   const handleRemoteUiStateChange = useCallback(
     (state: {
+      cloudSecretsPreviewOpened?: boolean;
       remoteSecretPreviewStale?: boolean;
       cloudSecretsApplyEvidence?: CloudSecretsApplyEvidence;
     }) => {
       setUiState((current) => {
         let next = current;
+        if (
+          state.cloudSecretsPreviewOpened !== undefined &&
+          current.cloudSecretsPreviewOpened !== state.cloudSecretsPreviewOpened
+        ) {
+          next = {
+            ...next,
+            cloudSecretsPreviewOpened: state.cloudSecretsPreviewOpened,
+          };
+        }
         if (
           state.remoteSecretPreviewStale !== undefined &&
           current.remoteSecretPreviewStale !== state.remoteSecretPreviewStale
@@ -475,7 +491,9 @@ export function ConfigureExperience({
         ...current,
         linearPreviewStale: true,
         vercelPreviewStale: true,
-        remoteSecretPreviewStale: true,
+        remoteSecretPreviewStale: current.cloudSecretsPreviewOpened
+          ? true
+          : current.remoteSecretPreviewStale,
         cloudSecretsApplyEvidence: invalidateEvidence
           ? undefined
           : current.cloudSecretsApplyEvidence,
@@ -504,7 +522,9 @@ export function ConfigureExperience({
       localReadinessReviewed: false,
       cloudSecretsReviewed: false,
       cloudSecretsApplyEvidence: undefined,
-      remoteSecretPreviewStale: true,
+      remoteSecretPreviewStale: current.cloudSecretsPreviewOpened
+        ? true
+        : false,
       localPreviewStale: false,
     }));
     setDisplayedGuidedStep(GUIDED_DISPLAY_STEP_AFTER_LOCAL_APPLY);
@@ -527,7 +547,9 @@ export function ConfigureExperience({
           localReadinessReviewed: false,
           cloudSecretsReviewed: false,
           cloudSecretsApplyEvidence: undefined,
-          remoteSecretPreviewStale: true,
+          remoteSecretPreviewStale: current.cloudSecretsPreviewOpened
+            ? true
+            : current.remoteSecretPreviewStale,
           linearPreviewStale: step === "connect-services" || step === "linear-workspace"
             ? true
             : current.linearPreviewStale,
@@ -545,7 +567,9 @@ export function ConfigureExperience({
           ...current,
           cloudSecretsReviewed: false,
           cloudSecretsApplyEvidence: undefined,
-          remoteSecretPreviewStale: true,
+          remoteSecretPreviewStale: current.cloudSecretsPreviewOpened
+            ? true
+            : current.remoteSecretPreviewStale,
         }));
       }
     },
@@ -668,6 +692,7 @@ export function ConfigureExperience({
             readiness={readiness}
             setupSummary={summary}
             controlPlaneContext={controlPlaneContext}
+            cloudSecretsPreviewOpened={uiState.cloudSecretsPreviewOpened}
             remoteSecretPreviewStale={uiState.remoteSecretPreviewStale}
             cloudSecretsApplyEvidence={uiState.cloudSecretsApplyEvidence}
             initialSummary={remoteSummary}
