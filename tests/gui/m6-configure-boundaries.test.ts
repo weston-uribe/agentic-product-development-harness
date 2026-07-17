@@ -868,13 +868,15 @@ describe("M6 configure GUI boundaries", () => {
     );
 
     const verifyBlock = workflowSource.match(
-      /const verifyAndSaveService = useCallback\([\s\S]*?\n  \);/,
+      /const runServiceVerification = useCallback\([\s\S]*?\n  \);/,
     )?.[0];
 
+    expect(verifyBlock).toBeDefined();
     expect(verifyBlock).toContain('state: "checking"');
     expect(verifyBlock).toContain('state: "failed"');
     expect(verifyBlock).toContain("setVerifyingServiceKey(null)");
     expect(verifyBlock).not.toContain("setEnvValues");
+    expect(workflowSource).toContain("verifyAndSaveService");
     expect(formSource).toContain("verifyButtonDisabled =");
     expect(formSource).toContain("verifying ||");
     expect(formSource).toContain("verifiedForCurrentValue");
