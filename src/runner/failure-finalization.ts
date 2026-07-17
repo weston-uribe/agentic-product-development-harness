@@ -1,4 +1,6 @@
 import { loadHarnessConfig } from "../config/load-config.js";
+import { isCloudConfigStaleTemporarilyAllowed } from "../config/runner-upgrade-sync-gate.js";
+import { resolveHarnessWorkspaceRootFromConfigSource } from "../config/workspace-root.js";
 import { getTransitionalStatus } from "../config/status-names.js";
 import {
   buildFallbackRunManifest,
@@ -151,7 +153,21 @@ export async function finalizeFailedHarnessRun(
     };
   }
 
-  const { config } = await loadHarnessConfig({ configPath: input.configPath });
+  const { config, source } = await loadHarnessConfig({ configPath: input.configPath });
+  const workspaceRoot = resolveHarnessWorkspaceRootFromConfigSource(source);
+
+  if (
+    manifest.errorClassification === "cloud_config_stale" &&
+    (await isCloudConfigStaleTemporarilyAllowed(workspaceRoot))
+  ) {
+    return {
+      skipped: true,
+      blocked: false,
+      reason: "cloud_config_stale temporarily allowed during runner upgrade sync",
+      manifest,
+    };
+  }
+
   const issue = await fetchLinearIssue(input.issueKey, linearApiKey);
   const client = createLinearClient(linearApiKey);
   const blockedStatus = getTransitionalStatus(config, "blocked");

@@ -181,6 +181,24 @@ export interface ControlPlaneSetupState {
     harnessRepository: string;
     syncedAt: string;
   };
+  runnerUpgrade?: {
+    appliedSnapshotContentId?: string;
+    appliedAt?: string;
+    targetSnapshotContentId?: string;
+    repositoryId?: number;
+    lastOperationId?: string;
+    syncInProgress?: boolean;
+    status?:
+      | "up_to_date"
+      | "update_available"
+      | "updating"
+      | "partially_updated"
+      | "failed"
+      | "blocked_non_managed"
+      | "blocked_unexpected_remote"
+      | "blocked_operator_conflicts";
+    canaryRunUrl?: string;
+  };
   initialSetup?: {
     status: "complete";
     completedAt: string;

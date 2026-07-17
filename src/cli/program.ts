@@ -12,6 +12,7 @@ import { runResolveRouteCommand } from "./commands/resolve-route.js";
 import { runRedactOutputCommand } from "./commands/redact-output.js";
 import { runDiagnoseVercelBridgeCommand } from "./commands/diagnose-vercel-bridge.js";
 import { runOperatorInit } from "./commands/operator-init.js";
+import { runCanaryRunnerConfigCommand } from "./commands/canary-runner-config.js";
 
 export function createProgram(): Command {
   const program = new Command();
@@ -157,6 +158,14 @@ export function createProgram(): Command {
         force: opts.force,
         json: opts.json,
       });
+      process.exitCode = exitCode;
+    });
+
+  program
+    .command("canary-runner-config")
+    .description("Validate managed runner marker and cloud config fingerprint pairing")
+    .action(async () => {
+      const exitCode = await runCanaryRunnerConfigCommand();
       process.exitCode = exitCode;
     });
 

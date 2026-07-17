@@ -234,6 +234,21 @@ export interface GitHubCreatePullRequestResponse {
   base: { ref: string };
 }
 
+export interface GitHubWorkflowRun {
+  id: number;
+  status: "queued" | "in_progress" | "completed" | "waiting" | "requested" | "pending";
+  conclusion: "success" | "failure" | "cancelled" | "skipped" | "timed_out" | "action_required" | "neutral" | "stale" | null;
+  html_url: string;
+  created_at: string;
+  event?: string;
+}
+
+export interface GitHubGitBlobContent {
+  sha: string;
+  content: string;
+  encoding: string;
+}
+
 const GITHUB_API = "https://api.github.com";
 
 export class GitHubClient {
@@ -833,6 +848,91 @@ export class GitHubClient {
     params.set("direction", options.direction ?? "desc");
     return this.request<GitHubPullRequestListItem[]>(
       `/repos/${owner}/${repo}/pulls?${params.toString()}`,
+    );
+  }
+
+  async updatePullRequest(
+    owner: string,
+    repo: string,
+    pullNumber: number,
+    patch: { title?: string; body?: string },
+  ): Promise<void> {
+    await this.request(`/repos/${owner}/${repo}/pulls/${pullNumber}`, {
+      method: "PATCH",
+      body: patch,
+    });
+  }
+
+  async createWorkflowDispatch(
+    owner: string,
+    repo: string,
+    workflowIdOrFileName: string,
+    ref: string,
+    inputs?: Record<string, string>,
+  ): Promise<void> {
+    const workflowId = encodeURIComponent(workflowIdOrFileName);
+    await this.request(
+      `/repos/${owner}/${repo}/actions/workflows/${workflowId}/dispatches`,
+      {
+        method: "POST",
+        body: {
+          ref,
+          ...(inputs ? { inputs } : {}),
+        },
+      },
+    );
+  }
+
+  async getWorkflowRun(
+    owner: string,
+    repo: string,
+    runId: number,
+  ): Promise<GitHubWorkflowRun> {
+    const response = await this.request<{ id: number; status: GitHubWorkflowRun["status"]; conclusion: GitHubWorkflowRun["conclusion"]; html_url: string; created_at: string; event?: string }>(
+      `/repos/${owner}/${repo}/actions/runs/${runId}`,
+    );
+    return {
+      id: response.id,
+      status: response.status,
+      conclusion: response.conclusion,
+      html_url: response.html_url,
+      created_at: response.created_at,
+      event: response.event,
+    };
+  }
+
+  async listWorkflowRuns(
+    owner: string,
+    repo: string,
+    workflowIdOrFileName: string,
+    options: {
+      branch?: string;
+      event?: string;
+      perPage?: number;
+    } = {},
+  ): Promise<GitHubWorkflowRun[]> {
+    const params = new URLSearchParams();
+    params.set("per_page", String(options.perPage ?? 10));
+    if (options.branch) {
+      params.set("branch", options.branch);
+    }
+    if (options.event) {
+      params.set("event", options.event);
+    }
+    const workflowId = encodeURIComponent(workflowIdOrFileName);
+    const response = await this.request<{ workflow_runs: GitHubWorkflowRun[] }>(
+      `/repos/${owner}/${repo}/actions/workflows/${workflowId}/runs?${params.toString()}`,
+    );
+    return response.workflow_runs ?? [];
+  }
+
+  async getGitBlob(
+    owner: string,
+    repo: string,
+    blobSha: string,
+  ): Promise<GitHubGitBlobContent> {
+    return this.request<GitHubGitBlobContent>(
+      `/repos/${owner}/${repo}/git/blobs/${blobSha}`,
     );
   }
 }

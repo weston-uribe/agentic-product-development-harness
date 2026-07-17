@@ -11,6 +11,7 @@ import {
 import { formatHarnessDispatchRepo, resolveHarnessDispatchRepo } from "./harness-dispatch-repo.js";
 import { sanitizeGitHubSetupError } from "./github-remote-setup-live.js";
 import type { GitHubRemoteSetupProvider } from "./github-remote-provider.js";
+import { syncHarnessConfigCloudPair } from "./sync-harness-config-cloud.js";
 import { resolveLocalFilePaths } from "./setup-state.js";
 import { withWorkflowModelSyncLock } from "./workflow-model-sync-lock.js";
 import {
@@ -18,9 +19,6 @@ import {
   type WorkflowModelsSyncEvidence,
 } from "./workflow-models-sync-evidence.js";
 import type { RoleModelSelection } from "../config/role-models.js";
-
-const REMOTE_WRITE_MAX_ATTEMPTS = 3;
-const REMOTE_WRITE_RETRY_MS = 500;
 
 export type WorkflowModelSyncErrorCode =
   | "workflow_model_fingerprint_mismatch"
@@ -134,6 +132,7 @@ async function writeHarnessConfigSecretOnly(input: {
   provider: GitHubRemoteSetupProvider;
   encodedValue: string;
 }): Promise<{ harnessRepository: string; confirmed: true }> {
+  void input.encodedValue;
   const harnessDispatchRepo = await resolveHarnessDispatchRepo({ cwd: input.cwd });
   if (!harnessDispatchRepo.resolved || !harnessDispatchRepo.repo) {
     throw new WorkflowModelSyncError(
@@ -143,36 +142,24 @@ async function writeHarnessConfigSecretOnly(input: {
   }
 
   const harnessRepository = formatHarnessDispatchRepo(harnessDispatchRepo);
-  let lastError: unknown;
 
-  for (let attempt = 1; attempt <= REMOTE_WRITE_MAX_ATTEMPTS; attempt += 1) {
-    try {
-      await input.provider.writeHarnessSecrets(harnessRepository, [
-        { name: "HARNESS_CONFIG_JSON_B64", value: input.encodedValue },
-      ]);
-      return { harnessRepository, confirmed: true };
-    } catch (error) {
-      lastError = error;
-      if (isDefiniteRemoteRejection(error)) {
-        throw new WorkflowModelSyncError(
-          "workflow_model_remote_write_failed",
-          sanitizeGitHubSetupError(error),
-        );
-      }
-      if (attempt < REMOTE_WRITE_MAX_ATTEMPTS) {
-        await new Promise((resolve) =>
-          setTimeout(resolve, REMOTE_WRITE_RETRY_MS * attempt),
-        );
-      }
-    }
+  try {
+    await syncHarnessConfigCloudPair({
+      cwd: input.cwd,
+      provider: input.provider,
+      harnessRepository,
+    });
+    return { harnessRepository, confirmed: true };
+  } catch (error) {
+    throw new WorkflowModelSyncError(
+      error instanceof Error && isDefiniteRemoteRejection(error)
+        ? "workflow_model_remote_write_failed"
+        : "workflow_model_sync_unknown",
+      error instanceof Error
+        ? sanitizeGitHubSetupError(error)
+        : "Remote config secret write result is uncertain after retries.",
+    );
   }
-
-  throw new WorkflowModelSyncError(
-    "workflow_model_sync_unknown",
-    lastError instanceof Error
-      ? sanitizeGitHubSetupError(lastError)
-      : "Remote config secret write result is uncertain after retries.",
-  );
 }
 
 export async function saveWorkflowRoleModel(input: {
