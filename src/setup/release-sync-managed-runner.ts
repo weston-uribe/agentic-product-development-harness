@@ -376,15 +376,14 @@ export async function runReleaseSyncManagedRunner(
   let packaged = await loadEmbeddedWorkspaceSnapshot(import.meta.url);
   if (!packaged.ok) {
     // Source-checkout fallback: use monorepo packages/p-dev after prepare/pack.
+    // Persist env so applyRunnerUpgrade's later snapshot loads resolve the same root.
     const monorepoPackageRoot = path.resolve(
       path.dirname(fileURLToPath(import.meta.url)),
       "../../packages/p-dev",
     );
-    packaged = await loadEmbeddedWorkspaceSnapshot(import.meta.url, {
-      ...process.env,
-      P_DEV_RUNTIME_MODE: "packaged",
-      [P_DEV_PACKAGE_ROOT_ENV]: monorepoPackageRoot,
-    });
+    process.env.P_DEV_RUNTIME_MODE = "packaged";
+    process.env[P_DEV_PACKAGE_ROOT_ENV] = monorepoPackageRoot;
+    packaged = await loadEmbeddedWorkspaceSnapshot(import.meta.url);
   }
   if (!packaged.ok) {
     throw new ReleaseSyncManagedRunnerError(
