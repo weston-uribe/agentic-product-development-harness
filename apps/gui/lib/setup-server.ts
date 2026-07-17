@@ -553,6 +553,7 @@ export async function finalizeTargetWorkflowRemoteAction(
   payload: RemoteTargetWorkflowFormPayload & {
     prUrl?: string;
     branchName?: string;
+    operationId?: string;
   },
 ): Promise<{
   finalization: TargetWorkflowFinalizationResult;
@@ -572,6 +573,7 @@ export async function finalizeTargetWorkflowRemoteAction(
       manualHarnessDispatchRepo: payload.manualHarnessDispatchRepo,
       prUrl: payload.prUrl,
       branchName: payload.branchName,
+      operationId: payload.operationId,
     },
   });
   const summary = await loadRemoteSetupSummary();
@@ -665,6 +667,8 @@ export async function loadLinearSetupSummary() {
 }
 
 export async function loadLinearWorkspaceOptions(): Promise<{
+  workspaceId: string;
+  workspaceName: string;
   teams: Awaited<ReturnType<typeof listLinearTeams>>;
   projects: Awaited<ReturnType<typeof listLinearProjects>>;
 }> {
@@ -674,11 +678,17 @@ export async function loadLinearWorkspaceOptions(): Promise<{
     throw new Error("LINEAR_API_KEY is required to load Linear workspace options.");
   }
   const client = createLinearSetupClient(linearApiKey);
-  const [teams, projects] = await Promise.all([
+  const [organization, teams, projects] = await Promise.all([
+    getLinearOrganizationSummary(client),
     listLinearTeams(client),
     listLinearProjects(client),
   ]);
-  return { teams, projects };
+  return {
+    workspaceId: organization.id,
+    workspaceName: organization.name,
+    teams,
+    projects,
+  };
 }
 
 export async function loadVercelSetupSummary() {

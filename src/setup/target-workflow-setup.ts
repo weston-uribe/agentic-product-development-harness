@@ -44,6 +44,8 @@ export function buildTargetWorkflowPrBody(input: {
     "It does not run harness planning, implementation, handoff, revision, or merge phases.",
     "",
     "Required target repo secret: `HARNESS_DISPATCH_TOKEN` (dispatch-only PAT scoped to the harness repo).",
+    "",
+    `<!-- p-dev-workflow-install:${input.repoConfigId} -->`,
   ].join("\n");
 }
 

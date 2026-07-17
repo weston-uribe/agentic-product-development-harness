@@ -131,6 +131,44 @@ function createMockGitHubClient(options: {
       return { ...pull, draft: false };
     }),
     listPullRequests: vi.fn(async () => []),
+    getBranchRef: vi.fn(async (_owner, _repo, ref: string) => ({
+      ref: `refs/heads/${ref}`,
+      object: { sha: ACTUAL_HEAD_SHA, type: "commit", url: "" },
+    })),
+    getGitCommit: vi.fn(async (_o, _r, sha: string) => ({
+      sha,
+      tree: { sha: "tree-sha" },
+      parents: [],
+    })),
+    createGitBlob: vi.fn(async () => ({ sha: "blob-sha" })),
+    createGitTree: vi.fn(async () => ({ sha: "tree-sha", tree: [] })),
+    createGitCommit: vi.fn(async () => ({
+      sha: "new-commit-sha",
+      tree: { sha: "tree-sha" },
+      parents: [{ sha: ACTUAL_HEAD_SHA }],
+    })),
+    compareCommits: vi.fn(async () => ({
+      status: "ahead",
+      ahead_by: 1,
+      behind_by: 0,
+      commits: [],
+      files: [{ filename: TARGET_WORKFLOW_PATH }],
+    })),
+    updateGitRef: vi.fn(async () => ({
+      ref: `refs/heads/${BRANCH_NAME}`,
+      object: { sha: ACTUAL_HEAD_SHA, type: "commit", url: "" },
+    })),
+    createGitRef: vi.fn(async () => ({
+      ref: `refs/heads/${BRANCH_NAME}`,
+      object: { sha: ACTUAL_HEAD_SHA, type: "commit", url: "" },
+    })),
+    createPullRequest: vi.fn(async () => ({
+      number: PR_NUMBER,
+      html_url: PR_URL,
+      state: "open",
+      head: { ref: BRANCH_NAME },
+      base: { ref: PRODUCTION_BRANCH },
+    })),
   };
 }
 
@@ -503,11 +541,15 @@ describe("advanceTargetWorkflowFinalizationStep GitHub head SHA handling", () =>
     expect(result.lifecycle).not.toBe("complete");
   });
 
-  it("recovers a stale harness-owned install branch before blocking on empty PR files", async () => {
+  it("recovers a stale harness-owned install branch with a commit-first workflow commit", async () => {
     const workflow = intendedWorkflowContent();
     const productionSha = "production-head-sha";
+    const productionTreeSha = "production-tree-sha";
     const staleHeadSha = "stale-install-head-sha";
     const recoveredHeadSha = "recovered-install-head-sha";
+    const workflowBlobSha = "workflow-blob-sha";
+    const recoveredTreeSha = "recovered-tree-sha";
+    let installHead = staleHeadSha;
 
     const client = {
       ...createMockGitHubClient({
@@ -519,42 +561,91 @@ describe("advanceTargetWorkflowFinalizationStep GitHub head SHA handling", () =>
         combinedStatus: combinedStatusOnActualHeadOnly,
       }),
       getPullRequestFiles: vi.fn(async () => []),
-      compareCommits: vi.fn(async () => ({
-        status: "diverged",
-        ahead_by: 3,
-        behind_by: 1,
-        commits: [],
-      })),
+      compareCommits: vi.fn(async (_o, _r, _base: string, head: string) => {
+        if (head === recoveredHeadSha || installHead === recoveredHeadSha) {
+          return {
+            status: "ahead",
+            ahead_by: 1,
+            behind_by: 0,
+            commits: [{ sha: recoveredHeadSha, commit: { message: "Install" } }],
+            files: [{ filename: TARGET_WORKFLOW_PATH, status: "added" }],
+          };
+        }
+        // Stale branch vs production: diverged / not clean.
+        return {
+          status: "diverged",
+          ahead_by: 3,
+          behind_by: 1,
+          commits: [],
+          files: [{ filename: "unrelated.txt", status: "modified" }],
+        };
+      }),
       getBranchRef: vi.fn(async (_owner, _repo, ref: string) => ({
         ref: `refs/heads/${ref}`,
         object: {
-          sha: ref === "main" ? productionSha : recoveredHeadSha,
+          sha: ref === "main" ? productionSha : installHead,
           type: "commit",
           url: "",
         },
       })),
-      updateGitRef: vi.fn(async () => ({
-        ref: `refs/heads/${BRANCH_NAME}`,
-        object: { sha: productionSha, type: "commit", url: "" },
+      getGitCommit: vi.fn(async (_o, _r, sha: string) => ({
+        sha,
+        tree: { sha: sha === recoveredHeadSha ? recoveredTreeSha : productionTreeSha },
+        parents:
+          sha === recoveredHeadSha
+            ? [{ sha: productionSha }]
+            : [],
       })),
-      createOrUpdateRepositoryFile: vi.fn(async () => ({
-        content: {
-          sha: "file-sha",
-          path: TARGET_WORKFLOW_PATH,
-        },
+      createGitBlob: vi.fn(async () => ({ sha: workflowBlobSha })),
+      createGitTree: vi.fn(async () => ({
+        sha: recoveredTreeSha,
+        tree: [],
       })),
+      createGitCommit: vi.fn(async () => ({
+        sha: recoveredHeadSha,
+        tree: { sha: recoveredTreeSha },
+        parents: [{ sha: productionSha }],
+      })),
+      updateGitRef: vi.fn(async (input: { sha: string }) => {
+        installHead = input.sha;
+        return {
+          ref: `refs/heads/${BRANCH_NAME}`,
+          object: { sha: input.sha, type: "commit", url: "" },
+        };
+      }),
+      createOrUpdateRepositoryFile: vi.fn(async () => {
+        throw new Error("Contents API must not be used for recovery");
+      }),
       listPullRequests: vi.fn(async () => [
         {
           number: PR_NUMBER,
           html_url: PR_URL,
-          head: { ref: BRANCH_NAME, sha: staleHeadSha },
+          state: "open",
+          created_at: new Date().toISOString(),
+          body: `<!-- p-dev-workflow-install:${REPO_CONFIG_ID} -->`,
+          head: { ref: BRANCH_NAME, sha: recoveredHeadSha },
           base: { ref: PRODUCTION_BRANCH },
         },
       ]),
-      getRepositoryContent: vi.fn(async () => ({
-        content: Buffer.from(workflow).toString("base64"),
-        encoding: "base64",
+      createPullRequest: vi.fn(async () => ({
+        number: PR_NUMBER + 1,
+        html_url: `${PR_URL.replace("27", "28")}`,
+        state: "open",
+        head: { ref: BRANCH_NAME },
+        base: { ref: PRODUCTION_BRANCH },
       })),
+      getRepositoryContent: vi.fn(async (_o, _r, _path, ref?: string) => {
+        if (ref === staleHeadSha) {
+          return {
+            content: Buffer.from("stale-workflow").toString("base64"),
+            encoding: "base64",
+          };
+        }
+        return {
+          content: Buffer.from(workflow).toString("base64"),
+          encoding: "base64",
+        };
+      }),
     };
     const provider = createStubProvider("missing");
 
@@ -566,14 +657,19 @@ describe("advanceTargetWorkflowFinalizationStep GitHub head SHA handling", () =>
     });
 
     expect(result.lifecycle).toBe("updating-branch");
+    expect(result.retryable).toBe(true);
     expect(result.message).toContain("Refreshing the workflow install branch");
+    expect(client.createGitCommit).toHaveBeenCalled();
     expect(client.updateGitRef).toHaveBeenCalledWith(
       expect.objectContaining({
         ref: BRANCH_NAME,
-        sha: productionSha,
+        sha: recoveredHeadSha,
         force: true,
       }),
     );
-    expect(client.createOrUpdateRepositoryFile).toHaveBeenCalled();
+    expect(client.createOrUpdateRepositoryFile).not.toHaveBeenCalled();
+    expect(client.updateGitRef).not.toHaveBeenCalledWith(
+      expect.objectContaining({ sha: productionSha }),
+    );
   });
 });

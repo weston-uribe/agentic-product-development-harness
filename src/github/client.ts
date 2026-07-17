@@ -185,6 +185,8 @@ export interface GitHubPullRequestListItem {
   html_url: string;
   state: string;
   created_at: string;
+  body?: string | null;
+  merged_at?: string | null;
   head: { ref: string; sha: string };
   base: { ref: string };
 }
@@ -194,6 +196,7 @@ export interface GitHubCompareResult {
   ahead_by: number;
   behind_by: number;
   commits: Array<{ sha: string; commit: { message: string } }>;
+  files?: Array<{ filename: string; status?: string }>;
 }
 
 export interface GitHubGitRef {
