@@ -80,6 +80,7 @@ import {
   type GitHubHarnessProvisioningProvider,
 } from "@harness/setup/github-remote-provider";
 import { GitHubClient } from "@harness/github/client";
+import { isPackagedPDevRuntime } from "@harness/p-dev/runtime-mode";
 import type { HarnessSecretOperatorInput } from "@harness/setup/harness-secret-setup";
 import {
   buildManualHarnessSecretCopyValues,
@@ -313,7 +314,9 @@ export async function loadSetupFormDefaults(): Promise<{
   const paths = resolveLocalFilePaths(cwd);
   const existingEnv = await readExistingEnvFile(paths);
   const config = await loadConfigFormDefaults({ cwd });
-  const gitRemoteOriginUrl = await readGitRemoteOrigin(cwd);
+  const gitRemoteOriginUrl = isPackagedPDevRuntime()
+    ? null
+    : await readGitRemoteOrigin(cwd);
   const suggestedHarnessDispatchRepo = gitRemoteOriginUrl
     ? parseGitHubRepoSlug(gitRemoteOriginUrl) ?? undefined
     : undefined;
@@ -608,9 +611,12 @@ async function enrichVercelBridgePlan(
   const linearApiKey = plan.linearApiKey ?? (await loadLinearApiKey(cwd));
   const githubToken = await loadSecretFromEnvLocal({ cwd, key: "GITHUB_TOKEN" });
   const controlPlane = await readControlPlaneSetupState(cwd);
+  const harnessProvisioningSummary = await loadHarnessRepoProvisioningSummaryRemote();
   const dispatchEligibility = await assessGitHubDispatchTokenEligibility({
     githubToken,
     cwd,
+    harnessProvisioningSummary,
+    requireVerifiedPackagedDispatchRepo: true,
   });
   const savedWebhookSecret = await loadSecretFromEnvLocal({
     cwd,
@@ -632,6 +638,9 @@ async function enrichVercelBridgePlan(
       plan.envInput?.GITHUB_DISPATCH_TOKEN?.trim() || !dispatchEligibility.eligible
         ? undefined
         : githubToken,
+    derivedGithubDispatchRepository: dispatchEligibility.eligible
+      ? dispatchEligibility.repository
+      : undefined,
     willGenerateLinearWebhookSecret: reuseSavedLocalWebhookSecret
       ? true
       : (plan.willGenerateLinearWebhookSecret ?? !hasOperatorWebhookSecret),
@@ -826,11 +835,13 @@ export async function loadVercelBridgeOptionsRemote(input?: {
   const cwd = resolveCwd();
   const vercelToken = (await loadVercelToken(cwd)) ?? "";
   const githubToken = await loadSecretFromEnvLocal({ cwd, key: "GITHUB_TOKEN" });
+  const harnessProvisioningSummary = await loadHarnessRepoProvisioningSummaryRemote();
   return loadVercelBridgeOptions({
     vercelToken,
     githubToken,
     cwd,
     teamId: input?.teamId,
+    harnessProvisioningSummary,
   });
 }
 

@@ -46,7 +46,7 @@ describe("configure GUI fix loop", () => {
     expect(source).not.toContain("Vercel scope");
     expect(source).toContain("Vercel team name");
     expect(source).toContain(
-      "Choose the Vercel team and project that host the PDev automation bridge.",
+      "Choose the Vercel team and project that hosts the PDev automation bridge.",
     );
     expect(source).not.toContain("Env var presence alone is not enough");
     expect(source).not.toContain(

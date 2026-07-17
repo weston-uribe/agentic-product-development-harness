@@ -10,6 +10,7 @@ import {
   parseGitRemoteOriginUrl,
 } from "./github-repo-slug.js";
 import { resolveLocalFilePaths } from "./setup-state.js";
+import { isPackagedPDevRuntime } from "../p-dev/runtime-mode.js";
 
 import { HARNESS_LEGACY_PUBLIC_SOURCE_REPO } from "./harness-template-identity.js";
 
@@ -34,6 +35,7 @@ export type HarnessDispatchRepoSource =
   | "explicit-config"
   | "env-local"
   | "process-env"
+  | "provisioning-summary"
   | "git-remote-origin"
   | "manual";
 
@@ -133,9 +135,23 @@ export function resolveHarnessDispatchRepoFromInputs(input?: {
   explicitRepo?: string;
   envLocalRepo?: string;
   processEnvRepo?: string;
+  verifiedProvisioningRepo?: string | null;
   gitRemoteOriginUrl?: string | null;
   manualRepo?: string;
+  runtimeMode?: "packaged" | "source";
 }): HarnessDispatchRepoResolution {
+  const isPackaged = input?.runtimeMode === "packaged";
+
+  const provisioningSummaryResolution = resolveConfiguredDispatchRepo({
+    raw: input?.verifiedProvisioningRepo ?? undefined,
+    source: "provisioning-summary",
+    resolvedDetail: "Resolved from verified Step 1 harness workspace.",
+    invalidDetail: "Invalid verified Step 1 harness workspace repository.",
+  });
+  if (provisioningSummaryResolution) {
+    return provisioningSummaryResolution;
+  }
+
   const explicitResolution = resolveConfiguredDispatchRepo({
     raw: input?.explicitRepo,
     source: "explicit-config",
@@ -154,6 +170,16 @@ export function resolveHarnessDispatchRepoFromInputs(input?: {
   });
   if (envLocalResolution) {
     return envLocalResolution;
+  }
+
+  if (isPackaged) {
+    return {
+      repo: null,
+      source: "provisioning-summary",
+      resolved: false,
+      detail:
+        "Complete Step 1 to connect a verified harness workspace before configuring the PDev automation bridge.",
+    };
   }
 
   const processEnvResolution = resolveConfiguredDispatchRepo({
@@ -236,6 +262,7 @@ async function readEnvLocalKey(
 export async function resolveHarnessDispatchRepo(options?: {
   cwd?: string;
   explicitRepo?: string;
+  verifiedProvisioningRepo?: string | null;
   manualRepo?: string;
   gitExecutor?: GitCommandExecutor;
 }): Promise<HarnessDispatchRepoResolution> {
@@ -244,15 +271,20 @@ export async function resolveHarnessDispatchRepo(options?: {
     paths.envLocal,
     "GITHUB_DISPATCH_REPOSITORY",
   );
-  const gitRemoteOriginUrl = await readGitRemoteOrigin(options?.cwd, {
-    gitExecutor: options?.gitExecutor,
-  });
+  const packagedRuntime = isPackagedPDevRuntime();
+  const gitRemoteOriginUrl = packagedRuntime
+    ? null
+    : await readGitRemoteOrigin(options?.cwd, {
+        gitExecutor: options?.gitExecutor,
+      });
 
   return resolveHarnessDispatchRepoFromInputs({
     explicitRepo: options?.explicitRepo,
     envLocalRepo: envLocalDispatchRepo,
-    processEnvRepo: process.env.GITHUB_DISPATCH_REPOSITORY,
+    processEnvRepo: packagedRuntime ? undefined : process.env.GITHUB_DISPATCH_REPOSITORY,
+    verifiedProvisioningRepo: options?.verifiedProvisioningRepo,
     gitRemoteOriginUrl,
     manualRepo: options?.manualRepo,
+    runtimeMode: packagedRuntime ? "packaged" : "source",
   });
 }

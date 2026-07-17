@@ -85,6 +85,7 @@ import {
   resolveLinearWebhookCandidateSecret,
 } from "../../src/setup/linear-webhook-secret.js";
 import {
+  createVercelProject,
   listVercelProjectEnvVars,
   listVercelProjects,
   listVercelTeams,
@@ -202,6 +203,11 @@ describe("vercel-setup-apply", () => {
     vi.mocked(listVercelProjects).mockResolvedValue([
       { id: "proj-1", name: "harness-gui", accountId: "acct-1" },
     ]);
+    vi.mocked(createVercelProject).mockResolvedValue({
+      id: "proj-created",
+      name: "new-harness-gui",
+      accountId: "acct-1",
+    });
     vi.mocked(listVercelProjectEnvVars).mockResolvedValue([
       {
         id: "env-sensitive",
@@ -383,6 +389,77 @@ describe("vercel-setup-apply", () => {
     expect(updateControlPlaneSetupState).not.toHaveBeenCalled();
     expect(result.verified).toBe(false);
     expect(result.signedProbeVerified).toBe(false);
+  });
+
+  it("creates a new project from actionable preview and does not complete on failed probe", async () => {
+    vi.mocked(previewVercelBridgeSetup)
+      .mockResolvedValueOnce({
+        ...previewResult,
+        selectedProject: undefined,
+        productionUrl: undefined,
+        webhookUrl: undefined,
+        deploymentStatus: "project-will-be-created",
+        endpointReachable: false,
+        fingerprint: "create-preview-fingerprint",
+        validationError: undefined,
+        manualSteps: [
+          'Project "new-harness-gui" will be created during apply if it does not already exist.',
+        ],
+      })
+      .mockResolvedValueOnce({
+        ...previewResult,
+        projects: [
+          { id: "proj-created", name: "new-harness-gui", accountId: "acct-1" },
+        ],
+        selectedProject: {
+          id: "proj-created",
+          name: "new-harness-gui",
+          accountId: "acct-1",
+        },
+        fingerprint: "created-project-fingerprint",
+      });
+    vi.mocked(runSignedWebhookProbe).mockResolvedValue({
+      passed: false,
+      result: "auth_failed",
+      reason: "invalid_signature",
+      probedAt: new Date().toISOString(),
+      webhookHost: "harness-gui.vercel.app",
+      webhookPath: "/api/linear-webhook",
+    });
+
+    const result = await applyVercelBridgeSetup({
+      plan: {
+        vercelToken: "vercel-token",
+        team: { mode: "existing", teamId: "" },
+        project: { mode: "create", projectName: "new-harness-gui" },
+        derivedHarnessTeamKey: "WES",
+        derivedGithubDispatchToken: "ghp_saved",
+        derivedGithubDispatchRepository: "owner/harness",
+        willGenerateLinearWebhookSecret: true,
+      },
+      confirmed: true,
+      fingerprint: "create-preview-fingerprint",
+      cwd: tempRoot,
+    });
+
+    expect(createVercelProject).toHaveBeenCalledWith("vercel-token", {
+      name: "new-harness-gui",
+      teamId: undefined,
+    });
+    expect(upsertVercelProjectEnvVar).toHaveBeenCalled();
+    expect(result.status).toBe("applied");
+    expect(result.project?.outcome).toBe("created");
+    expect(result.signedProbeVerified).toBe(false);
+    expect(result.verified).toBe(false);
+    expect(updateControlPlaneSetupState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        vercel: expect.objectContaining({
+          projectId: "proj-created",
+          signedProbeVerified: false,
+        }),
+      }),
+      tempRoot,
+    );
   });
 
   it("does not mark existing-unverified webhook setup as verified", async () => {

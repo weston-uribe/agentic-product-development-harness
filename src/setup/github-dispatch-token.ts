@@ -1,6 +1,8 @@
 import { GitHubApiError, GitHubClient } from "../github/client.js";
 import { resolveHarnessDispatchRepo } from "./harness-dispatch-repo.js";
+import type { HarnessRepoProvisioningSummary } from "./harness-repo-provisioning.js";
 import { inspectGitHubTokenMetadata } from "./service-verification.js";
+import { isPackagedPDevRuntime } from "../p-dev/runtime-mode.js";
 
 export type GitHubDispatchTokenSource =
   | "saved-github-token"
@@ -16,6 +18,9 @@ export interface GitHubDispatchTokenEligibility {
 export async function assessGitHubDispatchTokenEligibility(input: {
   githubToken?: string;
   cwd?: string;
+  harnessProvisioningSummary?: HarnessRepoProvisioningSummary;
+  verifiedDispatchRepo?: string | null;
+  requireVerifiedPackagedDispatchRepo?: boolean;
 }): Promise<GitHubDispatchTokenEligibility> {
   const token = input.githubToken?.trim();
   if (!token) {
@@ -27,13 +32,39 @@ export async function assessGitHubDispatchTokenEligibility(input: {
     };
   }
 
-  const dispatchRepo = await resolveHarnessDispatchRepo({ cwd: input.cwd });
+  const packagedRuntime =
+    input.harnessProvisioningSummary?.runtimeMode === "packaged" ||
+    isPackagedPDevRuntime();
+  const verifiedDispatchRepo =
+    input.verifiedDispatchRepo?.trim() ||
+    (input.harnessProvisioningSummary?.verifiedSavedRepo
+      ? input.harnessProvisioningSummary.harnessDispatchRepo?.trim()
+      : undefined);
+
+  if (
+    packagedRuntime &&
+    input.requireVerifiedPackagedDispatchRepo === true &&
+    !verifiedDispatchRepo
+  ) {
+    return {
+      eligible: false,
+      source: "manual-required",
+      message:
+        "Complete Step 1 to connect a verified harness workspace before configuring the PDev automation bridge.",
+    };
+  }
+
+  const dispatchRepo = await resolveHarnessDispatchRepo({
+    cwd: input.cwd,
+    verifiedProvisioningRepo: verifiedDispatchRepo,
+  });
   if (!dispatchRepo.resolved || !dispatchRepo.repo) {
     return {
       eligible: false,
       source: "manual-required",
       message:
-        "Could not resolve the harness dispatch repository. Set GITHUB_DISPATCH_REPOSITORY or verify git remote origin.",
+        dispatchRepo.detail ??
+        "Could not resolve the harness dispatch repository. Set GITHUB_DISPATCH_REPOSITORY in Step 1.",
     };
   }
 

@@ -42,10 +42,12 @@ async function cloneRepo(
 describe("harness-dispatch-repo", () => {
   let tempRoot = "";
   const originalDispatchRepo = process.env.GITHUB_DISPATCH_REPOSITORY;
+  const originalRuntimeMode = process.env.P_DEV_RUNTIME_MODE;
 
   beforeEach(async () => {
     tempRoot = await mkdtemp(path.join(tmpdir(), "harness-dispatch-repo-"));
     delete process.env.GITHUB_DISPATCH_REPOSITORY;
+    delete process.env.P_DEV_RUNTIME_MODE;
   });
 
   afterEach(async () => {
@@ -53,6 +55,11 @@ describe("harness-dispatch-repo", () => {
       delete process.env.GITHUB_DISPATCH_REPOSITORY;
     } else {
       process.env.GITHUB_DISPATCH_REPOSITORY = originalDispatchRepo;
+    }
+    if (originalRuntimeMode === undefined) {
+      delete process.env.P_DEV_RUNTIME_MODE;
+    } else {
+      process.env.P_DEV_RUNTIME_MODE = originalRuntimeMode;
     }
     await rm(tempRoot, { recursive: true, force: true });
   });
@@ -147,6 +154,24 @@ describe("harness-dispatch-repo", () => {
     });
     expect(resolution.resolved).toBe(false);
     expect(resolution.repo).toBeNull();
+  });
+
+  it("does not use git remote fallback in packaged runtime", async () => {
+    process.env.P_DEV_RUNTIME_MODE = "packaged";
+    const gitDir = path.join(tempRoot, ".git");
+    await mkdir(gitDir, { recursive: true });
+    await writeFile(
+      path.join(gitDir, "config"),
+      `[remote "origin"]\n\turl = https://github.com/git-org/git-repo.git\n`,
+      "utf8",
+    );
+
+    const resolution = await resolveHarnessDispatchRepo({ cwd: tempRoot });
+
+    expect(resolution.resolved).toBe(false);
+    expect(resolution.repo).toBeNull();
+    expect(resolution.source).toBe("provisioning-summary");
+    expect(resolution.detail).toMatch(/Complete Step 1/i);
   });
 
   it("returns manual placeholder when unresolved", async () => {

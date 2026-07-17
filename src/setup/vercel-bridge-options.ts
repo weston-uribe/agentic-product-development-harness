@@ -1,5 +1,6 @@
 import { readControlPlaneSetupState } from "./control-plane-setup-state.js";
 import { assessGitHubDispatchTokenEligibility } from "./github-dispatch-token.js";
+import type { HarnessRepoProvisioningSummary } from "./harness-repo-provisioning.js";
 import {
   listVercelProjects,
   listVercelTeams,
@@ -78,12 +79,15 @@ export async function loadVercelBridgeOptions(input: {
   githubToken?: string;
   cwd?: string;
   teamId?: string;
+  harnessProvisioningSummary?: HarnessRepoProvisioningSummary;
 }): Promise<VercelBridgeOptionsResult> {
   const controlPlane = await readControlPlaneSetupState(input.cwd);
   const harnessTeamKey = controlPlane?.linear?.teamKey;
   const githubDispatch = await assessGitHubDispatchTokenEligibility({
     githubToken: input.githubToken,
     cwd: input.cwd,
+    harnessProvisioningSummary: input.harnessProvisioningSummary,
+    requireVerifiedPackagedDispatchRepo: true,
   });
 
   const capabilities = {

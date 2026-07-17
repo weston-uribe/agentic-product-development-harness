@@ -69,6 +69,7 @@ export interface VercelBridgePlanInput {
   envInput?: VercelBridgeEnvInput;
   derivedHarnessTeamKey?: string;
   derivedGithubDispatchToken?: string;
+  derivedGithubDispatchRepository?: string;
   willGenerateLinearWebhookSecret?: boolean;
   /** Raw secret for verify/retry paths only; does not affect preview fingerprinting. */
   verificationLinearWebhookSecret?: string;
@@ -280,6 +281,7 @@ function buildEnvWritePlan(input: {
   envInput?: VercelBridgeEnvInput;
   derivedHarnessTeamKey?: string;
   derivedGithubDispatchToken?: string;
+  derivedGithubDispatchRepository?: string;
   willGenerateLinearWebhookSecret?: boolean;
 }): VercelEnvWritePlanEntry[] {
   const plan: VercelEnvWritePlanEntry[] = [];
@@ -347,8 +349,13 @@ function buildEnvWritePlan(input: {
   }
 
   for (const key of OPTIONAL_VERCEL_BRIDGE_ENV_VARS) {
+    const operatorValue = input.envInput?.[key]?.trim();
+    const derivedValue =
+      key === "GITHUB_DISPATCH_REPOSITORY"
+        ? input.derivedGithubDispatchRepository?.trim()
+        : undefined;
     const value =
-      input.envInput?.[key]?.trim() ?? DEFAULT_VERCEL_BRIDGE_ENV_DEFAULTS[key];
+      operatorValue ?? derivedValue ?? DEFAULT_VERCEL_BRIDGE_ENV_DEFAULTS[key];
     const existing = input.existingEnvByKey.get(key);
     const desiredType = getDefaultEnvVarType(key);
     if (!value) {
@@ -368,7 +375,7 @@ function buildEnvWritePlan(input: {
     plan.push({
       key,
       action: "create",
-      source: input.envInput?.[key]?.trim() ? "operator-input" : "default",
+      source: operatorValue ? "operator-input" : derivedValue ? "derived" : "default",
       desiredType,
     });
   }
@@ -381,6 +388,7 @@ export function resolveVercelBridgeEnvValue(input: {
   envInput?: VercelBridgeEnvInput;
   derivedHarnessTeamKey?: string;
   derivedGithubDispatchToken?: string;
+  derivedGithubDispatchRepository?: string;
   generatedLinearWebhookSecret?: string;
 }): string | undefined {
   const operatorValue = input.envInput?.[
@@ -397,6 +405,12 @@ export function resolveVercelBridgeEnvValue(input: {
     input.derivedGithubDispatchToken?.trim()
   ) {
     return input.derivedGithubDispatchToken.trim();
+  }
+  if (
+    input.key === "GITHUB_DISPATCH_REPOSITORY" &&
+    input.derivedGithubDispatchRepository?.trim()
+  ) {
+    return input.derivedGithubDispatchRepository.trim();
   }
   if (
     input.key === "LINEAR_WEBHOOK_SECRET" &&
@@ -492,7 +506,43 @@ export async function previewVercelBridgeSetup(
             `Project "${normalized.project?.projectName}" will be created during apply if it does not already exist.`,
           ]
         : ["Select or enter the Vercel project for automation and preview checks."];
-  return {
+    const willGenerateLinearWebhookSecret =
+      normalized.willGenerateLinearWebhookSecret ??
+      !normalized.envInput?.LINEAR_WEBHOOK_SECRET?.trim();
+    const envWritePlan =
+      normalized.project?.mode === "create"
+        ? buildEnvWritePlan({
+            existingEnvByKey: new Map(),
+            envInput: normalized.envInput,
+            derivedHarnessTeamKey: normalized.derivedHarnessTeamKey,
+            derivedGithubDispatchToken: normalized.derivedGithubDispatchToken,
+            derivedGithubDispatchRepository:
+              normalized.derivedGithubDispatchRepository,
+            willGenerateLinearWebhookSecret,
+          })
+        : [];
+    const githubDispatchSource = normalized.envInput?.GITHUB_DISPATCH_TOKEN?.trim()
+      ? "operator-input"
+      : normalized.derivedGithubDispatchToken?.trim()
+        ? "saved-github-token"
+        : "missing";
+    const fingerprintInputs = buildVercelBridgePreviewFingerprintInput({
+      teamId: teamIdForProjects,
+      teamMode: normalized.team?.mode,
+      teamSlug: normalized.team?.teamSlug,
+      projectId: normalized.project?.projectName ?? "",
+      projectMode: normalized.project?.mode,
+      projectName: normalized.project?.projectName,
+      envWritePlan,
+      willGenerateLinearWebhookSecret,
+      linearWebhookSecretFromEnv: normalized.envInput?.LINEAR_WEBHOOK_SECRET,
+      githubDispatchTokenFromEnv: normalized.envInput?.GITHUB_DISPATCH_TOKEN,
+      derivedGithubDispatchToken: normalized.derivedGithubDispatchToken,
+      harnessTeamKey: normalized.envInput?.HARNESS_TEAM_KEY,
+      derivedHarnessTeamKey: normalized.derivedHarnessTeamKey,
+      vercelToken: normalized.vercelToken,
+    });
+    return {
       actionId: VERCEL_SETUP_ACTIONS.preview.id,
       teams,
       projects,
@@ -501,7 +551,7 @@ export async function previewVercelBridgeSetup(
           ? "project-will-be-created"
           : "missing",
       endpointReachable: false,
-      envWritePlan: [],
+      envWritePlan,
       requiredEnvPresence: {
         LINEAR_WEBHOOK_SECRET: "missing",
         GITHUB_DISPATCH_TOKEN: "missing",
@@ -510,14 +560,21 @@ export async function previewVercelBridgeSetup(
       linearWebhookVerified: false,
       readiness: deriveVercelBridgeReadiness({}),
       manualSteps,
-      fingerprint: hashPreview({
-        invalid: "missing-project",
-        teamId: teamIdForProjects,
-        teamMode: normalized.team?.mode,
-        teamSlug: normalized.team?.teamSlug,
-        projectMode: normalized.project?.mode,
-        projectName: normalized.project?.projectName,
-      }),
+      signedProbeVerified: false,
+      linearWebhookSecretMode:
+        normalized.project?.mode === "create" ? "manual-copy" : undefined,
+      githubDispatchSource,
+      fingerprint:
+        normalized.project?.mode === "create"
+          ? hashVercelBridgePreviewFingerprint(fingerprintInputs)
+          : hashPreview({
+              invalid: "missing-project",
+              teamId: teamIdForProjects,
+              teamMode: normalized.team?.mode,
+              teamSlug: normalized.team?.teamSlug,
+              projectMode: normalized.project?.mode,
+              projectName: normalized.project?.projectName,
+            }),
       permission: VERCEL_SETUP_ACTIONS.preview.permission,
       validationError:
         normalized.project?.mode === "create"
@@ -606,6 +663,7 @@ export async function previewVercelBridgeSetup(
     envInput: normalized.envInput,
     derivedHarnessTeamKey: normalized.derivedHarnessTeamKey,
     derivedGithubDispatchToken: normalized.derivedGithubDispatchToken,
+    derivedGithubDispatchRepository: normalized.derivedGithubDispatchRepository,
     willGenerateLinearWebhookSecret,
   });
 

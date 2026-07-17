@@ -548,6 +548,8 @@ export async function applyVercelBridgeSetup(input: {
     const dispatchEligibility = await assessGitHubDispatchTokenEligibility({
       githubToken,
       cwd: input.cwd,
+      verifiedDispatchRepo: normalized.derivedGithubDispatchRepository,
+      requireVerifiedPackagedDispatchRepo: true,
     });
     if (!dispatchEligibility.eligible) {
       logVercelBridgeEvent({
@@ -856,6 +858,7 @@ export async function applyVercelBridgeSetup(input: {
       envInput: normalized.envInput,
       derivedHarnessTeamKey: normalized.derivedHarnessTeamKey,
       derivedGithubDispatchToken: normalized.derivedGithubDispatchToken,
+      derivedGithubDispatchRepository: normalized.derivedGithubDispatchRepository,
       generatedLinearWebhookSecret: candidateWebhookSecret,
     });
 

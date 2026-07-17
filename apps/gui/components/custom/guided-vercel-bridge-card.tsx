@@ -246,6 +246,11 @@ export function GuidedVercelBridgeCard({
       setGithubDispatchMessage(
         data.githubDispatch.eligible ? null : data.githubDispatch.message,
       );
+      if (!data.githubDispatch.eligible) {
+        setPreview(null);
+        setPreviewGenerated(false);
+        setConfirmed(false);
+      }
       if (scopeId === undefined && data.selectedScopeId !== undefined) {
         setTeamId(data.selectedScopeId);
       }
@@ -574,6 +579,7 @@ export function GuidedVercelBridgeCard({
         (projectMode === "existing" ? Boolean(projectId) : Boolean(projectName))
       : Boolean(teamSlug && harnessTeamKey) &&
         (projectMode === "existing" ? Boolean(projectId) : Boolean(projectName));
+  const stepPrerequisitesMet = githubDispatchEligible;
 
   const canContinue =
     (verifiedSuccess && applyResult?.signedProbeVerified === true) ||
@@ -582,7 +588,7 @@ export function GuidedVercelBridgeCard({
   return (
     <SectionCard
       title={`Step 3 of ${GUIDED_SETUP_STEP_COUNT} · Configure PDev automation bridge`}
-      description="Choose the Vercel team and project that host the PDev automation bridge. This is separate from application preview deployment on target repos."
+      description="Choose the Vercel team and project that hosts the PDev automation bridge."
     >
       <div className={SPACING.stackSm}>
         {!summary.vercelTokenConfigured ? (
@@ -596,7 +602,7 @@ export function GuidedVercelBridgeCard({
                 {REDEPLOY_POLLING_LOCK_MESSAGE}
               </p>
             ) : null}
-            {!githubDispatchEligible && githubDispatchMessage ? (
+            {!stepPrerequisitesMet && githubDispatchMessage ? (
               <p className="text-sm text-destructive">{githubDispatchMessage}</p>
             ) : null}
             {orchestrationStatusMessage ? (
@@ -607,6 +613,8 @@ export function GuidedVercelBridgeCard({
                 )}
               />
             ) : null}
+            {stepPrerequisitesMet ? (
+              <>
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="vercel-team-mode">Vercel team name</Label>
@@ -838,7 +846,6 @@ export function GuidedVercelBridgeCard({
                     controlsLocked ||
                     !confirmed ||
                     !formComplete ||
-                    !githubDispatchEligible ||
                     Boolean(preview?.validationError)
                   }
                 >
@@ -890,6 +897,8 @@ export function GuidedVercelBridgeCard({
               <Button type="button" onClick={onContinue}>
                 Continue to target repo setup
               </Button>
+            ) : null}
+              </>
             ) : null}
           </>
         )}

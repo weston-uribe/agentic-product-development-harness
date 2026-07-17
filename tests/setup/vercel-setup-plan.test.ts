@@ -94,6 +94,12 @@ describe("vercel-setup-plan", () => {
         generatedLinearWebhookSecret: "generated-secret",
       }),
     ).toBe("generated-secret");
+    expect(
+      resolveVercelBridgeEnvValue({
+        key: "GITHUB_DISPATCH_REPOSITORY",
+        derivedGithubDispatchRepository: "owner/private-harness",
+      }),
+    ).toBe("owner/private-harness");
   });
 
   it("plans derived harness team key and generated webhook secret in preview", async () => {
@@ -102,6 +108,7 @@ describe("vercel-setup-plan", () => {
       projectId: "proj-1",
       derivedHarnessTeamKey: "WES",
       derivedGithubDispatchToken: "ghp_saved",
+      derivedGithubDispatchRepository: "owner/private-harness",
       willGenerateLinearWebhookSecret: true,
       linearApiKey: "lin_api_test",
     });
@@ -124,6 +131,12 @@ describe("vercel-setup-plan", () => {
           desiredType: "sensitive",
         }),
         expect.objectContaining({
+          key: "GITHUB_DISPATCH_REPOSITORY",
+          source: "derived",
+          action: "create",
+          desiredType: "plain",
+        }),
+        expect.objectContaining({
           key: "LINEAR_WEBHOOK_SECRET",
           source: "generated",
           action: "create",
@@ -142,12 +155,32 @@ describe("vercel-setup-plan", () => {
       project: { mode: "create", projectName: "harness-configure-step3-test" },
       derivedHarnessTeamKey: "WES",
       derivedGithubDispatchToken: "ghp_saved",
+      derivedGithubDispatchRepository: "owner/private-harness",
       willGenerateLinearWebhookSecret: true,
     });
 
     expect(preview.validationError).toBeUndefined();
     expect(preview.selectedProject).toBeUndefined();
     expect(preview.deploymentStatus).toBe("project-will-be-created");
+    expect(preview.endpointReachable).toBe(false);
+    expect(preview.webhookUrl).toBeUndefined();
+    expect(preview.githubDispatchSource).toBe("saved-github-token");
+    expect(preview.envWritePlan).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "LINEAR_WEBHOOK_SECRET",
+          action: "create",
+        }),
+        expect.objectContaining({
+          key: "GITHUB_DISPATCH_TOKEN",
+          action: "create",
+        }),
+        expect.objectContaining({
+          key: "GITHUB_DISPATCH_REPOSITORY",
+          action: "create",
+        }),
+      ]),
+    );
     expect(preview.manualSteps.join(" ")).toMatch(/will be created during apply/i);
   });
 
