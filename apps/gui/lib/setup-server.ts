@@ -288,8 +288,14 @@ async function resolveRunnerUpgradeStatusProvider(): Promise<
   });
 }
 
-export async function loadRunnerUpgradeStatusForGui(): Promise<RunnerUpgradeStatusResult> {
-  ensureRunnerUpgradeGuiWorkerConfigured();
+export async function loadRunnerUpgradeStatusForGui(options?: {
+  debugTimings?: boolean;
+  testHangAfterStage?: import("@harness/setup/runner-upgrade-timeouts").RunnerUpgradeStatusStage;
+  overallDeadlineMs?: number;
+}): Promise<RunnerUpgradeStatusResult> {
+  // Status must not start or await the upgrade worker. Worker starts on apply
+  // and via instrumentation.ts only.
+  const cwd = resolveCwd();
   const provider = await resolveRunnerUpgradeStatusProvider();
   if (!provider) {
     return {
@@ -297,9 +303,15 @@ export async function loadRunnerUpgradeStatusForGui(): Promise<RunnerUpgradeStat
       statusLabel: runnerUpgradeStatusLabel("failed"),
       blockedReason:
         "GITHUB_TOKEN is required to check or update the managed p-dev runner.",
+      retryAvailable: true,
     };
   }
-  return loadRunnerUpgradeStatus(resolveCwd(), provider);
+  return loadRunnerUpgradeStatus(cwd, provider, {
+    debugTimings: options?.debugTimings === true,
+    testHangAfterStage: options?.testHangAfterStage,
+    overallDeadlineMs: options?.overallDeadlineMs,
+    workspaceKey: cwd,
+  });
 }
 
 function ensureRunnerUpgradeGuiWorkerConfigured(): void {

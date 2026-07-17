@@ -27,6 +27,13 @@ import { executeRunnerUpgradeOperation } from "../../src/setup/runner-upgrade.js
 import { readRunnerUpgradePendingState } from "../../src/setup/runner-upgrade-pending-state.js";
 import { createTestWorkspaceSnapshotRoot } from "../setup/test-workspace-snapshot-fixture.js";
 import { createRunnerUpgradeCheckingSkeleton } from "../../apps/gui/lib/settings/runner-upgrade-ssr.js";
+import {
+  runnerUpgradeCanApply,
+  runnerUpgradeCanPreview,
+  runnerUpgradeRetryStatusVisible,
+} from "../../apps/gui/lib/settings/runner-upgrade-ui-gates.js";
+import { writeRunnerUpgradeLastVerifiedIdentity } from "../../src/setup/runner-upgrade-status-cache.js";
+import { readRunnerUpgradeProgress } from "../../src/setup/runner-upgrade-progress.js";
 
 vi.mock("server-only", () => ({}));
 
@@ -39,31 +46,63 @@ const REPO_SLUG = "owner/harness-repo";
 const README_V1 = Buffer.from("# runner v1\n", "utf8");
 const README_V2 = Buffer.from("# runner v2\n", "utf8");
 
-const snapshotFixture = vi.hoisted(() => ({
-  snapshotRoot: "",
-  packageRoot: "",
-  manifest: null as WorkspaceSnapshotManifest | null,
-  fingerprint: "",
-}));
+const snapshotFixture = vi.hoisted(() => {
+  const state = {
+    snapshotRoot: "",
+    packageRoot: "",
+    manifest: null as WorkspaceSnapshotManifest | null,
+    fingerprint: "",
+  };
+  return {
+    get snapshotRoot() {
+      return state.snapshotRoot;
+    },
+    set snapshotRoot(value: string) {
+      state.snapshotRoot = value;
+    },
+    get packageRoot() {
+      return state.packageRoot;
+    },
+    set packageRoot(value: string) {
+      state.packageRoot = value;
+    },
+    get manifest() {
+      return state.manifest;
+    },
+    set manifest(value: WorkspaceSnapshotManifest | null) {
+      state.manifest = value;
+    },
+    get fingerprint() {
+      return state.fingerprint;
+    },
+    set fingerprint(value: string) {
+      state.fingerprint = value;
+    },
+    load: async () => {
+      if (!state.manifest) {
+        return {
+          ok: false as const,
+          state: "snapshot-unavailable" as const,
+          message: "Test snapshot fixture is not initialized.",
+        };
+      }
+      return {
+        ok: true as const,
+        packageRoot: state.packageRoot,
+        snapshotRoot: state.snapshotRoot,
+        packageVersion: state.manifest.packageVersion,
+        manifest: state.manifest,
+        fingerprint: state.fingerprint,
+      };
+    },
+  };
+});
 
 vi.mock("../../src/setup/harness-workspace-snapshot-loader.js", () => ({
-  loadEmbeddedWorkspaceSnapshot: vi.fn(async () => {
-    if (!snapshotFixture.manifest) {
-      return {
-        ok: false as const,
-        state: "snapshot-unavailable" as const,
-        message: "Test snapshot fixture is not initialized.",
-      };
-    }
-    return {
-      ok: true as const,
-      packageRoot: snapshotFixture.packageRoot,
-      snapshotRoot: snapshotFixture.snapshotRoot,
-      packageVersion: snapshotFixture.manifest.packageVersion,
-      manifest: snapshotFixture.manifest,
-      fingerprint: snapshotFixture.fingerprint,
-    };
-  }),
+  loadEmbeddedWorkspaceSnapshot: vi.fn(async () => snapshotFixture.load()),
+  loadEmbeddedWorkspaceSnapshotIdentityForStatus: vi.fn(async () =>
+    snapshotFixture.load(),
+  ),
 }));
 
 function buildManifest(input: {
@@ -108,6 +147,8 @@ describe("packaged runner upgrade Deployments routes", () => {
   const originalRepoRoot = process.env.HARNESS_REPO_ROOT;
   const originalRuntimeMode = process.env.P_DEV_RUNTIME_MODE;
   const originalTestSeam = process.env.HARNESS_VITEST_RUNNER_UPGRADE_MOCK;
+  const originalStatusTestHooks =
+    process.env.P_DEV_RUNNER_UPGRADE_STATUS_TEST_HOOKS;
   const v1Manifest = buildManifest({ readme: README_V1 });
   const v2Manifest = buildManifest({ readme: README_V2 });
 
@@ -244,16 +285,152 @@ describe("packaged runner upgrade Deployments routes", () => {
     } else {
       process.env.HARNESS_VITEST_RUNNER_UPGRADE_MOCK = originalTestSeam;
     }
+    if (originalStatusTestHooks === undefined) {
+      delete process.env.P_DEV_RUNNER_UPGRADE_STATUS_TEST_HOOKS;
+    } else {
+      process.env.P_DEV_RUNNER_UPGRADE_STATUS_TEST_HOOKS = originalStatusTestHooks;
+    }
     await rm(workspaceDir, { recursive: true, force: true });
     if (snapshotTempDir) {
       await rm(snapshotTempDir, { recursive: true, force: true });
     }
   });
 
+  it("status deadline hang: checking, retry, confirm-update, 202, blocked verify with zero mutations", async () => {
+    process.env.P_DEV_RUNNER_UPGRADE_STATUS_TEST_HOOKS = "1";
+    const localMarker = markerJson(v1Manifest);
+    await writeFile(
+      path.join(workspaceDir, HARNESS_MANAGED_REPO_MARKER_FILE),
+      localMarker,
+      "utf8",
+    );
+    await writeRunnerUpgradeLastVerifiedIdentity(
+      {
+        snapshotContentId: v1Manifest.snapshotContentId,
+        packageVersion: v1Manifest.packageVersion,
+        sourceCommit: v1Manifest.sourceCommit,
+        verifiedAt: "2026-01-01T00:00:00.000Z",
+        repoSlug: REPO_SLUG,
+      },
+      workspaceDir,
+    );
+
+    const started = Date.now();
+    const hungStatusResponse = await statusRoute(
+      new Request(
+        "http://localhost/api/setup/runner-upgrade-status?debugTimings=1&testHangAfterStage=status_conversion&overallDeadlineMs=250",
+      ),
+    );
+    const elapsed = Date.now() - started;
+    expect(hungStatusResponse.status).toBe(200);
+    expect(elapsed).toBeLessThan(2_000);
+    const hungStatus = (await hungStatusResponse.json()) as {
+      status: string;
+      degraded?: boolean;
+      retryAvailable?: boolean;
+      localManagedRepoEvidence?: boolean;
+      unresolvedStage?: string;
+      currentSnapshotCached?: boolean;
+      currentSnapshot?: { packageVersion: string };
+      debugTimings?: Array<{ stage: string }>;
+    };
+    expect(hungStatus.status).toBe("checking");
+    expect(hungStatus.degraded).toBe(true);
+    expect(hungStatus.retryAvailable).toBe(true);
+    expect(hungStatus.localManagedRepoEvidence).toBe(true);
+    expect(hungStatus.unresolvedStage).toBe("status_conversion");
+    expect(hungStatus.currentSnapshotCached).toBe(true);
+    expect(hungStatus.currentSnapshot?.packageVersion).toBe("0.3.1");
+    expect(runnerUpgradeRetryStatusVisible(hungStatus as never)).toBe(true);
+    expect(
+      runnerUpgradeCanApply({
+        status: hungStatus as never,
+        tokenUnavailable: false,
+        lifecycleBusy: false,
+      }),
+    ).toBe(true);
+    expect(
+      runnerUpgradeCanPreview({
+        status: hungStatus as never,
+        tokenUnavailable: false,
+        lifecycleBusy: false,
+      }),
+    ).toBe(false);
+
+    const blockedProvider = await createMockRunnerUpgradeProvider({
+      repositories: {
+        [REPO_SLUG]: {
+          repositoryId: deterministicMockRepositoryId(REPO_SLUG),
+          owner: "owner",
+          repo: "harness-repo",
+          defaultBranch: "main",
+          remoteFiles: {
+            "README.md": README_V1.toString("utf8"),
+          },
+        },
+      },
+    });
+    // Apply reconfigures the worker from the test factory — point it at the
+    // non-managed remote so verification fails before any mutation.
+    registerHarnessTestRunnerUpgradeProviderFactory(() => blockedProvider);
+
+    const applyResponse = await applyRoute(
+      new Request("http://localhost/api/setup/apply-runner-upgrade", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ confirmed: true }),
+      }),
+    );
+    expect(applyResponse.status).toBe(202);
+    const applyBody = (await applyResponse.json()) as {
+      apply: { status: string; operationId: string };
+      progress: { operationId: string; phase: string };
+    };
+    expect(applyBody.apply.status).toBe("updating");
+    expect(await readRunnerUpgradePendingState(workspaceDir)).toBeTruthy();
+    expect(await readRunnerUpgradeProgress(workspaceDir)).toBeTruthy();
+    expect(applyBody.progress.phase).toBe("verifying-managed-repository");
+
+    const mutationMethods = new Set([
+      "createGitBlob",
+      "createGitTree",
+      "createGitCommit",
+      "createPullRequest",
+      "updateGitRef",
+      "createGitRef",
+      "mergePullRequest",
+      "writeHarnessSecrets",
+      "writeHarnessVariables",
+    ]);
+    expect(
+      blockedProvider.calls.filter((call) => mutationMethods.has(call.method)),
+    ).toHaveLength(0);
+
+    await waitForRunnerUpgradeWorkerIdle(30_000);
+
+    expect(
+      blockedProvider.calls.filter((call) => mutationMethods.has(call.method)),
+    ).toHaveLength(0);
+
+    const blockedStatusResponse = await statusRoute(
+      new Request("http://localhost/api/setup/runner-upgrade-status"),
+    );
+    const blockedStatus = (await blockedStatusResponse.json()) as {
+      status: string;
+      blockedReason?: string;
+    };
+    expect(blockedStatus.status).toBe("blocked_non_managed");
+    expect(blockedStatus.blockedReason).toBeTruthy();
+
+    delete process.env.P_DEV_RUNNER_UPGRADE_STATUS_TEST_HOOKS;
+  }, 60_000);
+
   it("detects update available, accepts apply with 202, resumes after sync failure", async () => {
     expect(createRunnerUpgradeCheckingSkeleton().status).toBe("checking");
 
-    const statusResponse = await statusRoute();
+    const statusResponse = await statusRoute(
+      new Request("http://localhost/api/setup/runner-upgrade-status"),
+    );
     expect(statusResponse.status).toBe(200);
     const statusBody = (await statusResponse.json()) as {
       status: string;
@@ -310,7 +487,9 @@ describe("packaged runner upgrade Deployments routes", () => {
     const progressResponse = await progressRoute();
     expect(progressResponse.status).toBe(200);
 
-    const failedStatus = await statusRoute();
+    const failedStatus = await statusRoute(
+      new Request("http://localhost/api/setup/runner-upgrade-status"),
+    );
     const failedStatusBody = (await failedStatus.json()) as { status: string };
     expect(failedStatusBody.status).toBe("partially_updated");
 
@@ -330,7 +509,9 @@ describe("packaged runner upgrade Deployments routes", () => {
     expect(resumeApply.status).toBe(202);
     await waitForRunnerUpgradeWorkerIdle(30_000);
 
-    const finalStatus = await statusRoute();
+    const finalStatus = await statusRoute(
+      new Request("http://localhost/api/setup/runner-upgrade-status"),
+    );
     const finalBody = (await finalStatus.json()) as { status: string };
     expect(finalBody.status).toBe("up_to_date");
 

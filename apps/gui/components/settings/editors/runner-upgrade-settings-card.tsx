@@ -21,6 +21,13 @@ import {
   type SettingsMutationState,
 } from "@/lib/settings/settings-mutation";
 import {
+  formatRunnerUpgradeCurrentSnapshotLine,
+  runnerUpgradeCanApply,
+  runnerUpgradeCanPreview,
+  runnerUpgradeRetryStatusVisible,
+} from "@/lib/settings/runner-upgrade-ui-gates";
+import {
+  abortInFlightRunnerUpgradeStatusFetch,
   applyRunnerUpgrade,
   fetchRunnerUpgradeProgress,
   fetchRunnerUpgradeStatus,
@@ -53,14 +60,13 @@ type RunnerUpgradeSettingsCardProps = {
   initialStatus: RunnerUpgradeStatusResult | null;
 };
 
-function formatSnapshotLine(
-  label: string,
+function formatAvailableSnapshotLine(
   snapshot?: RunnerUpgradeStatusResult["currentSnapshot"],
 ): string {
   if (!snapshot) {
-    return `${label}: —`;
+    return "Available runner: —";
   }
-  return `${label}: ${snapshot.packageVersion} (${snapshot.snapshotContentId.slice(0, 12)}…)`;
+  return `Available runner: ${snapshot.packageVersion} (${snapshot.snapshotContentId.slice(0, 12)}…)`;
 }
 
 export function RunnerUpgradeSettingsCard({
@@ -95,15 +101,30 @@ export function RunnerUpgradeSettingsCard({
   }, []);
 
   const refreshStatus = useCallback(async () => {
-    const nextStatus = await fetchRunnerUpgradeStatus();
-    if (mountedRef.current) {
-      setStatus(nextStatus);
-      setStatusLoading(false);
-      if (nextStatus.pendingOperationId) {
-        setOperationId(nextStatus.pendingOperationId);
+    abortInFlightRunnerUpgradeStatusFetch();
+    setStatusLoading(true);
+    try {
+      const nextStatus = await fetchRunnerUpgradeStatus();
+      if (mountedRef.current) {
+        setStatus(nextStatus);
+        setStatusLoading(false);
+        if (nextStatus.pendingOperationId) {
+          setOperationId(nextStatus.pendingOperationId);
+        }
       }
+      return nextStatus;
+    } catch (error) {
+      if (
+        (error instanceof DOMException || error instanceof Error) &&
+        error.name === "AbortError"
+      ) {
+        return null;
+      }
+      if (mountedRef.current) {
+        setStatusLoading(false);
+      }
+      throw error;
     }
-    return nextStatus;
   }, []);
 
   const pollOnce = useCallback(async () => {
@@ -296,19 +317,21 @@ export function RunnerUpgradeSettingsCard({
   const tokenUnavailable = Boolean(
     status?.blockedReason?.includes("GITHUB_TOKEN is required"),
   );
-  const updateAvailable =
-    status?.status === "update_available" ||
-    status?.status === "partially_updated" ||
-    status?.status === "failed";
-  const canApply =
-    Boolean(updateAvailable) &&
-    !tokenUnavailable &&
-    status?.status !== "blocked_non_managed" &&
-    status?.status !== "blocked_operator_conflicts" &&
-    status?.status !== "blocked_unexpected_remote" &&
-    lifecycle !== "submitting" &&
-    lifecycle !== "running" &&
-    lifecycle !== "accepted";
+  const lifecycleBusy =
+    lifecycle === "submitting" ||
+    lifecycle === "running" ||
+    lifecycle === "accepted";
+  const canPreview = runnerUpgradeCanPreview({
+    status,
+    tokenUnavailable,
+    lifecycleBusy,
+  });
+  const canApply = runnerUpgradeCanApply({
+    status,
+    tokenUnavailable,
+    lifecycleBusy,
+  });
+  const showRetryStatus = runnerUpgradeRetryStatusVisible(status);
 
   const canaryRunUrl = progress?.canaryRunUrl ?? status?.canaryRunUrl;
   const showRunningPanel =
@@ -334,17 +357,28 @@ export function RunnerUpgradeSettingsCard({
             ? "Checking runner version"
             : status.statusLabel}
         </p>
+        <p className="mt-2">{formatRunnerUpgradeCurrentSnapshotLine(status)}</p>
         <p className="mt-2">
-          {formatSnapshotLine("Current runner", status?.currentSnapshot)}
-        </p>
-        <p className="mt-2">
-          {formatSnapshotLine("Available runner", status?.availableSnapshot)}
+          {formatAvailableSnapshotLine(status?.availableSnapshot)}
         </p>
         {status?.blockedReason && status.status !== "checking" ? (
           <p className="mt-2 text-destructive">{status.blockedReason}</p>
         ) : null}
         {status?.retryGuidance && status.degraded ? (
           <p className="mt-2 text-muted-foreground">{status.retryGuidance}</p>
+        ) : null}
+        {showRetryStatus ? (
+          <div className="mt-3">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={statusLoading || submitting}
+              onClick={() => void refreshStatus()}
+            >
+              Retry status
+            </Button>
+          </div>
         ) : null}
         {status?.conflictPaths?.length ? (
           <div className="mt-2">
@@ -465,7 +499,7 @@ export function RunnerUpgradeSettingsCard({
         onApply={() => void runApply()}
         previewLabel="Preview runner update"
         applyLabel="Update runner"
-        disablePreview={!canApply || submitting}
+        disablePreview={!canPreview || submitting}
         disableApply={!canApply || !confirmed || submitting}
       />
 

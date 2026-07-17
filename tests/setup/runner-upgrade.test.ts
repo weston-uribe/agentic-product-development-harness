@@ -33,10 +33,15 @@ import {
   resumeRunnerUpgrade,
   RUNNER_UPGRADE_STATUS_PROVIDER_TIMEOUT_MS,
 } from "../../src/setup/runner-upgrade.js";
+import { writeRunnerUpgradeLastVerifiedIdentity } from "../../src/setup/runner-upgrade-status-cache.js";
 import {
+  abortInFlightRunnerUpgradeStatus,
   isRunnerUpgradeProgressStale,
   runnerUpgradeProgressShowsNoProgress,
+  withRunnerUpgradeTimeout,
+  RunnerUpgradeTimeoutError,
 } from "../../src/setup/runner-upgrade-timeouts.js";
+import { withHarnessRunnerUpgradeMutex } from "../../src/setup/runner-upgrade-pending-state.js";
 import {
   configureRunnerUpgradeWorker,
   isRunnerUpgradeOperationActive,
@@ -50,31 +55,63 @@ const REPO_SLUG = "owner/harness-repo";
 const README_V1 = Buffer.from("# runner v1\n", "utf8");
 const README_V2 = Buffer.from("# runner v2\n", "utf8");
 
-const snapshotFixture = vi.hoisted(() => ({
-  snapshotRoot: "",
-  packageRoot: "",
-  manifest: null as WorkspaceSnapshotManifest | null,
-  fingerprint: "",
-}));
+const snapshotFixture = vi.hoisted(() => {
+  const state = {
+    snapshotRoot: "",
+    packageRoot: "",
+    manifest: null as WorkspaceSnapshotManifest | null,
+    fingerprint: "",
+  };
+  return {
+    get snapshotRoot() {
+      return state.snapshotRoot;
+    },
+    set snapshotRoot(value: string) {
+      state.snapshotRoot = value;
+    },
+    get packageRoot() {
+      return state.packageRoot;
+    },
+    set packageRoot(value: string) {
+      state.packageRoot = value;
+    },
+    get manifest() {
+      return state.manifest;
+    },
+    set manifest(value: WorkspaceSnapshotManifest | null) {
+      state.manifest = value;
+    },
+    get fingerprint() {
+      return state.fingerprint;
+    },
+    set fingerprint(value: string) {
+      state.fingerprint = value;
+    },
+    load: async () => {
+      if (!state.manifest) {
+        return {
+          ok: false as const,
+          state: "snapshot-unavailable" as const,
+          message: "Test snapshot fixture is not initialized.",
+        };
+      }
+      return {
+        ok: true as const,
+        packageRoot: state.packageRoot,
+        snapshotRoot: state.snapshotRoot,
+        packageVersion: state.manifest.packageVersion,
+        manifest: state.manifest,
+        fingerprint: state.fingerprint,
+      };
+    },
+  };
+});
 
 vi.mock("../../src/setup/harness-workspace-snapshot-loader.js", () => ({
-  loadEmbeddedWorkspaceSnapshot: vi.fn(async () => {
-    if (!snapshotFixture.manifest) {
-      return {
-        ok: false as const,
-        state: "snapshot-unavailable" as const,
-        message: "Test snapshot fixture is not initialized.",
-      };
-    }
-    return {
-      ok: true as const,
-      packageRoot: snapshotFixture.packageRoot,
-      snapshotRoot: snapshotFixture.snapshotRoot,
-      packageVersion: snapshotFixture.manifest.packageVersion,
-      manifest: snapshotFixture.manifest,
-      fingerprint: snapshotFixture.fingerprint,
-    };
-  }),
+  loadEmbeddedWorkspaceSnapshot: vi.fn(async () => snapshotFixture.load()),
+  loadEmbeddedWorkspaceSnapshotIdentityForStatus: vi.fn(async () =>
+    snapshotFixture.load(),
+  ),
 }));
 
 function buildManifest(input: {
@@ -406,6 +443,153 @@ describe("runner upgrade orchestration", () => {
       true,
     );
   }, 20_000);
+
+  it("absolute deadline returns checking when a later internal stage never resolves", async () => {
+    const provider = await createProvider({ remoteManifest: v1Manifest });
+    const started = Date.now();
+    const status = await loadRunnerUpgradeStatus(workspaceDir, provider, {
+      testHangAfterStage: "status_conversion",
+      overallDeadlineMs: 200,
+      debugTimings: true,
+      workspaceKey: `${workspaceDir}-deadline`,
+    });
+    const elapsed = Date.now() - started;
+    expect(status.status).toBe("checking");
+    expect(status.degraded).toBe(true);
+    expect(status.retryAvailable).toBe(true);
+    expect(status.unresolvedStage).toBe("status_conversion");
+    expect(elapsed).toBeLessThan(1_500);
+  }, 10_000);
+
+  it("timeout wrapper does not await abandoned work", async () => {
+    let abandonedStillRunning = true;
+    const started = Date.now();
+    await expect(
+      withRunnerUpgradeTimeout("never-settle", 80, async (signal) => {
+        await new Promise<never>((_resolve, reject) => {
+          signal.addEventListener(
+            "abort",
+            () => {
+              abandonedStillRunning = false;
+              reject(new Error("aborted"));
+            },
+            { once: true },
+          );
+        });
+      }),
+    ).rejects.toBeInstanceOf(RunnerUpgradeTimeoutError);
+    expect(Date.now() - started).toBeLessThan(500);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(abandonedStillRunning).toBe(false);
+  });
+
+  it("second status request aborts the previous in-flight status op", async () => {
+    const provider = await createProvider({ remoteManifest: v1Manifest });
+    const key = `${workspaceDir}-abort-prev`;
+    const first = loadRunnerUpgradeStatus(workspaceDir, provider, {
+      testHangAfterStage: "provider_wrapper",
+      overallDeadlineMs: 5_000,
+      workspaceKey: key,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    abortInFlightRunnerUpgradeStatus(key);
+    const second = await loadRunnerUpgradeStatus(workspaceDir, provider, {
+      overallDeadlineMs: 2_000,
+      workspaceKey: key,
+    });
+    expect(second.status === "update_available" || second.status === "checking").toBe(
+      true,
+    );
+    const firstResult = await first;
+    expect(firstResult.status).toBe("checking");
+  }, 15_000);
+
+  it("status does not wait for a held upgrade mutex", async () => {
+    const provider = await createProvider({ remoteManifest: v1Manifest });
+    let releaseMutex!: () => void;
+    const held = new Promise<void>((resolve) => {
+      releaseMutex = resolve;
+    });
+    const mutexHolder = withHarnessRunnerUpgradeMutex(workspaceDir, async () => {
+      await held;
+    });
+    const started = Date.now();
+    const status = await loadRunnerUpgradeStatus(workspaceDir, provider, {
+      overallDeadlineMs: 2_000,
+      workspaceKey: `${workspaceDir}-mutex`,
+    });
+    expect(Date.now() - started).toBeLessThan(2_500);
+    expect(["update_available", "checking", "up_to_date"]).toContain(status.status);
+    releaseMutex();
+    await mutexHolder;
+  }, 15_000);
+
+  it("preserves cached last-verified identity across checking timeout", async () => {
+    const provider = await createProvider({ remoteManifest: v1Manifest });
+    await writeRunnerUpgradeLastVerifiedIdentity(
+      {
+        snapshotContentId: v1Manifest.snapshotContentId,
+        packageVersion: "0.3.1",
+        sourceCommit: v1Manifest.sourceCommit,
+        verifiedAt: "2026-01-02T00:00:00.000Z",
+        repoSlug: REPO_SLUG,
+      },
+      workspaceDir,
+    );
+    const status = await loadRunnerUpgradeStatus(workspaceDir, provider, {
+      testHangAfterStage: "status_conversion",
+      overallDeadlineMs: 150,
+      workspaceKey: `${workspaceDir}-cache`,
+    });
+    expect(status.status).toBe("checking");
+    expect(status.currentSnapshotCached).toBe(true);
+    expect(status.currentSnapshot?.packageVersion).toBe("0.3.1");
+    expect(status.currentSnapshotVerifiedAt).toBe("2026-01-02T00:00:00.000Z");
+  }, 10_000);
+
+  it("worker blocks before mutation when remote verification fails", async () => {
+    await writeFile(
+      path.join(workspaceDir, HARNESS_MANAGED_REPO_MARKER_FILE),
+      markerJson(v1Manifest),
+      "utf8",
+    );
+    const blockedProvider = await createMockRunnerUpgradeProvider({
+      repositories: {
+        [REPO_SLUG]: {
+          repositoryId: deterministicMockRepositoryId(REPO_SLUG),
+          owner: "owner",
+          repo: "harness-repo",
+          defaultBranch: "main",
+          remoteFiles: { "README.md": README_V1.toString("utf8") },
+        },
+      },
+    });
+    configureRunnerUpgradeWorker({
+      resolveProvider: async () => blockedProvider,
+      execute: async (cwd, resolved) =>
+        executeRunnerUpgradeOperation(cwd, resolved, {
+          canaryPollIntervalMs: 1,
+          canaryPollTimeoutMs: 50,
+        }),
+    });
+    const accepted = await acceptRunnerUpgrade(workspaceDir, {});
+    expect(await readRunnerUpgradePendingState(workspaceDir)).toBeTruthy();
+    await waitForRunnerUpgradeWorkerIdle(15_000);
+    const mutationMethods = new Set([
+      "createGitBlob",
+      "createGitTree",
+      "createGitCommit",
+      "createPullRequest",
+      "updateGitRef",
+    ]);
+    expect(
+      blockedProvider.calls.filter((call) => mutationMethods.has(call.method)),
+    ).toHaveLength(0);
+    const status = await loadRunnerUpgradeStatus(workspaceDir, blockedProvider);
+    expect(status.status).toBe("blocked_non_managed");
+    expect(status.blockedReason).toBeTruthy();
+    expect(accepted.apply.operationId).toBeTruthy();
+  }, 30_000);
 
   it("accepts upgrade before any remote provider call and worker completes", async () => {
     const provider = await createProvider({ remoteManifest: v1Manifest });

@@ -25,10 +25,19 @@ export type EmbeddedWorkspaceSnapshotLoadResult =
     }
   | { ok: false; state: "snapshot-unavailable" | "snapshot-manifest-missing" | "snapshot-manifest-invalid" | "snapshot-incompatible" | "snapshot-tampered"; message: string };
 
-export async function loadEmbeddedWorkspaceSnapshot(
-  moduleUrl: string = import.meta.url,
-  env: NodeJS.ProcessEnv = process.env,
+async function loadEmbeddedWorkspaceSnapshotIdentity(
+  moduleUrl: string,
+  env: NodeJS.ProcessEnv,
+  signal?: AbortSignal,
 ): Promise<EmbeddedWorkspaceSnapshotLoadResult> {
+  if (signal?.aborted) {
+    return {
+      ok: false,
+      state: "snapshot-unavailable",
+      message: "Embedded workspace snapshot load was aborted.",
+    };
+  }
+
   let packageRoot: string;
   try {
     // Packaged Next bundles retain synthetic source-style import.meta.url values.
@@ -51,6 +60,13 @@ export async function loadEmbeddedWorkspaceSnapshot(
   const manifestPath = path.join(snapshotRoot, "manifest.json");
   let manifestRaw: string;
   try {
+    if (signal?.aborted) {
+      return {
+        ok: false,
+        state: "snapshot-unavailable",
+        message: "Embedded workspace snapshot load was aborted.",
+      };
+    }
     manifestRaw = await readFile(manifestPath, "utf8");
   } catch {
     return {
@@ -89,9 +105,40 @@ export async function loadEmbeddedWorkspaceSnapshot(
     };
   }
 
-  const embeddedValidation = await validateEmbeddedSnapshotFiles({
+  return {
+    ok: true,
+    packageRoot,
     snapshotRoot,
+    packageVersion,
     manifest: parsed.manifest,
+    fingerprint: fingerprintWorkspaceSnapshotManifest(parsed.manifest),
+  };
+}
+
+/**
+ * Status-path identity load: manifest + package version only.
+ * Does not re-hash every embedded snapshot file.
+ */
+export async function loadEmbeddedWorkspaceSnapshotIdentityForStatus(
+  moduleUrl: string = import.meta.url,
+  env: NodeJS.ProcessEnv = process.env,
+  signal?: AbortSignal,
+): Promise<EmbeddedWorkspaceSnapshotLoadResult> {
+  return loadEmbeddedWorkspaceSnapshotIdentity(moduleUrl, env, signal);
+}
+
+export async function loadEmbeddedWorkspaceSnapshot(
+  moduleUrl: string = import.meta.url,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<EmbeddedWorkspaceSnapshotLoadResult> {
+  const identity = await loadEmbeddedWorkspaceSnapshotIdentity(moduleUrl, env);
+  if (!identity.ok) {
+    return identity;
+  }
+
+  const embeddedValidation = await validateEmbeddedSnapshotFiles({
+    snapshotRoot: identity.snapshotRoot,
+    manifest: identity.manifest,
   });
   if (!embeddedValidation.ok) {
     return {
@@ -101,12 +148,5 @@ export async function loadEmbeddedWorkspaceSnapshot(
     };
   }
 
-  return {
-    ok: true,
-    packageRoot,
-    snapshotRoot,
-    packageVersion,
-    manifest: parsed.manifest,
-    fingerprint: fingerprintWorkspaceSnapshotManifest(parsed.manifest),
-  };
+  return identity;
 }

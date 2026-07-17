@@ -25,6 +25,8 @@ export interface RunnerUpgradePendingState {
   prNumber?: number;
   conflictPaths?: string[];
   lastError?: string;
+  /** Typed terminal/blocked status from the last worker attempt (when set). */
+  lastStatus?: import("./runner-upgrade-types.js").RunnerUpgradeStatus;
 }
 
 const SYNC_ACTIVE_PHASES = new Set<RunnerUpgradePhase>([

@@ -124,6 +124,22 @@ export interface RunnerUpgradeStatusResult {
   prUrl?: string;
   retryGuidance?: string;
   degraded?: boolean;
+  /** True when local managed-repo marker/evidence exists (not remote-verified). */
+  localManagedRepoEvidence?: boolean;
+  /** True when currentSnapshot comes from last-verified cache, not this request. */
+  currentSnapshotCached?: boolean;
+  /** ISO timestamp when cached/live current identity was last verified remotely. */
+  currentSnapshotVerifiedAt?: string;
+  /** Last status pipeline stage that had not completed when the request timed out. */
+  unresolvedStage?: string;
+  /** Present when debug timings are enabled (env or query flag). */
+  debugTimings?: Array<{
+    stage: string;
+    durationMs: number;
+    timedOut?: boolean;
+  }>;
+  /** Client/UI hint: Retry status control should be shown. */
+  retryAvailable?: boolean;
 }
 
 export interface RunnerUpgradeAcceptResult {

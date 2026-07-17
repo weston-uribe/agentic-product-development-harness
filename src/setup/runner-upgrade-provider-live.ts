@@ -23,6 +23,7 @@ import type {
 } from "./github-remote-provider.js";
 import type {
   RunnerUpgradeGitHubProvider,
+  RunnerUpgradeProviderCallOptions,
   RunnerUpgradePullRequest,
   RunnerUpgradeRepositoryMetadata,
   RunnerUpgradeWorkflowRun,
@@ -82,9 +83,12 @@ class LiveRunnerUpgradeProvider implements RunnerUpgradeGitHubProvider {
   async getRepositoryMetadata(
     owner: string,
     repo: string,
+    options?: RunnerUpgradeProviderCallOptions,
   ): Promise<RunnerUpgradeRepositoryMetadata | null> {
     try {
-      const repository = await this.client.getRepository(owner, repo);
+      const repository = await this.client.getRepository(owner, repo, {
+        signal: options?.signal,
+      });
       if (
         typeof repository.id !== "number" ||
         !Number.isInteger(repository.id) ||
@@ -137,9 +141,12 @@ class LiveRunnerUpgradeProvider implements RunnerUpgradeGitHubProvider {
     owner: string,
     repo: string,
     branch: string,
+    options?: RunnerUpgradeProviderCallOptions,
   ): Promise<string> {
     try {
-      const ref = await this.client.getBranchRef(owner, repo, branch);
+      const ref = await this.client.getBranchRef(owner, repo, branch, {
+        signal: options?.signal,
+      });
       return ref.object.sha;
     } catch (error) {
       throw preserveGitHubSetupError(error);
@@ -151,9 +158,16 @@ class LiveRunnerUpgradeProvider implements RunnerUpgradeGitHubProvider {
     repo: string,
     path: string,
     ref: string,
+    options?: RunnerUpgradeProviderCallOptions,
   ): Promise<string | null> {
     try {
-      const content = await this.client.getRepositoryContent(owner, repo, path, ref);
+      const content = await this.client.getRepositoryContent(
+        owner,
+        repo,
+        path,
+        ref,
+        { signal: options?.signal },
+      );
       return content ? this.client.decodeRepositoryContent(content) : null;
     } catch (error) {
       throw preserveGitHubSetupError(error);

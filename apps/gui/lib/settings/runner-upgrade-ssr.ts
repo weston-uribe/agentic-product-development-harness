@@ -7,6 +7,7 @@ export function createRunnerUpgradeCheckingSkeleton(): RunnerUpgradeStatusResult
     status: "checking",
     statusLabel: runnerUpgradeStatusLabel("checking"),
     degraded: true,
+    retryAvailable: true,
     retryGuidance: "Checking runner version…",
   };
 }

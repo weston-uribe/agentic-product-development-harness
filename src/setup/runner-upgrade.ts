@@ -7,7 +7,10 @@ import {
   isForbiddenSnapshotPath,
 } from "../p-dev/workspace-snapshot-policy.js";
 import { loadWorkspaceSnapshotEntryContent } from "../p-dev/workspace-snapshot-generator.js";
-import { loadEmbeddedWorkspaceSnapshot } from "./harness-workspace-snapshot-loader.js";
+import {
+  loadEmbeddedWorkspaceSnapshot,
+  loadEmbeddedWorkspaceSnapshotIdentityForStatus,
+} from "./harness-workspace-snapshot-loader.js";
 import {
   HARNESS_MANAGED_REPO_MARKER_FILE,
   buildHarnessSnapshotManagedRepoMarker,
@@ -41,6 +44,11 @@ import {
   type RunnerUpgradeGitHubProvider,
 } from "./runner-upgrade-provider.js";
 import {
+  lastVerifiedToSnapshotSummary,
+  readRunnerUpgradeLastVerifiedIdentity,
+  writeRunnerUpgradeLastVerifiedIdentity,
+} from "./runner-upgrade-status-cache.js";
+import {
   RUNNER_UPGRADE_CANARY_WORKFLOW_PATH,
   buildRunnerUpgradeBranchName,
   buildRunnerUpgradePrMarker,
@@ -60,10 +68,16 @@ import {
   RUNNER_UPGRADE_STATUS_OVERALL_DEADLINE_MS,
   RUNNER_UPGRADE_STATUS_PROVIDER_TIMEOUT_MS,
   RUNNER_UPGRADE_WORKER_PROVIDER_TIMEOUT_MS,
+  RunnerUpgradeStatusStageTracker,
   RunnerUpgradeTimeoutError,
+  beginRunnerUpgradeStatusRequest,
+  endRunnerUpgradeStatusRequest,
   recordRunnerUpgradeStatusCallTimings,
+  throwIfRunnerUpgradeAborted,
+  withRunnerUpgradeStatusDeadline,
   withTimedRunnerUpgradeCall,
   type RunnerUpgradeCallTiming,
+  type RunnerUpgradeStatusStage,
 } from "./runner-upgrade-timeouts.js";
 import {
   enqueueRunnerUpgradeOperation,
@@ -73,13 +87,16 @@ import {
 
 export {
   getLastRunnerUpgradeStatusCallTimings,
+  getLastRunnerUpgradeStatusStageTimings,
+  getLastUnresolvedRunnerUpgradeStatusStage,
   isRunnerUpgradeProgressStale,
+  abortInFlightRunnerUpgradeStatus,
   RUNNER_UPGRADE_NO_PROGRESS_STALE_MS,
   RUNNER_UPGRADE_STATUS_OVERALL_DEADLINE_MS,
   RUNNER_UPGRADE_STATUS_PROVIDER_TIMEOUT_MS,
   RUNNER_UPGRADE_WORKER_PROVIDER_TIMEOUT_MS,
+  runnerUpgradeProgressShowsNoProgress,
 } from "./runner-upgrade-timeouts.js";
-export { runnerUpgradeProgressShowsNoProgress } from "./runner-upgrade-timeouts.js";
 
 const ALL_RUNNER_UPGRADE_PHASES: RunnerUpgradePhase[] = [
   "verifying-managed-repository",
@@ -241,6 +258,35 @@ async function loadPackagedSnapshot(): Promise<
   };
 }
 
+async function loadPackagedSnapshotIdentityForStatus(
+  signal?: AbortSignal,
+): Promise<ResolvedRunnerUpgradeContext["packagedSnapshot"] | null> {
+  const embedded = await loadEmbeddedWorkspaceSnapshotIdentityForStatus(
+    import.meta.url,
+    process.env,
+    signal,
+  );
+  if (!embedded.ok) {
+    return null;
+  }
+  return {
+    packageRoot: embedded.packageRoot,
+    snapshotRoot: embedded.snapshotRoot,
+    packageVersion: embedded.packageVersion,
+    manifest: embedded.manifest,
+    fingerprint: embedded.fingerprint,
+  };
+}
+
+async function hasLocalManagedRepoEvidence(cwd?: string): Promise<boolean> {
+  const raw = await readLocalManagedRepoMarker(cwd);
+  if (!raw) {
+    return false;
+  }
+  const parsed = parseHarnessManagedRepoMarkerJson(raw);
+  return parsed.ok;
+}
+
 async function readRemoteManagedMarker(
   provider: RunnerUpgradeGitHubProvider,
   input: {
@@ -248,6 +294,7 @@ async function readRemoteManagedMarker(
     repo: string;
     defaultBranch: string;
     defaultBranchHead: string;
+    signal?: AbortSignal;
   },
 ): Promise<
   | { ok: true; marker: HarnessManagedRepoMarker }
@@ -258,6 +305,7 @@ async function readRemoteManagedMarker(
     input.repo,
     HARNESS_MANAGED_REPO_MARKER_FILE,
     input.defaultBranchHead,
+    { signal: input.signal },
   );
   if (!raw) {
     return {
@@ -327,10 +375,45 @@ async function buildRemoteFileHashes(
   return hashes;
 }
 
+export interface ResolveRunnerUpgradeContextOptions {
+  signal?: AbortSignal;
+  tracker?: RunnerUpgradeStatusStageTracker;
+  /** Test-only: never resolve after this stage begins. */
+  testHangAfterStage?: RunnerUpgradeStatusStage;
+  debugTimings?: boolean;
+}
+
+async function maybeHangForTest(
+  stage: RunnerUpgradeStatusStage,
+  options?: ResolveRunnerUpgradeContextOptions,
+): Promise<void> {
+  if (options?.testHangAfterStage !== stage) {
+    return;
+  }
+  await new Promise<never>((_resolve, reject) => {
+    const onAbort = () => {
+      reject(
+        new RunnerUpgradeTimeoutError(
+          `test hang aborted at ${stage}`,
+          "testHangAfterStage",
+          0,
+          stage,
+        ),
+      );
+    };
+    if (options.signal?.aborted) {
+      onAbort();
+      return;
+    }
+    options.signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 async function resolveRunnerUpgradeContext(
   cwd: string | undefined,
   provider: RunnerUpgradeGitHubProvider,
   mode: ResolveContextMode = "worker",
+  options: ResolveRunnerUpgradeContextOptions = {},
 ): Promise<
   | { ok: true; context: ResolvedRunnerUpgradeContext }
   | { ok: false; result: RunnerUpgradeStatusResult }
@@ -343,8 +426,17 @@ async function resolveRunnerUpgradeContext(
   const recordTiming = (timing: RunnerUpgradeCallTiming) => {
     timings.push(timing);
   };
+  const tracker = options.tracker;
+  const signal = options.signal;
 
-  const packagedSnapshot = await loadPackagedSnapshot();
+  tracker?.begin("embedded_snapshot_identity");
+  throwIfRunnerUpgradeAborted(signal);
+  await maybeHangForTest("embedded_snapshot_identity", options);
+  const packagedSnapshot =
+    mode === "status"
+      ? await loadPackagedSnapshotIdentityForStatus(signal)
+      : await loadPackagedSnapshot();
+  tracker?.end();
   if (!packagedSnapshot) {
     if (mode === "status") {
       recordRunnerUpgradeStatusCallTimings(timings);
@@ -360,14 +452,25 @@ async function resolveRunnerUpgradeContext(
   }
 
   try {
+    tracker?.begin("context_normalization");
+    throwIfRunnerUpgradeAborted(signal);
+    await maybeHangForTest("context_normalization", options);
     const { repoSlug, owner, repo } = await resolveHarnessRepository(cwd);
+    tracker?.end();
+
+    tracker?.begin("provider_wrapper");
+    throwIfRunnerUpgradeAborted(signal);
+    await maybeHangForTest("provider_wrapper", options);
     const metadata = await withTimedRunnerUpgradeCall(
       "getRepositoryMetadata",
       providerTimeoutMs,
-      () => provider.getRepositoryMetadata(owner, repo),
+      (callSignal) =>
+        provider.getRepositoryMetadata(owner, repo, { signal: callSignal }),
       recordTiming,
+      signal,
     );
     if (!metadata) {
+      tracker?.end();
       if (mode === "status") {
         recordRunnerUpgradeStatusCallTimings(timings);
       }
@@ -384,26 +487,36 @@ async function resolveRunnerUpgradeContext(
     const defaultBranchHead = await withTimedRunnerUpgradeCall(
       "getRepositoryDefaultBranchHead",
       providerTimeoutMs,
-      () =>
+      (callSignal) =>
         provider.getRepositoryDefaultBranchHead(
           owner,
           repo,
           metadata.defaultBranch,
+          { signal: callSignal },
         ),
       recordTiming,
+      signal,
     );
+    tracker?.end();
+
+    tracker?.begin("marker_parsing");
+    throwIfRunnerUpgradeAborted(signal);
+    await maybeHangForTest("marker_parsing", options);
     const markerResult = await withTimedRunnerUpgradeCall(
       "readRemoteManagedMarker",
       providerTimeoutMs,
-      () =>
+      (callSignal) =>
         readRemoteManagedMarker(provider, {
           owner,
           repo,
           defaultBranch: metadata.defaultBranch,
           defaultBranchHead,
+          signal: callSignal,
         }),
       recordTiming,
+      signal,
     );
+    tracker?.end();
     if (mode === "status") {
       recordRunnerUpgradeStatusCallTimings(timings);
     }
@@ -421,12 +534,16 @@ async function resolveRunnerUpgradeContext(
       };
     }
 
+    tracker?.begin("status_conversion");
+    throwIfRunnerUpgradeAborted(signal);
+    await maybeHangForTest("status_conversion", options);
     const reconnect = validateManagedMarkerForReconnect(
       markerResult.marker,
       repoSlug,
       { repositoryId: metadata.id },
     );
     if (!reconnect.ok) {
+      tracker?.end();
       return {
         ok: false,
         result: {
@@ -450,6 +567,7 @@ async function resolveRunnerUpgradeContext(
         },
       };
     }
+    tracker?.end();
 
     return {
       ok: true,
@@ -467,6 +585,7 @@ async function resolveRunnerUpgradeContext(
   } catch (error) {
     if (mode === "status") {
       recordRunnerUpgradeStatusCallTimings(timings);
+      tracker?.markTimedOut();
     }
     if (error instanceof RunnerUpgradeTimeoutError || mode === "status") {
       return {
@@ -481,6 +600,8 @@ async function resolveRunnerUpgradeContext(
               : "Runner upgrade status check timed out.",
           retryGuidance:
             "Retry status shortly. GitHub did not respond within the page-status deadline.",
+          retryAvailable: true,
+          unresolvedStage: tracker?.unresolvedStage,
           availableSnapshot: snapshotSummaryFromManifest(
             packagedSnapshot.manifest,
           ),
@@ -902,11 +1023,12 @@ function statusFromPending(
   pending: RunnerUpgradePendingState,
 ): RunnerUpgradeStatusResult {
   if (pending.lastError) {
+    const status: RunnerUpgradeStatus =
+      pending.lastStatus ??
+      (pending.codeUpdateComplete ? "partially_updated" : "failed");
     return {
-      status: pending.codeUpdateComplete ? "partially_updated" : "failed",
-      statusLabel: runnerUpgradeStatusLabel(
-        pending.codeUpdateComplete ? "partially_updated" : "failed",
-      ),
+      status,
+      statusLabel: runnerUpgradeStatusLabel(status),
       pendingOperationId: pending.operationId,
       pendingPhase: pending.phase,
       blockedReason: pending.lastError,
@@ -916,6 +1038,7 @@ function statusFromPending(
       retryGuidance: pending.codeUpdateComplete
         ? "Resume the runner upgrade to finish cloud sync or canary."
         : "Retry or Resume the runner upgrade after reviewing the error.",
+      retryAvailable: true,
     };
   }
   return {
@@ -930,96 +1053,235 @@ function statusFromPending(
   };
 }
 
+export interface LoadRunnerUpgradeStatusOptions {
+  signal?: AbortSignal;
+  debugTimings?: boolean;
+  /** Test-only: never resolve after this stage begins. */
+  testHangAfterStage?: RunnerUpgradeStatusStage;
+  /** Override absolute deadline (tests). */
+  overallDeadlineMs?: number;
+  /** Workspace key for aborting prior in-flight status requests. */
+  workspaceKey?: string;
+}
+
+async function withCachedIdentityFallback(
+  cwd: string | undefined,
+  result: RunnerUpgradeStatusResult,
+  availableSnapshot?: RunnerUpgradeSnapshotSummary,
+  debugTimings?: boolean,
+  tracker?: RunnerUpgradeStatusStageTracker,
+): Promise<RunnerUpgradeStatusResult> {
+  const localManagedRepoEvidence = await hasLocalManagedRepoEvidence(cwd);
+  const cached = await readRunnerUpgradeLastVerifiedIdentity(cwd);
+  tracker?.commit();
+  const base: RunnerUpgradeStatusResult = {
+    ...result,
+    localManagedRepoEvidence,
+    availableSnapshot: result.availableSnapshot ?? availableSnapshot,
+    unresolvedStage: result.unresolvedStage ?? tracker?.unresolvedStage,
+    retryAvailable:
+      result.retryAvailable ??
+      (result.status === "checking" || result.degraded === true),
+    debugTimings: debugTimings ? tracker?.snapshot() : result.debugTimings,
+  };
+  if (base.currentSnapshot || !cached) {
+    return base;
+  }
+  return {
+    ...base,
+    currentSnapshot: lastVerifiedToSnapshotSummary(cached),
+    currentSnapshotCached: true,
+    currentSnapshotVerifiedAt: cached.verifiedAt,
+  };
+}
+
 export async function loadRunnerUpgradeStatus(
   cwd: string | undefined,
   provider: RunnerUpgradeGitHubProvider,
+  options: LoadRunnerUpgradeStatusOptions = {},
 ): Promise<RunnerUpgradeStatusResult> {
-  const pending = await readRunnerUpgradePendingState(cwd);
-  if (pending) {
-    if (
-      !pending.lastError &&
-      !isRunnerUpgradeOperationActive(pending.operationId)
-    ) {
-      void reconcileAbandonedRunnerUpgrades(cwd);
+  const workspaceKey = options.workspaceKey ?? cwd ?? process.cwd();
+  const { signal, controller } = options.signal
+    ? { signal: options.signal, controller: null }
+    : beginRunnerUpgradeStatusRequest(workspaceKey);
+  const tracker = new RunnerUpgradeStatusStageTracker();
+  const deadlineMs =
+    options.overallDeadlineMs ?? RUNNER_UPGRADE_STATUS_OVERALL_DEADLINE_MS;
+
+  const run = async (requestSignal: AbortSignal): Promise<RunnerUpgradeStatusResult> => {
+    tracker.begin("local_state_reads");
+    throwIfRunnerUpgradeAborted(requestSignal);
+    const pending = await readRunnerUpgradePendingState(cwd);
+    const localManagedRepoEvidence = await hasLocalManagedRepoEvidence(cwd);
+    tracker.end();
+
+    if (pending) {
+      tracker.begin("reconciliation_enqueue");
+      if (
+        !pending.lastError &&
+        !isRunnerUpgradeOperationActive(pending.operationId)
+      ) {
+        // Enqueue only — never await worker/mutex work on the status path.
+        void reconcileAbandonedRunnerUpgrades(cwd);
+      }
+      tracker.end();
+      tracker.begin("status_conversion");
+      const fromPending = statusFromPending(pending);
+      tracker.end();
+      return withCachedIdentityFallback(
+        cwd,
+        {
+          ...fromPending,
+          localManagedRepoEvidence,
+        },
+        undefined,
+        options.debugTimings,
+        tracker,
+      );
     }
-    return statusFromPending(pending);
-  }
 
-  const packagedSnapshot = await loadPackagedSnapshot();
-  const availableSnapshot = packagedSnapshot
-    ? snapshotSummaryFromManifest(packagedSnapshot.manifest)
-    : undefined;
+    tracker.begin("embedded_snapshot_identity");
+    throwIfRunnerUpgradeAborted(requestSignal);
+    const packagedSnapshot =
+      await loadPackagedSnapshotIdentityForStatus(requestSignal);
+    tracker.end();
+    const availableSnapshot = packagedSnapshot
+      ? snapshotSummaryFromManifest(packagedSnapshot.manifest)
+      : undefined;
 
-  const overallDeadline = AbortSignal.timeout(
-    RUNNER_UPGRADE_STATUS_OVERALL_DEADLINE_MS,
-  );
-  try {
-    const resolved = await Promise.race([
-      resolveRunnerUpgradeContext(cwd, provider, "status"),
-      new Promise<never>((_resolve, reject) => {
-        overallDeadline.addEventListener(
-          "abort",
-          () => {
-            reject(
-              new RunnerUpgradeTimeoutError(
-                `runner-upgrade-status overall deadline exceeded after ${RUNNER_UPGRADE_STATUS_OVERALL_DEADLINE_MS}ms.`,
-                "loadRunnerUpgradeStatus",
-                RUNNER_UPGRADE_STATUS_OVERALL_DEADLINE_MS,
-              ),
-            );
-          },
-          { once: true },
-        );
-      }),
-    ]);
-    if (!resolved.ok) {
-      return resolved.result;
-    }
-    const { context } = resolved;
-    const currentSnapshot = snapshotSummaryFromManifest(
-      context.marker.createdFromPackageSnapshot
-        ? {
-            ...context.packagedSnapshot.manifest,
-            snapshotContentId:
-              context.marker.createdFromPackageSnapshot.snapshotContentId,
-            packageVersion:
-              context.marker.createdFromPackageSnapshot.packageVersion,
-            sourceCommit:
-              context.marker.createdFromPackageSnapshot.sourceCommit,
-          }
-        : context.packagedSnapshot.manifest,
-    );
-
-    if (
-      currentSnapshot.snapshotContentId === availableSnapshot?.snapshotContentId
-    ) {
-      return {
-        status: "up_to_date",
-        statusLabel: runnerUpgradeStatusLabel("up_to_date"),
-        currentSnapshot,
+    const checkingTimeout = (
+      unresolvedStage?: RunnerUpgradeStatusStage,
+      blockedReason?: string,
+    ): Promise<RunnerUpgradeStatusResult> =>
+      withCachedIdentityFallback(
+        cwd,
+        {
+          status: "checking",
+          statusLabel: runnerUpgradeStatusLabel("checking"),
+          degraded: true,
+          localManagedRepoEvidence,
+          availableSnapshot,
+          blockedReason:
+            blockedReason ??
+            `runner-upgrade-status overall deadline exceeded after ${deadlineMs}ms.`,
+          retryGuidance:
+            "Retry status shortly. GitHub did not respond within the page-status deadline.",
+          retryAvailable: true,
+          unresolvedStage,
+        },
         availableSnapshot,
-      };
-    }
+        options.debugTimings,
+        tracker,
+      );
 
-    return {
-      status: "update_available",
-      statusLabel: runnerUpgradeStatusLabel("update_available"),
-      currentSnapshot,
-      availableSnapshot,
-    };
-  } catch (error) {
-    return {
-      status: "checking",
-      statusLabel: runnerUpgradeStatusLabel("checking"),
-      degraded: true,
-      availableSnapshot,
-      blockedReason:
-        error instanceof Error
-          ? error.message
-          : "Runner upgrade status check timed out.",
-      retryGuidance:
-        "Retry status shortly. GitHub did not respond within the page-status deadline.",
-    };
+    return withRunnerUpgradeStatusDeadline(
+      deadlineMs,
+      requestSignal,
+      () => {
+        if (!requestSignal.aborted) {
+          controller?.abort();
+        }
+      },
+      async (deadlineSignal) => {
+        const resolved = await resolveRunnerUpgradeContext(
+          cwd,
+          provider,
+          "status",
+          {
+            signal: deadlineSignal,
+            tracker,
+            testHangAfterStage: options.testHangAfterStage,
+            debugTimings: options.debugTimings,
+          },
+        );
+        if (!resolved.ok) {
+          return withCachedIdentityFallback(
+            cwd,
+            {
+              ...resolved.result,
+              localManagedRepoEvidence,
+              retryAvailable:
+                resolved.result.status === "checking" ||
+                resolved.result.degraded === true,
+            },
+            availableSnapshot,
+            options.debugTimings,
+            tracker,
+          );
+        }
+        const { context } = resolved;
+        tracker.begin("status_conversion");
+        throwIfRunnerUpgradeAborted(deadlineSignal);
+        const currentSnapshot = snapshotSummaryFromManifest(
+          context.marker.createdFromPackageSnapshot
+            ? {
+                ...context.packagedSnapshot.manifest,
+                snapshotContentId:
+                  context.marker.createdFromPackageSnapshot.snapshotContentId,
+                packageVersion:
+                  context.marker.createdFromPackageSnapshot.packageVersion,
+                sourceCommit:
+                  context.marker.createdFromPackageSnapshot.sourceCommit,
+              }
+            : context.packagedSnapshot.manifest,
+        );
+        const verifiedAt = new Date().toISOString();
+        await writeRunnerUpgradeLastVerifiedIdentity(
+          {
+            ...currentSnapshot,
+            verifiedAt,
+            repoSlug: context.repoSlug,
+          },
+          cwd,
+        );
+        tracker.end();
+
+        if (
+          currentSnapshot.snapshotContentId ===
+          availableSnapshot?.snapshotContentId
+        ) {
+          return withCachedIdentityFallback(
+            cwd,
+            {
+              status: "up_to_date",
+              statusLabel: runnerUpgradeStatusLabel("up_to_date"),
+              currentSnapshot,
+              availableSnapshot,
+              localManagedRepoEvidence,
+              currentSnapshotVerifiedAt: verifiedAt,
+            },
+            availableSnapshot,
+            options.debugTimings,
+            tracker,
+          );
+        }
+
+        return withCachedIdentityFallback(
+          cwd,
+          {
+            status: "update_available",
+            statusLabel: runnerUpgradeStatusLabel("update_available"),
+            currentSnapshot,
+            availableSnapshot,
+            localManagedRepoEvidence,
+            currentSnapshotVerifiedAt: verifiedAt,
+          },
+          availableSnapshot,
+          options.debugTimings,
+          tracker,
+        );
+      },
+      (unresolvedStage) => checkingTimeout(unresolvedStage),
+      tracker,
+    );
+  };
+
+  try {
+    return await run(signal);
+  } finally {
+    if (controller) {
+      endRunnerUpgradeStatusRequest(workspaceKey, controller);
+    }
   }
 }
 
@@ -1094,6 +1356,7 @@ async function buildAcceptedPendingState(
     };
     if (options.resume || existing.lastError) {
       delete next.lastError;
+      delete next.lastStatus;
     }
     return next;
   }
@@ -1218,6 +1481,7 @@ async function applyRunnerUpgradeInternal(
   const resolved = await resolveRunnerUpgradeContext(cwd, provider, "worker");
   if (!resolved.ok) {
     pending.lastError = resolved.result.blockedReason;
+    pending.lastStatus = resolved.result.status;
     pending.phase = "verifying-managed-repository";
     await writeRunnerUpgradePendingStateAtomic(pending, cwd);
     await writeProgress(cwd, pending, pending.phase, {
@@ -1233,6 +1497,20 @@ async function applyRunnerUpgradeInternal(
     };
   }
   const context = resolved.context;
+  if (context.marker.createdFromPackageSnapshot) {
+    await writeRunnerUpgradeLastVerifiedIdentity(
+      {
+        snapshotContentId:
+          context.marker.createdFromPackageSnapshot.snapshotContentId,
+        packageVersion:
+          context.marker.createdFromPackageSnapshot.packageVersion,
+        sourceCommit: context.marker.createdFromPackageSnapshot.sourceCommit,
+        verifiedAt: new Date().toISOString(),
+        repoSlug: context.repoSlug,
+      },
+      cwd,
+    );
+  }
   pending.repositoryId = context.repositoryId;
   pending.repoSlug = context.repoSlug;
   pending.defaultBranch = context.defaultBranch;

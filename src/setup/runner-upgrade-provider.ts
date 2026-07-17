@@ -41,24 +41,32 @@ export interface RunnerUpgradeWorkflowRun {
   createdAt: string;
 }
 
+export interface RunnerUpgradeProviderCallOptions {
+  signal?: AbortSignal;
+}
+
 export interface RunnerUpgradeGitHubProvider {
   getRepositoryMetadata(
     owner: string,
     repo: string,
+    options?: RunnerUpgradeProviderCallOptions,
   ): Promise<RunnerUpgradeRepositoryMetadata | null>;
   getRepositoryMetadataById?(
     id: number,
+    options?: RunnerUpgradeProviderCallOptions,
   ): Promise<RunnerUpgradeRepositoryMetadata | null>;
   getRepositoryDefaultBranchHead(
     owner: string,
     repo: string,
     branch: string,
+    options?: RunnerUpgradeProviderCallOptions,
   ): Promise<string>;
   readRepositoryFileContent(
     owner: string,
     repo: string,
     path: string,
     ref: string,
+    options?: RunnerUpgradeProviderCallOptions,
   ): Promise<string | null>;
   listRepositoryTreePaths?(
     owner: string,
@@ -230,11 +238,33 @@ export class MockRunnerUpgradeProvider implements RunnerUpgradeGitHubProvider {
     this.syncShouldFail = state.syncShouldFail ?? false;
   }
 
-  private async maybeDelay(method: string): Promise<void> {
+  private async maybeDelay(
+    method: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
     const delay = this.methodDelayMs[method] ?? this.delayMs;
-    if (delay > 0) {
-      await new Promise((resolve) => setTimeout(resolve, delay));
+    if (delay <= 0) {
+      if (signal?.aborted) {
+        throw new Error(`${method} aborted.`);
+      }
+      return;
     }
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        signal?.removeEventListener("abort", onAbort);
+        resolve();
+      }, delay);
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(new Error(`${method} aborted.`));
+      };
+      if (signal?.aborted) {
+        clearTimeout(timer);
+        reject(new Error(`${method} aborted.`));
+        return;
+      }
+      signal?.addEventListener("abort", onAbort, { once: true });
+    });
   }
 
   static async create(
@@ -324,8 +354,9 @@ export class MockRunnerUpgradeProvider implements RunnerUpgradeGitHubProvider {
   async getRepositoryMetadata(
     owner: string,
     repo: string,
+    options?: RunnerUpgradeProviderCallOptions,
   ): Promise<RunnerUpgradeRepositoryMetadata | null> {
-    await this.maybeDelay("getRepositoryMetadata");
+    await this.maybeDelay("getRepositoryMetadata", options?.signal);
     this.calls.push({ method: "getRepositoryMetadata", args: [owner, repo] });
     const entry = this.repositories.get(repoKey(owner, repo));
     if (!entry) {
@@ -340,7 +371,9 @@ export class MockRunnerUpgradeProvider implements RunnerUpgradeGitHubProvider {
 
   async getRepositoryMetadataById(
     id: number,
+    options?: RunnerUpgradeProviderCallOptions,
   ): Promise<RunnerUpgradeRepositoryMetadata | null> {
+    await this.maybeDelay("getRepositoryMetadataById", options?.signal);
     this.calls.push({ method: "getRepositoryMetadataById", args: [id] });
     for (const entry of this.repositories.values()) {
       if (entry.metadata.id === id) {
@@ -358,8 +391,9 @@ export class MockRunnerUpgradeProvider implements RunnerUpgradeGitHubProvider {
     owner: string,
     repo: string,
     branch: string,
+    options?: RunnerUpgradeProviderCallOptions,
   ): Promise<string> {
-    await this.maybeDelay("getRepositoryDefaultBranchHead");
+    await this.maybeDelay("getRepositoryDefaultBranchHead", options?.signal);
     this.calls.push({
       method: "getRepositoryDefaultBranchHead",
       args: [owner, repo, branch],
@@ -372,8 +406,9 @@ export class MockRunnerUpgradeProvider implements RunnerUpgradeGitHubProvider {
     repo: string,
     path: string,
     ref: string,
+    options?: RunnerUpgradeProviderCallOptions,
   ): Promise<string | null> {
-    await this.maybeDelay("readRepositoryFileContent");
+    await this.maybeDelay("readRepositoryFileContent", options?.signal);
     this.calls.push({
       method: "readRepositoryFileContent",
       args: [owner, repo, path, ref],

@@ -262,20 +262,33 @@ export class GitHubClient {
     this.timeoutMs = options.timeoutMs;
   }
 
-  private requestSignal(): AbortSignal | undefined {
+  private requestSignal(external?: AbortSignal): AbortSignal | undefined {
+    const signals: AbortSignal[] = [];
     if (
       typeof this.timeoutMs === "number" &&
       Number.isFinite(this.timeoutMs) &&
       this.timeoutMs > 0
     ) {
-      return AbortSignal.timeout(this.timeoutMs);
+      signals.push(AbortSignal.timeout(this.timeoutMs));
     }
-    return undefined;
+    if (external) {
+      signals.push(external);
+    }
+    if (signals.length === 0) {
+      return undefined;
+    }
+    if (signals.length === 1) {
+      return signals[0];
+    }
+    if (typeof AbortSignal.any === "function") {
+      return AbortSignal.any(signals);
+    }
+    return signals[0];
   }
 
   private async request<T>(
     path: string,
-    init?: { method?: string; body?: unknown },
+    init?: { method?: string; body?: unknown; signal?: AbortSignal },
   ): Promise<T> {
     const response = await fetch(`${GITHUB_API}${path}`, {
       method: init?.method ?? "GET",
@@ -286,7 +299,7 @@ export class GitHubClient {
         ...(init?.body ? { "Content-Type": "application/json" } : {}),
       },
       body: init?.body ? JSON.stringify(init.body) : undefined,
-      signal: this.requestSignal(),
+      signal: this.requestSignal(init?.signal),
     });
 
     if (!response.ok) {
@@ -384,14 +397,22 @@ export class GitHubClient {
     owner: string,
     repo: string,
     branch: string,
+    options?: { signal?: AbortSignal },
   ): Promise<GitHubGitRef> {
     return this.request<GitHubGitRef>(
       `/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(branch)}`,
+      { signal: options?.signal },
     );
   }
 
-  async getRepository(owner: string, repo: string): Promise<GitHubRepository> {
-    return this.request<GitHubRepository>(`/repos/${owner}/${repo}`);
+  async getRepository(
+    owner: string,
+    repo: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<GitHubRepository> {
+    return this.request<GitHubRepository>(`/repos/${owner}/${repo}`, {
+      signal: options?.signal,
+    });
   }
 
   async getRepositoryById(repositoryId: number): Promise<GitHubRepository> {
@@ -605,10 +626,12 @@ export class GitHubClient {
     repo: string,
     path: string,
     ref: string,
+    options?: { signal?: AbortSignal },
   ): Promise<GitHubRepositoryContent | null> {
     try {
       return await this.request<GitHubRepositoryContent>(
         `/repos/${owner}/${repo}/contents/${path}?ref=${encodeURIComponent(ref)}`,
+        { signal: options?.signal },
       );
     } catch (error) {
       if (error instanceof GitHubApiError && error.status === 404) {

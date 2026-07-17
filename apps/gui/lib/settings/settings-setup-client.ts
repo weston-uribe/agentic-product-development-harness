@@ -166,11 +166,48 @@ export async function applyVercelBridge(input: {
   );
 }
 
-export async function fetchRunnerUpgradeStatus() {
-  const response = await fetch("/api/setup/runner-upgrade-status");
-  return readSetupJsonResponse<
-    import("@harness/setup/runner-upgrade-types").RunnerUpgradeStatusResult
-  >(response, "GET /api/setup/runner-upgrade-status");
+let runnerUpgradeStatusAbort: AbortController | null = null;
+
+export function abortInFlightRunnerUpgradeStatusFetch(): void {
+  if (runnerUpgradeStatusAbort) {
+    runnerUpgradeStatusAbort.abort();
+    runnerUpgradeStatusAbort = null;
+  }
+}
+
+export async function fetchRunnerUpgradeStatus(options?: {
+  signal?: AbortSignal;
+}): Promise<
+  import("@harness/setup/runner-upgrade-types").RunnerUpgradeStatusResult
+> {
+  abortInFlightRunnerUpgradeStatusFetch();
+  const controller = new AbortController();
+  runnerUpgradeStatusAbort = controller;
+  if (options?.signal) {
+    if (options.signal.aborted) {
+      controller.abort();
+    } else {
+      options.signal.addEventListener(
+        "abort",
+        () => {
+          controller.abort();
+        },
+        { once: true },
+      );
+    }
+  }
+  try {
+    const response = await fetch("/api/setup/runner-upgrade-status", {
+      signal: controller.signal,
+    });
+    return await readSetupJsonResponse<
+      import("@harness/setup/runner-upgrade-types").RunnerUpgradeStatusResult
+    >(response, "GET /api/setup/runner-upgrade-status");
+  } finally {
+    if (runnerUpgradeStatusAbort === controller) {
+      runnerUpgradeStatusAbort = null;
+    }
+  }
 }
 
 export async function previewRunnerUpgrade() {
