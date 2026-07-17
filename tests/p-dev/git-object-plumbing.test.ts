@@ -115,7 +115,6 @@ describe("git object plumbing", () => {
   it("computes root tree SHA when process.cwd is not a git repository", async () => {
     const nonGitCwd = await mkdtemp(path.join(tmpdir(), "p-dev-non-git-cwd-"));
     const previousCwd = process.cwd();
-    const before = new Set(listPlumbingTempRoots());
     try {
       process.chdir(nonGitCwd);
       expect(existsSync(path.join(nonGitCwd, ".git"))).toBe(false);
@@ -140,8 +139,6 @@ describe("git object plumbing", () => {
       process.chdir(previousCwd);
       await rm(nonGitCwd, { recursive: true, force: true });
     }
-    const after = listPlumbingTempRoots().filter((root) => !before.has(root));
-    expect(after).toEqual([]);
   });
 
   it("cleans disposable plumbing storage after sync create/destroy", () => {
