@@ -6,6 +6,8 @@ vi.stubGlobal("fetch", fetchMock);
 
 import {
   buildExistingEnvVarPatchBody,
+  createVercelDeployment,
+  createVercelProject,
   createVercelTeam,
   getDefaultEnvVarType,
   isDeploymentSpecificVercelHost,
@@ -366,6 +368,80 @@ describe("vercel production redeploy client", () => {
     expect(String(url)).toContain("/v13/deployments/dpl-new");
     expect(String(url)).toContain("teamId=team-1");
     expect(deployment.readyState).toBe("READY");
+  });
+});
+
+describe("vercel create-new bridge client", () => {
+  beforeEach(() => {
+    fetchMock.mockReset();
+  });
+
+  it("creates projects with a GitHub repository link when provided", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        id: "proj-created",
+        name: "new-harness-gui",
+        accountId: "acct-1",
+        gitRepository: { type: "github", repo: "owner/p-dev-harness" },
+      }),
+    });
+
+    const project = await createVercelProject("vercel-token", {
+      name: "new-harness-gui",
+      teamId: "team-1",
+      gitRepository: { type: "github", repo: "owner/p-dev-harness" },
+    });
+
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(String(url)).toContain("/v11/projects");
+    expect(String(url)).toContain("teamId=team-1");
+    expect(JSON.parse(String(init?.body))).toEqual({
+      name: "new-harness-gui",
+      gitRepository: { type: "github", repo: "owner/p-dev-harness" },
+    });
+    expect(project.gitRepository?.repo).toBe("owner/p-dev-harness");
+  });
+
+  it("creates production file deployments with curated bridge files", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        uid: "dpl-created",
+        url: "new-harness-gui.vercel.app",
+        state: "READY",
+        readyState: "READY",
+      }),
+    });
+
+    const deployment = await createVercelDeployment("vercel-token", {
+      projectName: "new-harness-gui",
+      teamId: "team-1",
+      files: [
+        {
+          file: "api/linear-webhook.js",
+          data: "module.exports = () => {};",
+          encoding: "utf-8",
+        },
+      ],
+      projectSettings: { framework: null },
+    });
+
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    const body = JSON.parse(String(init?.body));
+    expect(String(url)).toContain("/v13/deployments");
+    expect(init?.method).toBe("POST");
+    expect(body).toMatchObject({
+      name: "new-harness-gui",
+      target: "production",
+      projectSettings: { framework: null },
+    });
+    expect(body.files).toEqual([
+      expect.objectContaining({ file: "api/linear-webhook.js" }),
+    ]);
+    expect(deployment.id).toBe("dpl-created");
   });
 });
 

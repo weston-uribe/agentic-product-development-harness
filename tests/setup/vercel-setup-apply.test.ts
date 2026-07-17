@@ -32,8 +32,10 @@ vi.mock("../../src/setup/vercel-setup-client.js", async (importOriginal) => {
     listVercelProjects: vi.fn(),
     createVercelTeam: vi.fn(),
     createVercelProject: vi.fn(),
+    checkWebhookEndpointReachable: vi.fn(),
     listVercelProjectEnvVars: vi.fn(),
     summarizeRequiredEnvPresence: vi.fn(),
+    resolveCanonicalProductionTarget: vi.fn(),
     upsertVercelProjectEnvVar: vi.fn(),
   };
 });
@@ -72,6 +74,16 @@ vi.mock("../../src/setup/service-verification.js", async (importOriginal) => {
   };
 });
 
+vi.mock("../../src/setup/vercel-bridge-deploy.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../src/setup/vercel-bridge-deploy.js")>();
+  return {
+    ...actual,
+    resolvePreferredVercelBridgeSource: vi.fn(),
+    deployVercelBridgeProduction: vi.fn(),
+  };
+});
+
 import { runSignedWebhookProbe } from "../../src/setup/vercel-webhook-probe.js";
 import {
   updateControlPlaneSetupState,
@@ -86,9 +98,11 @@ import {
 } from "../../src/setup/linear-webhook-secret.js";
 import {
   createVercelProject,
+  checkWebhookEndpointReachable,
   listVercelProjectEnvVars,
   listVercelProjects,
   listVercelTeams,
+  resolveCanonicalProductionTarget,
   summarizeRequiredEnvPresence,
   upsertVercelProjectEnvVar,
 } from "../../src/setup/vercel-setup-client.js";
@@ -106,6 +120,10 @@ import {
 } from "../../src/setup/vercel-production-redeploy.js";
 import { assessGitHubDispatchTokenEligibility } from "../../src/setup/github-dispatch-token.js";
 import { loadSecretFromEnvLocal } from "../../src/setup/service-verification.js";
+import {
+  deployVercelBridgeProduction,
+  resolvePreferredVercelBridgeSource,
+} from "../../src/setup/vercel-bridge-deploy.js";
 
 const previewResult = {
   actionId: VERCEL_SETUP_ACTIONS.preview.id,
@@ -207,6 +225,31 @@ describe("vercel-setup-apply", () => {
       id: "proj-created",
       name: "new-harness-gui",
       accountId: "acct-1",
+    });
+    vi.mocked(resolvePreferredVercelBridgeSource).mockResolvedValue({
+      source: "artifact",
+      reason: "github_namespace_not_available_to_vercel",
+    });
+    vi.mocked(deployVercelBridgeProduction).mockResolvedValue({
+      status: "ready",
+      source: "artifact",
+      deploymentId: "dpl-created",
+      deploymentUrl: "new-harness-gui.vercel.app",
+      message: "Vercel bridge artifact deployment reached READY.",
+    });
+    vi.mocked(resolveCanonicalProductionTarget).mockResolvedValue({
+      productionUrl: "https://new-harness-gui.vercel.app",
+      webhookUrl: "https://new-harness-gui.vercel.app/api/linear-webhook",
+      deploymentId: "dpl-created",
+      deploymentUrl: "new-harness-gui.vercel.app",
+      source: "stable_alias",
+      stableAlias: "new-harness-gui.vercel.app",
+      readyState: "READY",
+      state: "READY",
+    });
+    vi.mocked(checkWebhookEndpointReachable).mockResolvedValue({
+      reachable: true,
+      statusCode: 405,
     });
     vi.mocked(listVercelProjectEnvVars).mockResolvedValue([
       {
@@ -355,7 +398,7 @@ describe("vercel-setup-apply", () => {
     expect(result.status).toBe("applied");
   });
 
-  it("returns deployment-required without env or Linear writes when no production URL exists", async () => {
+  it("blocks unmanaged existing projects without env or Linear writes when no production URL exists", async () => {
     vi.mocked(previewVercelBridgeSetup)
       .mockResolvedValueOnce(previewResult)
       .mockResolvedValueOnce({
@@ -382,13 +425,90 @@ describe("vercel-setup-apply", () => {
       cwd: tempRoot,
     });
 
-    expect(result.status).toBe("deployment-required");
-    expect(result.deploymentRequired?.projectJustCreated).toBe(false);
+    expect(result.status).toBe("applied");
+    expect(result.setupBlocked?.message).toMatch(/will not install/i);
     expect(ensureLinearIssueWebhook).not.toHaveBeenCalled();
     expect(upsertVercelProjectEnvVar).not.toHaveBeenCalled();
     expect(updateControlPlaneSetupState).not.toHaveBeenCalled();
     expect(result.verified).toBe(false);
     expect(result.signedProbeVerified).toBe(false);
+  });
+
+  it("allows explicit bridge install confirmation for an existing project without deployment", async () => {
+    vi.mocked(previewVercelBridgeSetup)
+      .mockResolvedValueOnce(previewResult)
+      .mockResolvedValueOnce({
+        ...previewResult,
+        webhookUrl: undefined,
+        productionUrl: undefined,
+        deploymentStatus: "missing",
+        deploymentRequired: {
+          message:
+            'Project "harness-gui" exists in Vercel but has no production deployment yet.',
+          nextSteps: ["Deploy the project in Vercel before applying settings."],
+        },
+      });
+    vi.mocked(listVercelProjectEnvVars).mockResolvedValueOnce([]);
+
+    const result = await applyVercelBridgeSetup({
+      plan: {
+        vercelToken: "vercel-token",
+        projectId: "proj-1",
+        derivedHarnessTeamKey: "WES",
+        derivedGithubDispatchToken: "ghp_saved",
+        allowExistingProjectBridgeInstall: true,
+      },
+      confirmed: true,
+      fingerprint: "preview-fingerprint",
+      cwd: tempRoot,
+    });
+
+    expect(result.status).toBe("applied");
+    expect(result.setupBlocked).toBeUndefined();
+    expect(upsertVercelProjectEnvVar).toHaveBeenCalledWith(
+      "vercel-token",
+      expect.objectContaining({ key: "PDEV_BRIDGE_PROJECT_MARKER" }),
+    );
+    expect(deployVercelBridgeProduction).toHaveBeenCalled();
+    expect(result.signedProbeVerified).toBe(true);
+  });
+
+  it("allows existing projects with the PDev marker without explicit confirmation", async () => {
+    vi.mocked(previewVercelBridgeSetup)
+      .mockResolvedValueOnce(previewResult)
+      .mockResolvedValueOnce({
+        ...previewResult,
+        webhookUrl: undefined,
+        productionUrl: undefined,
+        deploymentStatus: "missing",
+      });
+    vi.mocked(listVercelProjectEnvVars).mockResolvedValueOnce([
+      {
+        id: "env-marker",
+        key: "PDEV_BRIDGE_PROJECT_MARKER",
+        type: "plain",
+        target: ["production"],
+      },
+    ]);
+
+    const result = await applyVercelBridgeSetup({
+      plan: {
+        vercelToken: "vercel-token",
+        projectId: "proj-1",
+        derivedHarnessTeamKey: "WES",
+        derivedGithubDispatchToken: "ghp_saved",
+      },
+      confirmed: true,
+      fingerprint: "preview-fingerprint",
+      cwd: tempRoot,
+    });
+
+    expect(result.setupBlocked).toBeUndefined();
+    expect(deployVercelBridgeProduction).toHaveBeenCalled();
+    expect(upsertVercelProjectEnvVar).not.toHaveBeenCalledWith(
+      "vercel-token",
+      expect.objectContaining({ key: "PDEV_BRIDGE_PROJECT_MARKER" }),
+    );
   });
 
   it("creates a new project from actionable preview and does not complete on failed probe", async () => {
@@ -416,6 +536,10 @@ describe("vercel-setup-apply", () => {
           name: "new-harness-gui",
           accountId: "acct-1",
         },
+        productionUrl: undefined,
+        webhookUrl: undefined,
+        deploymentStatus: "missing",
+        endpointReachable: false,
         fingerprint: "created-project-fingerprint",
       });
     vi.mocked(runSignedWebhookProbe).mockResolvedValue({
@@ -445,8 +569,28 @@ describe("vercel-setup-apply", () => {
     expect(createVercelProject).toHaveBeenCalledWith("vercel-token", {
       name: "new-harness-gui",
       teamId: undefined,
+      gitRepository: undefined,
     });
     expect(upsertVercelProjectEnvVar).toHaveBeenCalled();
+    expect(upsertVercelProjectEnvVar).toHaveBeenCalledWith(
+      "vercel-token",
+      expect.objectContaining({
+        projectId: "proj-created",
+        key: "PDEV_BRIDGE_PROJECT_MARKER",
+        value: "p-dev-managed",
+      }),
+    );
+    expect(
+      vi.mocked(upsertVercelProjectEnvVar).mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      vi.mocked(deployVercelBridgeProduction).mock.invocationCallOrder[0]!,
+    );
+    expect(deployVercelBridgeProduction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectName: "new-harness-gui",
+        preferredSource: "artifact",
+      }),
+    );
     expect(result.status).toBe("applied");
     expect(result.project?.outcome).toBe("created");
     expect(result.signedProbeVerified).toBe(false);

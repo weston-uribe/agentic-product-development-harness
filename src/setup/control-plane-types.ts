@@ -115,6 +115,7 @@ export interface VercelBridgePreviewFingerprintInputs {
   githubDispatchTokenToken: string;
   harnessTeamKey: string;
   vercelTokenToken: string;
+  allowExistingProjectBridgeInstall?: boolean;
 }
 
 export interface VercelBridgeRedeployVerification {
