@@ -51,7 +51,7 @@ The public template repository `weston-uribe/p-dev-harness-template` is a **froz
 
 - Cursor-only agent provider; Linear/GitHub/GitHub Actions/Vercel stack
 - macOS validated for browser auto-launch; use `--no-open` elsewhere
-- Existing managed workspaces are **not** automatically upgraded to a newer package snapshot
+- Existing managed workspaces are **not** upgraded automatically in the background — use **Settings → Deployments → Update PDev runner** for an operator-initiated snapshot upgrade (conflict-safe three-way replace + GitHub Actions config canary)
 - Setup completion is validated; a full real issue lifecycle from an isolated npm install is **not** yet validated
 - Early-stage operator tool — not production SaaS
 

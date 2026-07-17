@@ -399,6 +399,14 @@ describe.skipIf(!isCleanEnoughForPackagePack())(
           `http://127.0.0.1:${port}/settings/configure`,
         );
         expect(configureResponse.status).toBe(200);
+
+        const deploymentsResponse = await fetch(
+          `http://127.0.0.1:${port}/settings/deployments`,
+        );
+        expect(deploymentsResponse.status).toBe(200);
+        const deploymentsHtml = await deploymentsResponse.text();
+        expect(deploymentsHtml).toContain("PDev runner");
+        expect(deploymentsHtml).toMatch(/Update runner|Up to date|Update available|GITHUB_TOKEN/i);
       } finally {
         if (child) {
           await stopChild(child);

@@ -213,7 +213,7 @@ Operator workspace files under `P_DEV_HOME` or `~/.p-dev` are separate from npm 
 - **Linear / GitHub / GitHub Actions / Vercel** stack only
 - **macOS validated** for packaged browser auto-launch; other platforms use `--no-open`
 - **No full real issue lifecycle** has been run from an isolated npm-installed workspace — setup completion is validated; end-to-end issue runs from a fresh npm install are not
-- **No automatic upgrade/sync** of an already-created private harness workspace to a newer package snapshot
+- **No automatic silent upgrade** of an already-created private harness workspace — use **Settings → Deployments → Update PDev runner** for an operator-initiated upgrade (three-way conflict blocking + GitHub Actions config canary). Automatic background upgrade/sync remains unsupported.
 - **Not production-grade SaaS** or provider-agnostic
 - Manual eval rubrics remain where automation is not implemented
 
