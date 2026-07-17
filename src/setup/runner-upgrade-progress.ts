@@ -6,7 +6,6 @@ import {
   type RunnerUpgradePhase,
   type RunnerUpgradeUiPhase,
 } from "./runner-upgrade-types.js";
-
 export const RUNNER_UPGRADE_PROGRESS_FILE =
   ".harness/p-dev-runner-upgrade.progress.json";
 
@@ -23,6 +22,15 @@ export interface RunnerUpgradeProgressState {
   prUrl?: string;
   recoveryInstruction: string;
   updatedAt: string;
+  lastSuccessfulProviderCallAt?: string;
+  workerHeartbeatAt?: string;
+  lastCheckpoint?: string;
+  filesInspected?: number;
+  filesTotal?: number;
+  lastCompletedBatch?: string;
+  retryCount?: number;
+  retryable?: boolean;
+  errorCode?: string;
 }
 
 export function mapRunnerUpgradePhaseToUiPhase(
@@ -67,6 +75,7 @@ export async function writeRunnerUpgradeProgressAtomic(
     uiPhaseLabel?: string;
     recoveryInstruction?: string;
     elapsedMs?: number;
+    updatedAt?: string;
   },
   cwd?: string,
 ): Promise<RunnerUpgradeProgressState> {
@@ -75,6 +84,7 @@ export async function writeRunnerUpgradeProgressAtomic(
   const elapsedMs =
     state.elapsedMs ??
     (Number.isFinite(startedAtMs) ? Math.max(0, Date.now() - startedAtMs) : 0);
+  const now = new Date().toISOString();
   const full: RunnerUpgradeProgressState = {
     operationId: state.operationId,
     phase: state.phase,
@@ -89,7 +99,16 @@ export async function writeRunnerUpgradeProgressAtomic(
     recoveryInstruction:
       state.recoveryInstruction ??
       runnerUpgradeRecoveryInstruction(state.phase, state.operationId),
-    updatedAt: new Date().toISOString(),
+    updatedAt: state.updatedAt ?? now,
+    lastSuccessfulProviderCallAt: state.lastSuccessfulProviderCallAt,
+    workerHeartbeatAt: state.workerHeartbeatAt ?? now,
+    lastCheckpoint: state.lastCheckpoint ?? state.phase,
+    filesInspected: state.filesInspected,
+    filesTotal: state.filesTotal,
+    lastCompletedBatch: state.lastCompletedBatch,
+    retryCount: state.retryCount,
+    retryable: state.retryable,
+    errorCode: state.errorCode,
   };
   const filePath = progressFilePath(cwd);
   await mkdir(path.dirname(filePath), { recursive: true });

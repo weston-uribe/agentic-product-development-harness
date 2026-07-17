@@ -15,6 +15,7 @@ export type RunnerUpgradeUiPhase = RunnerUpgradePhase;
 export type RunnerUpgradeStatus =
   | "up_to_date"
   | "update_available"
+  | "checking"
   | "updating"
   | "partially_updated"
   | "failed"
@@ -80,6 +81,8 @@ export function runnerUpgradeStatusLabel(status: RunnerUpgradeStatus): string {
       return "Up to date";
     case "update_available":
       return "Update available";
+    case "checking":
+      return "Checking runner version";
     case "updating":
       return "Updating";
     case "partially_updated":
@@ -119,6 +122,16 @@ export interface RunnerUpgradeStatusResult {
   blockedReason?: string;
   canaryRunUrl?: string;
   prUrl?: string;
+  retryGuidance?: string;
+  degraded?: boolean;
+}
+
+export interface RunnerUpgradeAcceptResult {
+  operationId: string;
+  status: "updating";
+  phase: RunnerUpgradePhase;
+  previewFingerprint: string;
+  message: string;
 }
 
 export interface RunnerUpgradePreviewResult {

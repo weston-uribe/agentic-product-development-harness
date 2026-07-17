@@ -510,6 +510,10 @@ class LiveRunnerUpgradeProvider implements RunnerUpgradeGitHubProvider {
 
 export function createLiveRunnerUpgradeProvider(
   token: string,
+  options?: { timeoutMs?: number },
 ): RunnerUpgradeGitHubProvider {
-  return new LiveRunnerUpgradeProvider({ token });
+  return new LiveRunnerUpgradeProvider({
+    token,
+    timeoutMs: options?.timeoutMs,
+  });
 }

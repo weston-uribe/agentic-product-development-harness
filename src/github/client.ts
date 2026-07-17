@@ -44,6 +44,8 @@ function createGitHubApiError(
 
 export interface GitHubClientOptions {
   token: string;
+  /** Optional per-request timeout for REST/GraphQL fetch calls. */
+  timeoutMs?: number;
 }
 
 export interface GitHubPullRequest {
@@ -253,9 +255,22 @@ const GITHUB_API = "https://api.github.com";
 
 export class GitHubClient {
   private readonly token: string;
+  private readonly timeoutMs?: number;
 
   constructor(options: GitHubClientOptions) {
     this.token = options.token;
+    this.timeoutMs = options.timeoutMs;
+  }
+
+  private requestSignal(): AbortSignal | undefined {
+    if (
+      typeof this.timeoutMs === "number" &&
+      Number.isFinite(this.timeoutMs) &&
+      this.timeoutMs > 0
+    ) {
+      return AbortSignal.timeout(this.timeoutMs);
+    }
+    return undefined;
   }
 
   private async request<T>(
@@ -271,6 +286,7 @@ export class GitHubClient {
         ...(init?.body ? { "Content-Type": "application/json" } : {}),
       },
       body: init?.body ? JSON.stringify(init.body) : undefined,
+      signal: this.requestSignal(),
     });
 
     if (!response.ok) {
@@ -299,6 +315,7 @@ export class GitHubClient {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ query, variables }),
+      signal: this.requestSignal(),
     });
 
     if (!response.ok) {

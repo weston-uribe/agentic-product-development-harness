@@ -26,7 +26,10 @@ import {
   writeRunnerUpgradePendingStateAtomic,
   type RunnerUpgradePendingState,
 } from "./runner-upgrade-pending-state.js";
-import { writeRunnerUpgradeProgressAtomic } from "./runner-upgrade-progress.js";
+import {
+  writeRunnerUpgradeProgressAtomic,
+  type RunnerUpgradeProgressState,
+} from "./runner-upgrade-progress.js";
 import {
   compareThreeWayUpgrade,
   extractFileHashesFromManifest,
@@ -43,6 +46,7 @@ import {
   buildRunnerUpgradePrMarker,
   parseRunnerUpgradePrMarker,
   runnerUpgradeStatusLabel,
+  type RunnerUpgradeAcceptResult,
   type RunnerUpgradeApplyResult,
   type RunnerUpgradeImpactSummary,
   type RunnerUpgradePhase,
@@ -51,6 +55,31 @@ import {
   type RunnerUpgradeStatus,
   type RunnerUpgradeStatusResult,
 } from "./runner-upgrade-types.js";
+import {
+  RUNNER_UPGRADE_HEARTBEAT_EVERY_FILES,
+  RUNNER_UPGRADE_STATUS_OVERALL_DEADLINE_MS,
+  RUNNER_UPGRADE_STATUS_PROVIDER_TIMEOUT_MS,
+  RUNNER_UPGRADE_WORKER_PROVIDER_TIMEOUT_MS,
+  RunnerUpgradeTimeoutError,
+  recordRunnerUpgradeStatusCallTimings,
+  withTimedRunnerUpgradeCall,
+  type RunnerUpgradeCallTiming,
+} from "./runner-upgrade-timeouts.js";
+import {
+  enqueueRunnerUpgradeOperation,
+  isRunnerUpgradeOperationActive,
+  reconcileAbandonedRunnerUpgrades,
+} from "./runner-upgrade-worker.js";
+
+export {
+  getLastRunnerUpgradeStatusCallTimings,
+  isRunnerUpgradeProgressStale,
+  RUNNER_UPGRADE_NO_PROGRESS_STALE_MS,
+  RUNNER_UPGRADE_STATUS_OVERALL_DEADLINE_MS,
+  RUNNER_UPGRADE_STATUS_PROVIDER_TIMEOUT_MS,
+  RUNNER_UPGRADE_WORKER_PROVIDER_TIMEOUT_MS,
+} from "./runner-upgrade-timeouts.js";
+export { runnerUpgradeProgressShowsNoProgress } from "./runner-upgrade-timeouts.js";
 
 const ALL_RUNNER_UPGRADE_PHASES: RunnerUpgradePhase[] = [
   "verifying-managed-repository",
@@ -65,6 +94,8 @@ const ALL_RUNNER_UPGRADE_PHASES: RunnerUpgradePhase[] = [
 const DEFAULT_CANARY_POLL_INTERVAL_MS = 2_000;
 const DEFAULT_CANARY_POLL_TIMEOUT_MS = 120_000;
 
+type ResolveContextMode = "status" | "worker";
+
 const OPERATOR_LOCAL_ONLY_PATHS = new Set([
   ".harness/config.local.json",
   ".env.local",
@@ -74,6 +105,13 @@ export interface RunnerUpgradeApplyOptions {
   previewFingerprint?: string;
   canaryPollIntervalMs?: number;
   canaryPollTimeoutMs?: number;
+  /** When true, skip worker enqueue (used by the worker itself / sync unit tests). */
+  executeInline?: boolean;
+}
+
+export interface RunnerUpgradeAcceptOptions {
+  previewFingerprint?: string;
+  resume?: boolean;
 }
 
 interface ResolvedRunnerUpgradeContext {
@@ -253,9 +291,16 @@ async function buildRemoteFileHashes(
     repo: string;
     defaultBranchHead: string;
     paths: string[];
+    onHeartbeat?: (progress: {
+      filesInspected: number;
+      filesTotal: number;
+      lastCompletedBatch: string;
+    }) => Promise<void>;
   },
 ): Promise<FileHashMap> {
   const hashes: FileHashMap = {};
+  const total = input.paths.length;
+  let inspected = 0;
   for (const filePath of input.paths) {
     const content = await provider.readRepositoryFileContent(
       input.owner,
@@ -263,10 +308,21 @@ async function buildRemoteFileHashes(
       filePath,
       input.defaultBranchHead,
     );
-    if (content === null) {
-      continue;
+    inspected += 1;
+    if (content !== null) {
+      hashes[filePath] = sha256Content(content);
     }
-    hashes[filePath] = sha256Content(content);
+    if (
+      input.onHeartbeat &&
+      (inspected % RUNNER_UPGRADE_HEARTBEAT_EVERY_FILES === 0 ||
+        inspected === total)
+    ) {
+      await input.onHeartbeat({
+        filesInspected: inspected,
+        filesTotal: total,
+        lastCompletedBatch: filePath,
+      });
+    }
   }
   return hashes;
 }
@@ -274,12 +330,25 @@ async function buildRemoteFileHashes(
 async function resolveRunnerUpgradeContext(
   cwd: string | undefined,
   provider: RunnerUpgradeGitHubProvider,
+  mode: ResolveContextMode = "worker",
 ): Promise<
   | { ok: true; context: ResolvedRunnerUpgradeContext }
   | { ok: false; result: RunnerUpgradeStatusResult }
 > {
+  const providerTimeoutMs =
+    mode === "status"
+      ? RUNNER_UPGRADE_STATUS_PROVIDER_TIMEOUT_MS
+      : RUNNER_UPGRADE_WORKER_PROVIDER_TIMEOUT_MS;
+  const timings: RunnerUpgradeCallTiming[] = [];
+  const recordTiming = (timing: RunnerUpgradeCallTiming) => {
+    timings.push(timing);
+  };
+
   const packagedSnapshot = await loadPackagedSnapshot();
   if (!packagedSnapshot) {
+    if (mode === "status") {
+      recordRunnerUpgradeStatusCallTimings(timings);
+    }
     return {
       ok: false,
       result: {
@@ -290,98 +359,178 @@ async function resolveRunnerUpgradeContext(
     };
   }
 
-  const { repoSlug, owner, repo } = await resolveHarnessRepository(cwd);
-  const metadata = await provider.getRepositoryMetadata(owner, repo);
-  if (!metadata) {
-    return {
-      ok: false,
-      result: {
-        status: "failed",
-        statusLabel: runnerUpgradeStatusLabel("failed"),
-        blockedReason: `Harness repository ${repoSlug} is not accessible.`,
-      },
-    };
-  }
+  try {
+    const { repoSlug, owner, repo } = await resolveHarnessRepository(cwd);
+    const metadata = await withTimedRunnerUpgradeCall(
+      "getRepositoryMetadata",
+      providerTimeoutMs,
+      () => provider.getRepositoryMetadata(owner, repo),
+      recordTiming,
+    );
+    if (!metadata) {
+      if (mode === "status") {
+        recordRunnerUpgradeStatusCallTimings(timings);
+      }
+      return {
+        ok: false,
+        result: {
+          status: "failed",
+          statusLabel: runnerUpgradeStatusLabel("failed"),
+          blockedReason: `Harness repository ${repoSlug} is not accessible.`,
+        },
+      };
+    }
 
-  const defaultBranchHead = await provider.getRepositoryDefaultBranchHead(
-    owner,
-    repo,
-    metadata.defaultBranch,
-  );
-  const markerResult = await readRemoteManagedMarker(provider, {
-    owner,
-    repo,
-    defaultBranch: metadata.defaultBranch,
-    defaultBranchHead,
-  });
-  if (!markerResult.ok) {
-    return {
-      ok: false,
-      result: {
-        status: markerResult.status,
-        statusLabel: runnerUpgradeStatusLabel(markerResult.status),
-        blockedReason: markerResult.reason,
-        availableSnapshot: snapshotSummaryFromManifest(packagedSnapshot.manifest),
-      },
-    };
-  }
+    const defaultBranchHead = await withTimedRunnerUpgradeCall(
+      "getRepositoryDefaultBranchHead",
+      providerTimeoutMs,
+      () =>
+        provider.getRepositoryDefaultBranchHead(
+          owner,
+          repo,
+          metadata.defaultBranch,
+        ),
+      recordTiming,
+    );
+    const markerResult = await withTimedRunnerUpgradeCall(
+      "readRemoteManagedMarker",
+      providerTimeoutMs,
+      () =>
+        readRemoteManagedMarker(provider, {
+          owner,
+          repo,
+          defaultBranch: metadata.defaultBranch,
+          defaultBranchHead,
+        }),
+      recordTiming,
+    );
+    if (mode === "status") {
+      recordRunnerUpgradeStatusCallTimings(timings);
+    }
+    if (!markerResult.ok) {
+      return {
+        ok: false,
+        result: {
+          status: markerResult.status,
+          statusLabel: runnerUpgradeStatusLabel(markerResult.status),
+          blockedReason: markerResult.reason,
+          availableSnapshot: snapshotSummaryFromManifest(
+            packagedSnapshot.manifest,
+          ),
+        },
+      };
+    }
 
-  const reconnect = validateManagedMarkerForReconnect(
-    markerResult.marker,
-    repoSlug,
-    { repositoryId: metadata.id },
-  );
-  if (!reconnect.ok) {
-    return {
-      ok: false,
-      result: {
-        status: "blocked_non_managed",
-        statusLabel: runnerUpgradeStatusLabel("blocked_non_managed"),
-        blockedReason: reconnect.reason,
-        currentSnapshot: markerResult.marker.createdFromPackageSnapshot
-          ? {
-              snapshotContentId:
-                markerResult.marker.createdFromPackageSnapshot.snapshotContentId,
-              packageVersion:
-                markerResult.marker.createdFromPackageSnapshot.packageVersion,
-              sourceCommit:
-                markerResult.marker.createdFromPackageSnapshot.sourceCommit,
-            }
-          : undefined,
-        availableSnapshot: snapshotSummaryFromManifest(packagedSnapshot.manifest),
-      },
-    };
-  }
-
-  return {
-    ok: true,
-    context: {
+    const reconnect = validateManagedMarkerForReconnect(
+      markerResult.marker,
       repoSlug,
-      owner,
-      repo,
-      repositoryId: metadata.id,
-      defaultBranch: metadata.defaultBranch,
-      defaultBranchHead,
-      marker: markerResult.marker,
-      packagedSnapshot,
-    },
-  };
+      { repositoryId: metadata.id },
+    );
+    if (!reconnect.ok) {
+      return {
+        ok: false,
+        result: {
+          status: "blocked_non_managed",
+          statusLabel: runnerUpgradeStatusLabel("blocked_non_managed"),
+          blockedReason: reconnect.reason,
+          currentSnapshot: markerResult.marker.createdFromPackageSnapshot
+            ? {
+                snapshotContentId:
+                  markerResult.marker.createdFromPackageSnapshot
+                    .snapshotContentId,
+                packageVersion:
+                  markerResult.marker.createdFromPackageSnapshot.packageVersion,
+                sourceCommit:
+                  markerResult.marker.createdFromPackageSnapshot.sourceCommit,
+              }
+            : undefined,
+          availableSnapshot: snapshotSummaryFromManifest(
+            packagedSnapshot.manifest,
+          ),
+        },
+      };
+    }
+
+    return {
+      ok: true,
+      context: {
+        repoSlug,
+        owner,
+        repo,
+        repositoryId: metadata.id,
+        defaultBranch: metadata.defaultBranch,
+        defaultBranchHead,
+        marker: markerResult.marker,
+        packagedSnapshot,
+      },
+    };
+  } catch (error) {
+    if (mode === "status") {
+      recordRunnerUpgradeStatusCallTimings(timings);
+    }
+    if (error instanceof RunnerUpgradeTimeoutError || mode === "status") {
+      return {
+        ok: false,
+        result: {
+          status: "checking",
+          statusLabel: runnerUpgradeStatusLabel("checking"),
+          degraded: true,
+          blockedReason:
+            error instanceof Error
+              ? error.message
+              : "Runner upgrade status check timed out.",
+          retryGuidance:
+            "Retry status shortly. GitHub did not respond within the page-status deadline.",
+          availableSnapshot: snapshotSummaryFromManifest(
+            packagedSnapshot.manifest,
+          ),
+        },
+      };
+    }
+    throw error;
+  }
 }
 
 async function writeProgress(
   cwd: string | undefined,
   pending: RunnerUpgradePendingState,
   phase: RunnerUpgradePhase,
+  extras?: Partial<
+    Pick<
+      RunnerUpgradeProgressState,
+      | "lastSuccessfulProviderCallAt"
+      | "workerHeartbeatAt"
+      | "filesInspected"
+      | "filesTotal"
+      | "lastCompletedBatch"
+      | "retryCount"
+      | "retryable"
+      | "errorCode"
+      | "lastCheckpoint"
+      | "recoveryInstruction"
+    >
+  >,
 ): Promise<void> {
+  const now = new Date().toISOString();
   await writeRunnerUpgradeProgressAtomic(
     {
       operationId: pending.operationId,
       phase,
-      phaseStartedAt: new Date().toISOString(),
+      phaseStartedAt: now,
       startedAt: pending.startedAt,
       canaryRunId: pending.canaryRunId,
       canaryRunUrl: pending.canaryRunUrl,
       prUrl: pending.prUrl,
+      workerHeartbeatAt: extras?.workerHeartbeatAt ?? now,
+      lastSuccessfulProviderCallAt: extras?.lastSuccessfulProviderCallAt,
+      filesInspected: extras?.filesInspected,
+      filesTotal: extras?.filesTotal,
+      lastCompletedBatch: extras?.lastCompletedBatch,
+      retryCount: extras?.retryCount,
+      retryable: extras?.retryable,
+      errorCode: extras?.errorCode,
+      lastCheckpoint: extras?.lastCheckpoint ?? phase,
+      recoveryInstruction: extras?.recoveryInstruction,
     },
     cwd,
   );
@@ -390,6 +539,13 @@ async function writeProgress(
 async function compareUpgradeSnapshots(
   provider: RunnerUpgradeGitHubProvider,
   context: ResolvedRunnerUpgradeContext,
+  options?: {
+    onHeartbeat?: (progress: {
+      filesInspected: number;
+      filesTotal: number;
+      lastCompletedBatch: string;
+    }) => Promise<void>;
+  },
 ): Promise<
   | {
       ok: true;
@@ -420,6 +576,7 @@ async function compareUpgradeSnapshots(
     repo: context.repo,
     defaultBranchHead: context.defaultBranchHead,
     paths: comparePaths,
+    onHeartbeat: options?.onHeartbeat,
   });
 
   if (provider.listRepositoryTreePaths) {
@@ -720,11 +877,13 @@ async function pollCanaryRun(
     runId: number;
     pollIntervalMs: number;
     pollTimeoutMs: number;
+    onHeartbeat?: () => Promise<void>;
   },
 ): Promise<{ ok: true; run: { htmlUrl: string } } | { ok: false; message: string }> {
   const started = Date.now();
   while (Date.now() - started < input.pollTimeoutMs) {
     const run = await provider.getWorkflowRun(input.owner, input.repo, input.runId);
+    await input.onHeartbeat?.();
     if (run.status === "completed") {
       if (run.conclusion === "success") {
         return { ok: true, run: { htmlUrl: run.htmlUrl } };
@@ -739,24 +898,10 @@ async function pollCanaryRun(
   return { ok: false, message: "Configuration canary timed out." };
 }
 
-export async function loadRunnerUpgradeStatus(
-  cwd: string | undefined,
-  provider: RunnerUpgradeGitHubProvider,
-): Promise<RunnerUpgradeStatusResult> {
-  const pending = await readRunnerUpgradePendingState(cwd);
-  if (pending?.syncInProgress || pending?.phase === "running-configuration-canary") {
-    return {
-      status: pending.codeUpdateComplete ? "partially_updated" : "updating",
-      statusLabel: runnerUpgradeStatusLabel(
-        pending.codeUpdateComplete ? "partially_updated" : "updating",
-      ),
-      pendingOperationId: pending.operationId,
-      pendingPhase: pending.phase,
-      prUrl: pending.prUrl,
-      canaryRunUrl: pending.canaryRunUrl,
-    };
-  }
-  if (pending && pending.lastError) {
+function statusFromPending(
+  pending: RunnerUpgradePendingState,
+): RunnerUpgradeStatusResult {
+  if (pending.lastError) {
     return {
       status: pending.codeUpdateComplete ? "partially_updated" : "failed",
       statusLabel: runnerUpgradeStatusLabel(
@@ -768,47 +913,114 @@ export async function loadRunnerUpgradeStatus(
       conflictPaths: pending.conflictPaths,
       prUrl: pending.prUrl,
       canaryRunUrl: pending.canaryRunUrl,
+      retryGuidance: pending.codeUpdateComplete
+        ? "Resume the runner upgrade to finish cloud sync or canary."
+        : "Retry or Resume the runner upgrade after reviewing the error.",
     };
   }
+  return {
+    status: pending.codeUpdateComplete ? "partially_updated" : "updating",
+    statusLabel: runnerUpgradeStatusLabel(
+      pending.codeUpdateComplete ? "partially_updated" : "updating",
+    ),
+    pendingOperationId: pending.operationId,
+    pendingPhase: pending.phase,
+    prUrl: pending.prUrl,
+    canaryRunUrl: pending.canaryRunUrl,
+  };
+}
 
-  const resolved = await resolveRunnerUpgradeContext(cwd, provider);
-  if (!resolved.ok) {
-    return resolved.result;
+export async function loadRunnerUpgradeStatus(
+  cwd: string | undefined,
+  provider: RunnerUpgradeGitHubProvider,
+): Promise<RunnerUpgradeStatusResult> {
+  const pending = await readRunnerUpgradePendingState(cwd);
+  if (pending) {
+    if (
+      !pending.lastError &&
+      !isRunnerUpgradeOperationActive(pending.operationId)
+    ) {
+      void reconcileAbandonedRunnerUpgrades(cwd);
+    }
+    return statusFromPending(pending);
   }
-  const { context } = resolved;
-  const currentSnapshot = snapshotSummaryFromManifest(
-    context.marker.createdFromPackageSnapshot
-      ? {
-          ...context.packagedSnapshot.manifest,
-          snapshotContentId:
-            context.marker.createdFromPackageSnapshot.snapshotContentId,
-          packageVersion:
-            context.marker.createdFromPackageSnapshot.packageVersion,
-          sourceCommit: context.marker.createdFromPackageSnapshot.sourceCommit,
-        }
-      : context.packagedSnapshot.manifest,
-  );
-  const availableSnapshot = snapshotSummaryFromManifest(
-    context.packagedSnapshot.manifest,
-  );
 
-  if (
-    currentSnapshot.snapshotContentId === availableSnapshot.snapshotContentId
-  ) {
+  const packagedSnapshot = await loadPackagedSnapshot();
+  const availableSnapshot = packagedSnapshot
+    ? snapshotSummaryFromManifest(packagedSnapshot.manifest)
+    : undefined;
+
+  const overallDeadline = AbortSignal.timeout(
+    RUNNER_UPGRADE_STATUS_OVERALL_DEADLINE_MS,
+  );
+  try {
+    const resolved = await Promise.race([
+      resolveRunnerUpgradeContext(cwd, provider, "status"),
+      new Promise<never>((_resolve, reject) => {
+        overallDeadline.addEventListener(
+          "abort",
+          () => {
+            reject(
+              new RunnerUpgradeTimeoutError(
+                `runner-upgrade-status overall deadline exceeded after ${RUNNER_UPGRADE_STATUS_OVERALL_DEADLINE_MS}ms.`,
+                "loadRunnerUpgradeStatus",
+                RUNNER_UPGRADE_STATUS_OVERALL_DEADLINE_MS,
+              ),
+            );
+          },
+          { once: true },
+        );
+      }),
+    ]);
+    if (!resolved.ok) {
+      return resolved.result;
+    }
+    const { context } = resolved;
+    const currentSnapshot = snapshotSummaryFromManifest(
+      context.marker.createdFromPackageSnapshot
+        ? {
+            ...context.packagedSnapshot.manifest,
+            snapshotContentId:
+              context.marker.createdFromPackageSnapshot.snapshotContentId,
+            packageVersion:
+              context.marker.createdFromPackageSnapshot.packageVersion,
+            sourceCommit:
+              context.marker.createdFromPackageSnapshot.sourceCommit,
+          }
+        : context.packagedSnapshot.manifest,
+    );
+
+    if (
+      currentSnapshot.snapshotContentId === availableSnapshot?.snapshotContentId
+    ) {
+      return {
+        status: "up_to_date",
+        statusLabel: runnerUpgradeStatusLabel("up_to_date"),
+        currentSnapshot,
+        availableSnapshot,
+      };
+    }
+
     return {
-      status: "up_to_date",
-      statusLabel: runnerUpgradeStatusLabel("up_to_date"),
+      status: "update_available",
+      statusLabel: runnerUpgradeStatusLabel("update_available"),
       currentSnapshot,
       availableSnapshot,
     };
+  } catch (error) {
+    return {
+      status: "checking",
+      statusLabel: runnerUpgradeStatusLabel("checking"),
+      degraded: true,
+      availableSnapshot,
+      blockedReason:
+        error instanceof Error
+          ? error.message
+          : "Runner upgrade status check timed out.",
+      retryGuidance:
+        "Retry status shortly. GitHub did not respond within the page-status deadline.",
+    };
   }
-
-  return {
-    status: "update_available",
-    statusLabel: runnerUpgradeStatusLabel("update_available"),
-    currentSnapshot,
-    availableSnapshot,
-  };
 }
 
 export async function previewRunnerUpgrade(
@@ -869,6 +1081,116 @@ export async function previewRunnerUpgrade(
   };
 }
 
+async function buildAcceptedPendingState(
+  cwd: string | undefined,
+  options: RunnerUpgradeAcceptOptions = {},
+): Promise<RunnerUpgradePendingState> {
+  const existing = await readRunnerUpgradePendingState(cwd);
+  if (existing) {
+    const next: RunnerUpgradePendingState = {
+      ...existing,
+      previewFingerprint:
+        options.previewFingerprint ?? existing.previewFingerprint,
+    };
+    if (options.resume || existing.lastError) {
+      delete next.lastError;
+    }
+    return next;
+  }
+
+  const packagedSnapshot = await loadPackagedSnapshot();
+  if (!packagedSnapshot) {
+    throw new Error("Embedded workspace snapshot is unavailable.");
+  }
+  const { repoSlug } = await resolveHarnessRepository(cwd);
+  let repositoryId = 0;
+  let defaultBranch = "main";
+  try {
+    const localMarkerRaw = await readLocalManagedRepoMarker(cwd);
+    if (localMarkerRaw) {
+      const parsed = parseHarnessManagedRepoMarkerJson(localMarkerRaw);
+      if (parsed.ok) {
+        repositoryId = parsed.marker.repositoryId ?? repositoryId;
+        defaultBranch =
+          parsed.marker.createdFromTemplate?.defaultBranch ?? defaultBranch;
+      }
+    }
+  } catch {
+    // Local marker is optional for accept.
+  }
+
+  return {
+    operationId: randomUUID(),
+    repositoryId,
+    repoSlug,
+    defaultBranch,
+    targetSnapshotContentId: packagedSnapshot.manifest.snapshotContentId,
+    phase: "verifying-managed-repository",
+    startedAt: new Date().toISOString(),
+    previewFingerprint: options.previewFingerprint ?? "",
+    syncInProgress: false,
+    codeUpdateComplete: false,
+    branchName: buildRunnerUpgradeBranchName(
+      packagedSnapshot.manifest.snapshotContentId,
+    ),
+  };
+}
+
+/**
+ * Accept an upgrade: write durable pending/progress locally, enqueue the
+ * process-level worker, and return before any remote provider work.
+ */
+export async function acceptRunnerUpgrade(
+  cwd: string | undefined,
+  options: RunnerUpgradeAcceptOptions = {},
+): Promise<{
+  apply: RunnerUpgradeAcceptResult;
+  progress: RunnerUpgradeProgressState;
+}> {
+  const workspaceDir = cwd ?? process.cwd();
+  return withHarnessRunnerUpgradeMutex(workspaceDir, async () => {
+    const pending = await buildAcceptedPendingState(cwd, options);
+    await writeRunnerUpgradePendingStateAtomic(pending, cwd);
+    const progress = await writeRunnerUpgradeProgressAtomic(
+      {
+        operationId: pending.operationId,
+        phase: pending.phase,
+        phaseStartedAt: new Date().toISOString(),
+        startedAt: pending.startedAt,
+        canaryRunId: pending.canaryRunId,
+        canaryRunUrl: pending.canaryRunUrl,
+        prUrl: pending.prUrl,
+        workerHeartbeatAt: new Date().toISOString(),
+        lastCheckpoint: pending.phase,
+      },
+      cwd,
+    );
+    enqueueRunnerUpgradeOperation(pending.operationId, cwd);
+    return {
+      apply: {
+        operationId: pending.operationId,
+        status: "updating",
+        phase: pending.phase,
+        previewFingerprint: pending.previewFingerprint,
+        message: "Runner upgrade accepted and queued.",
+      },
+      progress,
+    };
+  });
+}
+
+/**
+ * Execute a previously accepted upgrade from durable pending state.
+ * Owned by the process-level worker (or sync unit tests via executeInline).
+ */
+export async function executeRunnerUpgradeOperation(
+  cwd: string | undefined,
+  provider: RunnerUpgradeGitHubProvider,
+  options: RunnerUpgradeApplyOptions = {},
+): Promise<RunnerUpgradeApplyResult> {
+  return applyRunnerUpgradeInternal(cwd, provider, options);
+}
+
 async function applyRunnerUpgradeInternal(
   cwd: string | undefined,
   provider: RunnerUpgradeGitHubProvider,
@@ -878,28 +1200,61 @@ async function applyRunnerUpgradeInternal(
   const startedAt = pending?.startedAt ?? new Date().toISOString();
   const operationId = pending?.operationId ?? randomUUID();
 
-  const resolved = await resolveRunnerUpgradeContext(cwd, provider);
+  if (!pending) {
+    pending = await buildAcceptedPendingState(cwd, {
+      previewFingerprint: options.previewFingerprint,
+    });
+    await writeRunnerUpgradePendingStateAtomic(pending, cwd);
+    await writeProgress(cwd, pending, pending.phase, {
+      workerHeartbeatAt: new Date().toISOString(),
+      lastSuccessfulProviderCallAt: undefined,
+    });
+  } else {
+    await writeProgress(cwd, pending, pending.phase, {
+      workerHeartbeatAt: new Date().toISOString(),
+    });
+  }
+
+  const resolved = await resolveRunnerUpgradeContext(cwd, provider, "worker");
   if (!resolved.ok) {
+    pending.lastError = resolved.result.blockedReason;
+    pending.phase = "verifying-managed-repository";
+    await writeRunnerUpgradePendingStateAtomic(pending, cwd);
+    await writeProgress(cwd, pending, pending.phase, {
+      retryable: true,
+      errorCode: "verify_managed_repository_failed",
+    });
     return {
       operationId,
       status: resolved.result.status,
       phase: "verifying-managed-repository",
-      previewFingerprint: pending?.previewFingerprint ?? "",
+      previewFingerprint: pending.previewFingerprint,
       message: resolved.result.blockedReason,
     };
   }
   const context = resolved.context;
+  pending.repositoryId = context.repositoryId;
+  pending.repoSlug = context.repoSlug;
+  pending.defaultBranch = context.defaultBranch;
+  pending.targetSnapshotContentId =
+    context.packagedSnapshot.manifest.snapshotContentId;
+  await writeRunnerUpgradePendingStateAtomic(pending, cwd);
+  await writeProgress(cwd, pending, pending.phase, {
+    lastSuccessfulProviderCallAt: new Date().toISOString(),
+    workerHeartbeatAt: new Date().toISOString(),
+  });
 
   if (
     context.marker.createdFromPackageSnapshot?.snapshotContentId ===
       context.packagedSnapshot.manifest.snapshotContentId &&
-    !pending?.codeUpdateComplete
+    !pending.codeUpdateComplete
   ) {
+    await clearRunnerUpgradePendingState(cwd);
     return {
       operationId,
       status: "up_to_date",
       phase: "verifying-managed-repository",
-      previewFingerprint: pending?.previewFingerprint ?? "",
+      previewFingerprint: pending.previewFingerprint,
       message: "Runner is already up to date.",
     };
   }
@@ -907,31 +1262,40 @@ async function applyRunnerUpgradeInternal(
   let compare:
     | Awaited<ReturnType<typeof compareUpgradeSnapshots>>
     | null = null;
-  if (!pending?.codeUpdateComplete) {
-    compare = await compareUpgradeSnapshots(provider, context);
+  if (!pending.codeUpdateComplete) {
+    pending.phase = "comparing-runner-snapshots";
+    await writeRunnerUpgradePendingStateAtomic(pending, cwd);
+    await writeProgress(cwd, pending, pending.phase, {
+      workerHeartbeatAt: new Date().toISOString(),
+    });
+
+    compare = await compareUpgradeSnapshots(provider, context, {
+      onHeartbeat: async (heartbeat) => {
+        await writeProgress(cwd, pending!, pending!.phase, {
+          workerHeartbeatAt: new Date().toISOString(),
+          lastSuccessfulProviderCallAt: new Date().toISOString(),
+          filesInspected: heartbeat.filesInspected,
+          filesTotal: heartbeat.filesTotal,
+          lastCompletedBatch: heartbeat.lastCompletedBatch,
+          lastCheckpoint: "comparing-runner-snapshots",
+        });
+      },
+    });
     if (!compare.ok) {
-      const failedPending: RunnerUpgradePendingState = {
-        operationId,
-        repositoryId: context.repositoryId,
-        repoSlug: context.repoSlug,
-        defaultBranch: context.defaultBranch,
-        targetSnapshotContentId:
-          context.packagedSnapshot.manifest.snapshotContentId,
-        phase: "comparing-runner-snapshots",
-        startedAt,
-        previewFingerprint: pending?.previewFingerprint ?? "",
-        syncInProgress: false,
-        codeUpdateComplete: false,
-        conflictPaths: compare.conflictPaths,
-        lastError: compare.message,
-      };
-      await writeRunnerUpgradePendingStateAtomic(failedPending, cwd);
-      await writeProgress(cwd, failedPending, failedPending.phase);
+      pending.phase = "comparing-runner-snapshots";
+      pending.conflictPaths = compare.conflictPaths;
+      pending.lastError = compare.message;
+      pending.syncInProgress = false;
+      await writeRunnerUpgradePendingStateAtomic(pending, cwd);
+      await writeProgress(cwd, pending, pending.phase, {
+        retryable: true,
+        errorCode: compare.status,
+      });
       return {
         operationId,
         status: compare.status,
         phase: "comparing-runner-snapshots",
-        previewFingerprint: failedPending.previewFingerprint,
+        previewFingerprint: pending.previewFingerprint,
         message: compare.message,
       };
     }
@@ -939,63 +1303,57 @@ async function applyRunnerUpgradeInternal(
       options.previewFingerprint &&
       options.previewFingerprint !== compare.previewFingerprint
     ) {
+      pending.lastError =
+        "Preview fingerprint mismatch; re-run preview before applying.";
+      await writeRunnerUpgradePendingStateAtomic(pending, cwd);
+      await writeProgress(cwd, pending, pending.phase, {
+        retryable: true,
+        errorCode: "preview_fingerprint_mismatch",
+      });
       return {
         operationId,
         status: "failed",
         phase: "comparing-runner-snapshots",
         previewFingerprint: compare.previewFingerprint,
-        message: "Preview fingerprint mismatch; re-run preview before applying.",
+        message: pending.lastError,
       };
     }
   }
 
   const previewFingerprint =
-    pending?.previewFingerprint ?? compare?.previewFingerprint ?? "";
+    pending.previewFingerprint || compare?.previewFingerprint || "";
+  pending.previewFingerprint = previewFingerprint;
   const branchName =
-    pending?.branchName ??
+    pending.branchName ??
     buildRunnerUpgradeBranchName(
       context.packagedSnapshot.manifest.snapshotContentId,
     );
+  pending.branchName = branchName;
   const targetSnapshotContentId =
     context.packagedSnapshot.manifest.snapshotContentId;
 
-  pending = {
-    operationId,
-    repositoryId: context.repositoryId,
-    repoSlug: context.repoSlug,
-    defaultBranch: context.defaultBranch,
-    targetSnapshotContentId,
-    expectedFingerprint: pending?.expectedFingerprint,
-    phase: pending?.codeUpdateComplete
-      ? pending.phase
-      : "verifying-managed-repository",
-    startedAt,
-    previewFingerprint,
-    syncInProgress: pending?.syncInProgress ?? false,
-    codeUpdateComplete: pending?.codeUpdateComplete ?? false,
-    canaryRunId: pending?.canaryRunId,
-    canaryRunUrl: pending?.canaryRunUrl,
-    branchName,
-    prUrl: pending?.prUrl,
-    prNumber: pending?.prNumber,
-  };
   await writeRunnerUpgradePendingStateAtomic(pending, cwd);
-  await writeProgress(cwd, pending, pending.phase);
+  await writeProgress(cwd, pending, pending.phase, {
+    lastSuccessfulProviderCallAt: new Date().toISOString(),
+    workerHeartbeatAt: new Date().toISOString(),
+  });
 
   if (!pending.codeUpdateComplete) {
-    pending.phase = "comparing-runner-snapshots";
-    await writeRunnerUpgradePendingStateAtomic(pending, cwd);
-    await writeProgress(cwd, pending, pending.phase);
-
     pending.phase = "preparing-upgrade-commit";
     await writeRunnerUpgradePendingStateAtomic(pending, cwd);
-    await writeProgress(cwd, pending, pending.phase);
+    await writeProgress(cwd, pending, pending.phase, {
+      workerHeartbeatAt: new Date().toISOString(),
+    });
 
     const upgradeCommit = await buildUpgradeCommitOnBranch(provider, context, {
       operationId,
       branchName,
       replacePaths: compare!.replacePaths,
       deletePaths: compare!.deletePaths,
+    });
+    await writeProgress(cwd, pending, pending.phase, {
+      lastSuccessfulProviderCallAt: new Date().toISOString(),
+      workerHeartbeatAt: new Date().toISOString(),
     });
 
     pending.phase = "updating-managed-runner";
@@ -1146,6 +1504,13 @@ async function applyRunnerUpgradeInternal(
     runId: dispatch.runId,
     pollIntervalMs: options.canaryPollIntervalMs ?? DEFAULT_CANARY_POLL_INTERVAL_MS,
     pollTimeoutMs: options.canaryPollTimeoutMs ?? DEFAULT_CANARY_POLL_TIMEOUT_MS,
+    onHeartbeat: async () => {
+      await writeProgress(cwd, pending, pending.phase, {
+        lastSuccessfulProviderCallAt: new Date().toISOString(),
+        workerHeartbeatAt: new Date().toISOString(),
+        lastCheckpoint: "running-configuration-canary",
+      });
+    },
   });
 
   if (!canaryPoll.ok) {
@@ -1210,6 +1575,11 @@ async function applyRunnerUpgradeInternal(
   };
 }
 
+/**
+ * Synchronous apply path for unit tests and inline execution.
+ * Writes durable pending first, then runs the upgrade body under the mutex.
+ * GUI/routes should use acceptRunnerUpgrade + the process worker instead.
+ */
 export async function applyRunnerUpgrade(
   cwd: string | undefined,
   provider: RunnerUpgradeGitHubProvider,
@@ -1217,7 +1587,10 @@ export async function applyRunnerUpgrade(
 ): Promise<RunnerUpgradeApplyResult> {
   const workspaceDir = cwd ?? process.cwd();
   return withHarnessRunnerUpgradeMutex(workspaceDir, () =>
-    applyRunnerUpgradeInternal(cwd, provider, options),
+    applyRunnerUpgradeInternal(cwd, provider, {
+      ...options,
+      executeInline: true,
+    }),
   );
 }
 
@@ -1236,6 +1609,8 @@ export async function resumeRunnerUpgrade(
       message: "No pending runner upgrade operation to resume.",
     };
   }
+  delete pending.lastError;
+  await writeRunnerUpgradePendingStateAtomic(pending, cwd);
   return applyRunnerUpgrade(cwd, provider, options);
 }
 

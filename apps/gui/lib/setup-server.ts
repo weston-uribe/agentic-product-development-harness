@@ -114,22 +114,30 @@ import { loadGithubTokenFromEnvLocal,
 import { createLiveRunnerUpgradeProvider } from "@harness/setup/runner-upgrade-provider-live";
 import { tryCreateHarnessTestRunnerUpgradeProvider } from "@harness/setup/test-only-runner-upgrade-provider";
 import {
-  applyRunnerUpgrade,
+  acceptRunnerUpgrade,
+  executeRunnerUpgradeOperation,
   loadRunnerUpgradeStatus,
   previewRunnerUpgrade,
-  resumeRunnerUpgrade,
 } from "@harness/setup/runner-upgrade";
+import {
+  configureRunnerUpgradeWorker,
+  ensureRunnerUpgradeWorkerStarted,
+} from "@harness/setup/runner-upgrade-worker";
 import {
   readRunnerUpgradeProgress,
   type RunnerUpgradeProgressState,
 } from "@harness/setup/runner-upgrade-progress";
 import type {
-  RunnerUpgradeApplyResult,
+  RunnerUpgradeAcceptResult,
   RunnerUpgradePreviewResult,
   RunnerUpgradeStatusResult,
 } from "@harness/setup/runner-upgrade-types";
 import { runnerUpgradeStatusLabel } from "@harness/setup/runner-upgrade-types";
 import type { RunnerUpgradeGitHubProvider } from "@harness/setup/runner-upgrade-provider";
+import {
+  RUNNER_UPGRADE_STATUS_PROVIDER_TIMEOUT_MS,
+  RUNNER_UPGRADE_WORKER_PROVIDER_TIMEOUT_MS,
+} from "@harness/setup/runner-upgrade-timeouts";
 import {
   loadControlPlaneReadinessContext,
 } from "@harness/setup/control-plane-readiness-server";
@@ -259,11 +267,30 @@ async function resolveRunnerUpgradeProvider(): Promise<
   if (!hasGithubTokenConfigured(token)) {
     return undefined;
   }
-  return createLiveRunnerUpgradeProvider(token!);
+  return createLiveRunnerUpgradeProvider(token!, {
+    timeoutMs: RUNNER_UPGRADE_WORKER_PROVIDER_TIMEOUT_MS,
+  });
+}
+
+async function resolveRunnerUpgradeStatusProvider(): Promise<
+  RunnerUpgradeGitHubProvider | undefined
+> {
+  const testProvider = await tryCreateHarnessTestRunnerUpgradeProvider();
+  if (testProvider) {
+    return testProvider;
+  }
+  const token = await loadGithubTokenFromEnvLocal({ cwd: resolveCwd() });
+  if (!hasGithubTokenConfigured(token)) {
+    return undefined;
+  }
+  return createLiveRunnerUpgradeProvider(token!, {
+    timeoutMs: RUNNER_UPGRADE_STATUS_PROVIDER_TIMEOUT_MS,
+  });
 }
 
 export async function loadRunnerUpgradeStatusForGui(): Promise<RunnerUpgradeStatusResult> {
-  const provider = await resolveRunnerUpgradeProvider();
+  ensureRunnerUpgradeGuiWorkerConfigured();
+  const provider = await resolveRunnerUpgradeStatusProvider();
   if (!provider) {
     return {
       status: "failed",
@@ -273,6 +300,15 @@ export async function loadRunnerUpgradeStatusForGui(): Promise<RunnerUpgradeStat
     };
   }
   return loadRunnerUpgradeStatus(resolveCwd(), provider);
+}
+
+function ensureRunnerUpgradeGuiWorkerConfigured(): void {
+  configureRunnerUpgradeWorker({
+    resolveProvider: async () => resolveRunnerUpgradeProvider(),
+    execute: async (cwd, provider) =>
+      executeRunnerUpgradeOperation(cwd, provider, {}),
+  });
+  ensureRunnerUpgradeWorkerStarted();
 }
 
 export async function previewRunnerUpgradeForGui(): Promise<RunnerUpgradePreviewResult> {
@@ -302,28 +338,34 @@ export async function applyRunnerUpgradeForGui(options: {
   previewFingerprint?: string;
   resume?: boolean;
 }): Promise<{
-  apply: RunnerUpgradeApplyResult;
+  apply: RunnerUpgradeAcceptResult;
+  progress: RunnerUpgradeProgressState;
   status: RunnerUpgradeStatusResult;
 }> {
   if (!options.confirmed) {
     throw new Error("Confirmed apply is required.");
   }
-  const provider = await resolveRunnerUpgradeProvider();
-  if (!provider) {
+  ensureRunnerUpgradeGuiWorkerConfigured();
+  const tokenPresent = await resolveRunnerUpgradeProvider();
+  if (!tokenPresent) {
     throw new Error(
       "GITHUB_TOKEN is required to apply a managed p-dev runner upgrade.",
     );
   }
-  const cwd = resolveCwd();
-  const apply = options.resume
-    ? await resumeRunnerUpgrade(cwd, provider, {
-        previewFingerprint: options.previewFingerprint,
-      })
-    : await applyRunnerUpgrade(cwd, provider, {
-        previewFingerprint: options.previewFingerprint,
-      });
-  const status = await loadRunnerUpgradeStatus(cwd, provider);
-  return { apply, status };
+  const accepted = await acceptRunnerUpgrade(resolveCwd(), {
+    previewFingerprint: options.previewFingerprint,
+    resume: options.resume === true,
+  });
+  return {
+    apply: accepted.apply,
+    progress: accepted.progress,
+    status: {
+      status: "updating",
+      statusLabel: runnerUpgradeStatusLabel("updating"),
+      pendingOperationId: accepted.apply.operationId,
+      pendingPhase: accepted.apply.phase,
+    },
+  };
 }
 
 export async function loadRunnerUpgradeProgressForGui(): Promise<RunnerUpgradeProgressState | null> {

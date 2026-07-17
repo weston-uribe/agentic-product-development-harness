@@ -26,6 +26,62 @@ export async function register(): Promise<void> {
     return;
   }
 
+  try {
+    const {
+      configureRunnerUpgradeWorker,
+      ensureRunnerUpgradeWorkerStarted,
+      reconcileAbandonedRunnerUpgrades,
+    } = await import(
+      /* webpackIgnore: true */
+      "@harness/setup/runner-upgrade-worker.js"
+    );
+    const { executeRunnerUpgradeOperation } = await import(
+      /* webpackIgnore: true */
+      "@harness/setup/runner-upgrade.js"
+    );
+    const { createLiveRunnerUpgradeProvider } = await import(
+      /* webpackIgnore: true */
+      "@harness/setup/runner-upgrade-provider-live.js"
+    );
+    const { loadGithubTokenFromEnvLocal, hasGithubTokenConfigured } =
+      await import(
+        /* webpackIgnore: true */
+        "@harness/setup/setup-github-auth.js"
+      );
+    const { RUNNER_UPGRADE_WORKER_PROVIDER_TIMEOUT_MS } = await import(
+      /* webpackIgnore: true */
+      "@harness/setup/runner-upgrade-timeouts.js"
+    );
+    const { tryCreateHarnessTestRunnerUpgradeProvider } = await import(
+      /* webpackIgnore: true */
+      "@harness/setup/test-only-runner-upgrade-provider.js"
+    );
+    const workspaceDir = resolveWorkspaceDir();
+    configureRunnerUpgradeWorker({
+      resolveProvider: async (cwd) => {
+        const testProvider = await tryCreateHarnessTestRunnerUpgradeProvider();
+        if (testProvider) {
+          return testProvider;
+        }
+        const token = await loadGithubTokenFromEnvLocal({
+          cwd: cwd ?? workspaceDir,
+        });
+        if (!hasGithubTokenConfigured(token)) {
+          return undefined;
+        }
+        return createLiveRunnerUpgradeProvider(token!, {
+          timeoutMs: RUNNER_UPGRADE_WORKER_PROVIDER_TIMEOUT_MS,
+        });
+      },
+      execute: async (cwd, provider) =>
+        executeRunnerUpgradeOperation(cwd, provider, {}),
+    });
+    ensureRunnerUpgradeWorkerStarted();
+    void reconcileAbandonedRunnerUpgrades(workspaceDir);
+  } catch {
+    // Worker bootstrap is best-effort; API routes also configure the worker.
+  }
+
   if (shouldSkipInstrumentation()) {
     return;
   }

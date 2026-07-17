@@ -191,6 +191,7 @@ export interface ControlPlaneSetupState {
     status?:
       | "up_to_date"
       | "update_available"
+      | "checking"
       | "updating"
       | "partially_updated"
       | "failed"

@@ -24,7 +24,7 @@ export async function POST(request: Request) {
       resume: body.resume === true,
     });
 
-    return NextResponse.json(result);
+    return NextResponse.json(result, { status: 202 });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Runner upgrade apply failed";

@@ -220,10 +220,21 @@ export class MockRunnerUpgradeProvider implements RunnerUpgradeGitHubProvider {
   private readonly repositories = new Map<string, MutableRepositoryState>();
   canaryConclusion: "success" | "failure";
   syncShouldFail: boolean;
+  /** Artificial delay applied before each provider method (for hang tests). */
+  delayMs = 0;
+  /** Per-method delay overrides (e.g. readRepositoryFileContent). */
+  methodDelayMs: Partial<Record<string, number>> = {};
 
   private constructor(state: MockRunnerUpgradeProviderState = {}) {
     this.canaryConclusion = state.canaryConclusion ?? "success";
     this.syncShouldFail = state.syncShouldFail ?? false;
+  }
+
+  private async maybeDelay(method: string): Promise<void> {
+    const delay = this.methodDelayMs[method] ?? this.delayMs;
+    if (delay > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
   }
 
   static async create(
@@ -314,6 +325,7 @@ export class MockRunnerUpgradeProvider implements RunnerUpgradeGitHubProvider {
     owner: string,
     repo: string,
   ): Promise<RunnerUpgradeRepositoryMetadata | null> {
+    await this.maybeDelay("getRepositoryMetadata");
     this.calls.push({ method: "getRepositoryMetadata", args: [owner, repo] });
     const entry = this.repositories.get(repoKey(owner, repo));
     if (!entry) {
@@ -347,6 +359,7 @@ export class MockRunnerUpgradeProvider implements RunnerUpgradeGitHubProvider {
     repo: string,
     branch: string,
   ): Promise<string> {
+    await this.maybeDelay("getRepositoryDefaultBranchHead");
     this.calls.push({
       method: "getRepositoryDefaultBranchHead",
       args: [owner, repo, branch],
@@ -360,6 +373,7 @@ export class MockRunnerUpgradeProvider implements RunnerUpgradeGitHubProvider {
     path: string,
     ref: string,
   ): Promise<string | null> {
+    await this.maybeDelay("readRepositoryFileContent");
     this.calls.push({
       method: "readRepositoryFileContent",
       args: [owner, repo, path, ref],

@@ -21,13 +21,29 @@ import {
 import {
   readRunnerUpgradePendingState,
 } from "../../src/setup/runner-upgrade-pending-state.js";
+import { readRunnerUpgradeProgress } from "../../src/setup/runner-upgrade-progress.js";
 import { createMockRunnerUpgradeProvider } from "../../src/setup/runner-upgrade-provider.js";
 import {
+  acceptRunnerUpgrade,
   applyRunnerUpgrade,
+  executeRunnerUpgradeOperation,
+  getLastRunnerUpgradeStatusCallTimings,
   loadRunnerUpgradeStatus,
   previewRunnerUpgrade,
   resumeRunnerUpgrade,
+  RUNNER_UPGRADE_STATUS_PROVIDER_TIMEOUT_MS,
 } from "../../src/setup/runner-upgrade.js";
+import {
+  isRunnerUpgradeProgressStale,
+  runnerUpgradeProgressShowsNoProgress,
+} from "../../src/setup/runner-upgrade-timeouts.js";
+import {
+  configureRunnerUpgradeWorker,
+  isRunnerUpgradeOperationActive,
+  listActiveRunnerUpgradeOperationIds,
+  resetRunnerUpgradeWorkerForTests,
+  waitForRunnerUpgradeWorkerIdle,
+} from "../../src/setup/runner-upgrade-worker.js";
 import { createTestWorkspaceSnapshotRoot } from "./test-workspace-snapshot-fixture.js";
 
 const REPO_SLUG = "owner/harness-repo";
@@ -203,6 +219,7 @@ describe("runner upgrade orchestration", () => {
   });
 
   afterEach(async () => {
+    resetRunnerUpgradeWorkerForTests();
     await rm(workspaceDir, { recursive: true, force: true });
   });
 
@@ -370,5 +387,132 @@ describe("runner upgrade orchestration", () => {
     });
     const pendingAfter = await readRunnerUpgradePendingState(workspaceDir);
     expect(pendingAfter).toBeNull();
+  });
+
+  it("returns checking when status provider calls exceed the status budget", async () => {
+    const provider = await createProvider({ remoteManifest: v1Manifest });
+    provider.methodDelayMs = {
+      readRepositoryFileContent:
+        RUNNER_UPGRADE_STATUS_PROVIDER_TIMEOUT_MS + 200,
+    };
+    const started = Date.now();
+    const status = await loadRunnerUpgradeStatus(workspaceDir, provider);
+    const elapsed = Date.now() - started;
+    expect(status.status).toBe("checking");
+    expect(status.degraded).toBe(true);
+    expect(elapsed).toBeLessThan(RUNNER_UPGRADE_STATUS_PROVIDER_TIMEOUT_MS + 2_500);
+    const timings = getLastRunnerUpgradeStatusCallTimings();
+    expect(timings.some((entry) => entry.timedOut || entry.call === "readRemoteManagedMarker")).toBe(
+      true,
+    );
+  }, 20_000);
+
+  it("accepts upgrade before any remote provider call and worker completes", async () => {
+    const provider = await createProvider({ remoteManifest: v1Manifest });
+    let releaseProvider!: () => void;
+    const providerGate = new Promise<void>((resolve) => {
+      releaseProvider = resolve;
+    });
+    configureRunnerUpgradeWorker({
+      resolveProvider: async () => {
+        await providerGate;
+        return provider;
+      },
+      execute: async (cwd, resolvedProvider) =>
+        executeRunnerUpgradeOperation(cwd, resolvedProvider, {
+          canaryPollIntervalMs: 1,
+          canaryPollTimeoutMs: 50,
+        }),
+    });
+
+    const accepted = await acceptRunnerUpgrade(workspaceDir, {});
+    expect(accepted.apply.status).toBe("updating");
+    expect(accepted.apply.operationId).toBeTruthy();
+    expect(accepted.progress.phase).toBe("verifying-managed-repository");
+    expect(provider.calls.length).toBe(0);
+
+    const pending = await readRunnerUpgradePendingState(workspaceDir);
+    const progress = await readRunnerUpgradeProgress(workspaceDir);
+    expect(pending?.operationId).toBe(accepted.apply.operationId);
+    expect(progress?.operationId).toBe(accepted.apply.operationId);
+
+    releaseProvider();
+    await waitForRunnerUpgradeWorkerIdle(30_000);
+    const status = await loadRunnerUpgradeStatus(workspaceDir, provider);
+    expect(status.status).toBe("up_to_date");
+  }, 40_000);
+
+  it("does not start duplicate workers for the same operation id", async () => {
+    const provider = await createProvider({ remoteManifest: v1Manifest });
+    let executions = 0;
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    configureRunnerUpgradeWorker({
+      resolveProvider: async () => provider,
+      execute: async () => {
+        executions += 1;
+        await firstGate;
+      },
+    });
+    const accepted = await acceptRunnerUpgrade(workspaceDir, {});
+    await acceptRunnerUpgrade(workspaceDir, {
+      resume: true,
+    });
+    expect(isRunnerUpgradeOperationActive(accepted.apply.operationId)).toBe(true);
+    releaseFirst();
+    await waitForRunnerUpgradeWorkerIdle(10_000);
+    expect(executions).toBe(1);
+    expect(listActiveRunnerUpgradeOperationIds()).toHaveLength(0);
+  });
+
+  it("returns pending status from disk without GitHub when upgrade is in flight", async () => {
+    const provider = await createProvider({ remoteManifest: v1Manifest });
+    let releaseProvider!: () => void;
+    const providerGate = new Promise<void>((resolve) => {
+      releaseProvider = resolve;
+    });
+    configureRunnerUpgradeWorker({
+      resolveProvider: async () => {
+        await providerGate;
+        return provider;
+      },
+      execute: async () => undefined,
+    });
+    await acceptRunnerUpgrade(workspaceDir, {});
+    const before = provider.calls.length;
+    const status = await loadRunnerUpgradeStatus(workspaceDir, provider);
+    expect(status.status).toBe("updating");
+    expect(provider.calls.length).toBe(before);
+    releaseProvider();
+    await waitForRunnerUpgradeWorkerIdle(5_000);
+  });
+
+  it("treats no-progress only when updatedAt and heartbeat are both stale", () => {
+    const now = Date.now();
+    expect(
+      isRunnerUpgradeProgressStale({
+        updatedAt: new Date(now - 60_000).toISOString(),
+        workerHeartbeatAt: new Date(now - 1_000).toISOString(),
+        nowMs: now,
+        staleMs: 30_000,
+      }),
+    ).toBe(false);
+    expect(
+      runnerUpgradeProgressShowsNoProgress({
+        operationId: "op",
+        phase: "comparing-runner-snapshots",
+        uiPhase: "comparing-runner-snapshots",
+        uiPhaseLabel: "Comparing runner snapshots",
+        phaseStartedAt: new Date(now - 120_000).toISOString(),
+        startedAt: new Date(now - 120_000).toISOString(),
+        elapsedMs: 120_000,
+        recoveryInstruction: "retry",
+        updatedAt: new Date(now - 60_000).toISOString(),
+        workerHeartbeatAt: new Date(now - 60_000).toISOString(),
+        lastSuccessfulProviderCallAt: new Date(now - 60_000).toISOString(),
+      }, now),
+    ).toBe(true);
   });
 });
