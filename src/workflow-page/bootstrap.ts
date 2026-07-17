@@ -38,6 +38,7 @@ export interface WorkflowBootstrapDependencies {
   cwd: string;
   context: WorkflowSourceContext;
   config?: HarnessConfig;
+  configFingerprint?: string;
   teamId?: string;
   teamKey?: string;
   linearStatuses?: LinearStatusInput[];
@@ -209,7 +210,8 @@ export async function buildWorkflowBootstrap(
     catalogLoadMetadata,
     plannerSelection,
     builderSelection,
-    configFingerprint: buildConfigFingerprint(config),
+    configFingerprint:
+      deps.configFingerprint ?? buildConfigFingerprint(config),
     modelSaveReadiness,
     canonicalWorkflow: {
       healthState,

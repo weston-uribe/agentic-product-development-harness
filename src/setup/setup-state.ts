@@ -61,6 +61,17 @@ export interface SetupConfigBuildInput {
   modelId?: string;
 }
 
+export function resolveOperatorHarnessConfigPath(cwd?: string): string {
+  const root = cwd ?? process.cwd();
+  const configPath = process.env.HARNESS_CONFIG_PATH?.trim();
+  if (configPath) {
+    return path.isAbsolute(configPath)
+      ? path.resolve(configPath)
+      : path.resolve(root, configPath);
+  }
+  return path.join(root, CONFIG_LOCAL);
+}
+
 export function resolveLocalFilePaths(cwd?: string): LocalFilePaths {
   const root = cwd ?? process.cwd();
   return {
@@ -69,6 +80,6 @@ export function resolveLocalFilePaths(cwd?: string): LocalFilePaths {
     envLocal: path.join(root, ENV_LOCAL),
     harnessDir: path.join(root, HARNESS_DIR),
     configExample: path.join(root, CONFIG_EXAMPLE),
-    configLocal: path.join(root, CONFIG_LOCAL),
+    configLocal: resolveOperatorHarnessConfigPath(root),
   };
 }

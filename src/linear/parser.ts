@@ -1,4 +1,7 @@
-import type { ParsedIssue } from "../types/parsed-issue.js";
+import type {
+  ParsedIssue,
+  ProductFoundationFields,
+} from "../types/parsed-issue.js";
 
 const SECTION_HEADERS = [
   "target repo",
@@ -7,6 +10,7 @@ const SECTION_HEADERS = [
   "acceptance criteria",
   "out of scope",
   "validation expectations",
+  "product foundation",
   "context and links",
   "eval hints",
   "definition of ready",
@@ -56,6 +60,58 @@ function extractTargetRepoFromContext(contextSection: string | undefined): strin
   return match?.[1]?.trim();
 }
 
+function parseProductFoundationSection(
+  content: string | undefined,
+): ProductFoundationFields | undefined {
+  if (!content?.trim()) {
+    return undefined;
+  }
+
+  const fields: ProductFoundationFields = {};
+  for (const line of content.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+
+    const bulletMatch = trimmed.match(/^[-*]\s*(.+)$/);
+    const valueSource = bulletMatch?.[1]?.trim() ?? trimmed;
+    const keyValueMatch = valueSource.match(/^([^:]+):\s*(.+)$/);
+    if (!keyValueMatch) {
+      continue;
+    }
+
+    const key = keyValueMatch[1]!.trim().toLowerCase();
+    const value = keyValueMatch[2]!.trim();
+    if (!value) {
+      continue;
+    }
+
+    if (key === "platform runtime" || key === "platform/runtime") {
+      fields.platformRuntime = value;
+    } else if (key === "language framework" || key === "language/framework") {
+      fields.languageFramework = value;
+    } else if (key === "repository structure") {
+      fields.repositoryStructure = value;
+    } else if (key === "testing strategy") {
+      fields.testingStrategy = value;
+    } else if (key === "ci strategy") {
+      fields.ciStrategy = value;
+    }
+  }
+
+  return Object.keys(fields).length > 0 ? fields : undefined;
+}
+
+export function issueHasProductFoundation(
+  productFoundation: ProductFoundationFields | undefined,
+): boolean {
+  return Boolean(
+    productFoundation?.platformRuntime?.trim() &&
+      productFoundation?.languageFramework?.trim(),
+  );
+}
+
 export function parseIssueDescription(description: string): ParsedIssue {
   const sections = parseSections(description);
   const parseErrors: string[] = [];
@@ -85,6 +141,9 @@ export function parseIssueDescription(description: string): ParsedIssue {
     extractTargetRepoFromContext(sections.get("context and links"));
 
   const validationExpectations = sections.get("validation expectations")?.trim();
+  const productFoundation = parseProductFoundationSection(
+    sections.get("product foundation"),
+  );
 
   return {
     targetRepoRaw: targetRepoRaw || undefined,
@@ -92,6 +151,7 @@ export function parseIssueDescription(description: string): ParsedIssue {
     acceptanceCriteria,
     outOfScope,
     validationExpectations: validationExpectations || undefined,
+    productFoundation,
     parseErrors,
   };
 }

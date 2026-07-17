@@ -10,6 +10,7 @@ import { ConnectedStatusMessage } from "@/components/custom/connected-status";
 import {
   isServiceFailedForValue,
   isServiceVerifiedForValue,
+  resolveServiceConnectionBadgeState,
 } from "@/lib/verification-state";
 import { cn } from "@/lib/utils";
 import {
@@ -114,7 +115,7 @@ const SERVICE_DEFINITIONS: Array<{
     displayName: "Vercel",
     valueKey: "vercelToken",
     helperText:
-      "Used to create or access Vercel previews so implementation work can be verified before code is merged.",
+      "Used to configure the PDev automation bridge hosted on Vercel (not target-app preview deployment).",
     inputLabel: "Copy an existing Vercel token or create a new one, then paste it here.",
   },
 ];
@@ -254,7 +255,9 @@ function ServiceConnectionCard({
   onVerify?: () => void;
   onBlur?: () => void;
 }) {
-  const badge = verificationBadge(verification.state);
+  const badge = verificationBadge(
+    resolveServiceConnectionBadgeState(present, verification, value),
+  );
   const trimmedValue = value.trim();
   const verifiedForCurrentValue =
     verification.state === "connected" &&

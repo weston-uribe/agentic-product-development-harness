@@ -3,10 +3,17 @@ import type { ParsedIssue } from "../types/parsed-issue.js";
 import { ResolverError } from "./errors.js";
 import { assertRepoAllowed } from "./allowed-repos.js";
 import { normalizeRepoUrl } from "./normalize-repo.js";
+import {
+  hasLinearAssociationsInConfig,
+  resolveLinearAssociationForIssue,
+} from "../config/resolve-linear-workspace.js";
+import { runLinearAssociationGate } from "../config/linear-association-gate.js";
 
 export interface IssueContext {
   projectName?: string;
   teamName?: string;
+  teamId?: string;
+  projectId?: string;
 }
 
 export interface ResolvedTarget {
@@ -19,7 +26,7 @@ export interface ResolvedTarget {
   productionUrl?: string;
   integrationSuccessStatus?: string;
   productionSuccessStatus?: string;
-  resolutionSource: "explicit" | "project" | "team";
+  resolutionSource: "explicit" | "association" | "project" | "team";
 }
 
 export function resolveTargetRepo(
@@ -49,6 +56,53 @@ export function resolveTargetRepo(
       integrationSuccessStatus: mapping?.integrationSuccessStatus,
       productionSuccessStatus: mapping?.productionSuccessStatus,
       resolutionSource: "explicit",
+    };
+  }
+
+  if (hasLinearAssociationsInConfig(config)) {
+    const gate = runLinearAssociationGate({
+      config,
+      teamId: context.teamId,
+      projectId: context.projectId,
+    });
+    if (!gate.ok) {
+      throw new ResolverError(
+        gate.errorClassification as import("./errors.js").ErrorClassification,
+        gate.message,
+      );
+    }
+
+    const association = resolveLinearAssociationForIssue(config, {
+      teamId: context.teamId!,
+      projectId: context.projectId!,
+    });
+    if (!association) {
+      throw new ResolverError(
+        "linear_team_project_not_configured",
+        "linear_team_project_not_configured: no harness association matches issue team and project",
+      );
+    }
+
+    const mapping = config.repos.find((repo) => repo.id === association.repoConfigId);
+    if (!mapping) {
+      throw new ResolverError(
+        "missing_target_repo",
+        `No repo mapping found for association repo ${association.repoConfigId}`,
+      );
+    }
+
+    assertRepoAllowed(association.targetRepo, config);
+    return {
+      targetRepo: normalizeRepoUrl(association.targetRepo),
+      baseBranch: mapping.baseBranch,
+      productionBranch: mapping.productionBranch,
+      repoConfigId: mapping.id,
+      previewProvider: mapping.previewProvider ?? "none",
+      integrationPreviewUrl: mapping.integrationPreviewUrl,
+      productionUrl: mapping.productionUrl,
+      integrationSuccessStatus: mapping.integrationSuccessStatus,
+      productionSuccessStatus: mapping.productionSuccessStatus,
+      resolutionSource: "association",
     };
   }
 

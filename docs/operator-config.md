@@ -55,7 +55,7 @@ GUI-assisted fields:
 | Surface | Fields |
 |---------|--------|
 | `.env.local` | `HARNESS_CONFIG_PATH`, `LINEAR_API_KEY`, `CURSOR_API_KEY`, `GITHUB_TOKEN` |
-| `.harness/config.local.json` | `linear.teamKey`, `linear.teamId`, model id, per-repo `id`, `targetRepo`, branches, preview provider/URLs, Linear status names, validation commands |
+| `.harness/config.local.json` | `linear.teamKey`, `linear.teamId`, model id, per-repo `id`, `targetRepo`, branches, `previewProvider` (`vercel` or `none`), preview URLs, Linear status names, validation commands |
 
 Local GUI docs: [`docs/gui-local.md`](../gui-local.md)
 
@@ -144,6 +144,21 @@ Operator replaces:
 - Payload `sourceRepo` → `owner/target-repo` slug matching configured `targetRepo`
 
 **Guards:** runs only on production branch pushes (e.g. `main`), not integration branch pushes.
+
+---
+
+## Application preview provider (`previewProvider`)
+
+Each `repos[]` entry may set `previewProvider`:
+
+| Value | Meaning |
+|-------|---------|
+| `"vercel"` | Harness polls target-repo PR comments and production merge output for Vercel application preview/deployment URLs. |
+| `"none"` | Skip application preview capture. Handoff, implementation, revision, and merge phases log `application_preview_not_configured` and continue without polling. |
+
+`previewProvider: "none"` does **not** disable the **PDev automation bridge** (Linear webhook → harness dispatch). That bridge is configured separately in guided setup Step 3 and still requires `VERCEL_TOKEN` when used.
+
+Use `"none"` when the target app is not deployed on Vercel or when PM review should proceed without automated preview URLs.
 
 ---
 

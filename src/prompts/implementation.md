@@ -18,6 +18,12 @@ You are the **implementation agent** for the agentic product development harness
 - Do not make unrelated changes.
 - Do not edit the harness repository unless it is the resolved target repo.
 
+## Uninitialized product guardrail (conditional)
+
+When the product marker on the development branch is `uninitialized`, stop unless this run is an approved foundation slice. Do not implement feature work before initialization completes.
+
+{{uninitializedProductContext}}
+
 ## Linear issue
 
 - **Key:** {{issueKey}}

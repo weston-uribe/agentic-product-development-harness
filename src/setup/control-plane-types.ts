@@ -12,6 +12,41 @@ export interface LinearWorkspaceSelection {
   manualComplete?: boolean;
 }
 
+export type LinearTeamHealth =
+  | "healthy"
+  | "needs_repair"
+  | "verification_pending"
+  | "unavailable";
+
+export type LinearProjectHealth = LinearTeamHealth;
+
+export interface LinearProjectEvidence {
+  projectId: string;
+  projectName: string;
+  targetRepo?: string;
+  lastVerifiedAt?: string;
+  health: LinearProjectHealth;
+}
+
+export interface LinearTeamEvidence {
+  teamId: string;
+  teamKey: string;
+  teamName: string;
+  projects: LinearProjectEvidence[];
+  lastVerifiedAt?: string;
+  health: LinearTeamHealth;
+}
+
+export interface LinearWorkspaceEvidence {
+  workspaceId: string;
+  workspaceName: string;
+  teams: LinearTeamEvidence[];
+  appliedFingerprint?: string;
+  appliedAt?: string;
+  migratedFromVersion?: "singular-linear-selection";
+  migratedAt?: string;
+}
+
 export interface VercelSignedProbeEvidence {
   passed: boolean;
   statusCode?: number;
@@ -136,12 +171,26 @@ export interface VercelBridgeSelection {
 
 export interface ControlPlaneSetupState {
   version: 1;
+  /** @deprecated Read-only migration input. New writes use linearWorkspace. */
   linear?: LinearWorkspaceSelection;
+  linearWorkspace?: LinearWorkspaceEvidence;
   vercel?: VercelBridgeSelection;
   workflowModels?: {
     configFingerprint: string;
     harnessRepository: string;
     syncedAt: string;
+  };
+  initialSetup?: {
+    status: "complete";
+    completedAt: string;
+    completedByVersion?: string;
+    completionEvidence: {
+      localConfigPresent: true;
+      linearConfigured: true;
+      vercelConfigured: true;
+      cloudSecretsVerified: true;
+      targetWorkflowsVerified: true;
+    };
   };
 }
 

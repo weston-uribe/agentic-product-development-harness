@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { resolveHarnessRepoRoot } from "@harness/gui/repo-root";
+import { resolveHarnessWorkspaceDir } from "@harness/gui/repo-root";
 import { verifySetupService } from "@harness/setup/service-verification";
 import type { SetupServiceName } from "@harness/setup/service-verification";
 
@@ -27,7 +27,7 @@ export async function POST(request: Request) {
     }
 
     const result = await verifySetupService({
-      cwd: resolveHarnessRepoRoot(),
+      cwd: resolveHarnessWorkspaceDir(),
       service: body.service,
       token: body.token,
     });

@@ -31,17 +31,37 @@ export interface BuildImplementationPromptParams {
   branchName: string;
   planningCommentBody: string | null;
   validationCommands: string[];
+  productInitializationState?: string | null;
+}
+
+export interface BuildPlanningPromptParams {
+  issue: LinearIssueSnapshot;
+  parsed: ParsedIssue;
+  resolved: ResolvedTarget;
+  productInitializationState?: string | null;
 }
 
 export async function buildPlanningPrompt(
   issue: LinearIssueSnapshot,
   parsed: ParsedIssue,
   resolved: ResolvedTarget,
+  options?: { productInitializationState?: string | null },
 ): Promise<{ prompt: string; promptVersion: string }> {
   const template = await readFile(planningTemplatePath, "utf8");
   const validationSection = parsed.validationExpectations
     ? `### Validation expectations\n\n${parsed.validationExpectations}`
     : "";
+  const productFoundationSection = parsed.productFoundation
+    ? `### Product foundation\n\n${formatList(
+        Object.entries(parsed.productFoundation)
+          .filter(([, value]) => value)
+          .map(([key, value]) => `${key}: ${value}`),
+      )}`
+    : "";
+  const uninitializedSection =
+    options?.productInitializationState === "uninitialized"
+      ? "Target product is **uninitialized** — produce a foundation plan only."
+      : "";
 
   const prompt = template
     .replaceAll("{{promptVersion}}", PLANNING_PROMPT_VERSION)
@@ -50,7 +70,12 @@ export async function buildPlanningPrompt(
     .replaceAll("{{task}}", parsed.task)
     .replaceAll("{{acceptanceCriteria}}", formatList(parsed.acceptanceCriteria))
     .replaceAll("{{outOfScope}}", formatList(parsed.outOfScope))
-    .replaceAll("{{validationExpectations}}", validationSection)
+    .replaceAll(
+      "{{validationExpectations}}",
+      [validationSection, productFoundationSection, uninitializedSection]
+        .filter(Boolean)
+        .join("\n\n"),
+    )
     .replaceAll("{{targetRepo}}", resolved.targetRepo)
     .replaceAll("{{baseBranch}}", resolved.baseBranch);
 
@@ -67,6 +92,10 @@ export async function buildImplementationPrompt(
   const planningComment =
     params.planningCommentBody?.trim() ||
     "_No durable planning comment was found. Proceed only because the issue is narrow and well-scoped._";
+  const uninitializedProductContext =
+    params.productInitializationState === "uninitialized"
+      ? "Target product is uninitialized. Implementation must not proceed unless this is an approved foundation slice."
+      : "_Not applicable._";
 
   const prompt = template
     .replaceAll("{{promptVersion}}", IMPLEMENTATION_PROMPT_VERSION)
@@ -81,6 +110,7 @@ export async function buildImplementationPrompt(
     .replaceAll("{{baseBranch}}", params.resolved.baseBranch)
     .replaceAll("{{branchName}}", params.branchName)
     .replaceAll("{{planningComment}}", planningComment)
+    .replaceAll("{{uninitializedProductContext}}", uninitializedProductContext)
     .replaceAll("{{validationCommands}}", formatList(params.validationCommands))
     .replaceAll("{{runId}}", params.runId);
 

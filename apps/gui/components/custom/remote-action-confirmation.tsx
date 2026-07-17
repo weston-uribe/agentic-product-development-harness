@@ -53,15 +53,15 @@ const COPY: Record<
   },
   "vercel-bridge-write": {
     advanced: {
-      title: "Confirm Vercel bridge setup writes",
+      title: "Confirm Vercel deployment settings",
       bullets: [
-        "May create or reuse Vercel team and project resources when selected.",
-        "Writes required Vercel production environment variables for the bridge.",
-        "May create or verify the Linear Issue webhook for automation.",
-        "Secret values are never returned in previews, results, or errors.",
+        "May save the selected Vercel account/team and project for this harness.",
+        "May configure required application-preview or deployment settings.",
+        "Verifies the resulting Vercel connection after apply.",
+        "PDev does not delete the Vercel project or production deployment unless that deletion is explicitly supported and separately confirmed.",
       ],
       label:
-        "I reviewed the Vercel settings preview and want to apply these changes.",
+        "I understand PDev will save the selected Vercel team and project, configure required deployment settings, and verify the connection. PDev will not delete the Vercel project or production deployment unless separately confirmed.",
     },
     guided: {
       title: "Confirm Vercel settings write",
@@ -89,22 +89,24 @@ const COPY: Record<
       title: "Confirm workflow install PR",
       bullets: [
         "This may create or update an install branch and open or reuse a PR.",
+        "Preflight runs automatically before apply when you skip preview.",
         "It does not merge the PR, write directly to main/production, run the harness, or write Linear.",
       ],
       label:
-        "I reviewed the workflow preview and want to create or update the workflow install PR.",
+        "I understand this will create or update the workflow install PR in the target repo.",
     },
   },
   "linear-write": {
     advanced: {
       title: "Confirm Linear workspace writes",
       bullets: [
-        "May create or update Linear teams, projects, and workflow statuses.",
-        "Preview is read-only until you confirm this write.",
-        "No harness phases, GitHub dispatch, or target repo changes run from this step.",
+        "May create or repair required workflow statuses for the selected teams.",
+        "Saves team and project connections and updates required Linear project metadata.",
+        "Detaching a project may remove only the PDev-managed metadata block when no associations remain.",
+        "PDev will not delete Linear teams, projects, issues, or statuses.",
       ],
       label:
-        "I reviewed the Linear setup preview and want to apply workspace changes.",
+        "I understand PDev will create or repair the required workflow statuses for the selected teams, save these team and project connections, and update the Linear project metadata required by the harness. PDev will not delete Linear teams, projects, issues, or statuses.",
     },
     guided: {
       title: "Confirm Linear workspace setup",

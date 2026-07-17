@@ -53,10 +53,88 @@
           ],
           "additionalProperties": false
         },
+        "roleModels": {
+          "type": "object",
+          "properties": {
+            "planner": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "params": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "value": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "value"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "id"
+              ],
+              "additionalProperties": false
+            },
+            "builder": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "params": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "value": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "value"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
         "linear": {
           "type": "object",
           "properties": {
+            "workspaceId": {
+              "type": "string"
+            },
             "teamKey": {
+              "type": "string"
+            },
+            "teamId": {
               "type": "string"
             },
             "eligibleStatuses": {
@@ -264,6 +342,42 @@
               "id": {
                 "type": "string",
                 "minLength": 1
+              },
+              "linearAssociations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "workspaceId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "teamId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "teamKey": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "projectId": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "projectName": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "workspaceId",
+                    "teamId",
+                    "teamKey",
+                    "projectId",
+                    "projectName"
+                  ],
+                  "additionalProperties": false
+                }
               },
               "linearProjects": {
                 "type": "array",

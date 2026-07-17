@@ -9,6 +9,8 @@ export interface ParsedLinearIssueWebhook {
   issueKey: string | null;
   issueId: string | null;
   issueUrl: string | null;
+  teamId: string | null;
+  projectId: string | null;
   action: string;
   statusName: string | null;
   previousStatusName: string | null;
@@ -22,7 +24,8 @@ export interface ParsedLinearIssueWebhook {
 export type WebhookIgnoreReason =
   | "ignored_event"
   | "ignored_status"
-  | "missing_issue_key";
+  | "missing_issue_key"
+  | "linear_team_project_not_configured";
 
 export interface WebhookAcceptedResponse {
   accepted: true;

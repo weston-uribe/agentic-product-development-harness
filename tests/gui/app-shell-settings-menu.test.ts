@@ -21,6 +21,7 @@ describe("app shell settings menu", () => {
     expect(appShell).not.toContain("Local operator GUI");
     expect(appShell).not.toContain("ThemeToggle");
     expect(applicationHeader).toContain("PDev Harness");
+    expect(applicationHeader).toContain('href={workflowHref}');
     expect(applicationHeader).toContain("SettingsMenu");
   });
 
@@ -37,8 +38,8 @@ describe("app shell settings menu", () => {
     expect(settingsMenu).toContain("DropdownMenu");
     expect(settingsMenu).toContain("Dark mode");
     expect(settingsMenu).toContain("Light mode");
-    expect(settingsMenu).toContain('href={configureHref}');
-    expect(settingsMenu).toContain('aria-current={isConfigureActive ? "page" : undefined}');
+    expect(settingsMenu).toContain('href={settingsHref}');
+    expect(settingsMenu).toContain('aria-current={isSettingsActive ? "page" : undefined}');
     const themeItemMatch = settingsMenu.match(
       /<DropdownMenuItem[\s\S]*?toggleTheme\(\)[\s\S]*?<\/DropdownMenuItem>/,
     );

@@ -11,6 +11,7 @@ export interface LinearTeamSummary {
 export interface LinearProjectSummary {
   id: string;
   name: string;
+  description?: string | null;
   /** Team IDs from `project.teams()` — not on the default Project list fragment. */
   teamIds: string[];
 }
@@ -87,9 +88,38 @@ export async function listLinearProjects(
     projects.map(async (project) => ({
       id: project.id,
       name: project.name ?? "",
+      description: project.description ?? null,
       teamIds: await resolveProjectTeamIds(project),
     })),
   );
+}
+
+export async function getLinearProject(
+  client: LinearClient,
+  projectId: string,
+): Promise<LinearProjectSummary | null> {
+  try {
+    const project = await client.project(projectId);
+    if (!project) {
+      return null;
+    }
+    return {
+      id: project.id,
+      name: project.name ?? "",
+      description: project.description ?? null,
+      teamIds: await resolveProjectTeamIds(project),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function updateLinearProjectDescription(
+  client: LinearClient,
+  projectId: string,
+  description: string,
+): Promise<void> {
+  await client.updateProject(projectId, { description });
 }
 
 export async function listTeamWorkflowStates(
@@ -198,6 +228,62 @@ export function isDuplicateWorkflowStateError(error: unknown): boolean {
   return /duplicate workflow state/i.test(message);
 }
 
+export async function updateLinearWorkflowState(
+  client: LinearClient,
+  input: {
+    id: string;
+    name?: string;
+    color?: string;
+    description?: string;
+    position?: number;
+  },
+): Promise<LinearWorkflowStateSummary> {
+  const payload = await client.updateWorkflowState(input.id, {
+    name: input.name,
+    color: input.color,
+    description: input.description,
+    position: input.position,
+  });
+  const state = await payload.workflowState;
+  if (!state) {
+    throw new Error("Linear workflow state update did not return a state");
+  }
+  return {
+    id: state.id,
+    name: state.name ?? input.name ?? "",
+    type: state.type ?? "",
+  };
+}
+
+export async function listIssueIdsForWorkflowState(input: {
+  client: LinearClient;
+  teamId: string;
+  stateId: string;
+}): Promise<string[]> {
+  const connection = await input.client.issues({
+    filter: {
+      team: { id: { eq: input.teamId } },
+      state: { id: { eq: input.stateId } },
+    },
+  });
+  const issues = await paginateConnection(connection);
+  return issues.map((issue) => issue.id);
+}
+
+export async function updateLinearIssueState(
+  client: LinearClient,
+  input: { issueId: string; stateId: string },
+): Promise<void> {
+  await client.updateIssue(input.issueId, { stateId: input.stateId });
+}
+
+export async function archiveLinearWorkflowState(
+  client: LinearClient,
+  stateId: string,
+): Promise<void> {
+  await client.archiveWorkflowState(stateId);
+}
+
 export async function createLinearIssueWebhook(
   client: LinearClient,
   input: { url: string; teamId?: string; label?: string; secret?: string },
@@ -263,6 +349,16 @@ export async function deleteLinearWebhook(
   webhookId: string,
 ): Promise<void> {
   await client.deleteWebhook(webhookId);
+}
+
+export async function getLinearOrganizationSummary(
+  client: LinearClient,
+): Promise<{ id: string; name: string }> {
+  const organization = await client.organization;
+  return {
+    id: organization.id,
+    name: organization.name?.trim() || "Linear workspace",
+  };
 }
 
 export function getLinearSetupCapabilities(): LinearSetupCapabilities {

@@ -50,6 +50,7 @@ interface TargetRepoConfigFormProps {
   values: LocalConfigFormInput;
   highlightStaleTarget?: boolean;
   variant?: "guided-minimal" | "advanced";
+  guidedSection?: "full" | "harness" | "target-repos";
   suggestedHarnessDispatchRepo?: string;
   savedHarnessDispatchRepository?: string;
   harnessRepoVerification?: HarnessRepoVerificationUi;
@@ -67,6 +68,7 @@ interface TargetRepoConfigFormProps {
   onHarnessDispatchRepositoryChange?: (value: string) => void;
   onVerifyAndUseHarnessRepo?: (draftRepo: string) => void;
   harnessConnectedAutomatically?: boolean;
+  harnessRepoInheritedFromStep1?: boolean;
   githubTokenSourceHint?: string;
   activeGithubTokenFingerprint?: string | null;
 }
@@ -75,6 +77,7 @@ export function TargetRepoConfigForm({
   values,
   highlightStaleTarget = false,
   variant = "advanced",
+  guidedSection = "full",
   suggestedHarnessDispatchRepo,
   savedHarnessDispatchRepository = "",
   harnessRepoVerification = { state: "unchecked" },
@@ -92,6 +95,7 @@ export function TargetRepoConfigForm({
   onHarnessDispatchRepositoryChange,
   onVerifyAndUseHarnessRepo,
   harnessConnectedAutomatically = false,
+  harnessRepoInheritedFromStep1 = false,
   githubTokenSourceHint,
   activeGithubTokenFingerprint = null,
 }: TargetRepoConfigFormProps) {
@@ -146,9 +150,14 @@ export function TargetRepoConfigForm({
       guidedRepos && guidedRepos.length > 0
         ? guidedRepos
         : [{ rowId: "fallback-repo", id: "", targetRepo: "" }];
+    const showHarnessSection =
+      guidedSection === "full" || guidedSection === "harness";
+    const showTargetRepoSection =
+      guidedSection === "full" || guidedSection === "target-repos";
 
     return (
       <div className="space-y-6">
+        {showHarnessSection ? (
         <div className={FORM.fieldStack}>
           <Label htmlFor="harness-dispatch-repository-guided">Harness workspace</Label>
           {!editingHarnessRepo ? (
@@ -164,6 +173,11 @@ export function TargetRepoConfigForm({
               {harnessConnectedAutomatically ? (
                 <p className={FORM.secretHint}>
                   Connected automatically during Step 1.
+                </p>
+              ) : harnessRepoInheritedFromStep1 ? (
+                <p className={FORM.secretHint}>
+                  Connected during Step 1. You can use a different harness repo if
+                  needed.
                 </p>
               ) : (
                 <p className={FORM.secretHint}>{harnessRepoSource}</p>
@@ -187,7 +201,10 @@ export function TargetRepoConfigForm({
               {harnessRepoVerified && harnessRepoVerification.message ? (
                 <ConnectedStatusMessage message={harnessRepoVerification.message} />
               ) : null}
-              {!harnessConnectedAutomatically && !harnessRepoVerified && activeHarnessRepo ? (
+              {!harnessConnectedAutomatically &&
+              !harnessRepoInheritedFromStep1 &&
+              !harnessRepoVerified &&
+              activeHarnessRepo ? (
                 <p className={FORM.secretHint}>
                   Verify and use this harness repo before creating local setup
                   files.
@@ -262,7 +279,9 @@ export function TargetRepoConfigForm({
             </>
           )}
         </div>
+        ) : null}
 
+        {showTargetRepoSection ? (
         <div className="space-y-4">
           {repos.map((repo, index) => {
             const verification = repoVerification[repo.rowId] ?? {
@@ -437,8 +456,9 @@ export function TargetRepoConfigForm({
             );
           })}
         </div>
+        ) : null}
 
-        {onAddRepo ? (
+        {showTargetRepoSection && onAddRepo ? (
           <Button type="button" variant="outline" onClick={onAddRepo}>
             Add additional repo
           </Button>

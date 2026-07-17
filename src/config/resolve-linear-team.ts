@@ -1,6 +1,8 @@
-import { readControlPlaneSetupState } from "../setup/control-plane-setup-state.js";
 import type { HarnessConfig } from "./types.js";
-import { resolveHarnessWorkspaceRoot } from "./workspace-root.js";
+import {
+  resolveLinearAssociationsFromConfig,
+  uniqueTeamIdsFromAssociations,
+} from "./resolve-linear-workspace.js";
 
 export async function resolveAuthoritativeLinearTeamId(input: {
   config: HarnessConfig;
@@ -8,18 +10,32 @@ export async function resolveAuthoritativeLinearTeamId(input: {
   configPath?: string;
   baseDir?: string;
 }): Promise<string | undefined> {
-  const configuredTeamId = input.config.linear?.teamId?.trim();
-  if (configuredTeamId) {
-    return configuredTeamId;
+  void input.workspaceRoot;
+  void input.configPath;
+  void input.baseDir;
+  return resolveAuthoritativeLinearTeamIdFromConfig(input.config);
+}
+
+export function resolveAuthoritativeLinearTeamIdFromConfig(
+  config: HarnessConfig,
+): string | undefined {
+  const associations = resolveLinearAssociationsFromConfig(config);
+  if (associations.length > 0) {
+    return uniqueTeamIdsFromAssociations(associations)[0];
   }
 
-  const workspaceRoot =
-    input.workspaceRoot ??
-    resolveHarnessWorkspaceRoot({
-      baseDir: input.baseDir,
-      configPath: input.configPath,
-    });
-  const setupState = await readControlPlaneSetupState(workspaceRoot);
-  const setupTeamId = setupState?.linear?.teamId?.trim();
-  return setupTeamId || undefined;
+  const configuredTeamId = config.linear?.teamId?.trim();
+  return configuredTeamId || undefined;
+}
+
+export function resolveAuthoritativeLinearTeamIds(
+  config: HarnessConfig,
+): string[] {
+  const associations = resolveLinearAssociationsFromConfig(config);
+  if (associations.length > 0) {
+    return uniqueTeamIdsFromAssociations(associations);
+  }
+
+  const configuredTeamId = config.linear?.teamId?.trim();
+  return configuredTeamId ? [configuredTeamId] : [];
 }

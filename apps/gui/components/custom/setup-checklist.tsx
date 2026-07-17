@@ -1,4 +1,5 @@
 import { CheckCircle2, Circle, Loader2, XCircle } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 
 import { SPACING } from "@/lib/constants";
 import { cn } from "@/lib/utils";
@@ -169,38 +170,55 @@ export function LocalReadinessChecklist({
   checks,
   className,
 }: LocalReadinessChecklistProps) {
+  const prefersReducedMotion = useReducedMotion() ?? false;
+
   return (
     <ul className={cn(SPACING.list, className)}>
-      {checks.map((check) => {
-        const Icon = localReadinessIcon(check.status);
-        return (
-          <li
-            key={check.id}
-            className="flex items-start gap-3 rounded-md border border-border bg-muted/30 p-3"
-          >
-            <Icon
-              className={cn(
-                "mt-0.5 size-4 shrink-0",
-                localReadinessIconClass(check.status),
-              )}
-            />
-            <div className={cn(SPACING.stackSm, "min-w-0 flex-1")}>
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="text-sm font-medium">{check.label}</p>
-                <span className="text-xs text-muted-foreground">
-                  {localReadinessStatusLabel(check.status)}
-                </span>
+      <AnimatePresence initial={false}>
+        {checks.map((check) => {
+          const Icon = localReadinessIcon(check.status);
+          return (
+            <motion.li
+              key={check.id}
+              layout={!prefersReducedMotion}
+              initial={
+                prefersReducedMotion ? false : { opacity: 0, y: 8, scale: 0.98 }
+              }
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={
+                prefersReducedMotion ? undefined : { opacity: 0, y: -4, scale: 0.98 }
+              }
+              transition={
+                prefersReducedMotion
+                  ? { duration: 0 }
+                  : { duration: 0.24, ease: [0.2, 0, 0, 1] }
+              }
+              className="flex items-start gap-3 rounded-md border border-border bg-muted/30 p-3"
+            >
+              <Icon
+                className={cn(
+                  "mt-0.5 size-4 shrink-0",
+                  localReadinessIconClass(check.status),
+                )}
+              />
+              <div className={cn(SPACING.stackSm, "min-w-0 flex-1")}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-medium">{check.label}</p>
+                  <span className="text-xs text-muted-foreground">
+                    {localReadinessStatusLabel(check.status)}
+                  </span>
+                </div>
+                {check.detail ? (
+                  <p className="text-sm text-muted-foreground">{check.detail}</p>
+                ) : null}
+                {check.status === "failed" && check.action ? (
+                  <p className="text-sm text-foreground">{check.action}</p>
+                ) : null}
               </div>
-              {check.detail ? (
-                <p className="text-sm text-muted-foreground">{check.detail}</p>
-              ) : null}
-              {check.status === "failed" && check.action ? (
-                <p className="text-sm text-foreground">{check.action}</p>
-              ) : null}
-            </div>
-          </li>
-        );
-      })}
+            </motion.li>
+          );
+        })}
+      </AnimatePresence>
     </ul>
   );
 }

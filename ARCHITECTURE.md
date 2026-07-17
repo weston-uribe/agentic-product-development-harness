@@ -50,12 +50,27 @@ Details: [`docs/provider-portability.md`](docs/provider-portability.md) and [`do
 1. Connect services (optional packaged harness workspace provisioning)
 2. Set up Linear workspace (confirmation-gated)
 3. Set up Vercel webhook bridge (confirmation-gated)
-4. Choose target repo(s)
+4. Choose target repo(s) — create a technology-neutral product repository or connect an existing GitHub repo; preview and confirm local setup files separately from repository creation
 5. Check local readiness
 6. Connect cloud secrets — harness repo GitHub Actions secret writes (confirmation-gated)
 7. Install target repo workflow — branch/PR create/reuse, checks, guarded auto-finalization for system-owned setup PRs (confirmation-gated)
 
 Ordinary product implementation PRs remain governed by Linear status gates; the GUI does not trigger harness phases or write Linear issue comments outside confirmation-gated setup actions.
+
+### Target repository provisioning vs foundation CI
+
+**Repository provisioning (Configure Step 4 Create)** installs only technology-neutral bootstrap files and the generic PDev target workflow (Step 7). It does **not** create stack-specific CI, required branch checks, or application deployment configuration.
+
+**Foundation initialization** happens later via an approved foundation PR that updates `.p-dev/product.json` on `dev` and may add stack-specific CI. Linear project metadata syncs from `uninitialized` to `initialized` after that merge.
+
+### Application preview vs PDev automation bridge
+
+| Concern | Authority |
+|---------|-----------|
+| Application preview/deployment capture | Harness `repos[].previewProvider` (`vercel` or `none`) |
+| PDev automation bridge (Linear webhook → harness dispatch) | Step 3 Vercel bridge setup |
+
+New PDev-created repositories default to `previewProvider: "none"`. The marker on `dev` holds product initialization state only — not deployment configuration.
 
 ## Pipeline overview
 

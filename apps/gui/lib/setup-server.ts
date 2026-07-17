@@ -33,8 +33,19 @@ import {
 import { createLiveGitHubRemoteSetupProvider } from "@harness/setup/github-remote-setup-live";
 import { createLiveGitHubHarnessProvisioningProvider,
 } from "@harness/setup/github-remote-setup-live";
-import { tryCreateHarnessTestProvisioningProvider } from "@harness/setup/test-only-provisioning-provider";
+import {
+  applyTargetRepoProvisioning,
+  previewTargetRepoProvisioning,
+  type TargetRepoProvisioningApplyInput,
+  type TargetRepoProvisioningApplyResult,
+  type TargetRepoProvisioningPreview,
+  type TargetRepoProvisioningRequest,
+} from "@harness/setup/target-repo-provisioning";
+import { createLiveGitHubTargetRepositoryProvider } from "@harness/setup/github-target-repository-provider-live";
+import { tryCreateTargetRepoTestProvisioningProvider } from "@harness/setup/test-only-target-repo-provisioning-provider";
+import type { GitHubTargetRepositoryProvider } from "@harness/setup/github-target-repository-provider";
 import { tryCreateHarnessTestRemoteSetupProvider } from "@harness/setup/test-only-remote-setup-provider";
+import { tryCreateHarnessTestProvisioningProvider } from "@harness/setup/test-only-provisioning-provider";
 import {
   applyHarnessRepoProvisioning,
   loadHarnessRepoProvisioningSummary,
@@ -107,10 +118,29 @@ import {
 import { buildLinearSetupSummary } from "@harness/setup/linear-setup-summary";
 import {
   createLinearSetupClient,
+  getLinearOrganizationSummary,
   listLinearProjects,
   listLinearTeams,
 } from "@harness/setup/linear-setup-client";
 import { previewLinearSetup } from "@harness/setup/linear-setup-plan";
+import {
+  applyLinearWorkspace,
+  type LinearWorkspaceApplyResult,
+  type LinearWorkspacePlanInput,
+} from "@harness/setup/linear-workspace-apply";
+import {
+  previewLinearWorkspace,
+  type LinearWorkspacePreview,
+} from "@harness/setup/linear-workspace-plan";
+import { computeLinearAssociationsFingerprint } from "@harness/setup/linear-workspace-migration";
+import { resolveLinearAssociationsFromConfig } from "@harness/config/resolve-linear-workspace";
+import { loadHarnessConfig } from "@harness/config/load-config";
+import {
+  applyLinearWorkspaceMigration,
+  inspectLinearWorkspaceMigration,
+} from "@harness/setup/linear-workspace-migration";
+import { detectConfigControlPlaneDrift } from "@harness/setup/linear-workspace-drift";
+import { readControlPlaneSetupState } from "@harness/setup/control-plane-setup-state";
 import {
   applyVercelBridgeSetup,
   type VercelBridgeApplyResult,
@@ -121,7 +151,6 @@ import { pollVercelBridgeRedeployVerification } from "@harness/setup/vercel-brid
 import { buildVercelSetupSummary } from "@harness/setup/vercel-setup-summary";
 import { previewVercelBridgeSetup } from "@harness/setup/vercel-setup-plan";
 import { loadSecretFromEnvLocal } from "@harness/setup/service-verification";
-import { readControlPlaneSetupState } from "@harness/setup/control-plane-setup-state";
 import { assessGitHubDispatchTokenEligibility } from "@harness/setup/github-dispatch-token";
 import {
   loadVercelBridgeOptions,
@@ -584,6 +613,124 @@ export async function applyLinearSetupRemote(options: {
   return { apply, summary };
 }
 
+export async function ensureLinearWorkspaceMigrated(cwd = resolveCwd()) {
+  const inspection = await inspectLinearWorkspaceMigration({ cwd });
+  if (inspection.status !== "nothing_to_migrate") {
+    return inspection;
+  }
+
+  const linearApiKey = (await loadLinearApiKey(cwd)) ?? "";
+  if (!linearApiKey) {
+    return inspection;
+  }
+
+  const controlPlane = await readControlPlaneSetupState(cwd);
+  if (!controlPlane?.linear?.teamId) {
+    return inspection;
+  }
+
+  const client = createLinearSetupClient(linearApiKey);
+  const organization = await getLinearOrganizationSummary(client);
+  const candidateInspection = await inspectLinearWorkspaceMigration({
+    cwd,
+    workspaceId: organization.id,
+    workspaceName: organization.name,
+  });
+  if (candidateInspection.status !== "candidate") {
+    return candidateInspection;
+  }
+
+  return applyLinearWorkspaceMigration({
+    cwd,
+    workspaceId: organization.id,
+    workspaceName: organization.name,
+    candidate: candidateInspection.candidate,
+  });
+}
+
+export async function loadLinearWorkspaceEditorState(cwd = resolveCwd()) {
+  await ensureLinearWorkspaceMigrated(cwd);
+  const summary = await buildLinearSetupSummary(cwd);
+  const loaded = await loadHarnessConfig({ baseDir: cwd });
+  const controlPlane = await readControlPlaneSetupState(cwd);
+  const associations = resolveLinearAssociationsFromConfig(loaded.config);
+  const expectedCommittedFingerprint = computeLinearAssociationsFingerprint(
+    loaded.config,
+  );
+  const evidence = summary.controlPlane?.linearWorkspace;
+  const driftWarnings = detectConfigControlPlaneDrift({
+    config: loaded.config,
+    controlPlane,
+  });
+  return {
+    summary,
+    associations,
+    repos: loaded.config.repos.map((repo) => ({
+      id: repo.id,
+      targetRepo: repo.targetRepo,
+    })),
+    expectedCommittedFingerprint,
+    workspaceId:
+      loaded.config.linear?.workspaceId ?? evidence?.workspaceId ?? "",
+    workspaceName: evidence?.workspaceName ?? "Linear workspace",
+    driftWarnings,
+  };
+}
+
+export async function previewLinearWorkspaceRemote(
+  payload: Omit<
+    LinearWorkspacePlanInput,
+    "linearApiKey" | "expectedCommittedFingerprint"
+  > & {
+    linearApiKey?: string;
+    expectedCommittedFingerprint: string;
+  },
+): Promise<LinearWorkspacePreview> {
+  const cwd = resolveCwd();
+  const linearApiKey =
+    payload.linearApiKey ?? (await loadLinearApiKey(cwd)) ?? "";
+  return previewLinearWorkspace({
+    ...payload,
+    linearApiKey,
+    cwd,
+  });
+}
+
+export async function applyLinearWorkspaceRemote(options: {
+  plan: Omit<
+    LinearWorkspacePlanInput,
+    "linearApiKey" | "expectedCommittedFingerprint"
+  > & {
+    linearApiKey?: string;
+    expectedCommittedFingerprint: string;
+  };
+  confirmed: boolean;
+  fingerprint?: string;
+}): Promise<{
+  apply: LinearWorkspaceApplyResult;
+  summary: Awaited<ReturnType<typeof buildLinearSetupSummary>>;
+  expectedCommittedFingerprint: string;
+}> {
+  const cwd = resolveCwd();
+  const linearApiKey =
+    options.plan.linearApiKey ?? (await loadLinearApiKey(cwd)) ?? "";
+  const apply = await applyLinearWorkspace({
+    plan: { ...options.plan, linearApiKey, cwd },
+    confirmed: options.confirmed,
+    fingerprint: options.fingerprint,
+    cwd,
+  });
+  const summary = await buildLinearSetupSummary(cwd);
+  const loaded = await loadHarnessConfig({ baseDir: cwd });
+  return {
+    apply,
+    summary,
+    expectedCommittedFingerprint: computeLinearAssociationsFingerprint(
+      loaded.config,
+    ),
+  };
+}
+
 export async function loadVercelBridgeOptionsRemote(input?: {
   teamId?: string;
 }) {
@@ -913,6 +1060,66 @@ export async function applyConnectServicesRemote(options: {
   return { summary };
 }
 
+async function resolveTargetRepoProvisioningProvider(): Promise<
+  GitHubTargetRepositoryProvider | undefined
+> {
+  const testProvider = tryCreateTargetRepoTestProvisioningProvider();
+  if (testProvider) {
+    return testProvider;
+  }
+  const token = await loadGithubTokenFromEnvLocal({ cwd: resolveCwd() });
+  if (!hasGithubTokenConfigured(token)) {
+    return undefined;
+  }
+  return createLiveGitHubTargetRepositoryProvider(token!);
+}
+
+export async function previewTargetRepoProvisioningRemote(
+  request: TargetRepoProvisioningRequest,
+): Promise<TargetRepoProvisioningPreview> {
+  const provider = await resolveTargetRepoProvisioningProvider();
+  if (!provider) {
+    return {
+      state: "invalid-input",
+      fingerprint: "",
+      operationId: request.operationId ?? "",
+      creationActionId: request.creationActionId ?? "",
+      createdAt: request.createdAt ?? "",
+      owner: request.owner,
+      repositoryName: request.name,
+      repositoryFullName: `${request.owner}/${request.name}`,
+      visibility: request.visibility ?? "private",
+      description: request.description ?? "",
+      initialBranches: ["main", "dev"],
+      initialFilePaths: ["README.md", ".p-dev/product.json"],
+      resultingTargetRepoConfigId: `target-${request.name}`,
+      actionsWillPerform: [],
+      actionsWillNotPerform: [],
+      message: "GITHUB_TOKEN is required before creating a product repository.",
+      resumedFromPending: false,
+    };
+  }
+  return previewTargetRepoProvisioning({
+    request,
+    provider,
+    cwd: resolveCwd(),
+  });
+}
+
+export async function applyTargetRepoProvisioningRemote(
+  apply: TargetRepoProvisioningApplyInput,
+): Promise<TargetRepoProvisioningApplyResult> {
+  const provider = await resolveTargetRepoProvisioningProvider();
+  if (!provider) {
+    throw new Error("GITHUB_TOKEN is required before creating a product repository.");
+  }
+  return applyTargetRepoProvisioning({
+    apply,
+    provider,
+    cwd: resolveCwd(),
+  });
+}
+
 export type {
   SetupGuiViewModel,
   LocalSetupFormPayload,
@@ -928,5 +1135,9 @@ export type {
   LinearSetupApplyResult,
   VercelBridgePreview,
   VercelBridgeApplyResult,
+  TargetRepoProvisioningPreview,
+  TargetRepoProvisioningApplyResult,
+  TargetRepoProvisioningRequest,
+  TargetRepoProvisioningApplyInput,
 };
 

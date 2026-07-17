@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { resolveHarnessRepoRoot } from "@harness/gui/repo-root";
+import { resolveHarnessWorkspaceDir } from "@harness/gui/repo-root";
 import { verifySetupTargetRepo } from "@harness/setup/service-verification";
 
 export const dynamic = "force-dynamic";
@@ -9,6 +9,9 @@ export async function POST(request: Request) {
     const body = (await request.json()) as {
       targetRepo?: string;
       githubToken?: string;
+      baseBranch?: string;
+      productionBranch?: string;
+      repoConfigId?: string;
     };
 
     if (!body.targetRepo?.trim()) {
@@ -19,9 +22,13 @@ export async function POST(request: Request) {
     }
 
     const result = await verifySetupTargetRepo({
-      cwd: resolveHarnessRepoRoot(),
+      cwd: resolveHarnessWorkspaceDir(),
       targetRepo: body.targetRepo,
       githubToken: body.githubToken,
+      baseBranch: body.baseBranch,
+      productionBranch: body.productionBranch,
+      expectedRepoConfigId: body.repoConfigId,
+      savedRepoConfigId: body.repoConfigId,
     });
 
     return NextResponse.json(result);

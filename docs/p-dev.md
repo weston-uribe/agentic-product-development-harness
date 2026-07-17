@@ -128,12 +128,38 @@ Valid existing managed workspaces created by `p-dev-harness@0.3.0` from `weston-
 | 1 | Connect services | Verify and save Linear, Cursor, GitHub, Vercel credentials; packaged mode may provision private harness workspace |
 | 2 | Set up Linear workspace | Create/map team, project, and required workflow statuses (confirmation-gated) |
 | 3 | Set up Vercel webhook bridge | Create/map Vercel resources, upsert env vars, configure Linear webhook, trigger production redeploy, verify signed webhook |
-| 4 | Choose target repo(s) | Select targets and create local setup files (confirmation-gated local writes) |
+| 4 | Choose target repo(s) | **Create** a technology-neutral product repository or **connect** an existing GitHub repo URL, then preview and confirm local setup files (confirmation-gated local writes only) |
 | 5 | Check local readiness | Validate local config and permissions before cloud writes |
 | 6 | Connect cloud secrets | Write harness repo GitHub Actions secrets (confirmation-gated) |
 | 7 | Install target repo workflow | Create/reuse workflow install PR, validate checks, guarded merge, verify on production branch |
 
 Remote mutations require explicit confirmation and fingerprint checks. Step 1 does **not** auto-advance when keys become complete — click **Continue**.
+
+### Step 4 — Create or connect target repository
+
+Step 4 offers two paths:
+
+| Mode | What it does |
+|------|----------------|
+| **Create new product** | Preview and confirm GitHub repository creation via `preview-target-repo-provisioning` / `apply-target-repo-provisioning`. Provisions `main`, `dev`, `README.md`, and `.p-dev/product.json` only. |
+| **Connect existing** | Enter and verify an existing GitHub target repo URL (unchanged flow). |
+
+**Explicit local-config consent (sequential):**
+
+1. Repository create apply (when using Create) populates the guided target-repo form with URL, `baseBranch: dev`, `productionBranch: main`, and `previewProvider: none`.
+2. Repository confirmation **does not** write `.env.local` or `.harness/config.local.json`.
+3. The operator must still run **Preview local setup files** and confirm **Create local setup files** before Step 4 completes.
+
+New PDev-created repositories default to `previewProvider: "none"` (application deployment capture disabled). The **PDev automation bridge** (Step 3) is separate and still uses `VERCEL_TOKEN` when configured.
+
+### Provisioning vs foundation CI boundary
+
+Repository **creation** installs only:
+
+- Generic bootstrap files (`README.md`, `.p-dev/product.json`)
+- The generic PDev target workflow (Step 7)
+
+It does **not** install stack-specific CI, required branch checks, language manifests, or application deployment configuration. Those belong to the **approved foundation PR** during product initialization after the stack is chosen.
 
 ### Step 7 workflow finalization
 

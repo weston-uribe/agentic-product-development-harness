@@ -29,6 +29,14 @@ export interface LocalReadinessRunResult {
   allPassed: boolean;
 }
 
+export type LocalReadinessProgressEvent =
+  | { type: "check-started"; id: string; label: string }
+  | { type: "check-completed"; check: LocalReadinessCheckResult }
+  | { type: "run-completed"; allPassed: boolean }
+  | { type: "run-failed"; message: string };
+
+type LocalReadinessEmit = (event: LocalReadinessProgressEvent) => void;
+
 async function fileExists(filePath: string): Promise<boolean> {
   try {
     await access(filePath);
@@ -66,10 +74,28 @@ function failed(
   };
 }
 
-export async function runLocalReadinessChecks(options?: {
-  cwd?: string;
+function emitCheckStarted(
+  emit: LocalReadinessEmit | undefined,
+  id: string,
+  label: string,
+): void {
+  emit?.({ type: "check-started", id, label });
+}
+
+function emitCheckCompleted(
+  emit: LocalReadinessEmit | undefined,
+  checks: LocalReadinessCheckResult[],
+  check: LocalReadinessCheckResult,
+): void {
+  checks.push(check);
+  emit?.({ type: "check-completed", check });
+}
+
+async function executeLocalReadinessChecks(options: {
+  cwd: string;
+  emit?: LocalReadinessEmit;
 }): Promise<LocalReadinessRunResult> {
-  const cwd = options?.cwd ?? process.cwd();
+  const { cwd, emit } = options;
   normalizeHarnessEnvPaths(cwd);
   const paths = resolveLocalFilePaths(cwd);
   const checks: LocalReadinessCheckResult[] = [];
@@ -96,7 +122,10 @@ export async function runLocalReadinessChecks(options?: {
   }
 
   if (configParseError) {
-    checks.push(
+    emitCheckStarted(emit, "config-parses", "Rechecking generated harness config");
+    emitCheckCompleted(
+      emit,
+      checks,
       failed(
         "config-parses",
         "Rechecking generated harness config",
@@ -105,7 +134,10 @@ export async function runLocalReadinessChecks(options?: {
       ),
     );
   } else if (config) {
-    checks.push(
+    emitCheckStarted(emit, "config-parses", "Rechecking generated harness config");
+    emitCheckCompleted(
+      emit,
+      checks,
       passed(
         "config-parses",
         "Rechecking generated harness config",
@@ -113,7 +145,10 @@ export async function runLocalReadinessChecks(options?: {
       ),
     );
   } else {
-    checks.push(
+    emitCheckStarted(emit, "config-parses", "Rechecking generated harness config");
+    emitCheckCompleted(
+      emit,
+      checks,
       failed(
         "config-parses",
         "Rechecking generated harness config",
@@ -123,10 +158,13 @@ export async function runLocalReadinessChecks(options?: {
     );
   }
 
+  emitCheckStarted(emit, "env-local-exists", ".env.local is present");
   if (envExists) {
-    checks.push(passed("env-local-exists", ".env.local is present"));
+    emitCheckCompleted(emit, checks, passed("env-local-exists", ".env.local is present"));
   } else {
-    checks.push(
+    emitCheckCompleted(
+      emit,
+      checks,
       failed(
         "env-local-exists",
         ".env.local is present",
@@ -136,9 +174,12 @@ export async function runLocalReadinessChecks(options?: {
     );
   }
 
+  emitCheckStarted(emit, "harness-dispatch-repo-resolved", "Harness dispatch repo is resolved");
   const harnessDispatchRepo = await resolveHarnessDispatchRepo({ cwd });
   if (harnessDispatchRepo.resolved && harnessDispatchRepo.repo) {
-    checks.push(
+    emitCheckCompleted(
+      emit,
+      checks,
       passed(
         "harness-dispatch-repo-resolved",
         "Harness dispatch repo is resolved",
@@ -146,7 +187,9 @@ export async function runLocalReadinessChecks(options?: {
       ),
     );
   } else {
-    checks.push(
+    emitCheckCompleted(
+      emit,
+      checks,
       failed(
         "harness-dispatch-repo-resolved",
         "Harness dispatch repo is resolved",
@@ -157,12 +200,17 @@ export async function runLocalReadinessChecks(options?: {
     );
   }
 
+  emitCheckStarted(emit, "config-local-exists", ".harness/config.local.json is present");
   if (configExists) {
-    checks.push(
+    emitCheckCompleted(
+      emit,
+      checks,
       passed("config-local-exists", ".harness/config.local.json is present"),
     );
   } else {
-    checks.push(
+    emitCheckCompleted(
+      emit,
+      checks,
       failed(
         "config-local-exists",
         ".harness/config.local.json is present",
@@ -173,9 +221,16 @@ export async function runLocalReadinessChecks(options?: {
   }
 
   if (config) {
+    emitCheckStarted(
+      emit,
+      "target-repos-closure",
+      "Target repos are allowed in harness config",
+    );
     try {
       validateRepoClosure(config);
-      checks.push(
+      emitCheckCompleted(
+        emit,
+        checks,
         passed(
           "target-repos-closure",
           "Target repos are allowed in harness config",
@@ -184,7 +239,9 @@ export async function runLocalReadinessChecks(options?: {
     } catch (error) {
       const detail =
         error instanceof Error ? error.message : String(error);
-      checks.push(
+      emitCheckCompleted(
+        emit,
+        checks,
         failed(
           "target-repos-closure",
           "Target repos are allowed in harness config",
@@ -194,8 +251,11 @@ export async function runLocalReadinessChecks(options?: {
       );
     }
 
+    emitCheckStarted(emit, "model-policy", "Cursor model policy resolves");
     const model = summarizeCursorModelSettings(config);
-    checks.push(
+    emitCheckCompleted(
+      emit,
+      checks,
       passed(
         "model-policy",
         "Cursor model policy resolves",
@@ -204,12 +264,15 @@ export async function runLocalReadinessChecks(options?: {
     );
   }
 
+  emitCheckStarted(emit, "linear-key", "Linear API key works");
   const linearResult = await verifySetupService({
     cwd,
     service: "linear",
   });
   if (linearResult.status === "connected") {
-    checks.push(
+    emitCheckCompleted(
+      emit,
+      checks,
       passed(
         "linear-key",
         "Linear API key works",
@@ -219,7 +282,9 @@ export async function runLocalReadinessChecks(options?: {
       ),
     );
   } else {
-    checks.push(
+    emitCheckCompleted(
+      emit,
+      checks,
       failed(
         "linear-key",
         "Linear API key works",
@@ -230,12 +295,15 @@ export async function runLocalReadinessChecks(options?: {
     );
   }
 
+  emitCheckStarted(emit, "cursor-key", "Cursor API key works");
   const cursorResult = await verifySetupService({
     cwd,
     service: "cursor",
   });
   if (cursorResult.status === "connected") {
-    checks.push(
+    emitCheckCompleted(
+      emit,
+      checks,
       passed(
         "cursor-key",
         "Cursor API key works",
@@ -243,7 +311,9 @@ export async function runLocalReadinessChecks(options?: {
       ),
     );
   } else {
-    checks.push(
+    emitCheckCompleted(
+      emit,
+      checks,
       failed(
         "cursor-key",
         "Cursor API key works",
@@ -254,6 +324,7 @@ export async function runLocalReadinessChecks(options?: {
     );
   }
 
+  emitCheckStarted(emit, "github-token", "GitHub token supports guided setup");
   const githubResult = await verifySetupService({
     cwd,
     service: "github",
@@ -262,7 +333,9 @@ export async function runLocalReadinessChecks(options?: {
     const githubDetail = githubResult.label
       ? `Connected as ${githubResult.label}.`
       : githubResult.message;
-    checks.push(
+    emitCheckCompleted(
+      emit,
+      checks,
       passed(
         "github-token",
         "GitHub token supports guided setup",
@@ -272,7 +345,9 @@ export async function runLocalReadinessChecks(options?: {
       ),
     );
   } else {
-    checks.push(
+    emitCheckCompleted(
+      emit,
+      checks,
       failed(
         "github-token",
         "GitHub token supports guided setup",
@@ -285,11 +360,14 @@ export async function runLocalReadinessChecks(options?: {
 
   if (config && githubResult.status === "connected") {
     for (const repo of config.repos) {
+      const label = `Target repo ${repo.targetRepo} supports workflow install`;
+      emitCheckStarted(emit, `target-repo-${repo.id}`, label);
       const repoResult = await verifySetupTargetRepo({
         cwd,
         targetRepo: repo.targetRepo,
       });
       const slug = repoResult.repoSlug ?? repo.targetRepo;
+      const resolvedLabel = `Target repo ${slug} supports workflow install`;
       if (
         repoResult.status === "connected" &&
         repoResult.workflowInstallReady !== false
@@ -297,18 +375,18 @@ export async function runLocalReadinessChecks(options?: {
         const detail = repoResult.limitation
           ? `${repoResult.message} ${repoResult.limitation}`
           : repoResult.message;
-        checks.push(
-          passed(
-            `target-repo-${repo.id}`,
-            `Target repo ${slug} supports workflow install`,
-            detail,
-          ),
+        emitCheckCompleted(
+          emit,
+          checks,
+          passed(`target-repo-${repo.id}`, resolvedLabel, detail),
         );
       } else {
-        checks.push(
+        emitCheckCompleted(
+          emit,
+          checks,
           failed(
             `target-repo-${repo.id}`,
-            `Target repo ${slug} supports workflow install`,
+            resolvedLabel,
             repoResult.message,
             "Return to Step 2 and verify repo + workflow access, or update GITHUB_TOKEN in Step 1 with workflow permissions and verify again.",
             secrets,
@@ -318,10 +396,14 @@ export async function runLocalReadinessChecks(options?: {
     }
   } else if (config && config.repos.length > 0) {
     for (const repo of config.repos) {
-      checks.push(
+      const label = `Target repo ${repo.targetRepo} supports workflow install`;
+      emitCheckStarted(emit, `target-repo-${repo.id}`, label);
+      emitCheckCompleted(
+        emit,
+        checks,
         failed(
           `target-repo-${repo.id}`,
-          `Target repo ${repo.targetRepo} supports workflow install`,
+          label,
           "GitHub token must support guided setup before target repo workflow access can be checked.",
           "Fix your GitHub token in Step 1 first.",
         ),
@@ -330,5 +412,55 @@ export async function runLocalReadinessChecks(options?: {
   }
 
   const allPassed = checks.every((check) => check.status === "passed");
+  emit?.({ type: "run-completed", allPassed });
   return { checks, allPassed };
+}
+
+export async function runLocalReadinessChecks(options?: {
+  cwd?: string;
+}): Promise<LocalReadinessRunResult> {
+  const cwd = options?.cwd ?? process.cwd();
+  return executeLocalReadinessChecks({ cwd });
+}
+
+export async function* runLocalReadinessChecksProgress(options?: {
+  cwd?: string;
+}): AsyncGenerator<LocalReadinessProgressEvent> {
+  const cwd = options?.cwd ?? process.cwd();
+  const events: LocalReadinessProgressEvent[] = [];
+  let resolveNext: (() => void) | null = null;
+
+  const emit: LocalReadinessEmit = (event) => {
+    events.push(event);
+    resolveNext?.();
+    resolveNext = null;
+  };
+
+  const runPromise = executeLocalReadinessChecks({ cwd, emit }).catch((error) => {
+    const message =
+      error instanceof Error ? error.message : "Local readiness check failed";
+    emit({ type: "run-failed", message });
+  });
+
+  while (true) {
+    if (events.length === 0) {
+      await new Promise<void>((resolve) => {
+        resolveNext = resolve;
+      });
+      await runPromise;
+      if (events.length === 0) {
+        break;
+      }
+    }
+    while (events.length > 0) {
+      const event = events.shift();
+      if (!event) {
+        break;
+      }
+      yield event;
+      if (event.type === "run-completed" || event.type === "run-failed") {
+        return;
+      }
+    }
+  }
 }

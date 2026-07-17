@@ -4,6 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useReducedMotion } from "framer-motion";
 import type { LocalConfigFormInput } from "@harness/setup/config-local-editor";
 import { prepareGuidedConfigFormInput } from "@harness/setup/guided-config-form";
+import {
+  isHarnessRepoInheritedFromStep1,
+  isHarnessRepoReadyForGuidedStep4,
+} from "@harness/setup/harness-step-readiness";
 import type {
   LocalSetupFormPayload,
   LocalSetupPreviewResult,
@@ -27,6 +31,11 @@ import {
   TargetRepoConfigForm,
   type RepoVerificationUi,
 } from "@/components/custom/target-repo-config-form";
+import {
+  TargetRepoCreateConnect,
+  type TargetRepoCreatedSummary,
+  type TargetRepoSelectionMode,
+} from "@/components/custom/target-repo-create-connect";
 import { LocalWritePreview } from "@/components/custom/local-write-preview";
 import { LocalWriteConfirmation } from "@/components/custom/local-write-confirmation";
 import { ReviewGeneratedFilesDisclosure } from "@/components/custom/review-generated-files-disclosure";
@@ -149,6 +158,9 @@ export function ConfigureWorkflow({
   const [serverValidatedHarnessRepo, setServerValidatedHarnessRepo] = useState<
     string | null
   >(null);
+  const [step1TrustedHarnessRepo, setStep1TrustedHarnessRepo] = useState<
+    string | null
+  >(null);
   const [provisioningHarnessRepo, setProvisioningHarnessRepo] = useState(false);
   const [provisioningMessage, setProvisioningMessage] = useState<string | null>(
     null,
@@ -169,6 +181,10 @@ export function ConfigureWorkflow({
     null,
   );
   const [applySuccess, setApplySuccess] = useState<boolean | null>(null);
+  const [targetRepoSelectionMode, setTargetRepoSelectionMode] =
+    useState<TargetRepoSelectionMode>("create");
+  const [githubOwnerLogin, setGithubOwnerLogin] = useState<string | null>(null);
+  const [githubOwnerLoading, setGithubOwnerLoading] = useState(false);
 
   const guidedConfigValues = useMemo<LocalConfigFormInput>(
     () => ({
@@ -296,14 +312,18 @@ export function ConfigureWorkflow({
     initialEnv.savedHarnessDispatchRepository?.trim() ||
     "";
 
-  const harnessRepoReady =
-    effectiveHarnessDispatchRepo.length > 0 &&
-    (serverValidatedHarnessRepo === effectiveHarnessDispatchRepo ||
-      (harnessRepoVerification.state === "connected" &&
-        harnessRepoVerification.verifiedRepo === effectiveHarnessDispatchRepo &&
-        (!activeGithubToken?.fingerprint ||
-          harnessRepoVerification.verifiedGithubTokenFingerprint ===
-            activeGithubToken.fingerprint)));
+  const harnessRepoInheritedFromStep1 = isHarnessRepoInheritedFromStep1(
+    effectiveHarnessDispatchRepo,
+    step1TrustedHarnessRepo,
+  );
+
+  const harnessRepoReady = isHarnessRepoReadyForGuidedStep4({
+    effectiveRepo: effectiveHarnessDispatchRepo,
+    step1TrustedRepo: step1TrustedHarnessRepo,
+    serverValidatedRepo: serverValidatedHarnessRepo,
+    manualVerification: harnessRepoVerification,
+    activeGithubTokenFingerprint: activeGithubToken?.fingerprint ?? null,
+  });
 
   useEffect(() => {
     if (mode !== "guided" || guidedStep !== "choose-target-repos") {
@@ -320,6 +340,7 @@ export function ConfigureWorkflow({
         }
 
         if (data.verifiedSavedRepo && data.harnessDispatchRepo) {
+          setStep1TrustedHarnessRepo(data.harnessDispatchRepo);
           setServerValidatedHarnessRepo(data.harnessDispatchRepo);
           setEnvValues((current) => ({
             ...current,
@@ -335,10 +356,12 @@ export function ConfigureWorkflow({
           });
         } else {
           setServerValidatedHarnessRepo(null);
+          setStep1TrustedHarnessRepo(null);
         }
       } catch {
         if (!cancelled) {
           setServerValidatedHarnessRepo(null);
+          setStep1TrustedHarnessRepo(null);
         }
       }
     })();
@@ -349,7 +372,50 @@ export function ConfigureWorkflow({
   }, [guidedStep, mode]);
 
   useEffect(() => {
-    if (serverValidatedHarnessRepo || autoProvisionedHarnessRepo) {
+    if (mode !== "guided" || guidedStep !== "choose-target-repos") {
+      return;
+    }
+    if (!presence.GITHUB_TOKEN) {
+      setGithubOwnerLogin(null);
+      return;
+    }
+
+    let cancelled = false;
+    setGithubOwnerLoading(true);
+    void (async () => {
+      try {
+        const response = await fetch("/api/setup/verify-service", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ service: "github" }),
+        });
+        const data = await response.json();
+        if (cancelled) {
+          return;
+        }
+        if (response.ok && data.status === "connected" && data.label) {
+          setGithubOwnerLogin(String(data.label));
+        } else {
+          setGithubOwnerLogin(null);
+        }
+      } catch {
+        if (!cancelled) {
+          setGithubOwnerLogin(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setGithubOwnerLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [guidedStep, mode, presence.GITHUB_TOKEN]);
+
+  useEffect(() => {
+    if (serverValidatedHarnessRepo || autoProvisionedHarnessRepo || step1TrustedHarnessRepo) {
       return;
     }
     setHarnessRepoVerification({ state: "unchecked" });
@@ -357,6 +423,7 @@ export function ConfigureWorkflow({
     activeGithubToken?.fingerprint,
     autoProvisionedHarnessRepo,
     serverValidatedHarnessRepo,
+    step1TrustedHarnessRepo,
   ]);
 
   const continueWithHarnessProvisioning = useCallback(async () => {
@@ -379,6 +446,15 @@ export function ConfigureWorkflow({
       }
 
       if (previewData.state === "skipped-not-packaged") {
+        const trustedRepo =
+          envValues.githubDispatchRepository.trim() ||
+          initialEnv.savedHarnessDispatchRepository?.trim() ||
+          initialEnv.suggestedHarnessDispatchRepo?.trim() ||
+          "";
+        if (trustedRepo) {
+          setStep1TrustedHarnessRepo(trustedRepo);
+          setServerValidatedHarnessRepo(trustedRepo);
+        }
         onConnectServicesComplete?.();
         return;
       }
@@ -412,6 +488,7 @@ export function ConfigureWorkflow({
 
       const repoSlug = applyData.apply.harnessDispatchRepo as string | null;
       if (repoSlug) {
+        setStep1TrustedHarnessRepo(repoSlug);
         setAutoProvisionedHarnessRepo(repoSlug);
         setEnvValues((current) => ({
           ...current,
@@ -436,7 +513,7 @@ export function ConfigureWorkflow({
     } finally {
       setProvisioningHarnessRepo(false);
     }
-  }, [onConnectServicesComplete, onSummaryUpdated]);
+  }, [envValues.githubDispatchRepository, initialEnv.savedHarnessDispatchRepository, initialEnv.suggestedHarnessDispatchRepo, onConnectServicesComplete, onSummaryUpdated]);
 
   const resetApplyState = () => {
     setApplySuccess(null);
@@ -750,6 +827,49 @@ export function ConfigureWorkflow({
     [envValues.githubToken, guidedRepoRows, presence.GITHUB_TOKEN],
   );
 
+  const handleTargetRepoCreated = useCallback(
+    (summary: TargetRepoCreatedSummary) => {
+      invalidatePreview();
+      const rowId =
+        guidedRepoRows[0]?.rowId ??
+        createGuidedRepoRowId(guidedRepoRowCounter.current);
+      const nextRow: GuidedRepoRow = {
+        rowId,
+        id: summary.resultingTargetRepoConfigId,
+        targetRepo: summary.repositoryUrl,
+        baseBranch: "dev",
+        productionBranch: "main",
+        previewProvider: "none",
+      };
+      setGuidedRepoRows([nextRow]);
+      setConfigValues((current) => ({
+        ...current,
+        repos: [
+          {
+            id: summary.resultingTargetRepoConfigId,
+            targetRepo: summary.repositoryUrl,
+            baseBranch: "dev",
+            productionBranch: "main",
+            previewProvider: "none",
+          },
+        ],
+      }));
+      setRepoVerification({
+        [rowId]: {
+          state: "connected",
+          verifiedTargetRepo: summary.repositoryUrl,
+          verifiedGithubTokenFingerprint:
+            activeGithubToken?.fingerprint ?? undefined,
+          message: "Repository created and ready for local config.",
+          repoSlug: summary.repositoryFullName,
+          workflowInstallReady: false,
+        },
+      });
+      setTargetRepoSelectionMode("connect");
+    },
+    [activeGithubToken?.fingerprint, guidedRepoRows, invalidatePreview],
+  );
+
   const handleServiceBlur = useCallback(
     (key: ServiceKey) => {
       const value = envValues[SERVICE_VALUE_KEY[key]].trim();
@@ -1033,12 +1153,13 @@ export function ConfigureWorkflow({
           return (
             <SectionCard
               title={`Step 4 of ${GUIDED_SETUP_STEP_COUNT} · Choose target repo(s) and create setup files`}
-              description="Tell the harness which GitHub repo(s) it should work against, then create local setup files on this machine."
+              description="Create a new product repository or connect an existing GitHub repo, then preview and confirm local setup files on this machine."
             >
               <TargetRepoConfigForm
                 values={guidedConfigValues}
                 highlightStaleTarget={highlightStaleTarget}
                 variant="guided-minimal"
+                guidedSection="harness"
                 harnessDispatchRepository={envValues.githubDispatchRepository}
                 savedHarnessDispatchRepository={
                   initialEnv.savedHarnessDispatchRepository
@@ -1064,43 +1185,67 @@ export function ConfigureWorkflow({
                   serverValidatedHarnessRepo === effectiveHarnessDispatchRepo &&
                   Boolean(effectiveHarnessDispatchRepo)
                 }
-                guidedRepos={guidedRepoRows}
-                repoVerification={repoVerification}
-                verifyingRepoRowId={verifyingRepoRowId}
+                harnessRepoInheritedFromStep1={harnessRepoInheritedFromStep1}
                 onChange={(values) => {
                   invalidatePreview();
                   setConfigValues(values);
                 }}
-                onGuidedReposChange={(rows) => {
-                  invalidatePreview();
-                  resetRepoVerificationIfUrlChanged(rows);
-                  setGuidedRepoRows(rows);
-                }}
-                onVerifyRepo={verifyRepo}
-                onRepoBlur={handleRepoBlur}
-                activeGithubTokenFingerprint={activeGithubToken?.fingerprint ?? null}
-                onAddRepo={() => {
-                  invalidatePreview();
-                  guidedRepoRowCounter.current += 1;
-                  const rowId = createGuidedRepoRowId(
-                    guidedRepoRowCounter.current,
-                  );
-                  setGuidedRepoRows((current) => [
-                    ...current,
-                    { rowId, id: "", targetRepo: "" },
-                  ]);
-                }}
-                onRemoveRepo={(rowId) => {
-                  invalidatePreview();
-                  setGuidedRepoRows((current) =>
-                    current.filter((row) => row.rowId !== rowId),
-                  );
-                  setRepoVerification((current) => {
-                    const next = { ...current };
-                    delete next[rowId];
-                    return next;
-                  });
-                }}
+              />
+
+              <TargetRepoCreateConnect
+                mode={targetRepoSelectionMode}
+                onModeChange={setTargetRepoSelectionMode}
+                githubOwner={githubOwnerLogin}
+                githubOwnerLoading={githubOwnerLoading}
+                onRepoCreated={handleTargetRepoCreated}
+                onInvalidatePreview={invalidatePreview}
+                connectContent={
+                  <TargetRepoConfigForm
+                    values={guidedConfigValues}
+                    highlightStaleTarget={highlightStaleTarget}
+                    variant="guided-minimal"
+                    guidedSection="target-repos"
+                    guidedRepos={guidedRepoRows}
+                    repoVerification={repoVerification}
+                    verifyingRepoRowId={verifyingRepoRowId}
+                    onChange={(values) => {
+                      invalidatePreview();
+                      setConfigValues(values);
+                    }}
+                    onGuidedReposChange={(rows) => {
+                      invalidatePreview();
+                      resetRepoVerificationIfUrlChanged(rows);
+                      setGuidedRepoRows(rows);
+                    }}
+                    onVerifyRepo={verifyRepo}
+                    onRepoBlur={handleRepoBlur}
+                    activeGithubTokenFingerprint={
+                      activeGithubToken?.fingerprint ?? null
+                    }
+                    onAddRepo={() => {
+                      invalidatePreview();
+                      guidedRepoRowCounter.current += 1;
+                      const rowId = createGuidedRepoRowId(
+                        guidedRepoRowCounter.current,
+                      );
+                      setGuidedRepoRows((current) => [
+                        ...current,
+                        { rowId, id: "", targetRepo: "" },
+                      ]);
+                    }}
+                    onRemoveRepo={(rowId) => {
+                      invalidatePreview();
+                      setGuidedRepoRows((current) =>
+                        current.filter((row) => row.rowId !== rowId),
+                      );
+                      setRepoVerification((current) => {
+                        const next = { ...current };
+                        delete next[rowId];
+                        return next;
+                      });
+                    }}
+                  />
+                }
               />
 
               <Separator className="my-6" />

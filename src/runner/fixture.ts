@@ -17,6 +17,7 @@ export async function loadIssueFixture(
     title: metadata.title ?? `Fixture issue ${issueKey}`,
     description: body,
     status: metadata.status,
+    projectId: null,
     projectName: metadata.projectName,
     teamName: metadata.teamName,
     teamId: null,

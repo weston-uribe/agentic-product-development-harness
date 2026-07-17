@@ -10,6 +10,8 @@ interface LinearIssueData {
   identifier?: string;
   url?: string;
   state?: LinearStateLike | null;
+  team?: { id?: string | null } | null;
+  project?: { id?: string | null } | null;
 }
 
 interface LinearWebhookPayload {
@@ -81,6 +83,8 @@ export function parseLinearIssueEvent(
     issueKey,
     issueId: typeof data.id === "string" ? data.id : null,
     issueUrl,
+    teamId: typeof data.team?.id === "string" ? data.team.id : null,
+    projectId: typeof data.project?.id === "string" ? data.project.id : null,
     action: typeof body.action === "string" ? body.action : "",
     statusName,
     previousStatusName,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { TargetWorkflowFinalizationResult } from "@harness/setup/target-workflow-finalization-types";
 import type {
   RemoteTargetWorkflowApplyResult,
@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/custom/status-badge";
 import { RemoteActionPreview } from "@/components/custom/remote-action-preview";
 import { RemoteActionConfirmation } from "@/components/custom/remote-action-confirmation";
+import { ReviewWorkflowChangesDisclosure } from "@/components/custom/review-workflow-changes-disclosure";
 import { SetupApplyResult } from "@/components/custom/setup-apply-result";
 
 interface TargetWorkflowPrCardProps {
@@ -71,6 +72,8 @@ export function TargetWorkflowPrCard({
     null,
   );
   const [previewKey, setPreviewKey] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [disclosureOpen, setDisclosureOpen] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [loading, setLoading] = useState<"preview" | "apply" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -80,48 +83,76 @@ export function TargetWorkflowPrCard({
   const currentKey = `${repo.repoConfigId}:${repo.targetRepo}:${repo.productionBranch}`;
   const previewIsCurrent = preview !== null && previewKey === currentKey;
 
+  const runPreview = useCallback(async (): Promise<RemoteTargetWorkflowPreview> => {
+    const response = await fetch("/api/setup/preview-target-workflow", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        repoConfigId: repo.repoConfigId,
+        targetRepo: repo.targetRepo,
+        productionBranch: repo.productionBranch,
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error ?? "Preview failed");
+    }
+    const nextPreview = data as RemoteTargetWorkflowPreview;
+    setPreview(nextPreview);
+    setPreviewKey(currentKey);
+    setPreviewError(null);
+    return nextPreview;
+  }, [currentKey, repo.productionBranch, repo.repoConfigId, repo.targetRepo]);
+
   const handlePreview = async () => {
     setLoading("preview");
     setError(null);
+    setPreviewError(null);
     setApplyResult(null);
     setConfirmed(false);
     try {
-      const response = await fetch("/api/setup/preview-target-workflow", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          repoConfigId: repo.repoConfigId,
-          targetRepo: repo.targetRepo,
-          productionBranch: repo.productionBranch,
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error ?? "Preview failed");
-      }
-      setPreview(data as RemoteTargetWorkflowPreview);
-      setPreviewKey(currentKey);
-    } catch (previewError) {
+      await runPreview();
+    } catch (nextPreviewError) {
       setPreview(null);
       setPreviewKey(null);
-      setError(
-        previewError instanceof Error
-          ? previewError.message
-          : "Preview failed",
-      );
+      const message =
+        nextPreviewError instanceof Error
+          ? nextPreviewError.message
+          : "Preview failed";
+      setPreviewError(message);
+      setError(message);
     } finally {
       setLoading(null);
     }
   };
 
+  const handleDisclosureOpenChange = useCallback(
+    (open: boolean) => {
+      if (blockedByUpstream) {
+        return;
+      }
+      setDisclosureOpen(open);
+      if (open && !previewIsCurrent && loading !== "preview") {
+        void handlePreview();
+      }
+    },
+    [blockedByUpstream, loading, previewIsCurrent],
+  );
+
   const handleApply = async () => {
-    if (!preview || !previewIsCurrent || !confirmed) {
+    if (!confirmed) {
       return;
     }
 
     setLoading("apply");
     setError(null);
     try {
+      const effectivePreview =
+        previewIsCurrent && preview ? preview : await runPreview();
+      if (effectivePreview.validationError) {
+        throw new Error(effectivePreview.validationError);
+      }
+
       const response = await fetch("/api/setup/apply-target-workflow", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -130,7 +161,7 @@ export function TargetWorkflowPrCard({
           targetRepo: repo.targetRepo,
           productionBranch: repo.productionBranch,
           confirmed: true,
-          fingerprint: preview.fingerprint,
+          fingerprint: effectivePreview.fingerprint,
         }),
       });
       const data = await response.json();
@@ -144,6 +175,7 @@ export function TargetWorkflowPrCard({
       setPreview(null);
       setPreviewKey(null);
       setConfirmed(false);
+      setDisclosureOpen(false);
       if (variant === "guided") {
         onGuidedApplySuccess?.(apply, finalization);
       } else {
@@ -175,16 +207,16 @@ export function TargetWorkflowPrCard({
     : undefined;
   const confirmDisabledReason = upstreamBlockedReason
     ? upstreamBlockedReason
-    : !previewIsCurrent
+    : variant === "advanced" && !previewIsCurrent
       ? "Generate a preview before you can confirm this write."
-      : preview?.validationError
+      : variant === "advanced" && preview?.validationError
         ? "Fix validation errors before confirming this write."
         : undefined;
   const applyDisabledReason =
     confirmDisabledReason ??
     (!confirmed
       ? variant === "guided"
-        ? "Confirm the preview before creating the workflow install PR."
+        ? "Confirm before creating the workflow install PR."
         : "Confirm the preview before applying the workflow install PR."
       : undefined);
 
@@ -198,6 +230,11 @@ export function TargetWorkflowPrCard({
           ? "Update workflow install PR"
           : "Create workflow install PR"
         : "Apply workflow PR";
+
+  const confirmDisabled =
+    variant === "advanced"
+      ? !previewIsCurrent || Boolean(preview?.validationError) || blockedByUpstream
+      : blockedByUpstream;
 
   return (
     <div
@@ -224,48 +261,73 @@ export function TargetWorkflowPrCard({
               variant={accessVariant(repo.repoAccess)}
             />
             <StatusBadge
-              label={`Workflow: ${repo.workflowStatus}`}
+              label={`Workflow: ${workflowStatusLabel(repo.workflowStatus, variant)}`}
               variant={workflowVariant(repo.workflowStatus)}
             />
           </div>
         </div>
       ) : null}
 
-      <RemoteActionPreview
-        targetWorkflowPreview={previewIsCurrent ? preview ?? undefined : undefined}
-      />
+      {variant === "guided" ? (
+        <ReviewWorkflowChangesDisclosure
+          open={disclosureOpen}
+          onOpenChange={handleDisclosureOpenChange}
+          isLoading={loading === "preview"}
+          previewError={previewError ?? undefined}
+          preview={preview ?? undefined}
+          previewIsCurrent={previewIsCurrent}
+        />
+      ) : (
+        <RemoteActionPreview
+          targetWorkflowPreview={previewIsCurrent ? preview ?? undefined : undefined}
+        />
+      )}
 
       <RemoteActionConfirmation
         scope="remote-repo-write"
         variant={variant}
         confirmed={confirmed}
-        disabled={!previewIsCurrent || Boolean(preview?.validationError) || blockedByUpstream}
+        disabled={confirmDisabled}
         disabledReason={confirmDisabledReason}
         onConfirmedChange={setConfirmed}
       />
 
-      <div className={FORM.actions}>
-        <Button
-          type="button"
-          onClick={handlePreview}
-          disabled={loading !== null || blockedByUpstream}
-        >
-          {loading === "preview" ? "Generating preview…" : previewButtonLabel}
-        </Button>
+      {variant === "guided" ? (
         <Button
           type="button"
           onClick={handleApply}
           disabled={
             loading !== null ||
-            !previewIsCurrent ||
             !confirmed ||
-            Boolean(preview?.validationError) ||
             blockedByUpstream
           }
         >
           {applyButtonLabel}
         </Button>
-      </div>
+      ) : (
+        <div className={FORM.actions}>
+          <Button
+            type="button"
+            onClick={handlePreview}
+            disabled={loading !== null || blockedByUpstream}
+          >
+            {loading === "preview" ? "Generating preview…" : previewButtonLabel}
+          </Button>
+          <Button
+            type="button"
+            onClick={handleApply}
+            disabled={
+              loading !== null ||
+              !previewIsCurrent ||
+              !confirmed ||
+              Boolean(preview?.validationError) ||
+              blockedByUpstream
+            }
+          >
+            {applyButtonLabel}
+          </Button>
+        </div>
+      )}
 
       {upstreamBlockedReason ? (
         <p className="text-sm text-muted-foreground">{upstreamBlockedReason}</p>

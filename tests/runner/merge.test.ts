@@ -70,6 +70,14 @@ vi.mock("../../src/runner/phases/integration-repair.js", () => ({
   attemptIntegrationRepair: mocks.attemptIntegrationRepair,
 }));
 
+vi.mock("../../src/product/read-product-marker.js", () => ({
+  readProductMarker: vi.fn().mockResolvedValue({
+    content: null,
+    markerPath: ".p-dev/product.json",
+    developmentBranch: "dev",
+  }),
+}));
+
 vi.mock("../../src/github/base-branch.js", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../../src/github/base-branch.js")>();
@@ -150,6 +158,7 @@ describe("executeMergePhase", () => {
           linearProjects: ["Example Target App"],
           targetRepo: "https://github.com/owner/example-target-app",
           baseBranch: "main",
+          previewProvider: "vercel",
           productionUrl: "https://www.example.com",
         },
       ],
@@ -756,5 +765,75 @@ merge_commit_sha: merged-sha-123
     expect(result.manifest.finalOutcome).toBe("duplicate");
     expect(result.manifest.errorClassification).toBe("duplicate_phase_completed");
     expect(mocks.mergePullRequest).not.toHaveBeenCalled();
+  });
+
+  it("skips production deployment polling when previewProvider is none", async () => {
+    const config: HarnessConfig = {
+      version: 1,
+      orchestratorMarker: "harness-orchestrator-v1",
+      logDirectory: tempRoot,
+      defaultModel: { id: "composer-2.5" },
+      linear: {
+        teamKey: "WES",
+        eligibleStatuses: { merge: ["Ready to Merge"] },
+        transitionalStatuses: {
+          readyToMerge: "Ready to Merge",
+          mergingInProgress: "Merging",
+          mergedDeployed: "Merged / Deployed",
+          blocked: "Blocked",
+        },
+      },
+      merge: {
+        mergeMethod: "squash",
+        allowUnknownChecks: true,
+      },
+      repos: [
+        {
+          id: "target-app",
+          linearProjects: ["Example Target App"],
+          targetRepo: "https://github.com/owner/example-target-app",
+          baseBranch: "main",
+          previewProvider: "none",
+          productionUrl: "https://www.example.com",
+        },
+      ],
+      allowedTargetRepos: [
+        "https://github.com/owner/example-target-app",
+      ],
+    };
+    const noneConfigPath = path.join(tempRoot, "harness.none.config.json");
+    await import("node:fs/promises").then((fs) =>
+      fs.writeFile(noneConfigPath, JSON.stringify(config), "utf8"),
+    );
+
+    mocks.fetchLinearIssue
+      .mockReset()
+      .mockResolvedValueOnce({
+        id: "issue-1",
+        identifier: "WES-13",
+        status: "Ready to Merge",
+        teamId: "team-1",
+        description: issueDescription,
+        projectName: "Example Target App",
+        teamName: "Weston Product Lab",
+      })
+      .mockResolvedValueOnce({
+        id: "issue-1",
+        identifier: "WES-13",
+        status: "Merged / Deployed",
+        teamId: "team-1",
+        description: issueDescription,
+        projectName: "Example Target App",
+        teamName: "Weston Product Lab",
+      });
+
+    const result = await executeMergePhase({
+      issueKey: "WES-13",
+      configPath: noneConfigPath,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.manifest.finalOutcome).toBe("success");
+    expect(mocks.pollForProductionDeployment).not.toHaveBeenCalled();
   });
 });

@@ -3,6 +3,7 @@ import {
   getDispatchEventType,
   getDispatchRepository,
 } from "./dispatch-github.js";
+import { loadHarnessConfig } from "../config/load-config.js";
 import { shouldDispatchLinearIssueEvent } from "./filter.js";
 import {
   parseLinearIssueEvent,
@@ -48,6 +49,17 @@ function jsonResponse(
   body: WebhookResponseBody,
 ): HandleLinearWebhookResult {
   return { status, body };
+}
+
+async function loadHarnessConfigForWebhook() {
+  try {
+    const loaded = await loadHarnessConfig({
+      configPath: process.env.HARNESS_CONFIG_PATH,
+    });
+    return loaded.config;
+  } catch {
+    return undefined;
+  }
 }
 
 export async function handleLinearWebhook(
@@ -108,7 +120,9 @@ export async function handleLinearWebhook(
     return jsonResponse(200, { accepted: false, reason: "ignored_event" });
   }
 
-  const filterResult = shouldDispatchLinearIssueEvent(parsed);
+  const filterResult = shouldDispatchLinearIssueEvent(parsed, {
+    config: await loadHarnessConfigForWebhook(),
+  });
   if (!filterResult.dispatch) {
     logWebhookEvent({
       linearDeliveryId: parsed.linearDeliveryId,

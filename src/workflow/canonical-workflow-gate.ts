@@ -2,7 +2,12 @@ import {
   createLinearSetupClient,
   listTeamWorkflowStates,
 } from "../setup/linear-setup-client.js";
-import { resolveAuthoritativeLinearTeamId } from "../config/resolve-linear-team.js";
+import {
+  resolveAuthoritativeLinearTeamId,
+  resolveAuthoritativeLinearTeamIds,
+} from "../config/resolve-linear-team.js";
+import { runLinearAssociationGate } from "../config/linear-association-gate.js";
+import { hasLinearAssociationsInConfig } from "../config/resolve-linear-workspace.js";
 import type { HarnessConfig } from "../config/types.js";
 import type { LinearIssueSnapshot } from "../linear/client.js";
 import type { ErrorClassification } from "../types/run.js";
@@ -89,25 +94,60 @@ export async function runAuthoritativeCanonicalWorkflowGate(
     };
   }
 
-  const expectedTeamId = await resolveAuthoritativeLinearTeamId({
+  const associationGate = runLinearAssociationGate({
     config: input.config,
-    workspaceRoot: input.workspaceRoot,
-    configPath: input.configPath,
-    baseDir: input.baseDir,
+    teamId: input.issue.teamId,
+    projectId: input.issue.projectId,
   });
+  if (!associationGate.ok) {
+    return {
+      ok: false,
+      message: associationGate.message,
+      errorClassification: associationGate.errorClassification,
+    };
+  }
+
+  const configuredTeamIds = hasLinearAssociationsInConfig(input.config)
+    ? resolveAuthoritativeLinearTeamIds(input.config)
+    : [];
+  const expectedTeamId = hasLinearAssociationsInConfig(input.config)
+    ? input.issue.teamId
+    : await resolveAuthoritativeLinearTeamId({
+        config: input.config,
+        workspaceRoot: input.workspaceRoot,
+        configPath: input.configPath,
+        baseDir: input.baseDir,
+      });
 
   if (!expectedTeamId) {
     return {
       ok: false,
       message: canonicalGateFailureMessage(
         "linear_team_unresolved",
-        "Configured Linear teamId is required (set linear.teamId in harness config or control-plane setup)",
+        "Configured Linear teamId is required (set linear.teamId in harness config or linearAssociations)",
       ),
       errorClassification: "linear_team_unresolved",
     };
   }
 
-  if (input.issue.teamId !== expectedTeamId) {
+  if (
+    hasLinearAssociationsInConfig(input.config) &&
+    !configuredTeamIds.includes(input.issue.teamId)
+  ) {
+    return {
+      ok: false,
+      message: canonicalGateFailureMessage(
+        "linear_team_mismatch",
+        `Linear team mismatch: issue team ${input.issue.teamId} is not among configured teams`,
+      ),
+      errorClassification: "linear_team_mismatch",
+    };
+  }
+
+  if (
+    !hasLinearAssociationsInConfig(input.config) &&
+    input.issue.teamId !== expectedTeamId
+  ) {
     return {
       ok: false,
       message: canonicalGateFailureMessage(
@@ -206,6 +246,9 @@ export function classifyCanonicalGateError(error: unknown): ErrorClassification 
     }
     if (error.message.startsWith("linear_auth_failure:")) {
       return "linear_auth_failure";
+    }
+    if (error.message.startsWith("linear_team_project_not_configured:")) {
+      return "linear_team_project_not_configured";
     }
   }
   return null;

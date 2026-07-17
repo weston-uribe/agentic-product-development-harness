@@ -38,6 +38,42 @@ export function isServiceFailedForValue(
   return verification.attemptedValueFingerprint === valueFingerprint(value);
 }
 
+export function resolveServiceConnectionBadgeState(
+  present: boolean,
+  verification: ServiceVerificationUi,
+  value: string,
+): ServiceVerificationUi["state"] {
+  if (verification.state === "checking") {
+    return "checking";
+  }
+
+  const trimmedValue = value.trim();
+
+  if (verification.state === "connected") {
+    if (trimmedValue) {
+      return isServiceVerifiedForValue(verification, trimmedValue)
+        ? "connected"
+        : "unchecked";
+    }
+    return present ? "connected" : "unchecked";
+  }
+
+  if (verification.state === "failed") {
+    if (trimmedValue) {
+      return isServiceFailedForValue(verification, trimmedValue)
+        ? "failed"
+        : "unchecked";
+    }
+    return present ? "failed" : "unchecked";
+  }
+
+  if (!trimmedValue && present) {
+    return "connected";
+  }
+
+  return "unchecked";
+}
+
 export function isRepoVerifiedForUrl(
   verification: RepoVerificationUi | undefined,
   targetRepo: string,

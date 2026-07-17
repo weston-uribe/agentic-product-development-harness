@@ -1,7 +1,8 @@
 export type ErrorClassification =
   | "ambiguous_issue"
   | "missing_target_repo"
-  | "unknown_repo_denied";
+  | "unknown_repo_denied"
+  | "linear_team_project_not_configured";
 
 export class ResolverError extends Error {
   readonly classification: ErrorClassification;

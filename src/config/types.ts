@@ -1,1 +1,5 @@
-export type { HarnessConfig, RepoMapping } from "./schema.js";
+export type {
+  HarnessConfig,
+  LinearAssociation,
+  RepoMapping,
+} from "./schema.js";

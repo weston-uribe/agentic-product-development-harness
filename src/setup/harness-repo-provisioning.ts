@@ -4,6 +4,10 @@ import { isPackagedPDevRuntime } from "../p-dev/runtime-mode.js";
 import { GitHubApiError } from "../github/client.js";
 import { readExistingEnvFile } from "./env-merge.js";
 import {
+  resolveStep1TrustedHarnessRepo,
+  step1TrustedHarnessRepoMessage,
+} from "./harness-step-readiness-server.js";
+import {
   buildHarnessProvisioningPreviewContext,
   normalizeRepoSlug,
   serializeHarnessProvisioningPreviewContext,
@@ -749,6 +753,22 @@ export async function loadHarnessRepoProvisioningSummary(options: {
   };
 
   if (!isPackagedPDevRuntime()) {
+    const trusted = await resolveStep1TrustedHarnessRepo({
+      cwd: options.cwd,
+      explicitRepo,
+    });
+    if (trusted) {
+      return {
+        ...base,
+        harnessDispatchRepo: trusted.repo,
+        verifiedSavedRepo: true,
+        eligible: false,
+        state: "skipped-source-mode",
+        message: step1TrustedHarnessRepoMessage(trusted),
+        recoverable: false,
+      };
+    }
+
     return {
       ...base,
       eligible: false,

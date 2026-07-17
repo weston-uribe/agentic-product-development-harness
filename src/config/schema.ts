@@ -13,8 +13,19 @@ const githubRepoUrl = z
     "must be a https://github.com/<owner>/<repo> URL",
   );
 
+export const linearAssociationSchema = z.object({
+  workspaceId: z.string().min(1),
+  teamId: z.string().min(1),
+  teamKey: z.string().min(1),
+  projectId: z.string().min(1),
+  projectName: z.string().min(1),
+});
+
+export type LinearAssociation = z.infer<typeof linearAssociationSchema>;
+
 const repoMappingSchema = z.object({
   id: z.string().min(1),
+  linearAssociations: z.array(linearAssociationSchema).optional(),
   linearProjects: z.array(z.string()).optional(),
   linearTeams: z.array(z.string()).optional(),
   targetRepo: githubRepoUrl,
@@ -33,6 +44,7 @@ const repoMappingSchema = z.object({
 });
 
 const linearConfigSchema = z.object({
+  workspaceId: z.string().optional(),
   teamKey: z.string().optional(),
   teamId: z.string().optional(),
   eligibleStatuses: z

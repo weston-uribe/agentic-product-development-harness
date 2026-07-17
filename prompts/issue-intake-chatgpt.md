@@ -42,6 +42,7 @@ When Linear access is available, **read the selected project's description** bef
 ```text
 Harness metadata:
 Target repo: owner/repo
+Product initialization: uninitialized | initialized
 ```
 
 or
@@ -49,6 +50,7 @@ or
 ```text
 Harness metadata:
 Target repo: https://github.com/owner/repo
+Product initialization: uninitialized | initialized
 ```
 
 Also accept `## Target repo` in the project description as a fallback.
@@ -73,6 +75,7 @@ Issue descriptions use **level-2 markdown headers** (`##`).
 ### Optional sections
 
 - `## Validation expectations`
+- `## Product foundation` (optional; use for uninitialized products — include platform runtime and language framework)
 - `## Context and links`
 - `## User / job story`
 - `## Eval hints`
@@ -109,6 +112,7 @@ What happens next is controlled by the **Linear status field**, not the descript
 | Structurally incomplete | Backlog |
 | Narrow + low-risk (see below) | May recommend Ready for Build **only after user confirms** |
 | Broad, ambiguous, cross-cutting, high-risk, or >7 AC / long task | Ready for Planning or Backlog |
+| Product initialization is `uninitialized` | Ready for Planning only |
 | Default | Backlog |
 
 - **Never** set Ready for Build for broad or ambiguous work, even if the user requests it. Explain why and offer Ready for Planning or Backlog.

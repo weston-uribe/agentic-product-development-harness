@@ -55,6 +55,14 @@ vi.mock("../../src/preview/vercel-from-pr.js", () => ({
   pollForVercelPreview: mocks.pollForVercelPreview,
 }));
 
+vi.mock("../../src/product/read-product-marker.js", () => ({
+  readProductMarker: vi.fn().mockResolvedValue({
+    content: null,
+    markerPath: ".p-dev/product.json",
+    developmentBranch: "dev",
+  }),
+}));
+
 vi.mock("../../src/github/base-branch.js", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../../src/github/base-branch.js")>();
@@ -342,5 +350,79 @@ describe("executeRevisionPhase", () => {
     expect(result.exitCode).toBe(2);
     expect(result.manifest.errorClassification).toBe("wrong_status");
     expect(mocks.postRevisionComment).not.toHaveBeenCalled();
+  });
+
+  it("skips preview polling when previewProvider is none", async () => {
+    const config: HarnessConfig = {
+      version: 1,
+      orchestratorMarker: "harness-orchestrator-v1",
+      logDirectory: tempRoot,
+      defaultModel: { id: "composer-2.5" },
+      linear: {
+        teamKey: "WES",
+        eligibleStatuses: {
+          revision: ["Needs Revision"],
+        },
+        transitionalStatuses: {
+          needsRevision: "Needs Revision",
+          revisingInProgress: "Revising",
+          pmReview: "PM Review",
+          blocked: "Blocked",
+        },
+      },
+      revision: { timeoutSeconds: 60 },
+      repos: [
+        {
+          id: "target-app",
+          linearProjects: ["Example Target App"],
+          targetRepo: "https://github.com/owner/example-target-app",
+          baseBranch: "main",
+          previewProvider: "none",
+          validation: { commands: ["npm run lint", "npm run build"] },
+        },
+      ],
+      allowedTargetRepos: [
+        "https://github.com/owner/example-target-app",
+      ],
+    };
+    const noneConfigPath = path.join(tempRoot, "harness.none.config.json");
+    await import("node:fs/promises").then((fs) =>
+      fs.writeFile(noneConfigPath, JSON.stringify(config), "utf8"),
+    );
+
+    mocks.fetchLinearIssue
+      .mockReset()
+      .mockResolvedValueOnce({
+        id: "issue-rev",
+        identifier: "WES-13",
+        title: "M3 implementation integration test",
+        description: issueDescription,
+        status: "Needs Revision",
+        projectName: "Example Target App",
+        teamName: "WES",
+        teamId: "team-1",
+        url: "https://linear.app/example/issue/WES-13/test",
+      })
+      .mockResolvedValueOnce({
+        id: "issue-rev",
+        identifier: "WES-13",
+        title: "M3 implementation integration test",
+        description: issueDescription,
+        status: "PM Review",
+        projectName: "Example Target App",
+        teamName: "WES",
+        teamId: "team-1",
+        url: "https://linear.app/example/issue/WES-13/test",
+      });
+
+    const result = await executeRevisionPhase({
+      issueKey: "WES-13",
+      configPath: noneConfigPath,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.manifest.finalOutcome).toBe("success");
+    expect(mocks.pollForVercelPreview).not.toHaveBeenCalled();
+    expect(mocks.postRevisionComment).toHaveBeenCalledTimes(1);
   });
 });
