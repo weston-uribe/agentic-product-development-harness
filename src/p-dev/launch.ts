@@ -7,6 +7,7 @@ import type { PDevCliOptions } from "./cli.js";
 import { parsePDevCliOptions } from "./cli.js";
 import { assertNodeVersion } from "./node-version.js";
 import {
+  P_DEV_PACKAGE_ROOT_ENV,
   resolveGuiDirectory,
   resolvePackageRootFromModule,
   resolveTemplatesDirectory,
@@ -161,6 +162,7 @@ export async function launchPDev(
         HARNESS_REPO_ROOT: workspace.workspaceDir,
         P_DEV_RUNTIME_MODE: "packaged",
         [P_DEV_PACKAGE_VERSION_ENV]: packagedVersion,
+        [P_DEV_PACKAGE_ROOT_ENV]: packageRoot,
         ...packagedObservabilityEnv,
         HARNESS_GUI_HOST: host,
         HARNESS_GUI_PORT: String(port),

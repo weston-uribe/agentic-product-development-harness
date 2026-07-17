@@ -1,10 +1,12 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import {
+  resolveInstalledPackageRootFromEnv,
   resolvePackageRootFromModule,
   resolveWorkspaceSnapshotDirectory,
 } from "../p-dev/package-paths.js";
 import { readPDevPackageVersionFromPackageRoot } from "../p-dev/package-version.js";
+import { isPackagedPDevRuntime } from "../p-dev/runtime-mode.js";
 import {
   fingerprintWorkspaceSnapshotManifest,
   parseWorkspaceSnapshotManifestJson,
@@ -25,10 +27,15 @@ export type EmbeddedWorkspaceSnapshotLoadResult =
 
 export async function loadEmbeddedWorkspaceSnapshot(
   moduleUrl: string = import.meta.url,
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<EmbeddedWorkspaceSnapshotLoadResult> {
   let packageRoot: string;
   try {
-    packageRoot = resolvePackageRootFromModule(moduleUrl);
+    // Packaged Next bundles retain synthetic source-style import.meta.url values.
+    // Resolve exclusively from the launcher-validated install root.
+    packageRoot = isPackagedPDevRuntime(env)
+      ? resolveInstalledPackageRootFromEnv(env)
+      : resolvePackageRootFromModule(moduleUrl);
   } catch (error) {
     return {
       ok: false,

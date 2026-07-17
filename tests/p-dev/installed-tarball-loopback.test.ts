@@ -586,6 +586,112 @@ return { sessionId: session?.sessionId, releaseSha: session?.context.releaseSha 
       expect(output.releaseSha).toBe(metadata.releaseSha);
     });
 
+    it("loads embedded snapshot from P_DEV_PACKAGE_ROOT when moduleUrl is a nonexistent source worktree", async () => {
+      const home = await makeHome();
+      const metadata = expectedPackagedMetadata(tarballPath);
+      const loaderPath = path.join(
+        packageRoot,
+        "dist/setup/harness-workspace-snapshot-loader.js",
+      );
+      expect(existsSync(loaderPath)).toBe(true);
+      const loaderUrl = pathToFileURL(loaderPath).href;
+      const bogusModuleUrl =
+        "file:///private/tmp/p-dev-v040-candidate-a-e0348f78/src/setup/harness-repo-provisioning.ts";
+
+      const scriptPath = path.join(
+        await mkdtemp(path.join(os.tmpdir(), "p-dev-scenario-snapshot-root-")),
+        "scenario.mjs",
+      );
+      tempDirs.push(path.dirname(scriptPath));
+      await writeFile(
+        scriptPath,
+        `
+const { loadEmbeddedWorkspaceSnapshot } = await import(${JSON.stringify(loaderUrl)});
+const result = await loadEmbeddedWorkspaceSnapshot(
+  ${JSON.stringify(bogusModuleUrl)},
+  process.env,
+);
+console.log(JSON.stringify({
+  ok: result.ok,
+  state: result.ok ? undefined : result.state,
+  message: result.ok ? undefined : result.message,
+  packageRoot: result.ok ? result.packageRoot : undefined,
+  packageVersion: result.ok ? result.packageVersion : undefined,
+  sourceCommit: result.ok ? result.manifest.sourceCommit : undefined,
+}));
+process.exit(0);
+`,
+        "utf8",
+      );
+
+      const env: NodeJS.ProcessEnv = { ...process.env };
+      for (const key of [
+        "VITEST",
+        "CI",
+        "GITHUB_ACTIONS",
+        "VERCEL",
+        "P_DEV_OBSERVABILITY_SESSION_ID",
+        "P_DEV_OBSERVABILITY_NONCE",
+        "DO_NOT_TRACK",
+        "P_DEV_OBSERVABILITY_DISABLED",
+        "P_DEV_ANALYTICS_DISABLED",
+        "P_DEV_SENTRY_DISABLED",
+      ]) {
+        delete env[key];
+      }
+      env.NODE_ENV = "production";
+      env.P_DEV_RUNTIME_MODE = "packaged";
+      env.P_DEV_PACKAGE_VERSION = metadata.packageVersion;
+      env.P_DEV_PACKAGE_ROOT = packageRoot;
+      env.P_DEV_HOME = home;
+
+      // Manifest tree verification uses `git mktree`, which requires a git
+      // repository cwd on this platform. Use the source checkout cwd while the
+      // installed package root comes exclusively from P_DEV_PACKAGE_ROOT.
+      const { stdout } = await execFileAsync(process.execPath, [scriptPath], {
+        cwd: repoRoot,
+        env,
+        timeout: 60_000,
+        maxBuffer: 1024 * 1024,
+      });
+      const output = JSON.parse(
+        stdout.trim().split("\n").at(-1) ?? "{}",
+      ) as {
+        ok?: boolean;
+        packageRoot?: string;
+        packageVersion?: string;
+        sourceCommit?: string;
+        message?: string;
+      };
+
+      expect(output.ok).toBe(true);
+      expect(output.packageRoot).toBe(packageRoot);
+      expect(output.packageRoot).not.toBe(repoRoot);
+      expect(output.packageVersion).toBe(metadata.packageVersion);
+      expect(output.sourceCommit).toBe(metadata.releaseSha);
+      expect(output.sourceCommit).toMatch(/^[0-9a-f]{40}$/);
+
+      // Without the launcher handoff, packaged loading must not fall back to
+      // moduleUrl / ambient source discovery.
+      delete env.P_DEV_PACKAGE_ROOT;
+      const { stdout: missingStdout } = await execFileAsync(
+        process.execPath,
+        [scriptPath],
+        {
+          cwd: repoRoot,
+          env,
+          timeout: 60_000,
+          maxBuffer: 1024 * 1024,
+        },
+      );
+      const missingOutput = JSON.parse(
+        missingStdout.trim().split("\n").at(-1) ?? "{}",
+      ) as { ok?: boolean; message?: string };
+      expect(missingOutput.ok).toBe(false);
+      expect(missingOutput.message).toMatch(/P_DEV_PACKAGE_ROOT is required/);
+    });
+
+
     it("correlates both enabled categories without leaking installation ID to Sentry", async () => {
       sentryRequests = [];
       posthogRequests = [];
