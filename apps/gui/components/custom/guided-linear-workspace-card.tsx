@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { motion, useReducedMotion } from "framer-motion";
 import type { LinearSetupPreview } from "@harness/setup/linear-setup-apply";
 import type { LinearSetupApplyResult } from "@harness/setup/linear-setup-apply";
 import type { LinearSetupSummary } from "@harness/setup/linear-setup-summary";
@@ -55,6 +56,7 @@ export function GuidedLinearWorkspaceCard({
   );
   const [teams, setTeams] = useState<LinearTeamSummary[]>([]);
   const [projects, setProjects] = useState<LinearProjectSummary[]>([]);
+  const [optionsLoaded, setOptionsLoaded] = useState(false);
   const [optionsLoading, setOptionsLoading] = useState(false);
   const [optionsError, setOptionsError] = useState<string | null>(null);
   const [preview, setPreview] = useState<LinearSetupPreview | null>(null);
@@ -69,6 +71,8 @@ export function GuidedLinearWorkspaceCard({
     null,
   );
   const [verifiedSuccess, setVerifiedSuccess] = useState(false);
+  const applyInFlightRef = useRef(false);
+  const prefersReducedMotion = useReducedMotion() ?? false;
 
   useEffect(() => {
     setSummary(initialSummary);
@@ -100,6 +104,7 @@ export function GuidedLinearWorkspaceCard({
     if (!apiKeyConfigured) {
       return;
     }
+    setOptionsLoaded(false);
     setOptionsLoading(true);
     setOptionsError(null);
     try {
@@ -119,6 +124,7 @@ export function GuidedLinearWorkspaceCard({
           : "Failed to load Linear teams and projects",
       );
     } finally {
+      setOptionsLoaded(true);
       setOptionsLoading(false);
     }
   }, [apiKeyConfigured]);
@@ -131,12 +137,48 @@ export function GuidedLinearWorkspaceCard({
     if (!teamId) {
       return projects;
     }
-    const scoped = projects.filter(
+    return projects.filter(
       (project) =>
         project.teamIds.length === 0 || project.teamIds.includes(teamId),
     );
-    return scoped.length > 0 ? scoped : projects;
   }, [projects, teamId]);
+
+  const hasEligibleProjects = projectOptions.length > 0;
+  const forceCreateProject = optionsLoaded && !hasEligibleProjects;
+
+  useEffect(() => {
+    if (!optionsLoaded) {
+      return;
+    }
+
+    const selectedProjectStillEligible =
+      projectId === "" || projectOptions.some((project) => project.id === projectId);
+
+    if (hasEligibleProjects) {
+      if (!selectedProjectStillEligible) {
+        setProjectId("");
+        invalidatePreview();
+      }
+      return;
+    }
+
+    if (projectMode !== "create") {
+      setProjectMode("create");
+    }
+    if (projectId !== "") {
+      setProjectId("");
+    }
+    if (projectMode !== "create" || projectId !== "") {
+      invalidatePreview();
+    }
+  }, [
+    hasEligibleProjects,
+    invalidatePreview,
+    optionsLoaded,
+    projectId,
+    projectMode,
+    projectOptions,
+  ]);
 
   const refreshSummary = useCallback(async () => {
     setLoading("refresh");
@@ -214,10 +256,11 @@ export function GuidedLinearWorkspaceCard({
   }, [clearVerifiedSuccess, runPreview]);
 
   const handleApply = async () => {
-    if (!confirmed) {
+    if (!confirmed || loading !== null || applyInFlightRef.current) {
       return;
     }
 
+    applyInFlightRef.current = true;
     setLoading("apply");
     setError(null);
     clearVerifiedSuccess();
@@ -260,6 +303,7 @@ export function GuidedLinearWorkspaceCard({
     } catch (applyError) {
       setError(applyError instanceof Error ? applyError.message : "Apply failed");
     } finally {
+      applyInFlightRef.current = false;
       setLoading(null);
     }
   };
@@ -357,19 +401,25 @@ export function GuidedLinearWorkspaceCard({
 
               <div className="space-y-2">
                 <Label htmlFor="linear-project-mode">Project</Label>
-                <select
-                  id="linear-project-mode"
-                  className={selectClassName}
-                  value={projectMode}
-                  onChange={(event) => {
-                    setProjectMode(event.target.value as "existing" | "create");
-                    invalidatePreview();
-                  }}
-                >
-                  <option value="existing">Use existing project</option>
-                  <option value="create">Create new project</option>
-                </select>
-                {projectMode === "existing" ? (
+                {!forceCreateProject ? (
+                  <select
+                    id="linear-project-mode"
+                    className={selectClassName}
+                    value={projectMode}
+                    onChange={(event) => {
+                      setProjectMode(event.target.value as "existing" | "create");
+                      invalidatePreview();
+                    }}
+                  >
+                    <option value="existing">Use existing project</option>
+                    <option value="create">Create new project</option>
+                  </select>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Create a new project for this Linear team.
+                  </p>
+                )}
+                {!forceCreateProject && projectMode === "existing" ? (
                   <>
                     <select
                       className={selectClassName}
@@ -390,21 +440,6 @@ export function GuidedLinearWorkspaceCard({
                     {optionsLoading ? (
                       <p className="text-sm text-muted-foreground">
                         Loading Linear projects…
-                      </p>
-                    ) : null}
-                    {!optionsLoading && projectOptions.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">
-                        No Linear projects found for this API key.
-                      </p>
-                    ) : null}
-                    {!optionsLoading &&
-                    projectOptions.length > 0 &&
-                    teamId &&
-                    projects.some((project) => project.teamIds.length > 0) &&
-                    projectOptions.length === projects.length ? (
-                      <p className="text-sm text-muted-foreground">
-                        Showing all workspace projects because team association
-                        could not be narrowed further.
                       </p>
                     ) : null}
                   </>
@@ -519,6 +554,8 @@ export function GuidedLinearWorkspaceCard({
                 <Button
                   type="button"
                   onClick={() => void handleApply()}
+                  aria-busy={loading === "apply" ? "true" : undefined}
+                  className="relative min-w-[14rem] justify-center overflow-hidden"
                   disabled={
                     loading !== null ||
                     !confirmed ||
@@ -526,7 +563,22 @@ export function GuidedLinearWorkspaceCard({
                     Boolean(preview?.validationError)
                   }
                 >
-                  {loading === "apply" ? "Applying…" : "Apply Linear workspace setup"}
+                  {loading === "apply" && !prefersReducedMotion ? (
+                    <motion.span
+                      aria-hidden="true"
+                      className="absolute inset-y-0 left-0 w-1/2 bg-primary-foreground/20"
+                      initial={{ x: "-120%" }}
+                      animate={{ x: "240%" }}
+                      transition={{
+                        duration: 1.1,
+                        ease: "easeInOut",
+                        repeat: Infinity,
+                      }}
+                    />
+                  ) : null}
+                  <span className="relative z-10">
+                    {loading === "apply" ? "Applying…" : "Apply Linear workspace setup"}
+                  </span>
                 </Button>
               </div>
             ) : null}
