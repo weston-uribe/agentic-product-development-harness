@@ -128,3 +128,14 @@ examples/           → Example runs
 ## Tone
 
 Write for hiring managers and technical reviewers: clear, honest, structured. Early-stage is a feature—do not dress v0.3 up as production-grade SaaS.
+
+## Cursor Cloud specific instructions
+
+Standard dev commands are documented in [`README.md`](README.md) and [`docs/getting-started.md`](docs/getting-started.md) (`npm ci`, `npm run build`, `npm test`, `npm run harness:configure`). Non-obvious caveats:
+
+- **Node 22+ ESM/TypeScript project.** The CLI runs TS directly via `tsx`. `npm run build` runs `tsc` plus the Configure GUI build.
+- **No repo-level lint tooling.** There is no ESLint/Prettier/Biome config at the root and no `npm run lint` script for this repo (the `lint` command in `harness.config.json` runs against *target* repos, not here). The effective static check for this repo is the TypeScript typecheck run as part of `npm run build`.
+- **Configure GUI:** `npm run harness:configure:stable` pins to `http://localhost:3000/settings/configure` and cleans `apps/gui/.next` on start; `npm run harness:configure` auto-selects a free port instead. If the page renders unstyled, stop and re-run the `:stable` command.
+- **Tests and the GUI run fully offline.** The vitest suite uses fixtures/mocks and needs no credentials. `LINEAR_API_KEY`, `CURSOR_API_KEY`, and `GITHUB_TOKEN` are only needed for *live* harness runs; `npm run harness:doctor` reporting them as missing is expected offline.
+- **Exercise the orchestrator offline** with a dry run: `npm run harness:run -- --issue WES-FIXTURE --dry-run --fixture tests/fixtures/issues/valid-target-app.md` (writes to the gitignored `runs/` dir).
+- **Slow tests:** `tests/p-dev/installed-tarball-loopback.test.ts` and `tests/p-dev/package-packed-artifact.test.ts` pack and install the `p-dev` package, so a full `npm test` can take about a minute.
