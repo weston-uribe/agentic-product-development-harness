@@ -166,6 +166,51 @@ export async function applyVercelBridge(input: {
   );
 }
 
+export async function fetchRunnerUpgradeStatus() {
+  const response = await fetch("/api/setup/runner-upgrade-status");
+  return readSetupJsonResponse<
+    import("@harness/setup/runner-upgrade-types").RunnerUpgradeStatusResult
+  >(response, "GET /api/setup/runner-upgrade-status");
+}
+
+export async function previewRunnerUpgrade() {
+  const response = await fetch("/api/setup/preview-runner-upgrade", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+  return readSetupJsonResponse<
+    import("@harness/setup/runner-upgrade-types").RunnerUpgradePreviewResult
+  >(response, "POST /api/setup/preview-runner-upgrade");
+}
+
+export async function applyRunnerUpgrade(input: {
+  previewFingerprint?: string;
+  resume?: boolean;
+}) {
+  const response = await fetch("/api/setup/apply-runner-upgrade", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      confirmed: true,
+      previewFingerprint: input.previewFingerprint,
+      resume: input.resume === true,
+    }),
+  });
+  return readSetupJsonResponse<{
+    apply: import("@harness/setup/runner-upgrade-types").RunnerUpgradeApplyResult;
+    status: import("@harness/setup/runner-upgrade-types").RunnerUpgradeStatusResult;
+  }>(response, "POST /api/setup/apply-runner-upgrade");
+}
+
+export async function fetchRunnerUpgradeProgress() {
+  const response = await fetch("/api/setup/runner-upgrade-progress");
+  return readSetupJsonResponse<{
+    progress: import("@harness/setup/runner-upgrade-progress").RunnerUpgradeProgressState | null;
+  }>(response, "GET /api/setup/runner-upgrade-progress").then(
+    (payload) => payload.progress,
+  );
+}
+
 export async function previewSettingsConfigPatch(input: {
   patch: SettingsConfigPatch;
   verifyBranches?: boolean;

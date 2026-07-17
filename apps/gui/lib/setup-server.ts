@@ -108,10 +108,28 @@ import type {
   TargetWorkflowFinalizationResult,
 } from "@harness/setup/target-workflow-finalization-types";
 import { collectRemoteSecretInputs } from "@harness/setup/redact-secrets";
-import {
-  loadGithubTokenFromEnvLocal,
+import { loadGithubTokenFromEnvLocal,
   hasGithubTokenConfigured,
 } from "@harness/setup/setup-github-auth";
+import { createLiveRunnerUpgradeProvider } from "@harness/setup/runner-upgrade-provider-live";
+import { tryCreateHarnessTestRunnerUpgradeProvider } from "@harness/setup/test-only-runner-upgrade-provider";
+import {
+  applyRunnerUpgrade,
+  loadRunnerUpgradeStatus,
+  previewRunnerUpgrade,
+  resumeRunnerUpgrade,
+} from "@harness/setup/runner-upgrade";
+import {
+  readRunnerUpgradeProgress,
+  type RunnerUpgradeProgressState,
+} from "@harness/setup/runner-upgrade-progress";
+import type {
+  RunnerUpgradeApplyResult,
+  RunnerUpgradePreviewResult,
+  RunnerUpgradeStatusResult,
+} from "@harness/setup/runner-upgrade-types";
+import { runnerUpgradeStatusLabel } from "@harness/setup/runner-upgrade-types";
+import type { RunnerUpgradeGitHubProvider } from "@harness/setup/runner-upgrade-provider";
 import {
   loadControlPlaneReadinessContext,
 } from "@harness/setup/control-plane-readiness-server";
@@ -228,6 +246,88 @@ async function resolveRemoteProvider(): Promise<
     return undefined;
   }
   return createLiveGitHubRemoteSetupProvider(token!);
+}
+
+async function resolveRunnerUpgradeProvider(): Promise<
+  RunnerUpgradeGitHubProvider | undefined
+> {
+  const testProvider = await tryCreateHarnessTestRunnerUpgradeProvider();
+  if (testProvider) {
+    return testProvider;
+  }
+  const token = await loadGithubTokenFromEnvLocal({ cwd: resolveCwd() });
+  if (!hasGithubTokenConfigured(token)) {
+    return undefined;
+  }
+  return createLiveRunnerUpgradeProvider(token!);
+}
+
+export async function loadRunnerUpgradeStatusForGui(): Promise<RunnerUpgradeStatusResult> {
+  const provider = await resolveRunnerUpgradeProvider();
+  if (!provider) {
+    return {
+      status: "failed",
+      statusLabel: runnerUpgradeStatusLabel("failed"),
+      blockedReason:
+        "GITHUB_TOKEN is required to check or update the managed p-dev runner.",
+    };
+  }
+  return loadRunnerUpgradeStatus(resolveCwd(), provider);
+}
+
+export async function previewRunnerUpgradeForGui(): Promise<RunnerUpgradePreviewResult> {
+  const provider = await resolveRunnerUpgradeProvider();
+  if (!provider) {
+    return {
+      previewFingerprint: "",
+      targetSnapshotContentId: "",
+      phases: [],
+      blocked: true,
+      blockedStatus: "failed",
+      message:
+        "GITHUB_TOKEN is required to preview a managed p-dev runner upgrade.",
+      impact: {
+        replacePathCount: 0,
+        deletePathCount: 0,
+        sampleReplacePaths: [],
+        sampleDeletePaths: [],
+      },
+    };
+  }
+  return previewRunnerUpgrade(resolveCwd(), provider);
+}
+
+export async function applyRunnerUpgradeForGui(options: {
+  confirmed: boolean;
+  previewFingerprint?: string;
+  resume?: boolean;
+}): Promise<{
+  apply: RunnerUpgradeApplyResult;
+  status: RunnerUpgradeStatusResult;
+}> {
+  if (!options.confirmed) {
+    throw new Error("Confirmed apply is required.");
+  }
+  const provider = await resolveRunnerUpgradeProvider();
+  if (!provider) {
+    throw new Error(
+      "GITHUB_TOKEN is required to apply a managed p-dev runner upgrade.",
+    );
+  }
+  const cwd = resolveCwd();
+  const apply = options.resume
+    ? await resumeRunnerUpgrade(cwd, provider, {
+        previewFingerprint: options.previewFingerprint,
+      })
+    : await applyRunnerUpgrade(cwd, provider, {
+        previewFingerprint: options.previewFingerprint,
+      });
+  const status = await loadRunnerUpgradeStatus(cwd, provider);
+  return { apply, status };
+}
+
+export async function loadRunnerUpgradeProgressForGui(): Promise<RunnerUpgradeProgressState | null> {
+  return readRunnerUpgradeProgress(resolveCwd());
 }
 
 function toOperatorInput(
