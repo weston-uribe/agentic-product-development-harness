@@ -1,5 +1,11 @@
 import { EXIT_CONFIG } from "../exit-codes.js";
+import {
+  buildFallbackRunManifest,
+  writeJsonOutManifest,
+} from "../../artifacts/write-json-out-manifest.js";
+import { resolveRunGeneration } from "../../runner/run-generation.js";
 import { runOrchestrator, type RunPhaseArg } from "../../runner/orchestrator.js";
+import type { RunManifest } from "../../types/run.js";
 
 export interface RunCommandOptions {
   issueKey: string;
@@ -7,8 +13,16 @@ export interface RunCommandOptions {
   dryRun?: boolean;
   fixturePath?: string;
   json?: boolean;
+  jsonOut?: string;
   phase?: RunPhaseArg;
   force?: boolean;
+}
+
+async function writeRunJsonOut(
+  jsonOut: string,
+  manifest: RunManifest,
+): Promise<void> {
+  await writeJsonOutManifest(jsonOut, manifest);
 }
 
 export async function runRunCommand(options: RunCommandOptions): Promise<number> {
@@ -22,23 +36,57 @@ export async function runRunCommand(options: RunCommandOptions): Promise<number>
     return EXIT_CONFIG;
   }
 
-  const result = await runOrchestrator({
-    issueKey: options.issueKey,
-    configPath: options.configPath,
-    dryRun: options.dryRun,
-    fixturePath: options.fixturePath,
-    phase: options.dryRun ? "dry-run" : options.phase,
-    force: options.force,
-  });
+  const deliveryId = process.env.LINEAR_DELIVERY_ID ?? null;
+  const runGeneration = resolveRunGeneration();
 
-  if (options.json && result.manifest) {
-    console.log(JSON.stringify(result.manifest, null, 2));
-  } else if (result.manifest && typeof result.manifest === "object") {
-    const manifest = result.manifest as {
-      finalOutcome: string;
-      errorClassification?: string | null;
-      dryRun?: boolean;
-    };
+  let result: { exitCode: number; runDirectory?: string; manifest?: unknown };
+  try {
+    result = await runOrchestrator({
+      issueKey: options.issueKey,
+      configPath: options.configPath,
+      dryRun: options.dryRun,
+      fixturePath: options.fixturePath,
+      phase: options.dryRun ? "dry-run" : options.phase,
+      force: options.force,
+    });
+  } catch (error) {
+    if (options.jsonOut) {
+      const fallback = buildFallbackRunManifest({
+        issueKey: options.issueKey,
+        errorClassification: "run_crash",
+        message: error instanceof Error ? error.message : String(error),
+        deliveryId,
+        runGeneration,
+      });
+      await writeRunJsonOut(options.jsonOut, fallback);
+    }
+    throw error;
+  }
+
+  const manifest = result.manifest as RunManifest | undefined;
+
+  if (options.jsonOut) {
+    if (manifest) {
+      await writeRunJsonOut(options.jsonOut, {
+        ...manifest,
+        deliveryId: manifest.deliveryId ?? deliveryId,
+        runGeneration: manifest.runGeneration ?? runGeneration,
+      });
+    } else {
+      const fallback = buildFallbackRunManifest({
+        issueKey: options.issueKey,
+        errorClassification: "run_crash",
+        message: "Harness run finished without a manifest",
+        deliveryId,
+        runGeneration,
+      });
+      await writeRunJsonOut(options.jsonOut, fallback);
+    }
+  }
+
+  if (options.json && manifest) {
+    console.log(JSON.stringify(manifest, null, 2));
+  } else if (manifest && typeof manifest === "object") {
     const label = manifest.dryRun ? "Dry run" : "Run";
     console.log(`${label} finished: ${manifest.finalOutcome}`);
     if (result.runDirectory) {

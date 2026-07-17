@@ -53,6 +53,7 @@ export function createProgram(): Command {
     .option("--force", "Re-run planning even when idempotency markers exist", false)
     .option("--fixture <path>", "Load issue description from a local markdown fixture")
     .option("--json", "Print manifest JSON to stdout", false)
+    .option("--json-out <path>", "Write redacted manifest JSON to a file")
     .action(async (opts) => {
       const configPath = program.opts<{ config: string }>().config;
       const exitCode = await runRunCommand({
@@ -61,6 +62,7 @@ export function createProgram(): Command {
         dryRun: opts.dryRun,
         fixturePath: opts.fixture,
         json: opts.json,
+        jsonOut: opts.jsonOut,
         phase: opts.phase,
         force: opts.force,
       });

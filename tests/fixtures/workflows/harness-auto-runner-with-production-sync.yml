@@ -231,14 +231,25 @@ jobs:
           if [ "$FORCE_FLAG_INPUT" = "true" ]; then
             FORCE_FLAG="--force"
           fi
-          npm run harness:run -- --issue "$ISSUE_KEY" --phase "$PHASE" $FORCE_FLAG --json 2>&1 \
-            | tee harness-raw-output.txt
-          EXIT_CODE=${PIPESTATUS[0]}
-          npm run harness:redact-output < harness-raw-output.txt > harness-run-output.json
-          rm -f harness-raw-output.txt
-          echo "Redacted harness output written to harness-run-output.json"
+          npm run harness:run -- --issue "$ISSUE_KEY" --phase "$PHASE" $FORCE_FLAG --json-out harness-run-output.json
+          EXIT_CODE=$?
           echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
           exit $EXIT_CODE
+
+      - name: Finalize harness run
+        if: always()
+        env:
+          ISSUE_KEY: ${{ needs.gate.outputs.issue_key }}
+          EXIT_CODE: ${{ steps.harness.outputs.exit_code }}
+          LINEAR_DELIVERY_ID: ${{ needs.gate.outputs.linear_delivery_id }}
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          HARNESS_CONFIG_JSON_B64: ${{ secrets.HARNESS_CONFIG_JSON_B64 }}
+          HARNESS_CONFIG_FINGERPRINT: ${{ vars.HARNESS_CONFIG_FINGERPRINT }}
+        run: |
+          npx tsx src/workflow/finalize-harness-run.ts \
+            --issue "$ISSUE_KEY" \
+            --json-out harness-run-output.json \
+            --exit-code "${EXIT_CODE:-1}"
 
       - name: Write step summary
         if: always()
@@ -340,14 +351,25 @@ jobs:
           if [ "$FORCE_FLAG_INPUT" = "true" ]; then
             FORCE_FLAG="--force"
           fi
-          npm run harness:run -- --issue "$ISSUE_KEY" --phase merge $FORCE_FLAG --json 2>&1 \
-            | tee harness-raw-output.txt
-          EXIT_CODE=${PIPESTATUS[0]}
-          npm run harness:redact-output < harness-raw-output.txt > harness-run-output.json
-          rm -f harness-raw-output.txt
+          npm run harness:run -- --issue "$ISSUE_KEY" --phase merge $FORCE_FLAG --json-out harness-run-output.json
+          EXIT_CODE=$?
           echo "Redacted harness output written to harness-run-output.json"
           echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
           exit $EXIT_CODE
+
+      - name: Finalize merge run
+        if: always()
+        env:
+          ISSUE_KEY: ${{ needs.gate.outputs.issue_key }}
+          EXIT_CODE: ${{ steps.merge.outputs.exit_code }}
+          LINEAR_DELIVERY_ID: ${{ needs.gate.outputs.linear_delivery_id }}
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          HARNESS_CONFIG_JSON_B64: ${{ secrets.HARNESS_CONFIG_JSON_B64 }}
+        run: |
+          npx tsx src/workflow/finalize-harness-run.ts \
+            --issue "$ISSUE_KEY" \
+            --json-out harness-run-output.json \
+            --exit-code "${EXIT_CODE:-1}"
 
       - name: Write step summary
         if: always()

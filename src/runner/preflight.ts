@@ -1,5 +1,9 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { MILESTONE } from "../config/defaults.js";
+import {
+  assertCloudConfigFingerprintFromEnv,
+  CloudConfigStaleError,
+} from "../config/assert-cloud-config-fingerprint.js";
 import { loadHarnessConfig } from "../config/load-config.js";
 import { resolveHarnessWorkspaceRootFromConfigSource } from "../config/workspace-root.js";
 import type { HarnessConfig } from "../config/types.js";
@@ -24,6 +28,11 @@ import { inferPhaseFromStatus } from "./phase-infer.js";
 import { logExecutionEnvironmentMarker } from "./execution-environment.js";
 import { loadIssueFixture } from "./fixture.js";
 import {
+  checkDeliveryDedup,
+  recordDeliveryStart,
+} from "./delivery-dedup.js";
+import { resolveRunGeneration } from "./run-generation.js";
+import {
   assertAuthoritativeCanonicalWorkflowGate,
   CanonicalWorkflowGateError,
   classifyCanonicalGateError,
@@ -32,6 +41,8 @@ import {
 import type { ErrorClassification, RunPhase } from "../types/run.js";
 import type { ParsedIssue } from "../types/parsed-issue.js";
 import type { LinearIssueSnapshot } from "../linear/client.js";
+import { acknowledgeIssueReceived } from "../linear/run-status-comment.js";
+import { createLinearClient } from "../linear/writer.js";
 
 export interface PreflightOptions {
   issueKey: string;
@@ -95,6 +106,29 @@ export async function runPreflight(
   let workspaceRoot: string | undefined;
 
   try {
+    try {
+      assertCloudConfigFingerprintFromEnv();
+    } catch (error) {
+      if (error instanceof CloudConfigStaleError) {
+        return {
+          success: false,
+          config: null,
+          issue: null,
+          parsed,
+          resolved: null,
+          runId,
+          runDirectory: "",
+          events: null,
+          phase: "none",
+          phaseInferredFromStatus: null,
+          startedAt,
+          errorClassification: "cloud_config_stale",
+          message: error.message,
+        };
+      }
+      throw error;
+    }
+
     const loaded = await loadHarnessConfig({ configPath: options.configPath });
     config = loaded.config;
     workspaceRoot = resolveHarnessWorkspaceRootFromConfigSource(loaded.source);
@@ -138,6 +172,46 @@ export async function runPreflight(
       }
       issue = await fetchLinearIssue(options.issueKey, apiKey);
       await events.log("issue_fetched", "info", { issueKey: issue.identifier });
+
+      const deliveryId = process.env.LINEAR_DELIVERY_ID?.trim();
+      if (deliveryId) {
+        const dedup = await checkDeliveryDedup({
+          logDirectory: config.logDirectory,
+          deliveryId,
+          runId,
+          issueKey: options.issueKey,
+        });
+        if (dedup.shouldSkip) {
+          await events.log("idempotency_skip", "info", {
+            reason: dedup.reason ?? "duplicate_delivery",
+            deliveryId,
+            existingRunId: dedup.existing?.runId,
+          });
+          throw new ResolverError(
+            "duplicate_delivery",
+            dedup.reason ?? `Duplicate delivery ${deliveryId}`,
+          );
+        }
+        await recordDeliveryStart({
+          logDirectory: config.logDirectory,
+          deliveryId,
+          issueKey: options.issueKey,
+          runId,
+        });
+      }
+
+      if (!options.fixturePath) {
+        try {
+          const client = createLinearClient(apiKey);
+          await acknowledgeIssueReceived(client, issue.id, {
+            runId,
+            deliveryId: deliveryId ?? null,
+            generation: resolveRunGeneration(),
+          });
+        } catch {
+          // Best-effort progress comment only.
+        }
+      }
     }
 
     await writeIssueSnapshot(runDirectory, issue);
@@ -162,6 +236,7 @@ export async function runPreflight(
       {
         projectName: issue.projectName ?? undefined,
         teamName: issue.teamName ?? undefined,
+        teamKey: issue.teamKey ?? undefined,
         teamId: issue.teamId ?? undefined,
         projectId: issue.projectId ?? undefined,
       },
