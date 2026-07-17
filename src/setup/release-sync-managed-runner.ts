@@ -1,5 +1,7 @@
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { P_DEV_PACKAGE_ROOT_ENV } from "../p-dev/package-paths.js";
 import { loadEmbeddedWorkspaceSnapshot } from "./harness-workspace-snapshot-loader.js";
 import {
   HARNESS_MANAGED_REPO_MARKER_FILE,
@@ -353,11 +355,23 @@ export async function runReleaseSyncManagedRunner(
   }
 
   throwIfTimedOut("load_packaged_snapshot");
-  const packaged = await loadEmbeddedWorkspaceSnapshot(import.meta.url);
+  let packaged = await loadEmbeddedWorkspaceSnapshot(import.meta.url);
+  if (!packaged.ok) {
+    // Source-checkout fallback: use monorepo packages/p-dev after prepare/pack.
+    const monorepoPackageRoot = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../../packages/p-dev",
+    );
+    packaged = await loadEmbeddedWorkspaceSnapshot(import.meta.url, {
+      ...process.env,
+      P_DEV_RUNTIME_MODE: "packaged",
+      [P_DEV_PACKAGE_ROOT_ENV]: monorepoPackageRoot,
+    });
+  }
   if (!packaged.ok) {
     throw new ReleaseSyncManagedRunnerError(
       "load_packaged_snapshot",
-      packaged.message,
+      `${packaged.message} Ensure packages/p-dev/workspace-snapshot exists (npm run package:p-dev:prepare) or run from an installed p-dev-harness package.`,
     );
   }
   const packagedSnapshotContentId = packaged.manifest.snapshotContentId;
