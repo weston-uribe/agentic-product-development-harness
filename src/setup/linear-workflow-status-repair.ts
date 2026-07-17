@@ -82,16 +82,6 @@ function findCanonicalNeedsRevision(
   );
 }
 
-function findMalformedNeedsRevision(
-  states: LinearWorkflowStateSummary[],
-): LinearWorkflowStateSummary | undefined {
-  return states.find(
-    (state) =>
-      state.name === NEEDS_REVISION_CANONICAL_NAME &&
-      state.type !== NEEDS_REVISION_EXPECTED_CATEGORY,
-  );
-}
-
 export async function executeNeedsRevisionReplacementRepair(input: {
   client: LinearClient;
   teamId: string;

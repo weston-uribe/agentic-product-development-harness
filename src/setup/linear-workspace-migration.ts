@@ -9,7 +9,6 @@ import {
 } from "../config/resolve-linear-workspace.js";
 import {
   readControlPlaneSetupState,
-  updateControlPlaneSetupState,
   writeControlPlaneSetupState,
 } from "./control-plane-setup-state.js";
 import type {
@@ -100,7 +99,6 @@ export function deriveLinearWorkspaceMigrationCandidate(input: {
   const projectName =
     legacy?.projectName?.trim() ??
     findLegacyRepoForMigration(input.config).projectName;
-  const teamName = legacy?.teamName?.trim() ?? teamKey;
 
   if (!teamId || !teamKey || !projectId || !projectName) {
     return null;

@@ -6,6 +6,7 @@ export interface LinearIssueListItem {
   identifier: string;
   title: string;
   status: string | null;
+  projectId: string | null;
   projectName: string | null;
   teamId: string | null;
   url: string | null;
@@ -46,6 +47,7 @@ export async function listIssuesByStatus(
       identifier: issue.identifier,
       title: issue.title,
       status: issueStatus,
+      projectId: project?.id ?? null,
       projectName,
       teamId: team.id,
       url: issue.url ?? null,
@@ -62,6 +64,7 @@ export function toIssueSnapshot(item: LinearIssueListItem): LinearIssueSnapshot 
     title: item.title,
     description: null,
     status: item.status,
+    projectId: item.projectId,
     projectName: item.projectName,
     teamName: null,
     teamId: item.teamId,

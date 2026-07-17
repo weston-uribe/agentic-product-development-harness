@@ -180,6 +180,10 @@ export type RunEventName =
   | "builder_thread_replacement_created"
   | "builder_thread_lineage_rejected"
   | "builder_followup_run_started"
+  | "uninitialized_product_rerouted"
+  | "product_marker_loaded"
+  | "product_marker_skipped"
+  | "project_metadata_sync"
   | "run_finished";
 
 export interface RunEvent {

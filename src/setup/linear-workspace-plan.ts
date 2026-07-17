@@ -11,7 +11,6 @@ import {
 import { computeLinearAssociationsFingerprint } from "./linear-workspace-migration.js";
 import {
   createLinearSetupClient,
-  getLinearProject,
   listLinearProjects,
   listLinearTeams,
   listTeamWorkflowStates,
@@ -20,7 +19,6 @@ import {
 } from "./linear-setup-client.js";
 import {
   matchWorkflowStates,
-  normalizeLinearName,
   type WorkflowStatusPlanEntry,
 } from "./linear-setup-plan.js";
 import { SETUP_PERMISSIONS } from "./permission-model.js";

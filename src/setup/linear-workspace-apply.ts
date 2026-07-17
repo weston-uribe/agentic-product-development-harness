@@ -21,10 +21,7 @@ import {
 } from "./linear-setup-client.js";
 import { ensureWorkflowStatesForTeam } from "./linear-setup-apply.js";
 import { executeWorkflowStatusRepairs } from "./linear-workflow-status-repair.js";
-import {
-  matchWorkflowStates,
-  isWorkflowStatusCoverageComplete,
-} from "./linear-setup-plan.js";
+import { matchWorkflowStates } from "./linear-setup-plan.js";
 import {
   buildRequestedHarnessConfig,
   previewLinearWorkspace,
