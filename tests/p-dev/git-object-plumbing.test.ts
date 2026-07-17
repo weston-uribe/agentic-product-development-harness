@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { existsSync, readdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -8,7 +9,10 @@ import {
   computeGitBlobSha1,
   computeSnapshotRootTreeSha1,
   createGitPlumbingWorktree,
+  createGitPlumbingWorktreeSync,
   destroyGitPlumbingWorktree,
+  destroyGitPlumbingWorktreeSync,
+  GIT_PLUMBING_TEMP_PREFIX,
   overlayGitTree,
   writeGitBlobToWorktree,
 } from "../../src/p-dev/git-object-plumbing.js";
@@ -65,6 +69,12 @@ async function oracleRootTreeSha(files: WorkspaceSnapshotManifestFile[]): Promis
 
 const contentByPath = new Map<string, Buffer>();
 
+function listPlumbingTempRoots(): string[] {
+  return readdirSync(tmpdir())
+    .filter((name) => name.startsWith(GIT_PLUMBING_TEMP_PREFIX))
+    .map((name) => path.join(tmpdir(), name));
+}
+
 describe("git object plumbing", () => {
   it("orders paths by UTF-8 bytes", () => {
     expect(compareUtf8Paths("A", "a")).toBeLessThan(0);
@@ -100,6 +110,48 @@ describe("git object plumbing", () => {
     expect(forward).toBe(reverse);
     const oracle = await oracleRootTreeSha(files);
     expect(forward).toBe(oracle);
+  });
+
+  it("computes root tree SHA when process.cwd is not a git repository", async () => {
+    const nonGitCwd = await mkdtemp(path.join(tmpdir(), "p-dev-non-git-cwd-"));
+    const previousCwd = process.cwd();
+    const before = new Set(listPlumbingTempRoots());
+    try {
+      process.chdir(nonGitCwd);
+      expect(existsSync(path.join(nonGitCwd, ".git"))).toBe(false);
+      contentByPath.clear();
+      const files = [
+        manifestFile(
+          "README.md",
+          (contentByPath.set("README.md", Buffer.from("# packaged\n", "utf8")),
+          contentByPath.get("README.md")!),
+        ),
+        manifestFile(
+          "src/app.ts",
+          (contentByPath.set("src/app.ts", Buffer.from("export {}\n", "utf8")),
+          contentByPath.get("src/app.ts")!),
+        ),
+      ];
+      const computed = computeSnapshotRootTreeSha1(files);
+      const oracle = await oracleRootTreeSha(files);
+      expect(computed).toBe(oracle);
+      expect(existsSync(path.join(nonGitCwd, ".git"))).toBe(false);
+    } finally {
+      process.chdir(previousCwd);
+      await rm(nonGitCwd, { recursive: true, force: true });
+    }
+    const after = listPlumbingTempRoots().filter((root) => !before.has(root));
+    expect(after).toEqual([]);
+  });
+
+  it("cleans disposable plumbing storage after sync create/destroy", () => {
+    const before = new Set(listPlumbingTempRoots());
+    const worktree = createGitPlumbingWorktreeSync();
+    expect(existsSync(path.join(worktree.root, ".git"))).toBe(true);
+    destroyGitPlumbingWorktreeSync(worktree);
+    expect(existsSync(worktree.root)).toBe(false);
+    const after = listPlumbingTempRoots().filter((root) => !before.has(root));
+    expect(after).toEqual([]);
   });
 
   it("overlays trees through git plumbing worktree", async () => {

@@ -556,6 +556,13 @@ export class MockGitHubHarnessProvisioningProvider
     this.repositoryMetadataVisibilityAttempts = 0;
   }
 
+  async dispose(): Promise<void> {
+    for (const store of this.gitStores.values()) {
+      await store.destroy();
+    }
+    this.gitStores.clear();
+  }
+
   async getRepositoryMetadata(
     owner: string,
     repo: string,
@@ -735,12 +742,16 @@ export class MockGitHubHarnessProvisioningProvider
     input: CreateUserRepositoryInput,
   ): Promise<CreateUserRepositoryResult> {
     this.calls.push({ method: "createUserRepository", args: [input] });
-    const fullName = `test-user/${input.name}`;
+    const login =
+      this.state.authenticatedUser?.login?.trim() ||
+      this.state.tokenCapabilities?.login?.trim() ||
+      "test-user";
+    const fullName = `${login}/${input.name}`;
     const key = fullName;
     const repositoryId = deterministicMockRepositoryId(key);
     const defaultBranch = this.state.createdRepositoryDefaultBranch ?? "main";
     this.repositories[key] = withRepositoryId(key, {
-      owner: "test-user",
+      owner: login,
       repo: input.name,
       repositoryId,
       description: input.description,
