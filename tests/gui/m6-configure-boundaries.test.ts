@@ -632,7 +632,8 @@ describe("M6 configure GUI boundaries", () => {
     expect(readinessCardSource).toContain(
       "We're checking whether this machine is ready for remote setup.",
     );
-    expect(readinessCardSource).toContain("Local readiness passed.");
+    expect(readinessCardSource).toContain("GuidedStepSuccessPanel");
+    expect(readinessCardSource).toContain("onStepCompleted");
     expect(readinessCardSource).toContain("<LocalReadinessChecklist checks={checks} />");
     expect(experienceSource).toContain("switch (displayedGuidedStep)");
     expect(experienceSource).not.toContain("readiness.primaryTask?.stepId");
@@ -804,7 +805,8 @@ describe("M6 configure GUI boundaries", () => {
     expect(prCardSource).toContain('variant === "advanced" && successMessage');
 
     expect(pendingPanelSource).toContain("WorkflowInstallProgressPanel");
-    expect(pendingPanelSource).toContain("Merging automatically");
+    expect(pendingPanelSource).toContain("WORKFLOW_INSTALL_UI_PHASE_LABELS");
+    expect(pendingPanelSource).toContain("GuidedOperationPanel");
     expect(pendingPanelSource).toContain("Open GitHub details");
     expect(pendingPanelSource).not.toContain("Merge the PR in GitHub");
     expect(pendingPanelSource).not.toMatch(/auto-merge|dispatch|harness phase/i);

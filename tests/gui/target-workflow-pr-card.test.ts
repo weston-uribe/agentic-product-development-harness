@@ -58,9 +58,11 @@ describe("guided workflow install progress panel", () => {
     );
 
     expect(panelSource).toContain('variant === "advanced"');
-    expect(panelSource).toContain("Refreshing install branch");
+    expect(panelSource).toContain("WORKFLOW_INSTALL_UI_PHASE_LABELS");
+    expect(panelSource).toContain("GuidedOperationPanel");
     expect(guidedSource).toContain('variant="guided"');
     expect(guidedSource).toContain("isNewerFinalization");
     expect(guidedSource).toContain("pollGenerationRef.current += 1");
+    expect(guidedSource).toContain("WORKFLOW_INSTALL_MAX_TRANSIENT_RETRIES");
   });
 });
