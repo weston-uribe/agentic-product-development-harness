@@ -349,4 +349,17 @@ describe("local-apply-actions", () => {
     expect(configLocal).toContain('"id": "target-app"');
     expect(configLocal).toContain('"id": "second-app"');
   });
+
+  it("preserves previewProvider none in local config preview output", async () => {
+    const payload = buildPayload();
+    payload.config.repos[0]!.previewProvider = "none";
+
+    const preview = await previewLocalSetupFiles({
+      cwd: tempRoot,
+      payload,
+    });
+
+    expect(preview.validationError).toBeUndefined();
+    expect(preview.configPreview).toContain('"previewProvider": "none"');
+  });
 });

@@ -229,6 +229,8 @@ describe("configure GUI fix loop", () => {
     );
 
     expect(guidedStep4Source).toContain("ReviewGeneratedFilesDisclosure");
+    expect(guidedStep4Source).toContain("TargetRepoCreateConnect");
+    expect(guidedStep4Source).toContain("handleTargetRepoCreated");
     expect(guidedStep4Source).toContain(
       "disabled={Boolean(preview?.validationError)}",
     );

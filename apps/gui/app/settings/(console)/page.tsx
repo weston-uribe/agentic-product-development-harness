@@ -106,21 +106,44 @@ export default async function SettingsOverviewPage() {
         </Link>
       </SectionCard>
 
-      <SectionCard title="Target repositories" description="Configured target repos and workflow presence.">
+      <SectionCard title="Target repositories" description="Configured target repos, application preview provider, and product marker status from the development branch.">
         {overview.targetRepos.length === 0 ? (
           <p className="text-sm text-muted-foreground">No target repositories configured.</p>
         ) : (
-          <ul className="space-y-2 text-sm">
+          <ul className="space-y-3 text-sm">
             {overview.targetRepos.map((repo) => (
-              <li key={repo.id} className="flex flex-wrap justify-between gap-2">
-                <span>{repo.targetRepo}</span>
-                <span className="text-muted-foreground">
-                  Workflow: {repo.workflowStatus === "present" ? "present" : repo.workflowStatus}
-                </span>
+              <li
+                key={repo.id}
+                className="rounded-md border border-border bg-muted/20 p-3 space-y-1"
+              >
+                <p className="font-medium break-all">{repo.targetRepo}</p>
+                <p className="text-muted-foreground">
+                  Config ID: {repo.id || "—"} · Base branch: {repo.baseBranch}
+                </p>
+                <p className="text-muted-foreground">
+                  Application preview provider: {repo.previewProvider}
+                </p>
+                <p className="text-muted-foreground">
+                  Product initialization: {repo.initializationStatus}
+                </p>
+                {repo.initializationDetail ? (
+                  <p className="text-xs text-muted-foreground">
+                    {repo.initializationDetail}
+                  </p>
+                ) : null}
+                <p className="text-muted-foreground">
+                  Target workflow:{" "}
+                  {repo.workflowStatus === "present" ? "present" : repo.workflowStatus}
+                </p>
               </li>
             ))}
           </ul>
         )}
+        <p className="text-xs text-muted-foreground">
+          Application preview provider comes from local harness config. The PDev
+          automation bridge (Vercel + Linear webhook) is configured separately in
+          guided setup Step 3.
+        </p>
         <Link href="/settings/repositories" className="text-sm font-medium text-primary underline-offset-4 hover:underline">
           View repositories
         </Link>

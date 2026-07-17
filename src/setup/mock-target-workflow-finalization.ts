@@ -298,8 +298,7 @@ export function advanceMockTargetWorkflowFinalization(input: {
     });
   }
 
-  const mockMergeable =
-    scenario.mergeableState === "unknown" ? null : true;
+  const mockMergeable = true;
   if (
     !shouldAttemptMerge({
       mergeableState: scenario.mergeableState ?? "clean",

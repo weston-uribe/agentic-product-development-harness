@@ -387,7 +387,7 @@ describe("M6 configure GUI boundaries", () => {
       "Used to spin up Cursor agents that do the planning and development work.",
     );
     expect(envSource).toContain(
-      "Used to create or access Vercel previews so implementation work can be verified before code is merged.",
+      "Used to configure the PDev automation bridge hosted on Vercel (not target-app preview deployment).",
     );
     expect(envSource).not.toContain("during later automation phases");
     expect(envSource).not.toContain("Lets later Cursor SDK runs authenticate.");
@@ -967,8 +967,8 @@ describe("M6 configure GUI boundaries", () => {
     expect(appShellSource).not.toContain("ThemeToggle");
     expect(settingsMenuSource).toContain("Settings");
     expect(settingsMenuSource).toContain("Workflow");
-    expect(settingsMenuSource).not.toContain("Setup wizard");
-    expect(settingsMenuSource).not.toContain("Data sharing");
+    expect(settingsMenuSource).toContain("Setup wizard");
+    expect(settingsMenuSource).toContain("Data sharing");
     expect(settingsMenuSource).toContain("Dark mode");
     expect(settingsMenuSource).toContain("Light mode");
   });
@@ -989,5 +989,28 @@ describe("M6 configure GUI boundaries", () => {
     expect(linearCardSource).toContain("{project.name}");
     expect(linearCardSource).not.toContain('placeholder="Project ID"');
     expect(linearCardSource).toContain("Select a project…");
+  });
+
+  it("guided Step 4 supports create/connect target repo provisioning without silent local apply", () => {
+    const workflowSource = readFileSync(
+      path.join(repoRoot, "apps/gui/components/custom/configure-workflow.tsx"),
+      "utf8",
+    );
+    const createConnectSource = readFileSync(
+      path.join(
+        repoRoot,
+        "apps/gui/components/custom/target-repo-create-connect.tsx",
+      ),
+      "utf8",
+    );
+
+    expect(workflowSource).toContain("TargetRepoCreateConnect");
+    expect(workflowSource).toContain("targetRepoSelectionMode");
+    expect(workflowSource).toContain("handleTargetRepoCreated");
+    expect(createConnectSource).toContain(
+      "/api/setup/preview-target-repo-provisioning",
+    );
+    expect(createConnectSource).not.toContain("apply-local-files");
+    expect(createConnectSource).not.toContain("onGuidedLocalApplySuccess");
   });
 });

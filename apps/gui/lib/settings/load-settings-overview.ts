@@ -9,6 +9,7 @@ import { readControlPlaneSetupState } from "@harness/setup/control-plane-setup-s
 import { readWorkflowModelsSyncEvidence } from "@harness/setup/workflow-models-sync-evidence";
 import { readWorkflowConfigSnapshot } from "@harness/setup/workflow-config-snapshot";
 import { resolvePlannerModel, resolveBuilderModel } from "@harness/cursor/model";
+import { loadTargetRepoOverviewFields } from "@/lib/settings/load-target-repo-overview-fields";
 
 export async function loadSettingsOverview() {
   const cwd = resolveHarnessWorkspaceDir();
@@ -20,6 +21,7 @@ export async function loadSettingsOverview() {
     controlPlane,
     workflowSync,
     configSnapshot,
+    targetRepoOverview,
   ] = await Promise.all([
     loadSetupSummary(),
     loadRemoteSetupSummary(),
@@ -28,6 +30,7 @@ export async function loadSettingsOverview() {
     readControlPlaneSetupState(cwd),
     readWorkflowModelsSyncEvidence(cwd),
     readWorkflowConfigSnapshot(cwd).catch(() => null),
+    loadTargetRepoOverviewFields(cwd),
   ]);
 
   const plannerModel = configSnapshot
@@ -44,10 +47,19 @@ export async function loadSettingsOverview() {
     vercel: setupSummary.envKeyPresence.VERCEL_TOKEN ? "Configured" : "Missing",
   };
 
-  const targetRepos = remoteSummary.targetRepos.map((repo) => ({
-    id: repo.repoConfigId,
+  const targetRepos = targetRepoOverview.map((repo) => ({
+    id: repo.id,
     targetRepo: repo.targetRepo,
-    workflowStatus: repo.workflowStatus,
+    baseBranch: repo.baseBranch,
+    previewProvider: repo.previewProvider,
+    initializationStatus: repo.initializationStatus,
+    initializationDetail: repo.initializationDetail,
+    workflowStatus:
+      remoteSummary.targetRepos.find(
+        (remoteRepo) =>
+          remoteRepo.repoConfigId === repo.id ||
+          remoteRepo.targetRepo === repo.targetRepo,
+      )?.workflowStatus ?? "unknown",
   }));
 
   return {

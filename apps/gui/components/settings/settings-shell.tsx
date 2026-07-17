@@ -18,9 +18,10 @@ export function SettingsShell({ children }: SettingsShellProps) {
         <h1 className="mb-3 text-lg font-semibold tracking-tight">Settings</h1>
         <ul className="space-y-1">
           {SETTINGS_NAV_ITEMS.map((item) => {
-            const active = item.exact
-              ? pathname === item.href
-              : pathname === item.href || pathname.startsWith(`${item.href}/`);
+            const active =
+              "exact" in item && item.exact
+                ? pathname === item.href
+                : pathname === item.href || pathname.startsWith(`${item.href}/`);
             return (
               <li key={item.href}>
                 <Link

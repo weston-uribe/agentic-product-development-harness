@@ -13,6 +13,8 @@ Commit A delivers a read-mostly console:
 
 Mutation editors for credentials, Linear, Vercel, target repositories, and automation are implemented under `apps/gui/components/settings/editors/`. They call the same setup APIs as the wizard but use the settings mutation flow documented in `apps/gui/lib/settings/settings-mutation.ts`.
 
+The **Overview** page is read-only for target repository health: it shows harness `previewProvider` from local config separately from the PDev automation bridge, and reads `initializationStatus` from `.p-dev/product.json` on each repo's development branch when `GITHUB_TOKEN` is configured.
+
 Local config-only edits (repositories, automation) use `src/setup/settings-config-patch.ts` with fingerprint CAS via `/api/settings/preview-config-patch` and `/api/settings/apply-config-patch`.
 
 ## Future multi-connection model

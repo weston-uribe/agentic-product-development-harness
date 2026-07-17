@@ -45,6 +45,7 @@ import { createLiveGitHubTargetRepositoryProvider } from "@harness/setup/github-
 import { tryCreateTargetRepoTestProvisioningProvider } from "@harness/setup/test-only-target-repo-provisioning-provider";
 import type { GitHubTargetRepositoryProvider } from "@harness/setup/github-target-repository-provider";
 import { tryCreateHarnessTestRemoteSetupProvider } from "@harness/setup/test-only-remote-setup-provider";
+import { tryCreateHarnessTestProvisioningProvider } from "@harness/setup/test-only-provisioning-provider";
 import {
   applyHarnessRepoProvisioning,
   loadHarnessRepoProvisioningSummary,

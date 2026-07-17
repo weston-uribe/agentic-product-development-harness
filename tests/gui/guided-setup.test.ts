@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   compareGuidedDisplaySteps,
@@ -22,6 +25,11 @@ import {
   shouldShowGuidedBackButton,
 } from "../../apps/gui/lib/guided-setup";
 import type { SetupGuiViewModel } from "../../src/setup/gui-view-model";
+
+const repoRoot = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "../..",
+);
 
 function summary(partial: Partial<SetupGuiViewModel>): SetupGuiViewModel {
   return {
@@ -221,5 +229,18 @@ describe("guided-setup navigation", () => {
       readyForFirstRun: false,
     });
     expect(stages[0]?.state).toBe("current");
+  });
+
+  it("keeps Step 4 local setup mapped to choose-target-repos with create/connect workflow", () => {
+    const workflowSource = readFileSync(
+      path.join(repoRoot, "apps/gui/components/custom/configure-workflow.tsx"),
+      "utf8",
+    );
+
+    expect(progressStageForFirstRunStepId("local-setup")).toBe(
+      "choose-target-repos",
+    );
+    expect(workflowSource).toContain('case "choose-target-repos":');
+    expect(workflowSource).toContain("TargetRepoCreateConnect");
   });
 });

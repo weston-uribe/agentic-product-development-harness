@@ -119,6 +119,16 @@ Bypass planning (via `skip-plan` or direct **Ready for Build**) when the issue i
 
 For bypass issues, the **Implementation Agent** may build directly from the Linear issue without a separate plan artifact. The issue description and acceptance criteria are the durable input.
 
+### Uninitialized product routing
+
+When the target repository marker on the **development branch** (`repos[].baseBranch`, usually `dev`) reports `Product initialization: uninitialized`:
+
+- Issues with `## Product foundation` route to **Ready for Planning** for stack selection and foundation planning.
+- Direct **Ready for Build** routing is blocked until approved architecture exists and the marker reads `initialized`.
+- After foundation merge to `dev`, the merge workflow updates Linear project metadata to `Product initialization: initialized` idempotently.
+
+Application preview/deployment capability is **not** inferred from the marker. Harness `repos[].previewProvider` is the sole runtime authority (`vercel` or `none`).
+
 ### Planning agent output
 
 When planning runs:

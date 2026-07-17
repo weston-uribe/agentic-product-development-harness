@@ -50,6 +50,7 @@ interface TargetRepoConfigFormProps {
   values: LocalConfigFormInput;
   highlightStaleTarget?: boolean;
   variant?: "guided-minimal" | "advanced";
+  guidedSection?: "full" | "harness" | "target-repos";
   suggestedHarnessDispatchRepo?: string;
   savedHarnessDispatchRepository?: string;
   harnessRepoVerification?: HarnessRepoVerificationUi;
@@ -76,6 +77,7 @@ export function TargetRepoConfigForm({
   values,
   highlightStaleTarget = false,
   variant = "advanced",
+  guidedSection = "full",
   suggestedHarnessDispatchRepo,
   savedHarnessDispatchRepository = "",
   harnessRepoVerification = { state: "unchecked" },
@@ -148,9 +150,14 @@ export function TargetRepoConfigForm({
       guidedRepos && guidedRepos.length > 0
         ? guidedRepos
         : [{ rowId: "fallback-repo", id: "", targetRepo: "" }];
+    const showHarnessSection =
+      guidedSection === "full" || guidedSection === "harness";
+    const showTargetRepoSection =
+      guidedSection === "full" || guidedSection === "target-repos";
 
     return (
       <div className="space-y-6">
+        {showHarnessSection ? (
         <div className={FORM.fieldStack}>
           <Label htmlFor="harness-dispatch-repository-guided">Harness workspace</Label>
           {!editingHarnessRepo ? (
@@ -272,7 +279,9 @@ export function TargetRepoConfigForm({
             </>
           )}
         </div>
+        ) : null}
 
+        {showTargetRepoSection ? (
         <div className="space-y-4">
           {repos.map((repo, index) => {
             const verification = repoVerification[repo.rowId] ?? {
@@ -447,8 +456,9 @@ export function TargetRepoConfigForm({
             );
           })}
         </div>
+        ) : null}
 
-        {onAddRepo ? (
+        {showTargetRepoSection && onAddRepo ? (
           <Button type="button" variant="outline" onClick={onAddRepo}>
             Add additional repo
           </Button>
