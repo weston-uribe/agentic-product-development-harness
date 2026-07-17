@@ -17,6 +17,9 @@ export type {
   ControlPlaneSetupState,
   ControlPlaneReadinessContext,
   LinearWorkspaceSelection,
+  LinearWorkspaceEvidence,
+  LinearTeamEvidence,
+  LinearProjectEvidence,
   VercelBridgeSelection,
 } from "./control-plane-types.js";
 
@@ -80,6 +83,7 @@ export function mergeVercelBridgeSelection(
 export type ControlPlaneSetupStatePatch = {
   version?: 1;
   linear?: ControlPlaneSetupState["linear"];
+  linearWorkspace?: ControlPlaneSetupState["linearWorkspace"];
   vercel?: Partial<VercelBridgeSelection>;
   workflowModels?: ControlPlaneSetupState["workflowModels"];
   initialSetup?: ControlPlaneSetupState["initialSetup"];
@@ -95,6 +99,7 @@ export async function updateControlPlaneSetupState(
     ...patch,
     version: 1,
     linear: patch.linear ?? current.linear,
+    linearWorkspace: patch.linearWorkspace ?? current.linearWorkspace,
     vercel:
       patch.vercel !== undefined
         ? current.vercel
