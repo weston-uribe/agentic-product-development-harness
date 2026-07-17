@@ -89,10 +89,11 @@ const COPY: Record<
       title: "Confirm workflow install PR",
       bullets: [
         "This may create or update an install branch and open or reuse a PR.",
+        "Preflight runs automatically before apply when you skip preview.",
         "It does not merge the PR, write directly to main/production, run the harness, or write Linear.",
       ],
       label:
-        "I reviewed the workflow preview and want to create or update the workflow install PR.",
+        "I understand this will create or update the workflow install PR in the target repo.",
     },
   },
   "linear-write": {

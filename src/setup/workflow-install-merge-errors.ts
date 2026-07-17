@@ -145,7 +145,7 @@ export function blockedCategoryMessage(
     case "mergeability-pending":
       return "GitHub is still computing mergeability for the workflow install PR.";
     case "branch-behind":
-      return "Updating the workflow install branch to match production.";
+      return "Refreshing the workflow install branch…";
     case "review-required":
       return "Human review is required before the workflow install PR can merge.";
     case "permission-denied":

@@ -31,6 +31,13 @@ import {
   blockedCategoryMessage,
   classifyWorkflowInstallMergeRejection,
 } from "./workflow-install-merge-errors.js";
+import {
+  countOpenPullRequestsOnBranch,
+  isInstallBranchAlreadyClean,
+  isStaleHarnessInstallBranch,
+  recoverHarnessInstallBranch,
+  validateInstallBranchRecoveryProof,
+} from "./workflow-install-branch-recovery.js";
 import type { GitHubRemoteSetupProvider } from "./github-remote-provider.js";
 import {
   buildFinalizationLockKey,
@@ -53,6 +60,7 @@ interface FinalizationSession {
   lastValidatedHeadSha?: string;
   mergeAttemptedForHeadSha?: string;
   branchUpdateAttemptedForHeadSha?: string;
+  recoveryAttemptedForHeadSha?: string;
 }
 
 const sessions = new Map<string, FinalizationSession>();
@@ -211,6 +219,167 @@ function validatePullRequestFiles(
     return false;
   }
   return files[0]?.path === workflowPath;
+}
+
+const REFRESHING_BRANCH_MESSAGE =
+  "Refreshing the workflow install branch…";
+
+interface AttemptStaleInstallBranchRecoveryInput {
+  client: GitHubClient;
+  input: TargetWorkflowFinalizeInput;
+  targetRepoSlug: string;
+  branchName: string;
+  productionStatus: { workflowStatus: RemoteWorkflowStatus };
+  intendedWorkflowContent: string;
+  inspection: Awaited<ReturnType<typeof inspectPullRequestForMerge>>;
+  parsedPr: NonNullable<ReturnType<typeof parsePrUrl>>;
+  prUrl: string;
+  prNumber: number;
+  validatedHeadSha: string;
+  session: FinalizationSession;
+  lockContended: boolean;
+  filesValidationPassed: boolean;
+}
+
+async function attemptStaleInstallBranchRecovery(
+  recoveryInput: AttemptStaleInstallBranchRecoveryInput,
+): Promise<TargetWorkflowFinalizationResult | null> {
+  const {
+    client,
+    input,
+    targetRepoSlug,
+    branchName,
+    productionStatus,
+    intendedWorkflowContent,
+    inspection,
+    parsedPr,
+    prUrl,
+    prNumber,
+    validatedHeadSha,
+    session,
+    lockContended,
+    filesValidationPassed,
+  } = recoveryInput;
+
+  if (session.recoveryAttemptedForHeadSha === validatedHeadSha) {
+    return null;
+  }
+
+  const headWorkflowContent = await readWorkflowAtRef(
+    client,
+    targetRepoSlug,
+    TARGET_WORKFLOW_PATH,
+    inspection.headSha,
+  );
+  const headWorkflowMatchesIntended =
+    headWorkflowContent !== null &&
+    compareTargetWorkflowContent(headWorkflowContent, intendedWorkflowContent) ===
+      "present";
+
+  const [owner, repo] = targetRepoSlug.split("/");
+  let compareStatus: string | null = null;
+  try {
+    const compare = await client.compareCommits(
+      owner,
+      repo,
+      input.productionBranch,
+      branchName,
+    );
+    compareStatus = compare.status;
+  } catch {
+    compareStatus = null;
+  }
+
+  if (
+    !isStaleHarnessInstallBranch({
+      changedFiles: inspection.changedFiles,
+      workflowPath: TARGET_WORKFLOW_PATH,
+      mergeableState: inspection.mergeableState,
+      compareStatus,
+      headWorkflowMatchesIntended,
+      filesValidationPassed,
+    })
+  ) {
+    return null;
+  }
+
+  const openPullCount = await countOpenPullRequestsOnBranch(client, {
+    targetRepoSlug,
+    productionBranch: input.productionBranch,
+    branchName,
+  });
+  const proof = validateInstallBranchRecoveryProof({
+    configuredTargetRepoSlug: targetRepoSlug,
+    observedTargetRepoSlug: targetRepoSlug,
+    configuredRepoConfigId: input.repoConfigId,
+    reservedBranchName: branchName,
+    observedBranchName: inspection.branch,
+    configuredProductionBranch: input.productionBranch,
+    observedProductionBranch: inspection.baseBranch,
+    configuredWorkflowPath: TARGET_WORKFLOW_PATH,
+    pullRequestOwner: parsedPr.owner,
+    pullRequestRepo: parsedPr.repo,
+    openPullRequestsOnBranch: openPullCount,
+  });
+  if (!proof.ok) {
+    session.recoveryAttemptedForHeadSha = validatedHeadSha;
+    sessions.set(sessionKey(targetRepoSlug, input.repoConfigId), session);
+    return blockedResult({
+      repoConfigId: input.repoConfigId,
+      targetRepo: input.targetRepo,
+      targetRepoSlug,
+      productionBranch: input.productionBranch,
+      branchName,
+      category: "unexpected-pr-content",
+      workflowStatus: productionStatus.workflowStatus,
+      prUrl,
+      prNumber,
+      validatedHeadSha,
+      advancedThisRequest: true,
+      lockContended,
+      customMessage: proof.reason,
+    });
+  }
+
+  const alreadyClean = await isInstallBranchAlreadyClean({
+    client,
+    targetRepoSlug,
+    productionBranch: input.productionBranch,
+    branchName,
+    workflowPath: TARGET_WORKFLOW_PATH,
+    intendedWorkflowContent,
+  });
+  session.recoveryAttemptedForHeadSha = validatedHeadSha;
+  sessions.set(sessionKey(targetRepoSlug, input.repoConfigId), session);
+  if (alreadyClean) {
+    return null;
+  }
+
+  await recoverHarnessInstallBranch({
+    client,
+    targetRepoSlug,
+    productionBranch: input.productionBranch,
+    branchName,
+    workflowPath: TARGET_WORKFLOW_PATH,
+    workflowContent: intendedWorkflowContent,
+  });
+
+  return progressResult({
+    repoConfigId: input.repoConfigId,
+    targetRepo: input.targetRepo,
+    targetRepoSlug,
+    productionBranch: input.productionBranch,
+    branchName,
+    lifecycle: "updating-branch",
+    workflowStatus: productionStatus.workflowStatus,
+    message: REFRESHING_BRANCH_MESSAGE,
+    prUrl,
+    prNumber,
+    validatedHeadSha,
+    advancedThisRequest: true,
+    lockContended,
+    blockedCategory: "branch-behind",
+  });
 }
 
 export interface AdvanceTargetWorkflowFinalizationOptions {
@@ -451,7 +620,30 @@ export async function advanceTargetWorkflowFinalizationStep(
   validatedHeadSha = inspection.headSha;
   session.lastValidatedHeadSha = validatedHeadSha;
 
-  if (!validatePullRequestFiles(inspection.changedFiles, TARGET_WORKFLOW_PATH)) {
+  const filesValidationPassed = validatePullRequestFiles(
+    inspection.changedFiles,
+    TARGET_WORKFLOW_PATH,
+  );
+  if (!filesValidationPassed) {
+    const recoveryResult = await attemptStaleInstallBranchRecovery({
+      client,
+      input,
+      targetRepoSlug,
+      branchName,
+      productionStatus,
+      intendedWorkflowContent,
+      inspection,
+      parsedPr,
+      prUrl,
+      prNumber,
+      validatedHeadSha,
+      session,
+      lockContended,
+      filesValidationPassed,
+    });
+    if (recoveryResult) {
+      return recoveryResult;
+    }
     return blockedResult({
       repoConfigId: input.repoConfigId,
       targetRepo: input.targetRepo,
@@ -478,6 +670,25 @@ export async function advanceTargetWorkflowFinalizationStep(
     compareTargetWorkflowContent(headWorkflowContent, intendedWorkflowContent) !==
     "present"
   ) {
+    const recoveryResult = await attemptStaleInstallBranchRecovery({
+      client,
+      input,
+      targetRepoSlug,
+      branchName,
+      productionStatus,
+      intendedWorkflowContent,
+      inspection,
+      parsedPr,
+      prUrl,
+      prNumber,
+      validatedHeadSha,
+      session,
+      lockContended,
+      filesValidationPassed: true,
+    });
+    if (recoveryResult) {
+      return recoveryResult;
+    }
     return blockedResult({
       repoConfigId: input.repoConfigId,
       targetRepo: input.targetRepo,
@@ -629,6 +840,28 @@ export async function advanceTargetWorkflowFinalizationStep(
         });
       } catch (error) {
         const classified = classifyWorkflowInstallMergeRejection({ error });
+        const recoveryResult = await attemptStaleInstallBranchRecovery({
+          client,
+          input,
+          targetRepoSlug,
+          branchName,
+          productionStatus,
+          intendedWorkflowContent,
+          inspection,
+          parsedPr,
+          prUrl,
+          prNumber,
+          validatedHeadSha,
+          session,
+          lockContended,
+          filesValidationPassed: validatePullRequestFiles(
+            inspection.changedFiles,
+            TARGET_WORKFLOW_PATH,
+          ),
+        });
+        if (recoveryResult) {
+          return recoveryResult;
+        }
         return blockedResult({
           repoConfigId: input.repoConfigId,
           targetRepo: input.targetRepo,
@@ -645,6 +878,28 @@ export async function advanceTargetWorkflowFinalizationStep(
           customMessage: classified.message,
         });
       }
+    }
+    const recoveryResult = await attemptStaleInstallBranchRecovery({
+      client,
+      input,
+      targetRepoSlug,
+      branchName,
+      productionStatus,
+      intendedWorkflowContent,
+      inspection,
+      parsedPr,
+      prUrl,
+      prNumber,
+      validatedHeadSha,
+      session,
+      lockContended,
+      filesValidationPassed: validatePullRequestFiles(
+        inspection.changedFiles,
+        TARGET_WORKFLOW_PATH,
+      ),
+    });
+    if (recoveryResult) {
+      return recoveryResult;
     }
     return blockedResult({
       repoConfigId: input.repoConfigId,

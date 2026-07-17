@@ -260,7 +260,8 @@ describe("configure GUI fix loop", () => {
 
     expect(source).toContain("Setup type");
     expect(source).toContain('type="radio"');
-    expect(source).toContain('setupType === "automatic"');
+    expect(source).toContain('useState<CloudSecretsSetupType | null>(() =>');
+    expect(source).toContain('deriveStep6RemoteActionEligibility(initialSummary).allowed');
     expect(source).toContain('setupType === "manual"');
     expect(source).toContain("deriveStep6ContinueEligibility");
     expect(source).toContain("deriveStep6RemoteActionEligibility");

@@ -274,6 +274,7 @@ describe("step6 automatic apply outcome", () => {
       uiState: {
         cloudSecretsApplyEvidence: evidence,
         remoteSecretPreviewStale: true,
+        cloudSecretsPreviewOpened: true,
       },
     });
     const outcome = deriveStep6AutomaticApplyOutcome({

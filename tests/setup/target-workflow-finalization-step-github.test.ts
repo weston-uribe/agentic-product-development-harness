@@ -432,4 +432,78 @@ describe("advanceTargetWorkflowFinalizationStep GitHub head SHA handling", () =>
       ACTUAL_HEAD_SHA,
     );
   });
+
+  it("recovers a stale harness-owned install branch before blocking on empty PR files", async () => {
+    const workflow = intendedWorkflowContent();
+    const productionSha = "production-head-sha";
+    const staleHeadSha = "stale-install-head-sha";
+    const recoveredHeadSha = "recovered-install-head-sha";
+
+    const client = {
+      ...createMockGitHubClient({
+        pull: openPull({
+          mergeable_state: "behind",
+          head: { ref: BRANCH_NAME, sha: staleHeadSha },
+        }),
+        checkRunsForRef: checksOnActualHeadOnly,
+        combinedStatus: combinedStatusOnActualHeadOnly,
+      }),
+      getPullRequestFiles: vi.fn(async () => []),
+      compareCommits: vi.fn(async () => ({
+        status: "diverged",
+        ahead_by: 3,
+        behind_by: 1,
+        commits: [],
+      })),
+      getBranchRef: vi.fn(async (_owner, _repo, ref: string) => ({
+        ref: `refs/heads/${ref}`,
+        object: {
+          sha: ref === "main" ? productionSha : recoveredHeadSha,
+          type: "commit",
+          url: "",
+        },
+      })),
+      updateGitRef: vi.fn(async () => ({
+        ref: `refs/heads/${BRANCH_NAME}`,
+        object: { sha: productionSha, type: "commit", url: "" },
+      })),
+      createOrUpdateRepositoryFile: vi.fn(async () => ({
+        content: {
+          sha: "file-sha",
+          path: TARGET_WORKFLOW_PATH,
+        },
+      })),
+      listPullRequests: vi.fn(async () => [
+        {
+          number: PR_NUMBER,
+          html_url: PR_URL,
+          head: { ref: BRANCH_NAME, sha: staleHeadSha },
+          base: { ref: PRODUCTION_BRANCH },
+        },
+      ]),
+      getRepositoryContent: vi.fn(async () => ({
+        content: Buffer.from(workflow).toString("base64"),
+        encoding: "base64",
+      })),
+    };
+    const provider = createStubProvider("missing");
+
+    const result = await advanceTargetWorkflowFinalizationStep({
+      cwd: tempRoot,
+      input: baseInput,
+      provider,
+      client: client as never,
+    });
+
+    expect(result.lifecycle).toBe("updating-branch");
+    expect(result.message).toContain("Refreshing the workflow install branch");
+    expect(client.updateGitRef).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ref: BRANCH_NAME,
+        sha: productionSha,
+        force: true,
+      }),
+    );
+    expect(client.createOrUpdateRepositoryFile).toHaveBeenCalled();
+  });
 });

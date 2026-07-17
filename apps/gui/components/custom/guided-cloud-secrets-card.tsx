@@ -54,6 +54,7 @@ interface GuidedCloudSecretsCardProps {
   initialSummary: RemoteSetupSummary;
   onSummaryUpdated?: (summary: RemoteSetupSummary) => void;
   onUiStateChange?: (state: {
+    cloudSecretsPreviewOpened?: boolean;
     remoteSecretPreviewStale?: boolean;
     cloudSecretsApplyEvidence?: CloudSecretsApplyEvidence;
   }) => void;
@@ -110,7 +111,11 @@ export function GuidedCloudSecretsCard({
   onGoToConnectServices,
 }: GuidedCloudSecretsCardProps) {
   const [summary, setSummary] = useState(initialSummary);
-  const [setupType, setSetupType] = useState<CloudSecretsSetupType | null>(null);
+  const [setupType, setSetupType] = useState<CloudSecretsSetupType | null>(() =>
+    deriveStep6RemoteActionEligibility(initialSummary).allowed
+      ? "automatic"
+      : null,
+  );
   const [previewStaleCleared, setPreviewStaleCleared] = useState(false);
   const [preview, setPreview] = useState<RemoteHarnessSecretPreview | null>(null);
   const [previewGenerated, setPreviewGenerated] = useState(false);
@@ -345,6 +350,10 @@ export function GuidedCloudSecretsCard({
     return result;
   }, []);
 
+  const markPreviewOpened = useCallback(() => {
+    onUiStateChange?.({ cloudSecretsPreviewOpened: true });
+  }, [onUiStateChange]);
+
   const handlePreview = useCallback(async () => {
     setLoading("preview");
     setError(null);
@@ -352,6 +361,7 @@ export function GuidedCloudSecretsCard({
     setApplyResult(null);
     setVerifiedAutomaticSuccess(false);
     setConfirmed(false);
+    markPreviewOpened();
     try {
       await runPreview();
     } catch (nextPreviewError) {
@@ -365,7 +375,7 @@ export function GuidedCloudSecretsCard({
     } finally {
       setLoading(null);
     }
-  }, [runPreview]);
+  }, [markPreviewOpened, runPreview]);
 
   const handleDisclosureOpenChange = useCallback(
     (open: boolean) => {
@@ -373,11 +383,14 @@ export function GuidedCloudSecretsCard({
         return;
       }
       setDisclosureOpen(open);
-      if (open && !previewIsCurrent && loading !== "preview") {
-        void handlePreview();
+      if (open) {
+        markPreviewOpened();
+        if (!previewIsCurrent && loading !== "preview") {
+          void handlePreview();
+        }
       }
     },
-    [handlePreview, loading, previewIsCurrent, remoteActionsBlocked],
+    [handlePreview, loading, markPreviewOpened, previewIsCurrent, remoteActionsBlocked],
   );
 
   const handleApply = async () => {
