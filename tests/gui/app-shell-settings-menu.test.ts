@@ -21,6 +21,7 @@ describe("app shell settings menu", () => {
     expect(appShell).not.toContain("Local operator GUI");
     expect(appShell).not.toContain("ThemeToggle");
     expect(applicationHeader).toContain("PDev Harness");
+    expect(applicationHeader).toContain('href={workflowHref}');
     expect(applicationHeader).toContain("SettingsMenu");
   });
 

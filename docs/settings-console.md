@@ -4,18 +4,17 @@ The post-setup Settings console lives under `apps/gui/app/settings/(console)/`. 
 
 ## Current scope (v0.4)
 
-Commit A delivers a read-mostly console:
+The simplified Settings console provides:
 
-- **Overview** at `/settings` — cached summaries from local control-plane state and setup loaders
+- **Connections** as the default landing route (`/settings` redirects here)
+- **Linear**, **Target repositories**, **Deployments**, **Models**, and **Data and privacy**
 - **Models** — same save queue and rollback behavior as `/workflow`
-- **Diagnostics** — cached doctor checks on load; expensive checks only after **Run checks**
-- **Data and privacy** — existing preferences UI inside the console shell
 
-Mutation editors for credentials, Linear, Vercel, target repositories, and automation are implemented under `apps/gui/components/settings/editors/`. They call the same setup APIs as the wizard but use the settings mutation flow documented in `apps/gui/lib/settings/settings-mutation.ts`.
+Mutation editors for credentials, Linear, Vercel, and target repositories are implemented under `apps/gui/components/settings/editors/`. They call the same setup APIs as the wizard but use the settings mutation flow documented in `apps/gui/lib/settings/settings-mutation.ts`.
 
-The **Overview** page is read-only for target repository health: it shows harness `previewProvider` from local config separately from the PDev automation bridge, and reads `initializationStatus` from `.p-dev/product.json` on each repo's development branch when `GITHUB_TOKEN` is configured.
+The **Target repositories** page includes a read-only status block for each configured repo: harness `previewProvider` from local config (separate from the PDev automation bridge), and `initializationStatus` from `.p-dev/product.json` on each repo's development branch when `GITHUB_TOKEN` is configured.
 
-Local config-only edits (repositories, automation) use `src/setup/settings-config-patch.ts` with fingerprint CAS via `/api/settings/preview-config-patch` and `/api/settings/apply-config-patch`.
+Local config-only edits (repositories) use `src/setup/settings-config-patch.ts` with fingerprint CAS via `/api/settings/preview-config-patch` and `/api/settings/apply-config-patch`.
 
 ## Future multi-connection model
 

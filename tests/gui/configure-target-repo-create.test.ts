@@ -74,22 +74,26 @@ describe("configure target repo create/connect", () => {
     expect(handleCreatedBlock).toContain("invalidatePreview");
   });
 
-  it("settings overview surfaces previewProvider separately from bridge copy", () => {
+  it("target repositories page surfaces previewProvider separately from bridge copy", () => {
     const overviewLoader = read(
       "apps/gui/lib/settings/load-target-repo-overview-fields.ts",
     );
-    const overviewPage = read("apps/gui/app/settings/(console)/page.tsx");
-    const settingsOverview = read(
-      "apps/gui/lib/settings/load-settings-overview.ts",
+    const repositoriesPage = read("apps/gui/app/settings/(console)/repositories/page.tsx");
+    const repositoriesOverview = read(
+      "apps/gui/components/settings/target-repositories-overview.tsx",
+    );
+    const repositoriesLoader = read(
+      "apps/gui/lib/settings/load-repositories-overview.ts",
     );
 
     expect(overviewLoader).toContain("initializationStatus");
     expect(overviewLoader).toContain("readProductMarker");
     expect(overviewLoader).toContain("previewProvider");
-    expect(settingsOverview).toContain("loadTargetRepoOverviewFields");
-    expect(overviewPage).toContain("Application preview provider");
-    expect(overviewPage).toContain("Product initialization");
-    expect(overviewPage).toContain("automation bridge");
-    expect(overviewPage).not.toContain("webhook bridge is configured");
+    expect(repositoriesLoader).toContain("loadTargetRepoOverviewFields");
+    expect(repositoriesPage).toContain("TargetRepositoriesOverview");
+    expect(repositoriesOverview).toContain("Application preview provider");
+    expect(repositoriesOverview).toContain("Product initialization");
+    expect(repositoriesOverview).toContain("automation bridge");
+    expect(repositoriesOverview).not.toContain("webhook bridge is configured");
   });
 });

@@ -65,18 +65,8 @@ describe("settings mutation editors", () => {
     expect(linearEditor).toContain("previewLinearSetup");
     expect(linearEditor).toContain("applyLinearSetup");
     expect(linearEditor).toContain('confirmScope="linear-write"');
-  });
-
-  it("uses schema-backed automation patch fields", async () => {
-    const automationEditor = await readFile(
-      path.join(
-        process.cwd(),
-        "apps/gui/components/settings/editors/automation-settings-editor.tsx",
-      ),
-      "utf8",
-    );
-    expect(automationEditor).toContain("planningTimeoutSeconds");
-    expect(automationEditor).toContain("mergeMethod");
-    expect(automationEditor).toContain('kind: "automation"');
+    expect(linearEditor).toContain("/api/setup/linear-options");
+    expect(linearEditor).toContain("useEffect");
+    expect(linearEditor).not.toContain("Load workspace options");
   });
 });
