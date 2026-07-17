@@ -112,10 +112,10 @@ export function DataSharingPreferences({
       description="These preferences are stored locally only."
     >
       <div className={SPACING.stackSm}>
-        <label className="flex items-start gap-2 text-sm">
+        <label className="flex cursor-pointer items-start gap-2 text-sm disabled:cursor-not-allowed has-[:disabled]:cursor-not-allowed">
           <input
             type="checkbox"
-            className="mt-0.5"
+            className="mt-0.5 cursor-pointer disabled:cursor-not-allowed"
             checked={checked}
             disabled={saving}
             onChange={(event) => {

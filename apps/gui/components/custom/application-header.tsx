@@ -17,7 +17,7 @@ function BrandLockup() {
     <>
       <span
         aria-hidden="true"
-        className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-semibold text-primary-foreground"
+        className="flex size-8 shrink-0 items-center justify-center rounded-full border border-foreground bg-transparent text-sm font-semibold text-foreground"
       >
         P
       </span>

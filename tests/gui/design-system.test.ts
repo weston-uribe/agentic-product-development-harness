@@ -24,9 +24,13 @@ describe("gui design-system boundaries", () => {
     const form = await readFile(path.join(constantsDir, "form.ts"), "utf8");
 
     expect(layout).toContain('page: "mx-auto w-full max-w-5xl"');
+    expect(layout).toContain("max-w-7xl");
+    expect(layout).toContain('configureContent: "mx-auto w-full max-w-3xl"');
     expect(spacing).toContain('section: "space-y-6"');
     expect(responsive).toContain("md:text-3xl");
     expect(form).toContain("fieldGrid");
+    expect(form).toContain("guidedSelect");
+    expect(form).toContain("h-9");
   });
 
   it("keeps harness form components under components/custom", async () => {
@@ -108,6 +112,27 @@ describe("gui design-system boundaries", () => {
     expect(dropdownMenu).toContain('@radix-ui/react-dropdown-menu');
     expect(layout).toContain("bg-background");
     expect(layout).toContain("sticky top-0 z-50");
+    expect(layout).toContain("headerInner");
     expect(progress).toContain('from "framer-motion"');
+  });
+
+  it("keeps guided visual affordance contracts", async () => {
+    const guiRoot = path.join(process.cwd(), "apps/gui");
+    const guidedSelect = await readFile(
+      path.join(guiRoot, "components/ui/guided-select.tsx"),
+      "utf8",
+    );
+    const dataSharing = await readFile(
+      path.join(guiRoot, "components/custom/data-sharing-preferences.tsx"),
+      "utf8",
+    );
+    const header = await readFile(
+      path.join(guiRoot, "components/custom/application-header.tsx"),
+      "utf8",
+    );
+
+    expect(guidedSelect).toContain("FORM.guidedSelect");
+    expect(dataSharing).toContain("cursor-pointer");
+    expect(header).toContain("border border-foreground bg-transparent");
   });
 });
