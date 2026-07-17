@@ -33,7 +33,17 @@ import {
 import { createLiveGitHubRemoteSetupProvider } from "@harness/setup/github-remote-setup-live";
 import { createLiveGitHubHarnessProvisioningProvider,
 } from "@harness/setup/github-remote-setup-live";
-import { tryCreateHarnessTestProvisioningProvider } from "@harness/setup/test-only-provisioning-provider";
+import {
+  applyTargetRepoProvisioning,
+  previewTargetRepoProvisioning,
+  type TargetRepoProvisioningApplyInput,
+  type TargetRepoProvisioningApplyResult,
+  type TargetRepoProvisioningPreview,
+  type TargetRepoProvisioningRequest,
+} from "@harness/setup/target-repo-provisioning";
+import { createLiveGitHubTargetRepositoryProvider } from "@harness/setup/github-target-repository-provider-live";
+import { tryCreateTargetRepoTestProvisioningProvider } from "@harness/setup/test-only-target-repo-provisioning-provider";
+import type { GitHubTargetRepositoryProvider } from "@harness/setup/github-target-repository-provider";
 import { tryCreateHarnessTestRemoteSetupProvider } from "@harness/setup/test-only-remote-setup-provider";
 import {
   applyHarnessRepoProvisioning,
@@ -913,6 +923,66 @@ export async function applyConnectServicesRemote(options: {
   return { summary };
 }
 
+async function resolveTargetRepoProvisioningProvider(): Promise<
+  GitHubTargetRepositoryProvider | undefined
+> {
+  const testProvider = tryCreateTargetRepoTestProvisioningProvider();
+  if (testProvider) {
+    return testProvider;
+  }
+  const token = await loadGithubTokenFromEnvLocal({ cwd: resolveCwd() });
+  if (!hasGithubTokenConfigured(token)) {
+    return undefined;
+  }
+  return createLiveGitHubTargetRepositoryProvider(token!);
+}
+
+export async function previewTargetRepoProvisioningRemote(
+  request: TargetRepoProvisioningRequest,
+): Promise<TargetRepoProvisioningPreview> {
+  const provider = await resolveTargetRepoProvisioningProvider();
+  if (!provider) {
+    return {
+      state: "invalid-input",
+      fingerprint: "",
+      operationId: request.operationId ?? "",
+      creationActionId: request.creationActionId ?? "",
+      createdAt: request.createdAt ?? "",
+      owner: request.owner,
+      repositoryName: request.name,
+      repositoryFullName: `${request.owner}/${request.name}`,
+      visibility: request.visibility ?? "private",
+      description: request.description ?? "",
+      initialBranches: ["main", "dev"],
+      initialFilePaths: ["README.md", ".p-dev/product.json"],
+      resultingTargetRepoConfigId: `target-${request.name}`,
+      actionsWillPerform: [],
+      actionsWillNotPerform: [],
+      message: "GITHUB_TOKEN is required before creating a product repository.",
+      resumedFromPending: false,
+    };
+  }
+  return previewTargetRepoProvisioning({
+    request,
+    provider,
+    cwd: resolveCwd(),
+  });
+}
+
+export async function applyTargetRepoProvisioningRemote(
+  apply: TargetRepoProvisioningApplyInput,
+): Promise<TargetRepoProvisioningApplyResult> {
+  const provider = await resolveTargetRepoProvisioningProvider();
+  if (!provider) {
+    throw new Error("GITHUB_TOKEN is required before creating a product repository.");
+  }
+  return applyTargetRepoProvisioning({
+    apply,
+    provider,
+    cwd: resolveCwd(),
+  });
+}
+
 export type {
   SetupGuiViewModel,
   LocalSetupFormPayload,
@@ -928,5 +998,9 @@ export type {
   LinearSetupApplyResult,
   VercelBridgePreview,
   VercelBridgeApplyResult,
+  TargetRepoProvisioningPreview,
+  TargetRepoProvisioningApplyResult,
+  TargetRepoProvisioningRequest,
+  TargetRepoProvisioningApplyInput,
 };
 

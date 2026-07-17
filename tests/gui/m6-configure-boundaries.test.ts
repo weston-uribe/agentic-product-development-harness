@@ -742,7 +742,7 @@ describe("M6 configure GUI boundaries", () => {
     expect(experienceSource).toContain("GUIDED_DISPLAY_STEP_AFTER_LOCAL_APPLY");
     expect(experienceSource).toContain("localReadinessReviewed: false");
     expect(experienceSource).toContain("cloudSecretsReviewed: false");
-    expect(experienceSource).toContain("remoteSecretPreviewStale: true");
+    expect(experienceSource).toContain("remoteSecretPreviewStale: current.cloudSecretsPreviewOpened");
     expect(experienceSource).toContain("localSetupFilesExist={localSetupFilesExist(summary)}");
 
     const guidedSectionEnd = workflowSource.indexOf(
@@ -966,7 +966,9 @@ describe("M6 configure GUI boundaries", () => {
     expect(appShellSource).toContain("ApplicationHeader");
     expect(appShellSource).not.toContain("ThemeToggle");
     expect(settingsMenuSource).toContain("Settings");
-    expect(settingsMenuSource).toContain("Setup wizard");
+    expect(settingsMenuSource).toContain("Workflow");
+    expect(settingsMenuSource).not.toContain("Setup wizard");
+    expect(settingsMenuSource).not.toContain("Data sharing");
     expect(settingsMenuSource).toContain("Dark mode");
     expect(settingsMenuSource).toContain("Light mode");
   });
