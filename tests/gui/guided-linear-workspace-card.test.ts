@@ -71,18 +71,31 @@ describe("guided linear workspace card", () => {
     );
     expect(source).toContain("applyInFlightRef.current = true;");
     expect(source).toContain("applyInFlightRef.current = false;");
-    expect(source).toContain('aria-busy={loading === "apply" ? "true" : undefined}');
-    expect(source).toContain('className="relative min-w-[14rem] justify-center overflow-hidden"');
+    expect(source).toContain('<GuidedOperationPanel');
+    expect(source).toContain('loading === "apply"');
     expect(source).toMatch(/disabled=\{[\s\S]*loading !== null[\s\S]*!confirmed/);
-    expect(source).toContain('{loading === "apply" ? "Applying…" : "Apply Linear workspace setup"}');
+    expect(source).toContain("Apply Linear workspace setup");
   });
 
-  it("supports reduced-motion preferences for Apply pending feedback", () => {
+  it("uses guided progress and success panels instead of Apply shimmer", () => {
     const source = readLinearCardSource();
 
-    expect(source).toContain('import { motion, useReducedMotion } from "framer-motion";');
-    expect(source).toContain("const prefersReducedMotion = useReducedMotion() ?? false;");
-    expect(source).toContain('loading === "apply" && !prefersReducedMotion');
-    expect(source).toContain("repeat: Infinity");
+    expect(source).not.toContain('from "framer-motion"');
+    expect(source).not.toContain("<motion.span");
+    expect(source).toContain("LINEAR_OPERATION_PHASES");
+    expect(source).toContain('fetch("/api/setup/linear-setup-progress")');
+    expect(source).toContain("<GuidedStepSuccessPanel");
+    expect(source).toContain("onStepCompleted?.()");
+  });
+
+  it("keeps implicit apply preview internal until Preview is clicked", () => {
+    const source = readLinearCardSource();
+
+    expect(source).toContain("const [previewDisclosed, setPreviewDisclosed]");
+    expect(source).toContain("setPreviewDisclosed(true);");
+    expect(source).toContain("previewDisclosed && previewIsCurrent && preview");
+    expect(source).toMatch(
+      /const currentPreview =[\s\S]*previewIsCurrent && preview \? preview : await runPreview\(\);/,
+    );
   });
 });

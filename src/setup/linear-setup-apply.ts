@@ -30,6 +30,10 @@ import {
   type LinearSetupPlanInput,
   type LinearSetupPreview,
 } from "./linear-setup-plan.js";
+import {
+  writeLinearSetupProgress,
+  type LinearSetupProgressPhase,
+} from "./linear-setup-progress.js";
 import { executeWorkflowStatusRepairs } from "./linear-workflow-status-repair.js";
 import {
   assertRemoteSetupConfirmed,
@@ -154,12 +158,28 @@ export async function applyLinearSetup(input: {
   fingerprint: string;
   cwd?: string;
 }): Promise<LinearSetupApplyResult> {
+  const progressStartedAt = new Date().toISOString();
+  const writeProgress = (
+    phase: LinearSetupProgressPhase,
+    completed = false,
+  ) =>
+    writeLinearSetupProgress(
+      {
+        actionId: LINEAR_SETUP_ACTIONS.apply.id,
+        phase,
+        startedAt: progressStartedAt,
+        completed,
+      },
+      input.cwd,
+    );
+
   assertRemoteSetupConfirmed(input.confirmed);
   assertRemoteSetupPermissionScope(
     LINEAR_SETUP_ACTIONS.apply.permission.scope,
     SETUP_PERMISSIONS.linearWrite.scope,
   );
 
+  await writeProgress("validate");
   const preview = await previewLinearSetup(input.plan);
   assertRemoteSetupFingerprint(input.fingerprint, preview.fingerprint);
   if (preview.validationError) {
@@ -172,6 +192,7 @@ export async function applyLinearSetup(input: {
   const repaired: string[] = [];
 
   let team: LinearTeamSummary;
+  await writeProgress("team");
   if (input.plan.team.mode === "create") {
     if (!input.plan.team.teamName || !input.plan.team.teamKey) {
       throw new Error("New Linear team requires name and key.");
@@ -201,6 +222,7 @@ export async function applyLinearSetup(input: {
   }
 
   let project: LinearProjectSummary;
+  await writeProgress("project");
   if (input.plan.project.mode === "create") {
     if (!input.plan.project.projectName) {
       throw new Error("New Linear project requires a name.");
@@ -237,6 +259,7 @@ export async function applyLinearSetup(input: {
     skipped.push(`project:${project.name}`);
   }
 
+  await writeProgress("statuses");
   let statusCoverageComplete = await ensureWorkflowStatesForTeam({
     client,
     teamId: team.id,
@@ -260,6 +283,7 @@ export async function applyLinearSetup(input: {
     );
   }
 
+  await writeProgress("verify");
   const selection: LinearWorkspaceSelection = {
     teamMode: input.plan.team.mode,
     teamId: team.id,
@@ -279,6 +303,7 @@ export async function applyLinearSetup(input: {
     teamKey: team.key,
     projectName: project.name,
   });
+  await writeProgress("verify", true);
 
   return {
     actionId: LINEAR_SETUP_ACTIONS.apply.id,

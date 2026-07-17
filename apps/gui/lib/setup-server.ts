@@ -121,6 +121,10 @@ import {
   type LinearSetupPlanInput,
   type LinearSetupPreview,
 } from "@harness/setup/linear-setup-apply";
+import {
+  loadLinearSetupProgressReport,
+  type LinearSetupProgressReport,
+} from "@harness/setup/linear-setup-progress";
 import { buildLinearSetupSummary } from "@harness/setup/linear-setup-summary";
 import {
   createLinearSetupClient,
@@ -714,6 +718,10 @@ export async function applyLinearSetupRemote(options: {
   });
   const summary = await buildLinearSetupSummary(cwd);
   return { apply, summary };
+}
+
+export async function loadLinearSetupProgressRemote(): Promise<LinearSetupProgressReport> {
+  return loadLinearSetupProgressReport(resolveCwd());
 }
 
 export async function ensureLinearWorkspaceMigrated(cwd = resolveCwd()) {

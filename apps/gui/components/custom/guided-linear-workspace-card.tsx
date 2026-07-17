@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { motion, useReducedMotion } from "framer-motion";
 import type { LinearSetupPreview } from "@harness/setup/linear-setup-apply";
 import type { LinearSetupApplyResult } from "@harness/setup/linear-setup-apply";
 import type { LinearSetupSummary } from "@harness/setup/linear-setup-summary";
@@ -16,11 +15,26 @@ import { FORM, SPACING } from "@/lib/constants";
 import { GUIDED_SETUP_STEP_COUNT } from "@/lib/guided-setup";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { GuidedSelect } from "@/components/ui/guided-select";
 import { Label } from "@/components/ui/label";
 import { SectionCard } from "@/components/custom/section-card";
 import { StatusBadge } from "@/components/custom/status-badge";
 import { RemoteActionConfirmation } from "@/components/custom/remote-action-confirmation";
 import { SetupApplyResult } from "@/components/custom/setup-apply-result";
+import { GuidedOperationPanel, buildGuidedOperationPhases } from "@/components/custom/guided-operation-panel";
+import { GuidedStepSuccessPanel } from "@/components/custom/guided-step-success-panel";
+
+const LINEAR_OPERATION_PHASES = [
+  "Validating Linear plan",
+  "Creating or selecting team",
+  "Creating or selecting project",
+  "Configuring workflow statuses",
+  "Verifying Linear workspace",
+] as const;
+
+const LINEAR_PHASE_INDEX_BY_LABEL: Map<string, number> = new Map(
+  LINEAR_OPERATION_PHASES.map((label, index) => [label, index]),
+);
 
 interface GuidedLinearWorkspaceCardProps {
   readiness: FirstRunReadiness;
@@ -29,10 +43,8 @@ interface GuidedLinearWorkspaceCardProps {
   onSummaryUpdated?: (summary: LinearSetupSummary) => void;
   onUiStateChange?: (state: { linearPreviewStale: boolean }) => void;
   onContinue: () => void;
+  onStepCompleted?: () => void;
 }
-
-const selectClassName =
-  "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
 
 export function GuidedLinearWorkspaceCard({
   readiness,
@@ -41,6 +53,7 @@ export function GuidedLinearWorkspaceCard({
   onSummaryUpdated,
   onUiStateChange,
   onContinue,
+  onStepCompleted,
 }: GuidedLinearWorkspaceCardProps) {
   const [summary, setSummary] = useState(initialSummary);
   const [teamMode, setTeamMode] = useState<"existing" | "create">("existing");
@@ -61,6 +74,7 @@ export function GuidedLinearWorkspaceCard({
   const [optionsError, setOptionsError] = useState<string | null>(null);
   const [preview, setPreview] = useState<LinearSetupPreview | null>(null);
   const [previewGenerated, setPreviewGenerated] = useState(false);
+  const [previewDisclosed, setPreviewDisclosed] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [loading, setLoading] = useState<"preview" | "apply" | "refresh" | null>(
     null,
@@ -71,8 +85,9 @@ export function GuidedLinearWorkspaceCard({
     null,
   );
   const [verifiedSuccess, setVerifiedSuccess] = useState(false);
+  const [operationActiveIndex, setOperationActiveIndex] = useState(0);
+  const [operationSupportingText, setOperationSupportingText] = useState<string | null>(null);
   const applyInFlightRef = useRef(false);
-  const prefersReducedMotion = useReducedMotion() ?? false;
 
   useEffect(() => {
     setSummary(initialSummary);
@@ -97,8 +112,50 @@ export function GuidedLinearWorkspaceCard({
   const invalidatePreview = useCallback(() => {
     setPreview(null);
     setPreviewGenerated(false);
+    setPreviewDisclosed(false);
     clearVerifiedSuccess();
   }, [clearVerifiedSuccess]);
+
+  useEffect(() => {
+    if (loading !== "apply") {
+      return;
+    }
+
+    let cancelled = false;
+    const pollProgress = async () => {
+      try {
+        const response = await fetch("/api/setup/linear-setup-progress");
+        if (!response.ok || cancelled) {
+          return;
+        }
+        const report = (await response.json()) as {
+          uiPhaseLabel?: string | null;
+          completed?: boolean;
+        };
+        if (!report.uiPhaseLabel) {
+          return;
+        }
+        const index = LINEAR_PHASE_INDEX_BY_LABEL.get(report.uiPhaseLabel);
+        if (index !== undefined) {
+          setOperationActiveIndex(
+            report.completed ? LINEAR_OPERATION_PHASES.length : index,
+          );
+        }
+        setOperationSupportingText(report.uiPhaseLabel);
+      } catch {
+        // Progress polling is best-effort; apply response remains authoritative.
+      }
+    };
+
+    setOperationActiveIndex(0);
+    setOperationSupportingText(LINEAR_OPERATION_PHASES[0]);
+    void pollProgress();
+    const intervalId = window.setInterval(() => void pollProgress(), 500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [loading]);
 
   const loadWorkspaceOptions = useCallback(async () => {
     if (!apiKeyConfigured) {
@@ -242,9 +299,11 @@ export function GuidedLinearWorkspaceCard({
     setConfirmed(false);
     try {
       await runPreview();
+      setPreviewDisclosed(true);
     } catch (nextPreviewError) {
       setPreview(null);
       setPreviewGenerated(false);
+      setPreviewDisclosed(true);
       setPreviewError(
         nextPreviewError instanceof Error
           ? nextPreviewError.message
@@ -262,6 +321,8 @@ export function GuidedLinearWorkspaceCard({
 
     applyInFlightRef.current = true;
     setLoading("apply");
+    setOperationActiveIndex(0);
+    setOperationSupportingText(LINEAR_OPERATION_PHASES[0]);
     setError(null);
     clearVerifiedSuccess();
     try {
@@ -295,10 +356,14 @@ export function GuidedLinearWorkspaceCard({
       setApplyResult(apply);
       setSummary(data.summary as LinearSetupSummary);
       onSummaryUpdated?.(data.summary as LinearSetupSummary);
+      onStepCompleted?.();
       setVerifiedSuccess(true);
       setPreview(null);
       setPreviewGenerated(false);
+      setPreviewDisclosed(false);
       setConfirmed(false);
+      setOperationActiveIndex(LINEAR_OPERATION_PHASES.length);
+      setOperationSupportingText("Linear workspace verified.");
       void loadWorkspaceOptions();
     } catch (applyError) {
       setError(applyError instanceof Error ? applyError.message : "Apply failed");
@@ -319,6 +384,7 @@ export function GuidedLinearWorkspaceCard({
       ? Boolean(teamId) && (projectMode === "existing" ? Boolean(projectId) : Boolean(projectName))
       : Boolean(teamKey && teamName) &&
         (projectMode === "existing" ? Boolean(projectId) : Boolean(projectName));
+  const controlsLocked = loading === "apply";
 
   return (
     <SectionCard
@@ -335,29 +401,28 @@ export function GuidedLinearWorkspaceCard({
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="linear-team-mode">Team</Label>
-                <select
+                <GuidedSelect
                   id="linear-team-mode"
-                  className={selectClassName}
                   value={teamMode}
                   onChange={(event) => {
                     setTeamMode(event.target.value as "existing" | "create");
                     invalidatePreview();
                   }}
+                  disabled={controlsLocked}
                 >
                   <option value="existing">Use existing team</option>
                   <option value="create">Create new team</option>
-                </select>
+                </GuidedSelect>
                 {teamMode === "existing" ? (
                   <>
-                    <select
-                      className={selectClassName}
+                    <GuidedSelect
                       value={teamId}
                       onChange={(event) => {
                         setTeamId(event.target.value);
                         setProjectId("");
                         invalidatePreview();
                       }}
-                      disabled={optionsLoading}
+                      disabled={controlsLocked || optionsLoading}
                     >
                       <option value="">Select a team…</option>
                       {teams.map((team) => (
@@ -365,7 +430,7 @@ export function GuidedLinearWorkspaceCard({
                           {team.name} ({team.key})
                         </option>
                       ))}
-                    </select>
+                    </GuidedSelect>
                     {optionsLoading ? (
                       <p className="text-sm text-muted-foreground">
                         Loading Linear teams…
@@ -382,6 +447,7 @@ export function GuidedLinearWorkspaceCard({
                     <Input
                       placeholder="Team name"
                       value={teamName}
+                      disabled={controlsLocked}
                       onChange={(event) => {
                         setTeamName(event.target.value);
                         invalidatePreview();
@@ -390,6 +456,7 @@ export function GuidedLinearWorkspaceCard({
                     <Input
                       placeholder="Team key (e.g. ENG)"
                       value={teamKey}
+                      disabled={controlsLocked}
                       onChange={(event) => {
                         setTeamKey(event.target.value);
                         invalidatePreview();
@@ -402,18 +469,18 @@ export function GuidedLinearWorkspaceCard({
               <div className="space-y-2">
                 <Label htmlFor="linear-project-mode">Project</Label>
                 {!forceCreateProject ? (
-                  <select
+                  <GuidedSelect
                     id="linear-project-mode"
-                    className={selectClassName}
                     value={projectMode}
                     onChange={(event) => {
                       setProjectMode(event.target.value as "existing" | "create");
                       invalidatePreview();
                     }}
+                    disabled={controlsLocked}
                   >
                     <option value="existing">Use existing project</option>
                     <option value="create">Create new project</option>
-                  </select>
+                  </GuidedSelect>
                 ) : (
                   <p className="text-sm text-muted-foreground">
                     Create a new project for this Linear team.
@@ -421,14 +488,13 @@ export function GuidedLinearWorkspaceCard({
                 )}
                 {!forceCreateProject && projectMode === "existing" ? (
                   <>
-                    <select
-                      className={selectClassName}
+                    <GuidedSelect
                       value={projectId}
                       onChange={(event) => {
                         setProjectId(event.target.value);
                         invalidatePreview();
                       }}
-                      disabled={optionsLoading}
+                      disabled={controlsLocked || optionsLoading}
                     >
                       <option value="">Select a project…</option>
                       {projectOptions.map((project) => (
@@ -436,7 +502,7 @@ export function GuidedLinearWorkspaceCard({
                           {project.name}
                         </option>
                       ))}
-                    </select>
+                    </GuidedSelect>
                     {optionsLoading ? (
                       <p className="text-sm text-muted-foreground">
                         Loading Linear projects…
@@ -447,6 +513,7 @@ export function GuidedLinearWorkspaceCard({
                   <Input
                     placeholder="Project name"
                     value={projectName}
+                    disabled={controlsLocked}
                     onChange={(event) => {
                       setProjectName(event.target.value);
                       invalidatePreview();
@@ -487,7 +554,7 @@ export function GuidedLinearWorkspaceCard({
               </Button>
             </div>
 
-            {previewIsCurrent && preview ? (
+            {previewDisclosed && previewIsCurrent && preview ? (
               <div className="rounded-md border border-border bg-muted/10 p-3 text-sm space-y-2">
                 <p>
                   Missing creatable statuses:{" "}
@@ -549,13 +616,21 @@ export function GuidedLinearWorkspaceCard({
               onConfirmedChange={setConfirmed}
             />
 
-            {!verifiedSuccess ? (
+            {loading === "apply" ? (
+              <GuidedOperationPanel
+                phases={buildGuidedOperationPhases({
+                  labels: [...LINEAR_OPERATION_PHASES],
+                  activeIndex: operationActiveIndex,
+                })}
+                supportingText={operationSupportingText}
+              />
+            ) : null}
+
+            {!verifiedSuccess && loading !== "apply" ? (
               <div className={FORM.actions}>
                 <Button
                   type="button"
                   onClick={() => void handleApply()}
-                  aria-busy={loading === "apply" ? "true" : undefined}
-                  className="relative min-w-[14rem] justify-center overflow-hidden"
                   disabled={
                     loading !== null ||
                     !confirmed ||
@@ -563,35 +638,27 @@ export function GuidedLinearWorkspaceCard({
                     Boolean(preview?.validationError)
                   }
                 >
-                  {loading === "apply" && !prefersReducedMotion ? (
-                    <motion.span
-                      aria-hidden="true"
-                      className="absolute inset-y-0 left-0 w-1/2 bg-primary-foreground/20"
-                      initial={{ x: "-120%" }}
-                      animate={{ x: "240%" }}
-                      transition={{
-                        duration: 1.1,
-                        ease: "easeInOut",
-                        repeat: Infinity,
-                      }}
-                    />
-                  ) : null}
-                  <span className="relative z-10">
-                    {loading === "apply" ? "Applying…" : "Apply Linear workspace setup"}
-                  </span>
+                  Apply Linear workspace setup
                 </Button>
               </div>
             ) : null}
 
             {error ? <SetupApplyResult success={false} message={error} /> : null}
             {verifiedSuccess && applyResult ? (
-              <SetupApplyResult
-                success
-                message={`Linear workspace verified. Created: ${applyResult.created.join(", ") || "none"}. Reused: ${applyResult.skipped.join(", ") || "none"}. Repaired: ${applyResult.repaired.join(", ") || "none"}.`}
+              <GuidedStepSuccessPanel
+                heading="Linear workspace verified"
+                explanation="The selected Linear team, project, and workflow statuses are ready."
+                details={[
+                  `Created: ${applyResult.created.join(", ") || "none"}`,
+                  `Reused: ${applyResult.skipped.join(", ") || "none"}`,
+                  `Repaired: ${applyResult.repaired.join(", ") || "none"}`,
+                ]}
+                continueLabel="Continue to Vercel bridge"
+                onContinue={onContinue}
               />
             ) : null}
 
-            {canContinue ? (
+            {canContinue && !verifiedSuccess ? (
               <Button type="button" onClick={onContinue}>
                 Continue to Vercel bridge
               </Button>

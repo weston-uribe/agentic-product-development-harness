@@ -44,6 +44,8 @@ import { LocalWritePreview } from "@/components/custom/local-write-preview";
 import { LocalWriteConfirmation } from "@/components/custom/local-write-confirmation";
 import { ReviewGeneratedFilesDisclosure } from "@/components/custom/review-generated-files-disclosure";
 import { SetupApplyResult } from "@/components/custom/setup-apply-result";
+import { GuidedOperationPanel, buildGuidedOperationPhases } from "@/components/custom/guided-operation-panel";
+import { GuidedStepSuccessPanel } from "@/components/custom/guided-step-success-panel";
 import {
   createGuidedRepoRowId,
   guidedRowsFromConfig,
@@ -81,7 +83,30 @@ interface ConfigureWorkflowProps {
   onUiStateChange?: (state: { localPreviewStale: boolean }) => void;
   onGuidedLocalApplySuccess?: () => void;
   onConnectServicesComplete?: () => void;
+  onConnectServicesSucceeded?: () => void;
   localSetupFilesExist?: boolean;
+}
+
+const HARNESS_PROVISIONING_PHASES = [
+  "Creating private workspace",
+  "Preparing workspace snapshot",
+  "Uploading workspace",
+  "Verifying workspace",
+  "Saving configuration",
+] as const;
+
+const HARNESS_PROVISIONING_PHASE_INDEX = new Map(
+  HARNESS_PROVISIONING_PHASES.map((label, index) => [label, index]),
+);
+
+function resolveHarnessProvisioningPhaseIndex(message: string | null): number {
+  if (!message) {
+    return 0;
+  }
+  const match = HARNESS_PROVISIONING_PHASES.find((label) =>
+    message.startsWith(label),
+  );
+  return match ? HARNESS_PROVISIONING_PHASE_INDEX.get(match) ?? 0 : 0;
 }
 
 const SERVICE_API_MAP: Record<ServiceKey, "linear" | "cursor" | "github" | "vercel"> = {
@@ -191,6 +216,7 @@ export function ConfigureWorkflow({
   onUiStateChange,
   onGuidedLocalApplySuccess,
   onConnectServicesComplete,
+  onConnectServicesSucceeded,
   localSetupFilesExist = false,
 }: ConfigureWorkflowProps) {
   const prefersReducedMotion = useReducedMotion();
@@ -273,6 +299,10 @@ export function ConfigureWorkflow({
   const [provisioningError, setProvisioningError] = useState<string | null>(
     null,
   );
+  const [connectServicesSucceeded, setConnectServicesSucceeded] = useState(false);
+  const [connectServicesSuccessDetails, setConnectServicesSuccessDetails] = useState<
+    string[]
+  >([]);
   const [verifyingHarnessRepo, setVerifyingHarnessRepo] = useState(false);
   const [showPreviewDisclosure, setShowPreviewDisclosure] = useState(false);
   const [preview, setPreview] = useState<LocalSetupPreviewResult | null>(null);
@@ -535,6 +565,12 @@ export function ConfigureWorkflow({
   ]);
 
   const continueWithHarnessProvisioning = useCallback(async () => {
+    const markConnectServicesSucceeded = (details: string[]) => {
+      setConnectServicesSuccessDetails(details);
+      setConnectServicesSucceeded(true);
+      onConnectServicesSucceeded?.();
+    };
+
     if (
       initialHarnessProvisioningSummary.state === "verified-and-persisted" ||
       initialHarnessProvisioningSummary.state === "skipped-source-mode" ||
@@ -550,12 +586,19 @@ export function ConfigureWorkflow({
           message: initialHarnessProvisioningSummary.message,
         });
       }
-      onConnectServicesComplete?.();
+      markConnectServicesSucceeded([
+        repoSlug
+          ? `Workspace reconnected: ${repoSlug}`
+          : "Workspace already verified",
+        "Configuration saved",
+      ]);
       return;
     }
 
     setProvisioningHarnessRepo(true);
     setProvisioningError(null);
+    setConnectServicesSucceeded(false);
+    setConnectServicesSuccessDetails([]);
     setProvisioningMessage("Creating private workspace");
 
     let progressPoll: ReturnType<typeof setInterval> | undefined;
@@ -590,7 +633,12 @@ export function ConfigureWorkflow({
           message: previewData.message,
           recoverable: false,
         });
-        onConnectServicesComplete?.();
+        markConnectServicesSucceeded([
+          trustedRepo
+            ? `Workspace reconnected: ${trustedRepo}`
+            : "Workspace setup skipped for source mode",
+          "Configuration saved",
+        ]);
         return;
       }
 
@@ -715,7 +763,14 @@ export function ConfigureWorkflow({
         // The apply result already advanced the UI; a refresh will reload summary.
       }
       setProvisioningMessage(applyData.apply.message);
-      onConnectServicesComplete?.();
+      markConnectServicesSucceeded([
+        repoSlug
+          ? `Workspace created or reconnected: ${repoSlug}`
+          : "Workspace verified",
+        "Snapshot uploaded",
+        "Workspace verified",
+        "Configuration saved",
+      ]);
     } catch (provisionError) {
       setProvisioningError(
         provisionError instanceof Error
@@ -733,7 +788,7 @@ export function ConfigureWorkflow({
     initialEnv.savedHarnessDispatchRepository,
     initialEnv.suggestedHarnessDispatchRepo,
     initialHarnessProvisioningSummary,
-    onConnectServicesComplete,
+    onConnectServicesSucceeded,
     onHarnessProvisioningSummaryUpdated,
     onSummaryUpdated,
   ]);
@@ -1387,6 +1442,10 @@ export function ConfigureWorkflow({
   const guidedLocalSetupActionLoadingLabel = localSetupFilesExist
     ? "Updating…"
     : "Creating…";
+  const harnessProvisioningActiveIndex =
+    provisioningHarnessRepo
+      ? resolveHarnessProvisioningPhaseIndex(provisioningMessage)
+      : HARNESS_PROVISIONING_PHASES.length;
 
   if (mode === "guided") {
     const renderGuidedStep = () => {
@@ -1405,6 +1464,8 @@ export function ConfigureWorkflow({
                 verifyingKey={verifyingServiceKey}
                 onChange={(values) => {
                   invalidatePreview();
+                  setConnectServicesSucceeded(false);
+                  setConnectServicesSuccessDetails([]);
                   setEnvValues(values);
                   if (values.linearApiKey !== envValues.linearApiKey) {
                     markServiceUnchecked("LINEAR_API_KEY");
@@ -1423,32 +1484,49 @@ export function ConfigureWorkflow({
                 onVerifyService={verifyAndSaveService}
                 onServiceBlur={handleServiceBlur}
               />
-              <div className={FORM.actions}>
-                <Button
-                  type="button"
-                  onClick={() => {
-                    void continueWithHarnessProvisioning();
-                  }}
-                  disabled={!connectServicesReady || provisioningHarnessRepo}
-                >
-                  {provisioningHarnessRepo
-                    ? provisioningMessage ?? "Setting up workspace…"
-                    : "Set up workspace"}
-                </Button>
-              </div>
-              {!connectServicesReady ? (
-                <p className="text-sm text-muted-foreground">
-                  Verify and save each service key above. Continue unlocks after
-                  all four services are verified and saved locally.
-                </p>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  p-dev will use your GitHub token to create or reconnect your
-                  private `p-dev-harness` workspace before continuing.
-                </p>
-              )}
-              {provisioningMessage ? (
-                <p className="text-sm text-muted-foreground">{provisioningMessage}</p>
+              {provisioningHarnessRepo ? (
+                <GuidedOperationPanel
+                  phases={buildGuidedOperationPhases({
+                    labels: [...HARNESS_PROVISIONING_PHASES],
+                    activeIndex: harnessProvisioningActiveIndex,
+                  })}
+                  supportingText={provisioningMessage}
+                />
+              ) : null}
+              {!provisioningHarnessRepo && !connectServicesSucceeded ? (
+                <>
+                  <div className={FORM.actions}>
+                    <Button
+                      type="button"
+                      onClick={() => {
+                        void continueWithHarnessProvisioning();
+                      }}
+                      disabled={!connectServicesReady}
+                    >
+                      Set up workspace
+                    </Button>
+                  </div>
+                  {!connectServicesReady ? (
+                    <p className="text-sm text-muted-foreground">
+                      Verify and save each service key above. Continue unlocks after
+                      all four services are verified and saved locally.
+                    </p>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      p-dev will use your GitHub token to create or reconnect your
+                      private `p-dev-harness` workspace before continuing.
+                    </p>
+                  )}
+                </>
+              ) : null}
+              {!provisioningHarnessRepo && connectServicesSucceeded ? (
+                <GuidedStepSuccessPanel
+                  heading="Workspace setup verified"
+                  explanation="Your private harness workspace and local service configuration are ready."
+                  details={connectServicesSuccessDetails}
+                  continueLabel="Continue to Linear workspace"
+                  onContinue={onConnectServicesComplete ?? (() => undefined)}
+                />
               ) : null}
               {provisioningError ? (
                 <p className="text-sm text-destructive">{provisioningError}</p>
