@@ -35,6 +35,7 @@ import {
   releaseParentObservabilityOwnership,
 } from "../../src/observability/facade.js";
 import { P_DEV_RELEASE_SHA_ENV } from "../../src/observability/constants.js";
+import { P_DEV_PACKAGE_ROOT_ENV } from "../../src/p-dev/package-paths.js";
 
 const MANIFEST_SOURCE_COMMIT = "c0ffee".padEnd(40, "0");
 
@@ -144,6 +145,8 @@ describe("p-dev launch", () => {
     expect(spawnOptions.env.HARNESS_REPO_ROOT).toBe(workspaceDir);
     expect(spawnOptions.env.P_DEV_HOME).toBe(workspaceDir);
     expect(spawnOptions.env.P_DEV_PACKAGE_VERSION).toBe("0.3.0");
+    expect(spawnOptions.env[P_DEV_PACKAGE_ROOT_ENV]).toBe(packageRoot);
+    expect(spawnOptions.env[P_DEV_PACKAGE_ROOT_ENV]).not.toBe(workspaceDir);
     expect(spawnOptions.env.P_DEV_OBSERVABILITY_SESSION_ID).toMatch(
       /^[0-9a-f-]{36}$/i,
     );

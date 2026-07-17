@@ -72,4 +72,38 @@ describe("app shell settings menu", () => {
     expect(settingsMenu).toContain("useThemeToggle");
     expect(settingsMenu).toContain("toggleTheme()");
   });
+
+  it("defaults to showing product navigation and can suppress it", async () => {
+    const appShell = await readFile(
+      path.join(process.cwd(), "apps/gui/components/custom/app-shell.tsx"),
+      "utf8",
+    );
+    const applicationHeader = await readFile(
+      path.join(
+        process.cwd(),
+        "apps/gui/components/custom/application-header.tsx",
+      ),
+      "utf8",
+    );
+    const settingsMenu = await readFile(
+      path.join(process.cwd(), "apps/gui/components/custom/settings-menu.tsx"),
+      "utf8",
+    );
+
+    expect(appShell).toContain("showProductNavigation = true");
+    expect(appShell).toContain(
+      "showProductNavigation={showProductNavigation}",
+    );
+    expect(applicationHeader).toContain("showProductNavigation = true");
+    expect(applicationHeader).toContain(
+      "showProductNavigation={showProductNavigation}",
+    );
+    expect(settingsMenu).toContain("showProductNavigation = true");
+    expect(settingsMenu).toContain("!showProductNavigation");
+    expect(settingsMenu).toContain("{showProductNavigation ? (");
+    expect(settingsMenu).toContain("DropdownMenuSeparator");
+    expect(settingsMenu).toContain("Workflow");
+    expect(settingsMenu).toContain("Dark mode");
+    expect(settingsMenu).toContain("Light mode");
+  });
 });
