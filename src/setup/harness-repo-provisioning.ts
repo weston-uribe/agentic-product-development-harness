@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { performance } from "node:perf_hooks";
 import { resolveHarnessPackageVersion } from "../p-dev/package-version.js";
 import { isPackagedPDevRuntime } from "../p-dev/runtime-mode.js";
 import { GitHubApiError } from "../github/client.js";
@@ -56,6 +57,7 @@ import {
 } from "./harness-snapshot-provisioning-helpers.js";
 import {
   provisionHarnessWorkspaceFromSnapshot,
+  type SnapshotProvisioningTimings,
   verifyProvisionedHarnessWorkspace,
 } from "./harness-snapshot-provisioning.js";
 import { loadEmbeddedWorkspaceSnapshot } from "./harness-workspace-snapshot-loader.js";
@@ -142,6 +144,17 @@ export interface HarnessRepoProvisioningApplyResult {
   operationId?: string;
   phase?: string;
   uiPhaseLabel?: string;
+  timings?: HarnessRepoProvisioningTimings;
+}
+
+export interface HarnessRepoProvisioningTimings {
+  snapshotProvisioning?: SnapshotProvisioningTimings;
+  remoteVerificationMs?: number;
+  localPersistenceMs?: number;
+}
+
+function elapsedHarnessProvisioningMs(startedAt: number): number {
+  return Math.round(performance.now() - startedAt);
 }
 
 function buildFingerprint(input: Record<string, unknown>): string {
@@ -1380,6 +1393,7 @@ async function applyHarnessRepoProvisioningLocked(options: {
     preview.creationPreviewFingerprint ?? options.fingerprint;
   let activePending = pending;
   let requiresSnapshotVerification = false;
+  const applyTimings: HarnessRepoProvisioningTimings = {};
 
   if (classification.kind === "valid-managed") {
     targetRepo = classification.repoSlug;
@@ -1511,6 +1525,9 @@ async function applyHarnessRepoProvisioningLocked(options: {
             );
           },
         });
+        if (provisionResult.ok) {
+          applyTimings.snapshotProvisioning = provisionResult.timings;
+        }
       } catch (error) {
         const message =
           error instanceof Error
@@ -1648,6 +1665,7 @@ async function applyHarnessRepoProvisioningLocked(options: {
         targetRepo = provisionResult.fullName;
         targetRepositoryId = provisionResult.repositoryId;
         requiresSnapshotVerification = true;
+        applyTimings.snapshotProvisioning = provisionResult.timings;
         await writeHarnessProvisioningPendingStateAtomic(
           buildSnapshotPendingState({
             operationId: options.operationId,
@@ -1692,12 +1710,17 @@ async function applyHarnessRepoProvisioningLocked(options: {
   }
 
   if (requiresSnapshotVerification) {
+    const remoteVerificationStartedAt = performance.now();
     const verification = await verifyProvisionedHarnessWorkspace({
       provider: options.provider,
       repoSlug: targetRepo,
       repositoryId: targetRepositoryId,
       manifest: snapshotPreview.manifest,
     });
+    const remoteVerificationMs = elapsedHarnessProvisioningMs(
+      remoteVerificationStartedAt,
+    );
+    applyTimings.remoteVerificationMs = remoteVerificationMs;
     if (!verification.ok) {
       return {
         state: "repo-created-pending-verification",
@@ -1705,27 +1728,36 @@ async function applyHarnessRepoProvisioningLocked(options: {
         message: verification.message,
         recoverable: true,
         persisted: false,
+        timings: applyTimings,
       };
     }
   }
 
+  const localPersistenceStartedAt = performance.now();
   const persist = await persistGithubDispatchRepository({
     cwd: options.cwd,
     githubDispatchRepository: targetRepo,
     githubDispatchRepositoryId: targetRepositoryId,
   });
   if (persist.outcome !== "changed" && persist.outcome !== "skipped") {
+    applyTimings.localPersistenceMs = elapsedHarnessProvisioningMs(
+      localPersistenceStartedAt,
+    );
     return {
       state: "created-but-persistence-failed",
       harnessDispatchRepo: targetRepo,
       message: persist.reason ?? "Failed to persist GITHUB_DISPATCH_REPOSITORY.",
       recoverable: true,
       persisted: false,
+      timings: applyTimings,
     };
   }
 
   await clearHarnessProvisioningPendingState(options.cwd);
   await clearHarnessProvisioningProgress(options.cwd);
+  applyTimings.localPersistenceMs = elapsedHarnessProvisioningMs(
+    localPersistenceStartedAt,
+  );
   return {
     state: "verified-and-persisted",
     harnessDispatchRepo: targetRepo,
@@ -1735,5 +1767,6 @@ async function applyHarnessRepoProvisioningLocked(options: {
     operationId: options.operationId,
     phase: "persistence-pending",
     uiPhaseLabel: uiPhaseLabel("saving-configuration"),
+    timings: applyTimings,
   };
 }

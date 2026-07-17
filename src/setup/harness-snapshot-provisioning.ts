@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { performance } from "node:perf_hooks";
 import { GitHubApiError } from "../github/client.js";
 import { isGitHubRateLimitError } from "../github/rate-limit-metadata.js";
 import { HARNESS_MANAGED_REPO_MARKER_FILE } from "./harness-managed-repo-marker.js";
@@ -19,7 +20,10 @@ import {
   SnapshotProvisioningError,
 } from "./harness-snapshot-provisioning-helpers.js";
 import { GitHubUploadRateLimitGate } from "./github-upload-rate-limit-gate.js";
-import { resolveGitPushTimeoutMs } from "./harness-snapshot-git-transport.js";
+import {
+  resolveGitPushTimeoutMs,
+  type HarnessGitTransportTimings,
+} from "./harness-snapshot-git-transport.js";
 
 export { SnapshotProvisioningError };
 
@@ -123,6 +127,17 @@ export type SnapshotProvisioningProgressPhase = SnapshotProvisioningPhase;
 export interface SnapshotProvisioningCheckpoint
   extends Partial<HarnessProvisioningPendingState> {
   phase: SnapshotProvisioningPhase;
+}
+
+export interface SnapshotProvisioningTimings {
+  repositoryCreateReconcileMs?: number;
+  workspaceUploadMs?: number;
+  descriptionFinalizationMs?: number;
+  gitTransport?: HarnessGitTransportTimings;
+}
+
+function elapsedProvisioningMs(startedAt: number): number {
+  return Math.round(performance.now() - startedAt);
 }
 
 function sleep(ms: number): Promise<void> {
@@ -656,6 +671,7 @@ export async function provisionHarnessWorkspaceFromSnapshot(input: {
       initializedCommitSha: string;
       snapshotCommitSha: string;
       markerCommitSha: string;
+      timings: SnapshotProvisioningTimings;
     }
   | { ok: false; message: string; recoverable: boolean; code?: SnapshotProvisioningError["code"] }
 > {
@@ -673,6 +689,8 @@ export async function provisionHarnessWorkspaceFromSnapshot(input: {
       });
     },
   });
+  const timings: SnapshotProvisioningTimings = {};
+  const repositoryCreateReconcileStartedAt = performance.now();
 
   if (input.pending?.repositoryId) {
     const identity = await verifyPendingRepositoryIdentity({
@@ -770,6 +788,9 @@ export async function provisionHarnessWorkspaceFromSnapshot(input: {
       totalBlobs: input.manifest.fileCount,
     });
   }
+  timings.repositoryCreateReconcileMs = elapsedProvisioningMs(
+    repositoryCreateReconcileStartedAt,
+  );
 
   if (!defaultBranch) {
     return {
@@ -897,6 +918,7 @@ export async function provisionHarnessWorkspaceFromSnapshot(input: {
 
     try {
       const pushTimeoutMs = resolveGitPushTimeoutMs();
+      const workspaceUploadStartedAt = performance.now();
       const pushResult = await withPhaseTimeout(
         "workspace-uploading",
         pushTimeoutMs,
@@ -939,6 +961,8 @@ export async function provisionHarnessWorkspaceFromSnapshot(input: {
             },
           }),
       );
+      timings.workspaceUploadMs = elapsedProvisioningMs(workspaceUploadStartedAt);
+      timings.gitTransport = pushResult.timings;
 
       snapshotCommitSha = pushResult.snapshotCommitSha;
       markerCommitSha = pushResult.markerCommitSha;
@@ -1094,6 +1118,7 @@ export async function provisionHarnessWorkspaceFromSnapshot(input: {
   }
 
   try {
+    const descriptionFinalizationStartedAt = performance.now();
     await finalizeProvisioningRepositoryDescription({
       provider: input.provider,
       owner,
@@ -1103,6 +1128,9 @@ export async function provisionHarnessWorkspaceFromSnapshot(input: {
       markerCommitSha: markerCommitSha!,
       defaultBranch: resolvedDefaultBranch,
     });
+    timings.descriptionFinalizationMs = elapsedProvisioningMs(
+      descriptionFinalizationStartedAt,
+    );
   } catch (error) {
     if (
       error instanceof SnapshotProvisioningError &&
@@ -1135,6 +1163,7 @@ export async function provisionHarnessWorkspaceFromSnapshot(input: {
     initializedCommitSha: initializedCommitSha!,
     snapshotCommitSha: snapshotCommitSha!,
     markerCommitSha: markerCommitSha!,
+    timings,
   };
 }
 

@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -288,6 +288,76 @@ export function buildGitTreeFromManifestFiles(
     void sha;
   }
   return computeSnapshotRootTreeSha1WithWorktree(files, worktree);
+}
+
+export function writeGitObjectPackFromManifestFiles(input: {
+  outputDir: string;
+  files: WorkspaceSnapshotManifestFile[];
+  blobContentsBySha: Map<string, Buffer>;
+  expectedRootTreeSha: string;
+}): {
+  packPath: string;
+  indexPath: string;
+  packSha1: string;
+  objectCount: number;
+  packSizeBytes: number;
+} {
+  const worktree = createGitPlumbingWorktreeSync();
+  try {
+    const rootTreeSha = buildGitTreeFromManifestFiles(
+      worktree,
+      input.files,
+      input.blobContentsBySha,
+    );
+    if (rootTreeSha !== input.expectedRootTreeSha) {
+      throw new Error(
+        `Snapshot pack tree SHA mismatch (expected ${input.expectedRootTreeSha}, got ${rootTreeSha}).`,
+      );
+    }
+
+    const revList = spawnSync("git", ["rev-list", "--objects", rootTreeSha], {
+      cwd: worktree.root,
+      env: worktree.env,
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    if (revList.status !== 0) {
+      throw new Error(
+        `git rev-list failed: ${revList.stderr?.toString() || revList.stdout?.toString() || "unknown error"}`,
+      );
+    }
+    const objectCount = revList.stdout
+      .trim()
+      .split("\n")
+      .filter(Boolean).length;
+
+    mkdirSync(input.outputDir, { recursive: true });
+    const packPrefix = path.join(input.outputDir, "snapshot");
+    const pack = spawnSync("git", ["pack-objects", "--revs", packPrefix], {
+      cwd: worktree.root,
+      env: worktree.env,
+      input: `${rootTreeSha}\n`,
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    if (pack.status !== 0) {
+      throw new Error(
+        `git pack-objects failed: ${pack.stderr?.toString() || pack.stdout?.toString() || "unknown error"}`,
+      );
+    }
+    const packSha1 = pack.stdout.trim();
+    const packPath = `${packPrefix}-${packSha1}.pack`;
+    const indexPath = `${packPrefix}-${packSha1}.idx`;
+    return {
+      packPath,
+      indexPath,
+      packSha1,
+      objectCount,
+      packSizeBytes: statSync(packPath).size,
+    };
+  } finally {
+    destroyGitPlumbingWorktreeSync(worktree);
+  }
 }
 
 export function readGitTreeFileContent(

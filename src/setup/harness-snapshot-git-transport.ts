@@ -1,7 +1,8 @@
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { performance } from "node:perf_hooks";
 import {
   buildGitTreeFromManifestFiles,
   overlayGitTree,
@@ -10,6 +11,7 @@ import {
 } from "../p-dev/git-object-plumbing.js";
 import type { WorkspaceSnapshotManifest } from "../p-dev/workspace-snapshot-types.js";
 import { loadWorkspaceSnapshotEntryContent } from "../p-dev/workspace-snapshot-generator.js";
+import { computeSnapshotFileSha256 } from "../p-dev/workspace-snapshot-digest.js";
 import { HARNESS_MANAGED_REPO_MARKER_FILE } from "./harness-managed-repo-marker.js";
 import {
   createGitAskpassCredentials,
@@ -78,12 +80,67 @@ export interface PushHarnessSnapshotViaGitResult {
   markerCommitSha: string;
   snapshotGitTreeSha1: string;
   pushCount: number;
+  timings: HarnessGitTransportTimings;
   tempRootRemoved: boolean;
   askpassRemoved: boolean;
 }
 
+export interface HarnessGitTransportTimings {
+  totalMs: number;
+  temporaryGitPreparationMs?: number;
+  initialRemoteFetchMs?: number;
+  objectTreePreparationMs?: number;
+  packCreationMs?: number;
+  gitPushMs?: number;
+  remoteVerificationMs?: number;
+}
+
 function buildHttpsRemoteUrl(owner: string, repo: string): string {
   return `https://github.com/${owner}/${repo}.git`;
+}
+
+function elapsedMs(startedAt: number): number {
+  return Math.round(performance.now() - startedAt);
+}
+
+async function measureAsync<T>(
+  timings: HarnessGitTransportTimings,
+  key: keyof HarnessGitTransportTimings,
+  task: () => Promise<T>,
+): Promise<T> {
+  const startedAt = performance.now();
+  try {
+    return await task();
+  } finally {
+    timings[key] = elapsedMs(startedAt);
+  }
+}
+
+function mergeGitTraceEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return {
+    ...env,
+    GIT_TRACE_PERFORMANCE: env.GIT_TRACE_PERFORMANCE ?? "1",
+  };
+}
+
+function parseGitPackCreationMs(stderr: string): number | undefined {
+  const matches = stderr.matchAll(
+    /performance:\s+([0-9.]+)\s+s:\s+git command: .*?\bpack-objects\b/g,
+  );
+  let totalSeconds = 0;
+  for (const match of matches) {
+    totalSeconds += Number(match[1]);
+  }
+  return totalSeconds > 0 ? Math.round(totalSeconds * 1_000) : undefined;
+}
+
+function resolveSnapshotRelativePath(root: string, relativePath: string): string {
+  const resolved = path.resolve(root, relativePath);
+  const resolvedRoot = path.resolve(root);
+  if (!resolved.startsWith(`${resolvedRoot}${path.sep}`)) {
+    throw new Error(`Snapshot pack path escapes snapshot root: ${relativePath}`);
+  }
+  return resolved;
 }
 
 export function buildGitHubHttpsRemoteUrl(owner: string, repo: string): string {
@@ -263,6 +320,37 @@ async function materializeSnapshotObjects(input: {
     completed: 0,
     total: input.manifest.fileCount,
   });
+  if (input.manifest.gitObjectPack) {
+    const pack = input.manifest.gitObjectPack;
+    const packPath = resolveSnapshotRelativePath(input.snapshotRoot, pack.packPath);
+    const indexPath = resolveSnapshotRelativePath(input.snapshotRoot, pack.indexPath);
+    const packContent = await readFile(packPath);
+    const packSha256 = computeSnapshotFileSha256(packContent);
+    if (packSha256 !== pack.packSha256) {
+      throw new SnapshotProvisioningError(
+        "snapshot-tree-mismatch",
+        `Snapshot object pack SHA mismatch (expected ${pack.packSha256}, got ${packSha256}).`,
+        false,
+      );
+    }
+    const objectPackDir = path.join(input.worktree.root, ".git", "objects", "pack");
+    await mkdir(objectPackDir, { recursive: true });
+    await copyFile(
+      packPath,
+      path.join(objectPackDir, `pack-${pack.packSha1}.pack`),
+    );
+    await copyFile(
+      indexPath,
+      path.join(objectPackDir, `pack-${pack.packSha1}.idx`),
+    );
+    runGit(input.worktree, ["cat-file", "-e", `${input.manifest.gitRootTreeSha1}^{tree}`]);
+    input.onProgress?.({
+      phase: "preparing-snapshot",
+      completed: input.manifest.fileCount,
+      total: input.manifest.fileCount,
+    });
+    return input.manifest.gitRootTreeSha1;
+  }
   const blobContentsBySha = new Map<string, Buffer>();
   let completed = 0;
   for (const file of input.manifest.files) {
@@ -312,6 +400,8 @@ export async function pushHarnessSnapshotViaGit(
   input: PushHarnessSnapshotViaGitInput,
 ): Promise<PushHarnessSnapshotViaGitResult> {
   const timeoutMs = input.timeoutMs ?? resolveGitPushTimeoutMs();
+  const totalStartedAt = performance.now();
+  const timings: HarnessGitTransportTimings = { totalMs: 0 };
   let worktree: GitPlumbingWorktree | null = null;
   let askpass: GitAskpassCredentials | null = null;
   let tempRootRemoved = false;
@@ -320,6 +410,7 @@ export async function pushHarnessSnapshotViaGit(
     null;
 
   try {
+    const temporaryGitPreparationStartedAt = performance.now();
     worktree = await createProvisionGitWorktree();
     askpass = await createGitAskpassCredentials(input.auth.token);
     const authEnv: NodeJS.ProcessEnv = {
@@ -328,18 +419,23 @@ export async function pushHarnessSnapshotViaGit(
       GIT_DIR: worktree.env.GIT_DIR,
       GIT_WORK_TREE: worktree.env.GIT_WORK_TREE,
     };
-
     runGit(worktree, ["remote", "add", "origin", input.auth.remoteUrl], {
       capture: input.capture,
     });
+    timings.temporaryGitPreparationMs = elapsedMs(temporaryGitPreparationStartedAt);
 
     input.onProgress?.({ phase: "preparing-snapshot" });
 
     const fetchTarget = input.existingSnapshotCommitSha ?? input.initializedCommitSha;
-    await runGitAsync(
-      worktree,
-      ["fetch", "--depth=1", "origin", fetchTarget],
-      { env: authEnv, timeoutMs, capture: input.capture },
+    await measureAsync(
+      timings,
+      "initialRemoteFetchMs",
+      () =>
+        runGitAsync(
+          worktree!,
+          ["fetch", "--depth=1", "origin", fetchTarget],
+          { env: authEnv, timeoutMs, capture: input.capture },
+        ),
     );
 
     const identity = deriveProvisioningCommitIdentity({
@@ -350,75 +446,87 @@ export async function pushHarnessSnapshotViaGit(
     let snapshotCommitSha = input.existingSnapshotCommitSha;
     let snapshotTreeSha = input.manifest.gitRootTreeSha1;
 
-    if (!snapshotCommitSha) {
-      snapshotTreeSha = await materializeSnapshotObjects({
-        worktree,
-        snapshotRoot: input.snapshotRoot,
-        manifest: input.manifest,
-        onProgress: input.onProgress,
-      });
-      snapshotCommitSha = createCommitTree(worktree, {
-        treeSha: snapshotTreeSha,
-        parents: [input.initializedCommitSha],
-        message: `Initialize p-dev harness workspace snapshot (${input.manifest.packageVersion})`,
-        identity,
-        capture: input.capture,
-      });
-    } else {
-      await runGitAsync(
-        worktree,
-        ["fetch", "--depth=1", "origin", snapshotCommitSha],
-        { env: authEnv, timeoutMs, capture: input.capture },
-      );
-      const show = runGit(worktree, ["rev-parse", `${snapshotCommitSha}^{tree}`], {
-        capture: input.capture,
-      });
-      snapshotTreeSha = show.stdout.trim();
-    }
+    const markerCommitSha = await measureAsync(
+      timings,
+      "objectTreePreparationMs",
+      async () => {
+        if (!snapshotCommitSha) {
+          snapshotTreeSha = await materializeSnapshotObjects({
+            worktree: worktree!,
+            snapshotRoot: input.snapshotRoot,
+            manifest: input.manifest,
+            onProgress: input.onProgress,
+          });
+          snapshotCommitSha = createCommitTree(worktree!, {
+            treeSha: snapshotTreeSha,
+            parents: [input.initializedCommitSha],
+            message: `Initialize p-dev harness workspace snapshot (${input.manifest.packageVersion})`,
+            identity,
+            capture: input.capture,
+          });
+        } else {
+          await runGitAsync(
+            worktree!,
+            ["fetch", "--depth=1", "origin", snapshotCommitSha],
+            { env: authEnv, timeoutMs, capture: input.capture },
+          );
+          const show = runGit(worktree!, ["rev-parse", `${snapshotCommitSha}^{tree}`], {
+            capture: input.capture,
+          });
+          snapshotTreeSha = show.stdout.trim();
+        }
 
-    const markerContent = input.buildMarkerContent(snapshotCommitSha);
-    const markerBlobSha = writeGitBlobToWorktree(
-      worktree,
-      Buffer.from(markerContent, "utf8"),
-    );
-    const markerTreeSha = overlayGitTree(worktree, snapshotTreeSha, [
-      {
-        path: HARNESS_MANAGED_REPO_MARKER_FILE,
-        mode: "100644",
-        sha: markerBlobSha,
+        const markerContent = input.buildMarkerContent(snapshotCommitSha!);
+        const markerBlobSha = writeGitBlobToWorktree(
+          worktree!,
+          Buffer.from(markerContent, "utf8"),
+        );
+        const markerTreeSha = overlayGitTree(worktree!, snapshotTreeSha, [
+          {
+            path: HARNESS_MANAGED_REPO_MARKER_FILE,
+            mode: "100644",
+            sha: markerBlobSha,
+          },
+        ]);
+        if (markerTreeSha === snapshotTreeSha) {
+          throw new SnapshotProvisioningError(
+            "marker-commit-failed",
+            "Marker tree must overlay the snapshot tree rather than replace it.",
+            false,
+          );
+        }
+        return createCommitTree(worktree!, {
+          treeSha: markerTreeSha,
+          parents: [snapshotCommitSha!],
+          message: "Initialize p-dev managed harness workspace marker",
+          identity,
+          capture: input.capture,
+        });
       },
-    ]);
-    if (markerTreeSha === snapshotTreeSha) {
-      throw new SnapshotProvisioningError(
-        "marker-commit-failed",
-        "Marker tree must overlay the snapshot tree rather than replace it.",
-        false,
-      );
-    }
-    const markerCommitSha = createCommitTree(worktree, {
-      treeSha: markerTreeSha,
-      parents: [snapshotCommitSha],
-      message: "Initialize p-dev managed harness workspace marker",
-      identity,
-      capture: input.capture,
-    });
+    );
 
     input.onProgress?.({ phase: "workspace-uploading" });
 
-    const lsRemote = await runGitAsync(
-      worktree,
-      ["ls-remote", "origin", `refs/heads/${input.defaultBranch}`],
-      { env: authEnv, timeoutMs, capture: input.capture },
+    const lsRemote = await measureAsync(
+      timings,
+      "remoteVerificationMs",
+      () =>
+        runGitAsync(
+          worktree!,
+          ["ls-remote", "origin", `refs/heads/${input.defaultBranch}`],
+          { env: authEnv, timeoutMs, capture: input.capture },
+        ),
     );
     const remoteHead = lsRemote.stdout.trim().split(/\s+/)[0] ?? "";
     if (remoteHead && remoteHead !== input.expectedHeadSha) {
       if (remoteHead === markerCommitSha) {
         input.onProgress?.({ phase: "verifying" });
         result = {
-          snapshotCommitSha,
+          snapshotCommitSha: snapshotCommitSha!,
           markerCommitSha,
           snapshotGitTreeSha1: input.manifest.gitRootTreeSha1,
           pushCount: 0,
+          timings,
         };
       } else if (!(remoteHead === snapshotCommitSha && input.expectedHeadSha === snapshotCommitSha)) {
         throw new SnapshotProvisioningError(
@@ -430,17 +538,24 @@ export async function pushHarnessSnapshotViaGit(
     }
 
     if (!result) {
-      await runGitAsync(
-        worktree,
-        buildHarnessSnapshotPushArgs(markerCommitSha, input.defaultBranch),
-        { env: authEnv, timeoutMs, capture: input.capture },
+      const push = await measureAsync(
+        timings,
+        "gitPushMs",
+        () =>
+          runGitAsync(
+            worktree!,
+            buildHarnessSnapshotPushArgs(markerCommitSha, input.defaultBranch),
+            { env: mergeGitTraceEnv(authEnv), timeoutMs, capture: input.capture },
+          ),
       );
+      timings.packCreationMs = parseGitPackCreationMs(push.stderr);
       input.onProgress?.({ phase: "verifying" });
       result = {
-        snapshotCommitSha,
+        snapshotCommitSha: snapshotCommitSha!,
         markerCommitSha,
         snapshotGitTreeSha1: input.manifest.gitRootTreeSha1,
         pushCount: 1,
+        timings,
       };
     }
   } catch (error) {
@@ -480,7 +595,8 @@ export async function pushHarnessSnapshotViaGit(
       true,
     );
   }
-  return { ...result, tempRootRemoved, askpassRemoved };
+  timings.totalMs = elapsedMs(totalStartedAt);
+  return { ...result, timings, tempRootRemoved, askpassRemoved };
 }
 
 export function resolveGitPushTimeoutMs(
@@ -534,26 +650,32 @@ export async function pushHarnessSnapshotViaLocalBareGit(input: {
   stallBeforePushMs?: number;
 }): Promise<PushHarnessSnapshotViaGitResult> {
   const timeoutMs = input.timeoutMs ?? resolveGitPushTimeoutMs();
+  const totalStartedAt = performance.now();
+  const timings: HarnessGitTransportTimings = { totalMs: 0 };
   let worktree: GitPlumbingWorktree | null = null;
   let tempRootRemoved = false;
   let result: Omit<PushHarnessSnapshotViaGitResult, "tempRootRemoved" | "askpassRemoved"> | null =
     null;
 
   try {
+    const temporaryGitPreparationStartedAt = performance.now();
     worktree = await createProvisionGitWorktree();
     const remoteUrl = `file://${input.bareRemotePath}`;
     runGit(worktree, ["remote", "add", "origin", remoteUrl], {
       capture: input.capture,
     });
+    timings.temporaryGitPreparationMs = elapsedMs(temporaryGitPreparationStartedAt);
 
     input.onProgress?.({ phase: "preparing-snapshot" });
 
     const fetchTarget = input.existingSnapshotCommitSha ?? input.initializedCommitSha;
-    await runGitAsync(worktree, ["fetch", "origin", fetchTarget], {
-      env: worktree.env,
-      timeoutMs,
-      capture: input.capture,
-    });
+    await measureAsync(timings, "initialRemoteFetchMs", () =>
+      runGitAsync(worktree!, ["fetch", "origin", fetchTarget], {
+        env: worktree!.env,
+        timeoutMs,
+        capture: input.capture,
+      }),
+    );
 
     const identity = deriveProvisioningCommitIdentity({
       operationId: input.operationId,
@@ -563,58 +685,64 @@ export async function pushHarnessSnapshotViaLocalBareGit(input: {
     let snapshotCommitSha = input.existingSnapshotCommitSha;
     let snapshotTreeSha = input.manifest.gitRootTreeSha1;
 
-    if (!snapshotCommitSha) {
-      snapshotTreeSha = await materializeSnapshotObjects({
-        worktree,
-        snapshotRoot: input.snapshotRoot,
-        manifest: input.manifest,
-        onProgress: input.onProgress,
-      });
-      snapshotCommitSha = createCommitTree(worktree, {
-        treeSha: snapshotTreeSha,
-        parents: [input.initializedCommitSha],
-        message: `Initialize p-dev harness workspace snapshot (${input.packageVersion})`,
-        identity,
-        capture: input.capture,
-      });
-    } else {
-      await runGitAsync(worktree, ["fetch", "origin", snapshotCommitSha], {
-        env: worktree.env,
-        timeoutMs,
-        capture: input.capture,
-      });
-      const show = runGit(worktree, ["rev-parse", `${snapshotCommitSha}^{tree}`], {
-        capture: input.capture,
-      });
-      snapshotTreeSha = show.stdout.trim();
-    }
+    const markerCommitSha = await measureAsync(
+      timings,
+      "objectTreePreparationMs",
+      async () => {
+        if (!snapshotCommitSha) {
+          snapshotTreeSha = await materializeSnapshotObjects({
+            worktree: worktree!,
+            snapshotRoot: input.snapshotRoot,
+            manifest: input.manifest,
+            onProgress: input.onProgress,
+          });
+          snapshotCommitSha = createCommitTree(worktree!, {
+            treeSha: snapshotTreeSha,
+            parents: [input.initializedCommitSha],
+            message: `Initialize p-dev harness workspace snapshot (${input.packageVersion})`,
+            identity,
+            capture: input.capture,
+          });
+        } else {
+          await runGitAsync(worktree!, ["fetch", "origin", snapshotCommitSha], {
+            env: worktree!.env,
+            timeoutMs,
+            capture: input.capture,
+          });
+          const show = runGit(worktree!, ["rev-parse", `${snapshotCommitSha}^{tree}`], {
+            capture: input.capture,
+          });
+          snapshotTreeSha = show.stdout.trim();
+        }
 
-    const markerContent = input.buildMarkerContent(snapshotCommitSha);
-    const markerBlobSha = writeGitBlobToWorktree(
-      worktree,
-      Buffer.from(markerContent, "utf8"),
-    );
-    const markerTreeSha = overlayGitTree(worktree, snapshotTreeSha, [
-      {
-        path: HARNESS_MANAGED_REPO_MARKER_FILE,
-        mode: "100644",
-        sha: markerBlobSha,
+        const markerContent = input.buildMarkerContent(snapshotCommitSha!);
+        const markerBlobSha = writeGitBlobToWorktree(
+          worktree!,
+          Buffer.from(markerContent, "utf8"),
+        );
+        const markerTreeSha = overlayGitTree(worktree!, snapshotTreeSha, [
+          {
+            path: HARNESS_MANAGED_REPO_MARKER_FILE,
+            mode: "100644",
+            sha: markerBlobSha,
+          },
+        ]);
+        if (markerTreeSha === snapshotTreeSha) {
+          throw new SnapshotProvisioningError(
+            "marker-commit-failed",
+            "Marker tree must overlay the snapshot tree rather than replace it.",
+            false,
+          );
+        }
+        return createCommitTree(worktree!, {
+          treeSha: markerTreeSha,
+          parents: [snapshotCommitSha!],
+          message: "Initialize p-dev managed harness workspace marker",
+          identity,
+          capture: input.capture,
+        });
       },
-    ]);
-    if (markerTreeSha === snapshotTreeSha) {
-      throw new SnapshotProvisioningError(
-        "marker-commit-failed",
-        "Marker tree must overlay the snapshot tree rather than replace it.",
-        false,
-      );
-    }
-    const markerCommitSha = createCommitTree(worktree, {
-      treeSha: markerTreeSha,
-      parents: [snapshotCommitSha],
-      message: "Initialize p-dev managed harness workspace marker",
-      identity,
-      capture: input.capture,
-    });
+    );
 
     input.onProgress?.({ phase: "workspace-uploading" });
     if (input.stallBeforePushMs && input.stallBeforePushMs > 0) {
@@ -636,10 +764,15 @@ export async function pushHarnessSnapshotViaLocalBareGit(input: {
       });
     }
 
-    const lsRemote = await runGitAsync(
-      worktree,
-      ["ls-remote", "origin", `refs/heads/${input.defaultBranch}`],
-      { env: worktree.env, timeoutMs, capture: input.capture },
+    const lsRemote = await measureAsync(
+      timings,
+      "remoteVerificationMs",
+      () =>
+        runGitAsync(
+          worktree!,
+          ["ls-remote", "origin", `refs/heads/${input.defaultBranch}`],
+          { env: worktree!.env, timeoutMs, capture: input.capture },
+        ),
     );
     const remoteHead = lsRemote.stdout.trim().split(/\s+/)[0] ?? "";
     if (remoteHead && remoteHead !== input.expectedHeadSha && remoteHead !== markerCommitSha) {
@@ -654,23 +787,31 @@ export async function pushHarnessSnapshotViaLocalBareGit(input: {
     if (remoteHead === markerCommitSha) {
       input.onProgress?.({ phase: "verifying" });
       result = {
-        snapshotCommitSha,
+        snapshotCommitSha: snapshotCommitSha!,
         markerCommitSha,
         snapshotGitTreeSha1: input.manifest.gitRootTreeSha1,
         pushCount: 0,
+        timings,
       };
     } else {
-      await runGitAsync(
-        worktree,
-        buildHarnessSnapshotPushArgs(markerCommitSha, input.defaultBranch),
-        { env: worktree.env, timeoutMs, capture: input.capture },
+      const push = await measureAsync(
+        timings,
+        "gitPushMs",
+        () =>
+          runGitAsync(
+            worktree!,
+            buildHarnessSnapshotPushArgs(markerCommitSha, input.defaultBranch),
+            { env: mergeGitTraceEnv(worktree!.env), timeoutMs, capture: input.capture },
+          ),
       );
+      timings.packCreationMs = parseGitPackCreationMs(push.stderr);
       input.onProgress?.({ phase: "verifying" });
       result = {
-        snapshotCommitSha,
+        snapshotCommitSha: snapshotCommitSha!,
         markerCommitSha,
         snapshotGitTreeSha1: input.manifest.gitRootTreeSha1,
         pushCount: 1,
+        timings,
       };
     }
   } catch (error) {
@@ -700,5 +841,6 @@ export async function pushHarnessSnapshotViaLocalBareGit(input: {
       true,
     );
   }
-  return { ...result, tempRootRemoved, askpassRemoved: true };
+  timings.totalMs = elapsedMs(totalStartedAt);
+  return { ...result, timings, tempRootRemoved, askpassRemoved: true };
 }

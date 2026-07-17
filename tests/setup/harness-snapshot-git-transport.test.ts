@@ -106,6 +106,21 @@ function gitInBare(barePath: string, args: string[]): string {
   return result.stdout.trim();
 }
 
+function readBarePackSizeBytes(barePath: string): number | undefined {
+  const packDir = path.join(barePath, "objects", "pack");
+  if (!existsSync(packDir)) {
+    return undefined;
+  }
+  const packFiles = readdirSync(packDir).filter((name) => name.endsWith(".pack"));
+  if (packFiles.length === 0) {
+    return undefined;
+  }
+  return packFiles.reduce(
+    (total, name) => total + statSync(path.join(packDir, name)).size,
+    0,
+  );
+}
+
 function listTempPrefix(prefix: string): string[] {
   return readdirSync(tmpdir())
     .filter((name) => name.startsWith(prefix))
@@ -147,6 +162,7 @@ describe("harness snapshot bulk git transport", () => {
           )}\n`,
       });
       const durationMs = Date.now() - started;
+      const packSizeBytes = readBarePackSizeBytes(remote.barePath);
 
       expect(result.pushCount).toBe(1);
       expect(result.snapshotGitTreeSha1).toBe(manifest.gitRootTreeSha1);
@@ -245,8 +261,23 @@ describe("harness snapshot bulk git transport", () => {
         JSON.stringify({
           hardGate: "bulk-local-bare",
           fileCount: manifest.fileCount,
+          objectCount: manifest.files.length,
           pushCount: result.pushCount,
           durationMs,
+          transportTimingsMs: result.timings,
+          packSizeBytes,
+          verification: {
+            branchHeadMatchesMarker: head === result.markerCommitSha,
+            markerParentMatchesSnapshot: markerParent === result.snapshotCommitSha,
+            snapshotParentMatchesInitial:
+              snapshotParent === remote.initializedCommitSha,
+            snapshotTreeMatchesManifest:
+              snapshotTree === manifest.gitRootTreeSha1,
+            markerFilePresent: markerPresent === "",
+            sampleFilesVerified: sampleFiles.length,
+            tempProvisionClean: leftoverProvision.length === 0,
+            tempAskpassClean: leftoverAskpass.length === 0,
+          },
           snapshotTree: result.snapshotGitTreeSha1,
         }),
       );

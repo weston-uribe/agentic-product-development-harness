@@ -811,6 +811,7 @@ export class LiveGitHubHarnessProvisioningProvider
     markerCommitSha: string;
     snapshotGitTreeSha1: string;
     pushCount: number;
+    timings: import("./harness-snapshot-git-transport.js").HarnessGitTransportTimings;
   }> {
     if (!this.token) {
       throw new Error(
@@ -841,6 +842,7 @@ export class LiveGitHubHarnessProvisioningProvider
         markerCommitSha: result.markerCommitSha,
         snapshotGitTreeSha1: result.snapshotGitTreeSha1,
         pushCount: result.pushCount,
+        timings: result.timings,
       };
     } catch (error) {
       throw preserveGitHubSetupError(error);

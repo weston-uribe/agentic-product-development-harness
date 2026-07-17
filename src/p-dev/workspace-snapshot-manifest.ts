@@ -22,6 +22,48 @@ import {
 } from "./workspace-snapshot-digest.js";
 import type { GitCommitObjectEntry } from "./workspace-snapshot-git.js";
 
+function parseGitObjectPack(
+  value: unknown,
+): WorkspaceSnapshotManifest["gitObjectPack"] | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!value || typeof value !== "object") {
+    throw new Error("Workspace snapshot gitObjectPack is invalid.");
+  }
+  const record = value as Record<string, unknown>;
+  if (
+    typeof record.packPath !== "string" ||
+    typeof record.indexPath !== "string" ||
+    !record.packPath.startsWith("object-pack/") ||
+    !record.indexPath.startsWith("object-pack/") ||
+    !record.packPath.endsWith(".pack") ||
+    !record.indexPath.endsWith(".idx")
+  ) {
+    throw new Error("Workspace snapshot gitObjectPack paths are invalid.");
+  }
+  if (typeof record.packSha1 !== "string" || !/^[0-9a-f]{40}$/.test(record.packSha1)) {
+    throw new Error("Workspace snapshot gitObjectPack is missing packSha1.");
+  }
+  if (typeof record.packSha256 !== "string" || !/^[0-9a-f]{64}$/.test(record.packSha256)) {
+    throw new Error("Workspace snapshot gitObjectPack is missing packSha256.");
+  }
+  if (typeof record.objectCount !== "number" || !Number.isFinite(record.objectCount)) {
+    throw new Error("Workspace snapshot gitObjectPack is missing objectCount.");
+  }
+  if (typeof record.packSizeBytes !== "number" || !Number.isFinite(record.packSizeBytes)) {
+    throw new Error("Workspace snapshot gitObjectPack is missing packSizeBytes.");
+  }
+  return {
+    packPath: record.packPath,
+    indexPath: record.indexPath,
+    packSha1: record.packSha1,
+    packSha256: record.packSha256,
+    objectCount: record.objectCount,
+    packSizeBytes: record.packSizeBytes,
+  };
+}
+
 export function buildWorkspaceSnapshotManifestFiles(
   entries: GitCommitObjectEntry[],
 ): WorkspaceSnapshotManifestFile[] {
@@ -263,6 +305,16 @@ export function parseWorkspaceSnapshotManifestJson(
     files.push(candidate);
   }
 
+  let gitObjectPack: WorkspaceSnapshotManifest["gitObjectPack"] | undefined;
+  try {
+    gitObjectPack = parseGitObjectPack(record.gitObjectPack);
+  } catch (error) {
+    return {
+      ok: false,
+      reason: error instanceof Error ? error.message : "Workspace snapshot gitObjectPack is invalid.",
+    };
+  }
+
   const manifest: WorkspaceSnapshotManifest = {
     schemaVersion: WORKSPACE_SNAPSHOT_SCHEMA_VERSION,
     product: WORKSPACE_SNAPSHOT_PRODUCT,
@@ -276,6 +328,7 @@ export function parseWorkspaceSnapshotManifestJson(
     gitRootTreeSha1: String(record.gitRootTreeSha1),
     fileCount: record.fileCount,
     generation: record.generation as WorkspaceSnapshotManifest["generation"],
+    gitObjectPack,
     files: sortSnapshotManifestFiles(files),
   };
 

@@ -25,6 +25,7 @@ import {
 import type { GitHubGitCommitAuthor } from "../github/client.js";
 import { GitHubApiError } from "../github/client.js";
 import type { WorkspaceSnapshotManifest } from "../p-dev/workspace-snapshot-types.js";
+import type { HarnessGitTransportTimings } from "./harness-snapshot-git-transport.js";
 
 export interface GitCommitIdentity {
   name: string;
@@ -225,6 +226,7 @@ export interface GitHubHarnessProvisioningProvider {
     markerCommitSha: string;
     snapshotGitTreeSha1: string;
     pushCount: number;
+    timings: HarnessGitTransportTimings;
   }>;
 }
 
