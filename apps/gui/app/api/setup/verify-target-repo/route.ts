@@ -9,6 +9,9 @@ export async function POST(request: Request) {
     const body = (await request.json()) as {
       targetRepo?: string;
       githubToken?: string;
+      baseBranch?: string;
+      productionBranch?: string;
+      repoConfigId?: string;
     };
 
     if (!body.targetRepo?.trim()) {
@@ -22,6 +25,10 @@ export async function POST(request: Request) {
       cwd: resolveHarnessWorkspaceDir(),
       targetRepo: body.targetRepo,
       githubToken: body.githubToken,
+      baseBranch: body.baseBranch,
+      productionBranch: body.productionBranch,
+      expectedRepoConfigId: body.repoConfigId,
+      savedRepoConfigId: body.repoConfigId,
     });
 
     return NextResponse.json(result);

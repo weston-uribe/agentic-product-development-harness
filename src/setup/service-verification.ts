@@ -568,7 +568,17 @@ export async function verifySetupTargetRepo(options: {
   cwd?: string;
   targetRepo: string;
   githubToken?: string;
-}): Promise<RepoVerificationResult & { usedSavedGithubToken?: boolean }> {
+  baseBranch?: string;
+  productionBranch?: string;
+  expectedRepoConfigId?: string;
+  savedRepoConfigId?: string;
+}): Promise<
+  RepoVerificationResult & {
+    usedSavedGithubToken?: boolean;
+    developmentBranchExists?: boolean;
+    productionBranchExists?: boolean;
+  }
+> {
   const resolved = await resolveServiceToken({
     cwd: options.cwd,
     service: "github",
@@ -580,8 +590,96 @@ export async function verifySetupTargetRepo(options: {
     targetRepo: options.targetRepo,
   });
 
+  if (result.status !== "connected") {
+    return {
+      ...result,
+      usedSavedGithubToken: resolved.usedSavedKey,
+    };
+  }
+
+  if (
+    options.expectedRepoConfigId &&
+    options.savedRepoConfigId &&
+    options.expectedRepoConfigId !== options.savedRepoConfigId
+  ) {
+    return {
+      status: "failed",
+      repoSlug: result.repoSlug,
+      normalizedUrl: result.normalizedUrl,
+      workflowInstallReady: result.workflowInstallReady,
+      message: `Saved repository identifier "${options.savedRepoConfigId}" does not match the expected identifier "${options.expectedRepoConfigId}".`,
+      usedSavedGithubToken: resolved.usedSavedKey,
+    };
+  }
+
+  const baseBranch = options.baseBranch?.trim();
+  const productionBranch = options.productionBranch?.trim();
+  if (!baseBranch && !productionBranch) {
+    return {
+      ...result,
+      usedSavedGithubToken: resolved.usedSavedKey,
+    };
+  }
+
+  const slug = parseGitHubRepoSlug(options.targetRepo);
+  if (!slug || !resolved.token) {
+    return {
+      ...result,
+      usedSavedGithubToken: resolved.usedSavedKey,
+    };
+  }
+
+  const [owner, name] = slug.split("/");
+  const { createLiveGitHubTargetRepositoryProvider } = await import(
+    "./github-target-repository-provider-live.js"
+  );
+  const provider = createLiveGitHubTargetRepositoryProvider(resolved.token);
+
+  let developmentBranchExists: boolean | undefined;
+  let productionBranchExists: boolean | undefined;
+  const missing: string[] = [];
+
+  if (baseBranch) {
+    developmentBranchExists = await provider.verifyBranchExists(
+      owner!,
+      name!,
+      baseBranch,
+    );
+    if (!developmentBranchExists) {
+      missing.push(baseBranch);
+    }
+  }
+  if (productionBranch) {
+    productionBranchExists = await provider.verifyBranchExists(
+      owner!,
+      name!,
+      productionBranch,
+    );
+    if (!productionBranchExists) {
+      missing.push(productionBranch);
+    }
+  }
+
+  if (missing.length > 0) {
+    return {
+      status: "failed",
+      repoSlug: result.repoSlug,
+      normalizedUrl: result.normalizedUrl,
+      workflowInstallReady: result.workflowInstallReady,
+      developmentBranchExists,
+      productionBranchExists,
+      message: `Repository is reachable, but missing remote branch${missing.length > 1 ? "es" : ""}: ${missing.join(", ")}. Create the branch on GitHub first.`,
+      usedSavedGithubToken: resolved.usedSavedKey,
+    };
+  }
+
   return {
     ...result,
+    developmentBranchExists,
+    productionBranchExists,
+    message:
+      result.message ??
+      `Connected to ${result.repoSlug} with development and production branches present.`,
     usedSavedGithubToken: resolved.usedSavedKey,
   };
 }

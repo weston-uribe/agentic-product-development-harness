@@ -6,6 +6,14 @@ import { normalizeTargetRepoFormInput } from "./config-local-editor.js";
 import type { TargetRepoFormInput } from "./config-local-editor.js";
 import { readValidatedConfigLocalBytes } from "./harness-secret-setup.js";
 import { resolveLocalFilePaths } from "./setup-state.js";
+import { parseGitHubRepoSlug } from "./github-repo-slug.js";
+import {
+  createLiveGitHubTargetRepositoryProvider,
+} from "./github-target-repository-provider-live.js";
+import {
+  hasGithubTokenConfigured,
+  loadGithubTokenFromEnvLocal,
+} from "./setup-github-auth.js";
 
 export type AutomationSettingsPatch = {
   planningTimeoutSeconds?: number;
@@ -38,7 +46,9 @@ export class SettingsConfigPatchError extends Error {
     public readonly code:
       | "settings_config_fingerprint_mismatch"
       | "settings_config_validation_failed"
-      | "settings_config_write_failed",
+      | "settings_config_write_failed"
+      | "settings_config_branch_missing"
+      | "settings_config_detach_blocked",
     message: string,
   ) {
     super(message);
@@ -46,43 +56,210 @@ export class SettingsConfigPatchError extends Error {
   }
 }
 
-function reposFromFormInput(repos: TargetRepoFormInput[]): RepoMapping[] {
-  return repos.map((repo) => {
-    const normalized = normalizeTargetRepoFormInput(repo);
+export type RepoDetachDependency = {
+  kind: "linear-association";
+  summary: string;
+  settingsHref: "/settings/linear";
+};
+
+export function listRepoDetachDependencies(repo: {
+  linearAssociations?: Array<{
+    teamKey: string;
+    projectName: string;
+  }>;
+}): RepoDetachDependency[] {
+  const associations = repo.linearAssociations ?? [];
+  return associations.map((association) => ({
+    kind: "linear-association" as const,
+    summary: `Linear mapping ${association.teamKey} / ${association.projectName}`,
+    settingsHref: "/settings/linear" as const,
+  }));
+}
+
+function mergeRepoFromForm(
+  existing: RepoMapping | undefined,
+  form: TargetRepoFormInput,
+): RepoMapping {
+  const normalized = normalizeTargetRepoFormInput(form);
+
+  if (existing && existing.targetRepo === normalized.targetRepo) {
     return {
-      id: normalized.id,
-      targetRepo: normalized.targetRepo as RepoMapping["targetRepo"],
-      baseBranch: normalized.baseBranch ?? "main",
-      productionBranch: normalized.productionBranch ?? "main",
-      ...(normalized.linearProjects
+      ...existing,
+      id: normalized.id || existing.id,
+      targetRepo: existing.targetRepo,
+      baseBranch: normalized.baseBranch ?? existing.baseBranch ?? "main",
+      productionBranch:
+        normalized.productionBranch ?? existing.productionBranch ?? "main",
+      ...(normalized.linearProjects !== undefined
         ? { linearProjects: normalized.linearProjects }
         : {}),
-      ...(normalized.linearTeams ? { linearTeams: normalized.linearTeams } : {}),
-      ...(normalized.previewProvider
+      ...(normalized.linearTeams !== undefined
+        ? { linearTeams: normalized.linearTeams }
+        : {}),
+      ...(normalized.previewProvider !== undefined
         ? { previewProvider: normalized.previewProvider }
         : {}),
-      ...(normalized.integrationPreviewUrl
+      ...(normalized.integrationPreviewUrl !== undefined
         ? { integrationPreviewUrl: normalized.integrationPreviewUrl }
         : {}),
-      ...(normalized.productionUrl
+      ...(normalized.productionUrl !== undefined
         ? { productionUrl: normalized.productionUrl }
         : {}),
-      ...(normalized.integrationSuccessStatus
+      ...(normalized.integrationSuccessStatus !== undefined
         ? { integrationSuccessStatus: normalized.integrationSuccessStatus }
         : {}),
-      ...(normalized.productionSuccessStatus
+      ...(normalized.productionSuccessStatus !== undefined
         ? { productionSuccessStatus: normalized.productionSuccessStatus }
         : {}),
-      ...(normalized.validationCommands
+      ...(normalized.validationCommands !== undefined
         ? { validation: { commands: normalized.validationCommands } }
         : {}),
     };
+  }
+
+  return {
+    id: normalized.id,
+    targetRepo: normalized.targetRepo as RepoMapping["targetRepo"],
+    baseBranch: normalized.baseBranch ?? "dev",
+    productionBranch: normalized.productionBranch ?? "main",
+    ...(normalized.linearProjects
+      ? { linearProjects: normalized.linearProjects }
+      : {}),
+    ...(normalized.linearTeams ? { linearTeams: normalized.linearTeams } : {}),
+    ...(normalized.previewProvider
+      ? { previewProvider: normalized.previewProvider }
+      : {}),
+    ...(normalized.integrationPreviewUrl
+      ? { integrationPreviewUrl: normalized.integrationPreviewUrl }
+      : {}),
+    ...(normalized.productionUrl
+      ? { productionUrl: normalized.productionUrl }
+      : {}),
+    ...(normalized.integrationSuccessStatus
+      ? { integrationSuccessStatus: normalized.integrationSuccessStatus }
+      : {}),
+    ...(normalized.productionSuccessStatus
+      ? { productionSuccessStatus: normalized.productionSuccessStatus }
+      : {}),
+    ...(normalized.validationCommands
+      ? { validation: { commands: normalized.validationCommands } }
+      : {}),
+  };
+}
+
+function mergeReposFromFormInput(
+  currentRepos: RepoMapping[],
+  formRepos: TargetRepoFormInput[],
+): RepoMapping[] {
+  const currentById = new Map(currentRepos.map((repo) => [repo.id, repo]));
+  return formRepos.map((form) =>
+    mergeRepoFromForm(currentById.get(form.id.trim()), form),
+  );
+}
+
+function assertDetachAllowed(
+  current: HarnessConfig,
+  nextRepos: RepoMapping[],
+): void {
+  const nextIds = new Set(nextRepos.map((repo) => repo.id));
+  for (const repo of current.repos) {
+    if (nextIds.has(repo.id)) {
+      continue;
+    }
+    const dependencies = listRepoDetachDependencies(repo);
+    if (dependencies.length > 0) {
+      const detail = dependencies.map((dep) => `- ${dep.summary}`).join("\n");
+      throw new SettingsConfigPatchError(
+        "settings_config_detach_blocked",
+        `Cannot remove "${parseGitHubRepoSlug(repo.targetRepo) ?? repo.targetRepo}" from PDev while active dependencies remain.\n\n${detail}\n\nRemove or remap these on Settings → Linear first.`,
+      );
+    }
+  }
+}
+
+function reposWithBranchOrIdentityChanges(
+  currentRepos: RepoMapping[],
+  nextRepos: RepoMapping[],
+): RepoMapping[] {
+  const currentById = new Map(currentRepos.map((repo) => [repo.id, repo]));
+  return nextRepos.filter((next) => {
+    const current = currentById.get(next.id);
+    if (!current) {
+      return true;
+    }
+    return (
+      current.baseBranch !== next.baseBranch ||
+      current.productionBranch !== next.productionBranch ||
+      current.targetRepo !== next.targetRepo
+    );
   });
+}
+
+function assertBranchEditConstraints(repos: RepoMapping[]): void {
+  for (const repo of repos) {
+    const development = repo.baseBranch.trim();
+    const production = repo.productionBranch.trim();
+    if (!development || !production) {
+      throw new SettingsConfigPatchError(
+        "settings_config_validation_failed",
+        `Repository ${repo.id} requires both a development branch and a production branch.`,
+      );
+    }
+    if (development === production) {
+      throw new SettingsConfigPatchError(
+        "settings_config_validation_failed",
+        `Development and production branches must differ for ${parseGitHubRepoSlug(repo.targetRepo) ?? repo.targetRepo}.`,
+      );
+    }
+  }
+}
+
+export async function assertRepoBranchesExistRemote(input: {
+  cwd?: string;
+  repos: RepoMapping[];
+}): Promise<void> {
+  const token = await loadGithubTokenFromEnvLocal({ cwd: input.cwd });
+  if (!hasGithubTokenConfigured(token)) {
+    throw new SettingsConfigPatchError(
+      "settings_config_validation_failed",
+      "GITHUB_TOKEN is required to verify repository branches. Connect GitHub in Settings → Connections first.",
+    );
+  }
+
+  const provider = createLiveGitHubTargetRepositoryProvider(token!);
+
+  for (const repo of input.repos) {
+    const slug = parseGitHubRepoSlug(repo.targetRepo);
+    if (!slug) {
+      throw new SettingsConfigPatchError(
+        "settings_config_validation_failed",
+        `Invalid target repository URL: ${repo.targetRepo}`,
+      );
+    }
+    const [owner, name] = slug.split("/");
+    if (!owner || !name) {
+      throw new SettingsConfigPatchError(
+        "settings_config_validation_failed",
+        `Invalid target repository slug: ${slug}`,
+      );
+    }
+
+    for (const branch of [repo.baseBranch, repo.productionBranch]) {
+      const exists = await provider.verifyBranchExists(owner, name, branch);
+      if (!exists) {
+        throw new SettingsConfigPatchError(
+          "settings_config_branch_missing",
+          `Branch "${branch}" does not exist on ${slug}. Create the branch on GitHub first, then try again.`,
+        );
+      }
+    }
+  }
 }
 
 export function applySettingsConfigPatch(
   config: HarnessConfig,
   patch: SettingsConfigPatch,
+  options?: { requireDistinctBranches?: boolean },
 ): HarnessConfig {
   if (patch.kind === "repos") {
     if (patch.repos.length === 0) {
@@ -91,7 +268,13 @@ export function applySettingsConfigPatch(
         "At least one target repository must remain configured.",
       );
     }
-    const repos = reposFromFormInput(patch.repos);
+    const repos = mergeReposFromFormInput(config.repos, patch.repos);
+    assertDetachAllowed(config, repos);
+    if (options?.requireDistinctBranches) {
+      assertBranchEditConstraints(
+        reposWithBranchOrIdentityChanges(config.repos, repos),
+      );
+    }
     return harnessConfigSchema.parse({
       ...config,
       repos,
@@ -173,6 +356,8 @@ export async function readSettingsConfigFingerprint(cwd?: string): Promise<strin
 export async function previewSettingsConfigPatch(input: {
   cwd?: string;
   patch: SettingsConfigPatch;
+  verifyBranches?: boolean;
+  requireDistinctBranches?: boolean;
 }): Promise<{
   fingerprint: string;
   configPreview: string;
@@ -180,7 +365,15 @@ export async function previewSettingsConfigPatch(input: {
   const { bytes, hash } = await readValidatedConfigLocalBytes(input.cwd);
   const parsed = JSON.parse(bytes.toString("utf8")) as unknown;
   const current = harnessConfigSchema.parse(parsed);
-  const next = applySettingsConfigPatch(current, input.patch);
+  const next = applySettingsConfigPatch(current, input.patch, {
+    requireDistinctBranches: input.requireDistinctBranches,
+  });
+  if (input.patch.kind === "repos" && input.verifyBranches) {
+    await assertRepoBranchesExistRemote({
+      cwd: input.cwd,
+      repos: reposWithBranchOrIdentityChanges(current.repos, next.repos),
+    });
+  }
   const configPreview = `${JSON.stringify(next, null, 2)}\n`;
   return {
     fingerprint: hash,
@@ -204,6 +397,8 @@ export async function applySettingsConfigPatchRemote(input: {
   cwd?: string;
   patch: SettingsConfigPatch;
   expectedConfigFingerprint: string;
+  verifyBranches?: boolean;
+  requireDistinctBranches?: boolean;
 }): Promise<{
   configFingerprint: string;
   config: HarnessConfig;
@@ -218,7 +413,15 @@ export async function applySettingsConfigPatchRemote(input: {
 
   const parsed = JSON.parse(bytes.toString("utf8")) as unknown;
   const current = harnessConfigSchema.parse(parsed);
-  const next = applySettingsConfigPatch(current, input.patch);
+  const next = applySettingsConfigPatch(current, input.patch, {
+    requireDistinctBranches: input.requireDistinctBranches,
+  });
+  if (input.patch.kind === "repos" && input.verifyBranches) {
+    await assertRepoBranchesExistRemote({
+      cwd: input.cwd,
+      repos: reposWithBranchOrIdentityChanges(current.repos, next.repos),
+    });
+  }
   const content = `${JSON.stringify(next, null, 2)}\n`;
 
   try {

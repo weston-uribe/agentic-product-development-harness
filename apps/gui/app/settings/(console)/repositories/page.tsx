@@ -1,5 +1,4 @@
 import { RepositoriesSettingsEditor } from "@/components/settings/editors/repositories-settings-editor";
-import { TargetRepositoriesOverview } from "@/components/settings/target-repositories-overview";
 import { loadRepositoriesEditorData } from "@/lib/settings/load-settings-editor-data";
 import { loadRepositoriesOverview } from "@/lib/settings/load-repositories-overview";
 
@@ -16,13 +15,14 @@ export default async function SettingsRepositoriesPage() {
       <div>
         <h2 className="text-xl font-semibold tracking-tight">Target repositories</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Add, edit, or detach target repositories in local harness config only.
+          Add, connect, verify, edit branches, and detach repositories that PDev may
+          modify.
         </p>
       </div>
-      <TargetRepositoriesOverview repos={overview} />
       <RepositoriesSettingsEditor
         initialConfigForm={data.configForm}
         initialConfigFingerprint={data.configFingerprint}
+        initialOverview={overview}
       />
     </div>
   );

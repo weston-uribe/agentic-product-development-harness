@@ -6,19 +6,24 @@ import {
   loadGithubTokenFromEnvLocal,
   hasGithubTokenConfigured,
 } from "@harness/setup/setup-github-auth";
-import { readProductMarker } from "@harness/product/read-product-marker";
-import {
-  resolveProductInitializationState,
-  type ProductInitializationState,
-} from "@harness/product/initialization-state";
+import { parseGitHubRepoSlug } from "@harness/setup/github-repo-slug";
+import { listRepoDetachDependencies } from "@harness/setup/settings-config-patch";
+import type { LinearAssociation } from "@harness/config/schema";
+
+export type RepositoryConnectionStatus =
+  | "connected"
+  | "needs-attention"
+  | "unchecked";
 
 export interface TargetRepoOverviewEntry {
   id: string;
   targetRepo: string;
   baseBranch: string;
-  previewProvider: string;
-  initializationStatus: ProductInitializationState | "unavailable";
-  initializationDetail?: string;
+  productionBranch: string;
+  connectionStatus: RepositoryConnectionStatus;
+  connectionDetail?: string;
+  linearAssociationCount: number;
+  detachDependencies: ReturnType<typeof listRepoDetachDependencies>;
 }
 
 export async function loadTargetRepoOverviewFields(
@@ -28,7 +33,8 @@ export async function loadTargetRepoOverviewFields(
     id: string;
     targetRepo: string;
     baseBranch?: string;
-    previewProvider?: string;
+    productionBranch?: string;
+    linearAssociations?: LinearAssociation[];
   }> = [];
 
   try {
@@ -37,7 +43,8 @@ export async function loadTargetRepoOverviewFields(
       id: repo.id,
       targetRepo: repo.targetRepo,
       baseBranch: repo.baseBranch,
-      previewProvider: repo.previewProvider,
+      productionBranch: repo.productionBranch,
+      linearAssociations: repo.linearAssociations,
     }));
   } catch {
     return [];
@@ -52,40 +59,64 @@ export async function loadTargetRepoOverviewFields(
 
   for (const repo of configRepos) {
     const baseBranch = repo.baseBranch?.trim() || "dev";
-    const previewProvider = repo.previewProvider?.trim() || "none";
-    let initializationStatus: TargetRepoOverviewEntry["initializationStatus"] =
-      "unavailable";
-    let initializationDetail: string | undefined;
+    const productionBranch = repo.productionBranch?.trim() || "main";
+    const detachDependencies = listRepoDetachDependencies({
+      linearAssociations: repo.linearAssociations,
+    });
+    let connectionStatus: RepositoryConnectionStatus = "unchecked";
+    let connectionDetail: string | undefined;
 
-    if (provider && repo.targetRepo.trim()) {
-      try {
-        const markerRead = await readProductMarker({
-          targetRepo: repo.targetRepo,
-          developmentBranch: baseBranch,
-          provider,
-        });
-        const resolved = resolveProductInitializationState(markerRead.content);
-        initializationStatus = resolved.state;
-        initializationDetail = resolved.reason;
-      } catch (error) {
-        initializationStatus = "unavailable";
-        initializationDetail =
-          error instanceof Error
-            ? error.message
-            : "Could not read product marker from development branch.";
+    if (!provider) {
+      connectionStatus = "needs-attention";
+      connectionDetail =
+        "Connect GitHub in Settings → Connections to verify this repository.";
+    } else if (repo.targetRepo.trim()) {
+      const slug = parseGitHubRepoSlug(repo.targetRepo);
+      if (!slug) {
+        connectionStatus = "needs-attention";
+        connectionDetail = "Saved repository URL is not a valid GitHub URL.";
+      } else {
+        const [owner, name] = slug.split("/");
+        try {
+          const developmentExists = await provider.verifyBranchExists(
+            owner!,
+            name!,
+            baseBranch,
+          );
+          const productionExists = await provider.verifyBranchExists(
+            owner!,
+            name!,
+            productionBranch,
+          );
+          if (!developmentExists || !productionExists) {
+            connectionStatus = "needs-attention";
+            const missing = [
+              !developmentExists ? baseBranch : null,
+              !productionExists ? productionBranch : null,
+            ].filter(Boolean);
+            connectionDetail = `Missing remote branch${missing.length > 1 ? "es" : ""}: ${missing.join(", ")}.`;
+          } else {
+            connectionStatus = "connected";
+          }
+        } catch (error) {
+          connectionStatus = "needs-attention";
+          connectionDetail =
+            error instanceof Error
+              ? error.message
+              : "Could not verify repository branches.";
+        }
       }
-    } else if (!provider) {
-      initializationDetail =
-        "Save GITHUB_TOKEN in .env.local to read the product marker from the development branch.";
     }
 
     entries.push({
       id: repo.id,
       targetRepo: repo.targetRepo,
       baseBranch,
-      previewProvider,
-      initializationStatus,
-      initializationDetail,
+      productionBranch,
+      connectionStatus,
+      connectionDetail,
+      linearAssociationCount: repo.linearAssociations?.length ?? 0,
+      detachDependencies,
     });
   }
 

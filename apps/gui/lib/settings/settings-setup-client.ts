@@ -162,11 +162,19 @@ export async function applyVercelBridge(input: {
   );
 }
 
-export async function previewSettingsConfigPatch(patch: SettingsConfigPatch) {
+export async function previewSettingsConfigPatch(input: {
+  patch: SettingsConfigPatch;
+  verifyBranches?: boolean;
+  requireDistinctBranches?: boolean;
+}) {
   const response = await fetch("/api/settings/preview-config-patch", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ patch }),
+    body: JSON.stringify({
+      patch: input.patch,
+      verifyBranches: input.verifyBranches,
+      requireDistinctBranches: input.requireDistinctBranches,
+    }),
   });
   return readSetupJsonResponse<{
     fingerprint: string;
@@ -177,6 +185,8 @@ export async function previewSettingsConfigPatch(patch: SettingsConfigPatch) {
 export async function applySettingsConfigPatch(input: {
   patch: SettingsConfigPatch;
   expectedConfigFingerprint: string;
+  verifyBranches?: boolean;
+  requireDistinctBranches?: boolean;
 }) {
   const response = await fetch("/api/settings/apply-config-patch", {
     method: "POST",
@@ -185,6 +195,8 @@ export async function applySettingsConfigPatch(input: {
       patch: input.patch,
       expectedConfigFingerprint: input.expectedConfigFingerprint,
       confirmed: true,
+      verifyBranches: input.verifyBranches,
+      requireDistinctBranches: input.requireDistinctBranches,
     }),
   });
   return readSetupJsonResponse<{

@@ -49,9 +49,10 @@ describe("settings mutation editors", () => {
       ),
       "utf8",
     );
-    expect(repositoriesEditor).toContain("Detach repository");
-    expect(repositoriesEditor).toContain("does not delete the GitHub repository");
+    expect(repositoriesEditor).toContain("Remove from PDev");
+    expect(repositoriesEditor).toContain("will not be deleted");
     expect(repositoriesEditor).toContain('kind: "repos"');
+    expect(repositoriesEditor).not.toContain("Delete repository");
   });
 
   it("scopes Linear workspace editor to collection setup APIs", async () => {

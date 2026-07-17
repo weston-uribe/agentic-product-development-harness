@@ -9,6 +9,7 @@ import {
   SettingsConfigPatchError,
 } from "../../src/setup/settings-config-patch.js";
 import { buildHarnessConfig } from "../../src/setup/config-builder.js";
+import { harnessConfigSchema } from "../../src/config/schema.js";
 
 const BASE_CONFIG = buildHarnessConfig({
   repos: [
@@ -146,6 +147,114 @@ describe("settings-config-patch", () => {
     });
 
     expect(applied.config.repos).toHaveLength(2);
+  });
+
+  it("preserves linearAssociations and hidden fields when editing branches only", () => {
+    const withAssociations = harnessConfigSchema.parse({
+      ...BASE_CONFIG,
+      repos: [
+        {
+          ...BASE_CONFIG.repos[0],
+          baseBranch: "dev",
+          productionBranch: "main",
+          linearAssociations: [
+            {
+              workspaceId: "ws-1",
+              teamId: "team-1",
+              teamKey: "ACME",
+              projectId: "proj-1",
+              projectName: "Product",
+            },
+          ],
+          previewProvider: "vercel",
+          validation: { commands: ["npm run lint"] },
+        },
+      ],
+    });
+
+    const patched = applySettingsConfigPatch(withAssociations, {
+      kind: "repos",
+      repos: [
+        {
+          id: "target-app",
+          targetRepo: "https://github.com/owner/example-target-app",
+          baseBranch: "develop",
+          productionBranch: "production",
+        },
+      ],
+    });
+
+    expect(patched.repos[0]?.baseBranch).toBe("develop");
+    expect(patched.repos[0]?.productionBranch).toBe("production");
+    expect(patched.repos[0]?.linearAssociations).toEqual(
+      withAssociations.repos[0]?.linearAssociations,
+    );
+    expect(patched.repos[0]?.previewProvider).toBe("vercel");
+    expect(patched.repos[0]?.validation?.commands).toEqual(["npm run lint"]);
+  });
+
+  it("blocks detach when linearAssociations remain", () => {
+    const withAssociations = harnessConfigSchema.parse({
+      ...BASE_CONFIG,
+      repos: [
+        {
+          ...BASE_CONFIG.repos[0],
+          linearAssociations: [
+            {
+              workspaceId: "ws-1",
+              teamId: "team-1",
+              teamKey: "ACME",
+              projectId: "proj-1",
+              projectName: "Product",
+            },
+          ],
+        },
+        {
+          id: "second-app",
+          targetRepo: "https://github.com/owner/second-app",
+          baseBranch: "dev",
+          productionBranch: "main",
+        },
+      ],
+      allowedTargetRepos: [
+        "https://github.com/owner/example-target-app",
+        "https://github.com/owner/second-app",
+      ],
+    });
+
+    expect(() =>
+      applySettingsConfigPatch(withAssociations, {
+        kind: "repos",
+        repos: [
+          {
+            id: "second-app",
+            targetRepo: "https://github.com/owner/second-app",
+            baseBranch: "dev",
+            productionBranch: "main",
+          },
+        ],
+      }),
+    ).toThrow(/Cannot remove/);
+  });
+
+  it("rejects identical development and production branches when required", () => {
+    expect(() =>
+      applySettingsConfigPatch(
+        BASE_CONFIG,
+        {
+          kind: "repos",
+          repos: [
+            {
+              id: "target-app",
+              targetRepo: "https://github.com/owner/example-target-app",
+              baseBranch: "trunk",
+              productionBranch: "trunk",
+            },
+          ],
+        },
+        { requireDistinctBranches: true },
+      ),
+    ).toThrow(/must differ/);
   });
 
   it("extracts automation fields from config", () => {

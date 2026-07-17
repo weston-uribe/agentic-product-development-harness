@@ -14,6 +14,8 @@ export async function POST(request: Request) {
       patch: SettingsConfigPatch;
       expectedConfigFingerprint: string;
       confirmed?: boolean;
+      verifyBranches?: boolean;
+      requireDistinctBranches?: boolean;
     };
 
     if (!body.confirmed) {
@@ -27,6 +29,8 @@ export async function POST(request: Request) {
       cwd: resolveHarnessWorkspaceDir(),
       patch: body.patch,
       expectedConfigFingerprint: body.expectedConfigFingerprint,
+      verifyBranches: body.verifyBranches,
+      requireDistinctBranches: body.requireDistinctBranches,
     });
 
     return NextResponse.json(result);

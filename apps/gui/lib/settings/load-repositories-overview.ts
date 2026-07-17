@@ -10,20 +10,26 @@ export async function loadRepositoriesOverview() {
     loadTargetRepoOverviewFields(cwd),
   ]);
 
-  return targetRepoOverview.map((repo) => ({
-    id: repo.id,
-    targetRepo: repo.targetRepo,
-    baseBranch: repo.baseBranch,
-    previewProvider: repo.previewProvider,
-    initializationStatus: repo.initializationStatus,
-    initializationDetail: repo.initializationDetail,
-    workflowStatus:
+  return targetRepoOverview.map((repo) => {
+    const workflowStatus =
       remoteSummary.targetRepos.find(
         (remoteRepo) =>
           remoteRepo.repoConfigId === repo.id ||
           remoteRepo.targetRepo === repo.targetRepo,
-      )?.workflowStatus ?? "unknown",
-  }));
+      )?.workflowStatus ?? "unknown";
+
+    return {
+      id: repo.id,
+      targetRepo: repo.targetRepo,
+      baseBranch: repo.baseBranch,
+      productionBranch: repo.productionBranch,
+      connectionStatus: repo.connectionStatus,
+      connectionDetail: repo.connectionDetail,
+      linearAssociationCount: repo.linearAssociationCount,
+      detachDependencies: repo.detachDependencies,
+      workflowStatus,
+    };
+  });
 }
 
 export type RepositoriesOverviewEntry = Awaited<

@@ -10,10 +10,16 @@ export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as { patch: SettingsConfigPatch };
+    const body = (await request.json()) as {
+      patch: SettingsConfigPatch;
+      verifyBranches?: boolean;
+      requireDistinctBranches?: boolean;
+    };
     const preview = await previewSettingsConfigPatch({
       cwd: resolveHarnessWorkspaceDir(),
       patch: body.patch,
+      verifyBranches: body.verifyBranches,
+      requireDistinctBranches: body.requireDistinctBranches,
     });
     return NextResponse.json(preview);
   } catch (error) {

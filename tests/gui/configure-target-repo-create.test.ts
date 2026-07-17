@@ -74,26 +74,30 @@ describe("configure target repo create/connect", () => {
     expect(handleCreatedBlock).toContain("invalidatePreview");
   });
 
-  it("target repositories page surfaces previewProvider separately from bridge copy", () => {
+  it("target repositories settings page uses a compact repository list", () => {
+    const repositoriesPage = read("apps/gui/app/settings/(console)/repositories/page.tsx");
+    const repositoriesEditor = read(
+      "apps/gui/components/settings/editors/repositories-settings-editor.tsx",
+    );
     const overviewLoader = read(
       "apps/gui/lib/settings/load-target-repo-overview-fields.ts",
     );
-    const repositoriesPage = read("apps/gui/app/settings/(console)/repositories/page.tsx");
-    const repositoriesOverview = read(
-      "apps/gui/components/settings/target-repositories-overview.tsx",
-    );
-    const repositoriesLoader = read(
-      "apps/gui/lib/settings/load-repositories-overview.ts",
-    );
 
-    expect(overviewLoader).toContain("initializationStatus");
-    expect(overviewLoader).toContain("readProductMarker");
-    expect(overviewLoader).toContain("previewProvider");
-    expect(repositoriesLoader).toContain("loadTargetRepoOverviewFields");
-    expect(repositoriesPage).toContain("TargetRepositoriesOverview");
-    expect(repositoriesOverview).toContain("Application preview provider");
-    expect(repositoriesOverview).toContain("Product initialization");
-    expect(repositoriesOverview).toContain("automation bridge");
-    expect(repositoriesOverview).not.toContain("webhook bridge is configured");
+    expect(repositoriesPage).toContain("RepositoriesSettingsEditor");
+    expect(repositoriesPage).not.toContain("TargetRepositoriesOverview");
+    expect(repositoriesEditor).toContain("Remove from PDev");
+    expect(repositoriesEditor).toContain("Edit branches");
+    expect(repositoriesEditor).toContain("Verify or repair");
+    expect(repositoriesEditor).toContain("TargetRepoCreateConnect");
+    expect(repositoriesEditor).not.toContain("Detach repository");
+    expect(repositoriesEditor).not.toContain("Delete repository");
+    expect(repositoriesEditor).not.toContain("linear-team-key");
+    expect(repositoriesEditor).not.toContain("Model ID");
+    expect(repositoriesEditor).not.toContain("preview-provider");
+    expect(repositoriesEditor).not.toContain("validation-commands");
+    expect(repositoriesEditor).not.toContain("integration-success-status");
+    expect(overviewLoader).toContain("productionBranch");
+    expect(overviewLoader).toContain("connectionStatus");
+    expect(overviewLoader).not.toContain("previewProvider");
   });
 });
