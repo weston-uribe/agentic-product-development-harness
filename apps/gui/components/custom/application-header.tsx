@@ -2,6 +2,8 @@ import { SettingsMenu } from "@/components/custom/settings-menu";
 import { LAYOUT } from "@/lib/constants/layout";
 
 type ApplicationHeaderProps = {
+  settingsHref?: string;
+  isSettingsActive?: boolean;
   configureHref?: string;
   isConfigureActive?: boolean;
   dataSharingHref?: string;
@@ -10,6 +12,8 @@ type ApplicationHeaderProps = {
 };
 
 export function ApplicationHeader({
+  settingsHref,
+  isSettingsActive,
   configureHref,
   isConfigureActive,
   dataSharingHref,
@@ -31,6 +35,8 @@ export function ApplicationHeader({
           </span>
         </div>
         <SettingsMenu
+          settingsHref={settingsHref}
+          isSettingsActive={isSettingsActive}
           configureHref={configureHref}
           isConfigureActive={isConfigureActive}
           dataSharingHref={dataSharingHref}

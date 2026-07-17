@@ -1,4 +1,3 @@
-import { AppShell } from "@/components/custom/app-shell";
 import { DataSharingPreferences } from "@/components/custom/data-sharing-preferences";
 import { resolveHarnessWorkspaceDir } from "@harness/gui/repo-root";
 import { readObservabilityPreferences } from "@harness/observability/facade.js";
@@ -13,16 +12,14 @@ export default async function DataSharingSettingsPage() {
     process.env[P_DEV_OBSERVABILITY_NONCE_ENV]?.trim() ?? null;
 
   return (
-    <AppShell isDataSharingActive>
-      <DataSharingPreferences
-        mode="settings"
-        nonce={observabilityNonce}
-        initialPreferences={{
-          analyticsPreference: state.analyticsPreference,
-          errorReportingPreference: state.errorReportingPreference,
-          disclosureShown: state.disclosureShown,
-        }}
-      />
-    </AppShell>
+    <DataSharingPreferences
+      mode="settings"
+      nonce={observabilityNonce}
+      initialPreferences={{
+        analyticsPreference: state.analyticsPreference,
+        errorReportingPreference: state.errorReportingPreference,
+        disclosureShown: state.disclosureShown,
+      }}
+    />
   );
 }

@@ -8,6 +8,8 @@ import {
   saveWorkflowRoleModel,
 } from "../../src/setup/workflow-model-sync.js";
 import { readControlPlaneSetupState } from "../../src/setup/control-plane-setup-state.js";
+import { readWorkflowConfigSnapshot } from "../../src/setup/workflow-config-snapshot.js";
+import { buildConfigFingerprint } from "../../src/workflow-page/bootstrap.js";
 
 const BASE_CONFIG = {
   version: 1,
@@ -53,6 +55,15 @@ describe("saveWorkflowRoleModel", () => {
 
   afterEach(async () => {
     await rm(tempRoot, { recursive: true, force: true });
+  });
+
+  it("aligns bootstrap and save CAS on raw config bytes fingerprint", async () => {
+    const snapshot = await readWorkflowConfigSnapshot(tempRoot);
+    const currentFingerprint = await readCurrentConfigFingerprint(tempRoot);
+    const parsedFingerprint = buildConfigFingerprint(snapshot.config);
+
+    expect(snapshot.fingerprint).toBe(currentFingerprint);
+    expect(snapshot.fingerprint).not.toBe(parsedFingerprint);
   });
 
   it("updates local roleModels and writes only HARNESS_CONFIG_JSON_B64 remotely", async () => {

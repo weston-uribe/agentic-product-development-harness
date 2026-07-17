@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { AppShell } from "@/components/custom/app-shell";
 import { ConfigurePageContent } from "@/components/custom/configure-page-content";
 import {
@@ -15,6 +16,12 @@ import {
 import { resolveHarnessWorkspaceDir } from "@harness/gui/repo-root";
 import { readObservabilityPreferences } from "@harness/observability/facade.js";
 import { P_DEV_OBSERVABILITY_NONCE_ENV } from "@harness/observability/constants.js";
+import {
+  isInitialSetupComplete,
+  migrateExistingCompletedWorkspace,
+} from "@harness/setup/initial-setup-lifecycle";
+import { readControlPlaneSetupState } from "@harness/setup/control-plane-setup-state";
+import { SETTINGS_ROUTE } from "@harness/setup/packaged-default-route";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +52,17 @@ export default async function ConfigurePage() {
         readObservabilityPreferences(workspaceDir),
       ),
     ]);
+
+  const controlPlane =
+    (await migrateExistingCompletedWorkspace({
+      cwd: workspaceDir,
+      setupSummary: summary,
+      remoteSummary,
+    })) ?? (await readControlPlaneSetupState(workspaceDir));
+
+  if (isInitialSetupComplete(controlPlane)) {
+    redirect(SETTINGS_ROUTE);
+  }
 
   markConfigureServerComplete("configure_page_ready", "configure_page_start");
 

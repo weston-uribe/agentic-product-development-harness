@@ -17,6 +17,8 @@ import { markConfigureClient } from "@/lib/configure-navigation-timing";
 import { useThemeToggle } from "@/lib/use-theme-toggle";
 
 type SettingsMenuProps = {
+  settingsHref?: string;
+  isSettingsActive?: boolean;
   configureHref?: string;
   isConfigureActive?: boolean;
   dataSharingHref?: string;
@@ -26,6 +28,8 @@ type SettingsMenuProps = {
 };
 
 export function SettingsMenu({
+  settingsHref = "/settings",
+  isSettingsActive = false,
   configureHref = "/settings/configure",
   isConfigureActive = false,
   dataSharingHref = "/settings/data-sharing",
@@ -53,10 +57,10 @@ export function SettingsMenu({
       if (!open) {
         return;
       }
-      prefetchRoute(configureHref);
+      prefetchRoute(settingsHref);
       prefetchRoute(workflowHref);
     },
-    [configureHref, prefetchRoute, workflowHref],
+    [prefetchRoute, settingsHref, workflowHref],
   );
 
   const handleConfigureIntent = useCallback(() => {
@@ -99,12 +103,22 @@ export function SettingsMenu({
         </DropdownMenuItem>
         <DropdownMenuItem asChild>
           <Link
+            href={settingsHref}
+            aria-current={isSettingsActive ? "page" : undefined}
+            onMouseEnter={() => prefetchRoute(settingsHref)}
+            onFocus={() => prefetchRoute(settingsHref)}
+          >
+            Settings
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link
             href={configureHref}
             aria-current={isConfigureActive ? "page" : undefined}
             onMouseEnter={handleConfigureIntent}
             onFocus={handleConfigureIntent}
           >
-            Configure
+            Setup wizard
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>

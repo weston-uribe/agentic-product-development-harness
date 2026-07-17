@@ -503,6 +503,17 @@ export function ConfigureExperience({
 
   const handleGuidedWorkflowSetupComplete = useCallback(() => {
     recordStepCompleted("target-workflow");
+    void fetch("/api/setup/complete-initial-setup", { method: "POST" })
+      .then(async (response) => {
+        if (!response.ok) {
+          return;
+        }
+        const payload = (await response.json()) as { completed?: boolean };
+        if (payload.completed) {
+          window.location.assign("/settings");
+        }
+      })
+      .catch(() => undefined);
     if (observabilityNonce) {
       void postObservabilityAnalyticsEvent(
         { type: "p_dev_setup_completed" },

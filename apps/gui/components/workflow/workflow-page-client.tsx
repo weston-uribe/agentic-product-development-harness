@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import type { RoleModelRole } from "@harness/config/role-models";
-import type { WorkflowBootstrapPayload } from "@harness/workflow-page/types";
+import type { WorkflowBootstrapPayload, WorkflowModelSelection } from "@harness/workflow-page/types";
 import { WorkflowScopeSelector } from "@/components/workflow/workflow-scope-selector";
 import { WorkflowHealthPanel } from "@/components/workflow/workflow-health-panel";
 import { WorkflowCardsSection } from "@/components/workflow/workflow-cards-section";
@@ -13,13 +13,19 @@ type WorkflowPageClientProps = {
   initialBootstrap: WorkflowBootstrapPayload;
 };
 
+function toCommittedSelections(
+  bootstrap: WorkflowBootstrapPayload,
+): Record<RoleModelRole, WorkflowModelSelection> {
+  return {
+    planner: bootstrap.plannerSelection,
+    builder: bootstrap.builderSelection,
+  };
+}
+
 export function WorkflowPageClient({ initialBootstrap }: WorkflowPageClientProps) {
   const [bootstrap, setBootstrap] = useState(initialBootstrap);
-  const [plannerSelection, setPlannerSelection] = useState(
-    initialBootstrap.plannerSelection,
-  );
-  const [builderSelection, setBuilderSelection] = useState(
-    initialBootstrap.builderSelection,
+  const [committedSelections, setCommittedSelections] = useState(() =>
+    toCommittedSelections(initialBootstrap),
   );
   const [isLoadingScope, setIsLoadingScope] = useState(false);
   const scopeAbortRef = useRef<AbortController | null>(null);
@@ -34,34 +40,25 @@ export function WorkflowPageClient({ initialBootstrap }: WorkflowPageClientProps
     setBootstrap((current) => ({ ...current, configFingerprint: fingerprint }));
   }, []);
 
-  const handleSelectionChange = useCallback(
-    (
-      role: RoleModelRole,
-      input: { modelId: string; params: Array<{ id: string; value: string }> },
-    ) => {
-      const next = {
-        modelId: input.modelId,
-        displayName: input.modelId,
-        parameters: input.params,
-        source: "roleModels" as const,
-      };
-      if (role === "planner") {
-        setPlannerSelection(next);
-      } else {
-        setBuilderSelection(next);
-      }
+  const handleCommittedSelectionsChange = useCallback(
+    (role: RoleModelRole, selection: WorkflowModelSelection) => {
+      setCommittedSelections((current) => ({ ...current, [role]: selection }));
     },
     [],
   );
 
-  const { handleModelSelect, handleModelParameter, saveStateLabel } = useModelAutosave({
-    bootstrap: {
-      ...bootstrap,
-      plannerSelection,
-      builderSelection,
-    },
+  const {
+    plannerSelection,
+    builderSelection,
+    handleModelSelect,
+    handleModelParameter,
+    saveStateLabel,
+    saveErrorDetail,
+  } = useModelAutosave({
+    bootstrap,
+    committedSelections,
+    onCommittedSelectionsChange: handleCommittedSelectionsChange,
     onBootstrapFingerprintChange: handleBootstrapFingerprintChange,
-    onSelectionChange: handleSelectionChange,
   });
 
   const handleScopeChange = useCallback(
@@ -88,8 +85,7 @@ export function WorkflowPageClient({ initialBootstrap }: WorkflowPageClientProps
           return;
         }
         setBootstrap(nextBootstrap);
-        setPlannerSelection(nextBootstrap.plannerSelection);
-        setBuilderSelection(nextBootstrap.builderSelection);
+        setCommittedSelections(toCommittedSelections(nextBootstrap));
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") {
           return;
@@ -158,6 +154,7 @@ export function WorkflowPageClient({ initialBootstrap }: WorkflowPageClientProps
         onSelectModel={handleModelSelect}
         onUpdateModelParameter={handleModelParameter}
         saveStateLabel={saveStateLabel}
+        saveErrorDetail={saveErrorDetail}
       />
     </div>
   );

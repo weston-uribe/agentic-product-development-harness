@@ -13,6 +13,7 @@ import {
   resolveModelDisplayName,
   type WorkflowModelPhaseKey,
 } from "@/lib/workflow/use-model-autosave";
+import { WorkflowModelControl } from "@/components/workflow/workflow-model-control";
 
 const EXPANDED_CARDS_KEY = "workflow-expanded-cards";
 
@@ -26,6 +27,7 @@ type WorkflowCardsSectionProps = {
     value: string,
   ) => void;
   saveStateLabel: (phaseKey: WorkflowModelPhaseKey) => string | null;
+  saveErrorDetail?: (phaseKey: WorkflowModelPhaseKey) => string | undefined;
 };
 
 function readExpandedCards(): Set<CanonicalStatusKey> {
@@ -53,6 +55,7 @@ export function WorkflowCardsSection({
   onSelectModel,
   onUpdateModelParameter,
   saveStateLabel,
+  saveErrorDetail,
 }: WorkflowCardsSectionProps) {
   const [expanded, setExpanded] = useState<Set<CanonicalStatusKey>>(() =>
     readExpandedCards(),
@@ -157,7 +160,7 @@ export function WorkflowCardsSection({
                         <p className="text-muted-foreground">{content.builderModelNote}</p>
                       ) : null}
                       {content.showPlannerModel ? (
-                        <ModelControl
+                        <WorkflowModelControl
                           label="Planner model"
                           phaseKey="planning"
                           disabled={disabled}
@@ -165,12 +168,13 @@ export function WorkflowCardsSection({
                           modelId={bootstrap.plannerSelection.modelId}
                           parameters={bootstrap.plannerSelection.parameters}
                           saveLabel={saveStateLabel("planning")}
+                          saveErrorDetail={saveErrorDetail?.("planning")}
                           onSelectModel={onSelectModel}
                           onUpdateModelParameter={onUpdateModelParameter}
                         />
                       ) : null}
                       {content.showBuilderModel ? (
-                        <ModelControl
+                        <WorkflowModelControl
                           label="Builder model"
                           phaseKey="implementation"
                           disabled={disabled}
@@ -178,6 +182,7 @@ export function WorkflowCardsSection({
                           modelId={bootstrap.builderSelection.modelId}
                           parameters={bootstrap.builderSelection.parameters}
                           saveLabel={saveStateLabel("implementation")}
+                          saveErrorDetail={saveErrorDetail?.("implementation")}
                           onSelectModel={onSelectModel}
                           onUpdateModelParameter={onUpdateModelParameter}
                         />
@@ -196,96 +201,6 @@ export function WorkflowCardsSection({
           </div>
         </section>
       ))}
-    </div>
-  );
-}
-
-type ModelControlProps = {
-  label: string;
-  phaseKey: WorkflowModelPhaseKey;
-  disabled: boolean;
-  modelCatalog: WorkflowBootstrapPayload["modelCatalog"];
-  modelId: string;
-  parameters: Array<{ id: string; value: string }>;
-  saveLabel: string | null;
-  onSelectModel: (phaseKey: WorkflowModelPhaseKey, modelId: string) => void;
-  onUpdateModelParameter: (
-    phaseKey: WorkflowModelPhaseKey,
-    parameterId: string,
-    value: string,
-  ) => void;
-};
-
-function ModelControl({
-  label,
-  phaseKey,
-  disabled,
-  modelCatalog,
-  modelId,
-  parameters,
-  saveLabel,
-  onSelectModel,
-  onUpdateModelParameter,
-}: ModelControlProps) {
-  const selectedModel = modelCatalog.find((model) => model.id === modelId);
-
-  return (
-    <div className="space-y-2 rounded-md bg-muted/50 p-3">
-      <div className="flex items-center justify-between gap-2">
-        <span className="font-medium">{label}</span>
-        {saveLabel ? (
-          <span className="text-xs text-muted-foreground" aria-live="polite">
-            {saveLabel}
-          </span>
-        ) : null}
-      </div>
-      <label className="flex flex-col gap-1">
-        <span className="text-xs text-muted-foreground">Model</span>
-        <select
-          className="rounded-md border border-input bg-background px-2 py-1.5 text-sm"
-          disabled={disabled}
-          value={modelId}
-          onChange={(event) => onSelectModel(phaseKey, event.target.value)}
-        >
-          {modelCatalog
-            .filter((model) => model.availability === "available")
-            .map((model) => (
-              <option key={model.id} value={model.id}>
-                {model.displayName}
-              </option>
-            ))}
-        </select>
-      </label>
-      {selectedModel
-        ? selectedModel.supportedParameters
-            .filter((parameter) => parameter.type === "boolean")
-            .map((parameter) => {
-              const current = parameters.find((entry) => entry.id === parameter.id)?.value;
-              const checked = current === "true";
-              return (
-                <label
-                  key={parameter.id}
-                  className="flex items-center justify-between gap-2 text-sm"
-                >
-                  <span>{parameter.label}</span>
-                  <input
-                    type="checkbox"
-                    role="switch"
-                    aria-label={parameter.label}
-                    disabled={disabled || !modelId}
-                    checked={checked}
-                    onChange={(event) =>
-                      onUpdateModelParameter(
-                        phaseKey,
-                        parameter.id,
-                        event.target.checked ? "true" : "false",
-                      )
-                    }
-                  />
-                </label>
-              );
-            })
-        : null}
     </div>
   );
 }

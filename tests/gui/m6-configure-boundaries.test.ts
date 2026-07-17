@@ -966,7 +966,7 @@ describe("M6 configure GUI boundaries", () => {
     expect(appShellSource).toContain("ApplicationHeader");
     expect(appShellSource).not.toContain("ThemeToggle");
     expect(settingsMenuSource).toContain("Settings");
-    expect(settingsMenuSource).toContain("Configure");
+    expect(settingsMenuSource).toContain("Setup wizard");
     expect(settingsMenuSource).toContain("Dark mode");
     expect(settingsMenuSource).toContain("Light mode");
   });

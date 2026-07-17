@@ -143,6 +143,18 @@ export interface ControlPlaneSetupState {
     harnessRepository: string;
     syncedAt: string;
   };
+  initialSetup?: {
+    status: "complete";
+    completedAt: string;
+    completedByVersion?: string;
+    completionEvidence: {
+      localConfigPresent: true;
+      linearConfigured: true;
+      vercelConfigured: true;
+      cloudSecretsVerified: true;
+      targetWorkflowsVerified: true;
+    };
+  };
 }
 
 export interface ControlPlaneReadinessContext {

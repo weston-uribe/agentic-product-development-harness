@@ -4,7 +4,6 @@ import { resolveHarnessWorkspaceDir } from "@harness/gui/repo-root";
 import { loadHarnessDotenv } from "@harness/config/load-dotenv";
 import { loadHarnessConfig } from "@harness/config/load-config";
 import {
-  buildConfigFingerprint,
   buildWorkflowBootstrap,
 } from "@harness/workflow-page/bootstrap";
 import { fetchLiveCursorModelCatalog } from "@harness/workflow-page/model-catalog";
@@ -21,11 +20,12 @@ import { buildCatalogUnavailableEntry } from "@harness/workflow-page/model-catal
 import { loadSecretFromEnvLocal } from "@harness/setup/service-verification";
 import { readControlPlaneSetupState } from "@harness/setup/control-plane-setup-state";
 import {
-  saveWorkflowRoleModel,
   WorkflowModelSyncError,
   type WorkflowModelSaveRequest,
   type WorkflowModelSaveResult,
 } from "@harness/setup/workflow-model-sync";
+import { enqueueWorkflowModelSave } from "@harness/setup/workflow-model-save-queue";
+import { readWorkflowConfigSnapshot } from "@harness/setup/workflow-config-snapshot";
 import { validateModelSavePayload } from "@harness/workflow-page/catalog-validation";
 import { createLiveGitHubRemoteSetupProvider } from "@harness/setup/github-remote-setup-live";
 import {
@@ -139,6 +139,18 @@ export async function loadWorkflowBootstrap(
   }
 
   let effectiveConfig = config ?? FALLBACK_CONFIG;
+  let liveConfigFingerprint: string | undefined;
+  if (context.mode === "live") {
+    try {
+      const snapshot = await readWorkflowConfigSnapshot(cwd);
+      effectiveConfig = snapshot.config;
+      liveConfigFingerprint = snapshot.fingerprint;
+    } catch {
+      if (debugEnabled) {
+        warnings.push("Local harness config could not be loaded for fingerprinting.");
+      }
+    }
+  }
   if (context.mode === "fixture" && context.fixtureId) {
     const fixture = getFixtureDefinition(context.fixtureId as WorkflowFixtureId);
     effectiveConfig = fixture.config ?? effectiveConfig;
@@ -158,6 +170,7 @@ export async function loadWorkflowBootstrap(
     cwd,
     context,
     config: effectiveConfig,
+    configFingerprint: liveConfigFingerprint,
     teamId,
     teamKey,
     linearStatuses,
@@ -167,10 +180,10 @@ export async function loadWorkflowBootstrap(
     debugEnabled,
   });
 
-  if (context.mode === "live" && config) {
+  if (context.mode === "live" && liveConfigFingerprint) {
     const evidence = await readWorkflowModelsSyncEvidence(cwd);
     const synchronized = isWorkflowCloudConfigSynchronized({
-      currentFingerprint: buildConfigFingerprint(config),
+      currentFingerprint: liveConfigFingerprint,
       evidence,
     });
     if (!synchronized) {
@@ -284,11 +297,11 @@ export async function saveWorkflowModel(
     ? createLiveGitHubRemoteSetupProvider(githubToken)
     : undefined;
 
-  return saveWorkflowRoleModel({
+  return enqueueWorkflowModelSave({
     cwd,
     request: input,
     provider,
-  });
+  }).then((outcome) => outcome.result);
 }
 
 export { WorkflowModelSyncError };
