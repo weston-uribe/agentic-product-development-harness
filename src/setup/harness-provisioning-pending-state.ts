@@ -9,9 +9,12 @@ export const HARNESS_PROVISIONING_PENDING_FILE =
 
 export type HarnessProvisioningPhase =
   | "repository-created"
+  | "preparing-snapshot"
   | "snapshot-objects-uploading"
+  | "workspace-uploading"
   | "snapshot-commit-created"
   | "marker-pending"
+  | "verifying"
   | "description-pending"
   | "persistence-pending";
 

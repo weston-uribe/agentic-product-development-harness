@@ -556,8 +556,9 @@ export function ConfigureWorkflow({
 
     setProvisioningHarnessRepo(true);
     setProvisioningError(null);
-    setProvisioningMessage("Setting up workspace…");
+    setProvisioningMessage("Creating private workspace");
 
+    let progressPoll: ReturnType<typeof setInterval> | undefined;
     try {
       const previewResponse = await fetch(
         "/api/setup/preview-harness-repo-provisioning",
@@ -593,18 +594,65 @@ export function ConfigureWorkflow({
         return;
       }
 
-      const applyResponse = await fetch(
-        "/api/setup/apply-harness-repo-provisioning",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            confirmed: true,
-            fingerprint: previewData.fingerprint,
-            operationId: previewData.operationId,
-          }),
-        },
-      );
+      progressPoll = setInterval(() => {
+        void fetch("/api/setup/harness-provisioning-progress")
+          .then(async (response) => {
+            if (!response.ok) {
+              return;
+            }
+            const report = (await response.json()) as {
+              uiPhaseLabel?: string | null;
+              operationId?: string | null;
+              completed?: number | null;
+              total?: number | null;
+            };
+            if (report.uiPhaseLabel) {
+              const counts =
+                typeof report.completed === "number" &&
+                typeof report.total === "number" &&
+                report.total > 0
+                  ? ` (${report.completed}/${report.total})`
+                  : "";
+              setProvisioningMessage(`${report.uiPhaseLabel}${counts}`);
+            }
+          })
+          .catch(() => {
+            // Progress polling is best-effort; apply response remains authoritative.
+          });
+      }, 1_000);
+
+      const applyController = new AbortController();
+      const applyTimeoutMs = 180_000;
+      const applyTimer = setTimeout(() => applyController.abort(), applyTimeoutMs);
+      let applyResponse: Response;
+      try {
+        applyResponse = await fetch(
+          "/api/setup/apply-harness-repo-provisioning",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              confirmed: true,
+              fingerprint: previewData.fingerprint,
+              operationId: previewData.operationId,
+            }),
+            signal: applyController.signal,
+          },
+        );
+      } catch (fetchError) {
+        if (
+          fetchError instanceof DOMException &&
+          fetchError.name === "AbortError"
+        ) {
+          setProvisioningError(
+            `Workspace setup timed out after ${Math.round(applyTimeoutMs / 1000)}s. Operation ID: ${previewData.operationId}. Retry Step 1 Continue to resume or reconcile — the repository may already exist.`,
+          );
+          return;
+        }
+        throw fetchError;
+      } finally {
+        clearTimeout(applyTimer);
+      }
       const applyData = await applyResponse.json();
       if (!applyResponse.ok) {
         throw new Error(applyData.error ?? "Provisioning apply failed");
@@ -612,7 +660,15 @@ export function ConfigureWorkflow({
 
       if (applyData.apply.state !== "verified-and-persisted") {
         if (applyData.apply.recoverable) {
-          setProvisioningError(applyData.apply.message);
+          const phaseHint = applyData.apply.uiPhaseLabel
+            ? ` (${applyData.apply.uiPhaseLabel})`
+            : "";
+          const opHint = applyData.apply.operationId
+            ? ` Operation ID: ${applyData.apply.operationId}.`
+            : ` Operation ID: ${previewData.operationId}.`;
+          setProvisioningError(
+            `${applyData.apply.message}${phaseHint}.${opHint} Retry will resume or reconcile.`,
+          );
           return;
         }
         throw new Error(
@@ -667,6 +723,9 @@ export function ConfigureWorkflow({
           : "Harness workspace provisioning failed",
       );
     } finally {
+      if (progressPoll) {
+        clearInterval(progressPoll);
+      }
       setProvisioningHarnessRepo(false);
     }
   }, [
@@ -1373,7 +1432,7 @@ export function ConfigureWorkflow({
                   disabled={!connectServicesReady || provisioningHarnessRepo}
                 >
                   {provisioningHarnessRepo
-                    ? "Setting up workspace…"
+                    ? provisioningMessage ?? "Setting up workspace…"
                     : "Set up workspace"}
                 </Button>
               </div>

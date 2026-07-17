@@ -54,6 +54,11 @@ import {
   type HarnessRepoProvisioningPreview,
   type HarnessRepoProvisioningSummary,
 } from "@harness/setup/harness-repo-provisioning";
+import {
+  loadHarnessProvisioningDiagnosticReport,
+  type HarnessProvisioningDiagnosticReport,
+} from "@harness/setup/harness-provisioning-progress";
+import { readHarnessProvisioningPendingState } from "@harness/setup/harness-provisioning-pending-state";
 import { loadEmbeddedWorkspaceSnapshot } from "@harness/setup/harness-workspace-snapshot-loader.js";
 import {
   captureAnalyticsEvent,
@@ -924,6 +929,12 @@ export async function loadHarnessRepoProvisioningSummaryRemote(): Promise<Harnes
     cwd: resolveCwd(),
     provider,
   });
+}
+
+export async function loadHarnessProvisioningDiagnosticRemote(): Promise<HarnessProvisioningDiagnosticReport> {
+  const cwd = resolveCwd();
+  const pending = await readHarnessProvisioningPendingState(cwd);
+  return loadHarnessProvisioningDiagnosticReport({ cwd, pending });
 }
 
 export async function previewHarnessRepoProvisioningRemote(options?: {

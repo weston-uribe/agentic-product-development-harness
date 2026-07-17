@@ -24,6 +24,7 @@ import {
 } from "./mock-git-repository-store.js";
 import type { GitHubGitCommitAuthor } from "../github/client.js";
 import { GitHubApiError } from "../github/client.js";
+import type { WorkspaceSnapshotManifest } from "../p-dev/workspace-snapshot-types.js";
 
 export interface GitCommitIdentity {
   name: string;
@@ -196,6 +197,35 @@ export interface GitHubHarnessProvisioningProvider {
   writeRepositoryFile(
     input: RepositoryFileWriteInput,
   ): Promise<{ commitSha: string }>;
+  /**
+   * Optional bulk git transport. When present, live provisioning pushes
+   * snapshot+marker commits with one authenticated git push instead of
+   * per-file createGitBlob REST mutations.
+   */
+  pushHarnessSnapshotCommits?(input: {
+    owner: string;
+    repo: string;
+    defaultBranch: string;
+    expectedHeadSha: string;
+    initializedCommitSha: string;
+    snapshotRoot: string;
+    manifest: WorkspaceSnapshotManifest;
+    operationId: string;
+    packageVersion: string;
+    buildMarkerContent: (snapshotCommitSha: string) => string;
+    existingSnapshotCommitSha?: string;
+    timeoutMs?: number;
+    onProgress?: (progress: {
+      phase: "preparing-snapshot" | "workspace-uploading" | "verifying";
+      completed?: number;
+      total?: number;
+    }) => void;
+  }): Promise<{
+    snapshotCommitSha: string;
+    markerCommitSha: string;
+    snapshotGitTreeSha1: string;
+    pushCount: number;
+  }>;
 }
 
 export interface HarnessSecretWriteRequest {
