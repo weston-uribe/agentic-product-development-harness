@@ -6,6 +6,7 @@ export interface LinearIssueSnapshot {
   title: string;
   description: string | null;
   status: string | null;
+  projectId: string | null;
   projectName: string | null;
   teamName: string | null;
   teamId: string | null;
@@ -35,6 +36,7 @@ export async function fetchLinearIssue(
     title: issue.title,
     description: issue.description ?? null,
     status: state?.name ?? null,
+    projectId: project?.id ?? null,
     projectName: project?.name ?? null,
     teamName: team?.name ?? null,
     teamId: team?.id ?? null,

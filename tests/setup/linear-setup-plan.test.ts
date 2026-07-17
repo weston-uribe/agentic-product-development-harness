@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildNewProductProjectDescription,
   findExistingProjectForCreateInput,
   findExistingTeamForCreateInput,
   isWorkflowStatusCoverageComplete,
@@ -133,5 +134,16 @@ describe("linear-setup-plan", () => {
       })),
     );
     expect(isWorkflowStatusCoverageComplete(complete)).toBe(true);
+  });
+
+  it("builds harness metadata for new product project descriptions", () => {
+    const description = buildNewProductProjectDescription({
+      targetRepo: "https://github.com/owner/new-product",
+      baseDescription: "Operator notes",
+    });
+    expect(description).toContain("Harness metadata:");
+    expect(description).toContain("Target repo: owner/new-product");
+    expect(description).toContain("Product initialization: uninitialized");
+    expect(description).toContain("Operator notes");
   });
 });

@@ -1,5 +1,6 @@
 import type { ErrorClassification } from "../resolver/errors.js";
 import type { ResolvedTarget } from "../resolver/target-repo.js";
+import type { ProductInitializationState } from "../product/initialization-state.js";
 
 export type IntendedPhase = "planning" | "implementation";
 
@@ -16,6 +17,8 @@ export interface IssueValidationResult {
   narrowFailureReason: string | null;
   hasPlanningMarker: boolean;
   planningMarkerMode: "file" | "issue";
+  productInitializationState: ProductInitializationState | null;
+  blocksDirectImplementationForUninitializedProduct: boolean;
   routingNotes: string[];
   repairInstructions: string[];
 }

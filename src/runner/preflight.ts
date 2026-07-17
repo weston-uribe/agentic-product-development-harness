@@ -15,6 +15,11 @@ import { resolveTargetRepo } from "../resolver/target-repo.js";
 import type { ResolvedTarget } from "../resolver/target-repo.js";
 import { assertBaseBranchExists } from "../github/base-branch.js";
 import { GitHubClient } from "../github/client.js";
+import {
+  resolveProductInitializationState,
+  type ResolvedProductInitialization,
+} from "../product/initialization-state.js";
+import { readProductMarker } from "../product/read-product-marker.js";
 import { inferPhaseFromStatus } from "./phase-infer.js";
 import { logExecutionEnvironmentMarker } from "./execution-environment.js";
 import { loadIssueFixture } from "./fixture.js";
@@ -40,6 +45,7 @@ export interface PreflightContext {
   issue: LinearIssueSnapshot;
   parsed: ParsedIssue;
   resolved: ResolvedTarget;
+  productInitialization: ResolvedProductInitialization;
   runId: string;
   runDirectory: string;
   events: EventLogger;
@@ -160,12 +166,29 @@ export async function runPreflight(
       config,
     );
     assertRepoAllowed(resolved.targetRepo, config);
+    let productInitialization: ResolvedProductInitialization = {
+      state: "missing_marker",
+      hasApprovedArchitecture: false,
+    };
     if (process.env.GITHUB_TOKEN) {
-      await assertBaseBranchExists(
-        new GitHubClient({ token: process.env.GITHUB_TOKEN }),
-        resolved.targetRepo,
-        resolved.baseBranch,
-      );
+      const github = new GitHubClient({ token: process.env.GITHUB_TOKEN });
+      const markerRead = await readProductMarker({
+        targetRepo: resolved.targetRepo,
+        developmentBranch: resolved.baseBranch,
+        github,
+      });
+      productInitialization = resolveProductInitializationState(markerRead.content);
+      await events.log("product_marker_loaded", "info", {
+        markerPath: markerRead.markerPath,
+        developmentBranch: markerRead.developmentBranch,
+        initializationState: productInitialization.state,
+        hasApprovedArchitecture: productInitialization.hasApprovedArchitecture,
+      });
+      await assertBaseBranchExists(github, resolved.targetRepo, resolved.baseBranch);
+    } else {
+      await events.log("product_marker_skipped", "info", {
+        reason: "GITHUB_TOKEN not configured",
+      });
     }
     await events.log("repo_resolved", "info", { ...resolved });
 
@@ -190,6 +213,7 @@ export async function runPreflight(
         issue,
         parsed,
         resolved,
+        productInitialization,
         runId,
         runDirectory,
         events,

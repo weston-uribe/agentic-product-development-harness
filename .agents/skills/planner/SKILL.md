@@ -56,7 +56,17 @@ If no mode is specified:
 
 - Linear issue / feature request → `feature-planning`
 - Audit report / finding IDs → `audit-remediation-planning`
+- Uninitialized product foundation issue → `feature-planning` with product foundation emphasis
 - Explicit request to split work → infer `feature-planning` or `audit-remediation-planning` from the source, then apply PR slicing rules
+
+## Uninitialized product foundation mode
+
+When the target repo marker on the development branch is `uninitialized`, or the issue includes `## Product foundation`:
+
+- Plan the approved architecture and foundation PR only — do not plan feature delivery beyond initialization.
+- Capture platform runtime, language/framework, repository structure, testing strategy, and CI strategy in the plan.
+- The foundation PR must update `.p-dev/product.json` with `approvedArchitecture` and remain technology-neutral in deployment assumptions.
+- Do not assume Vercel, npm, or any stack unless the issue or operator provides it.
 
 ## Shared capability: PR slicing
 

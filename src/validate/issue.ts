@@ -8,15 +8,18 @@ import { findLatestPlanningComment } from "../linear/planning-comment.js";
 import { createLinearClient, listIssueComments } from "../linear/writer.js";
 import { ResolverError } from "../resolver/errors.js";
 import { resolveTargetRepo } from "../resolver/target-repo.js";
-import {
-  getNarrowFailureReason,
-  isNarrowImplementationIssue,
-} from "../runner/idempotency.js";
 import type {
   IntendedPhase,
   IssueValidationResult,
   ValidateIssueOptions,
 } from "./types.js";
+import {
+  type ProductInitializationState,
+} from "../product/initialization-state.js";
+import {
+  getNarrowFailureReason,
+  isNarrowImplementationIssue,
+} from "../runner/idempotency.js";
 
 function buildRepairInstructions(
   result: Omit<
@@ -48,6 +51,18 @@ function buildRepairInstructions(
     } else {
       repairs.push(result.resolverError.message);
     }
+  }
+
+  if (
+    result.blocksDirectImplementationForUninitializedProduct &&
+    intendedPhase === "implementation"
+  ) {
+    repairs.push(
+      "Product is uninitialized — complete product foundation planning before Ready for Build.",
+    );
+    repairs.push(
+      "Set Linear status to Ready for Planning and run the foundation planning issue first.",
+    );
   }
 
   if (
@@ -86,6 +101,8 @@ function buildRoutingNotes(
   hasPlanningMarker: boolean,
   intendedPhase: IntendedPhase | null,
   resolutionSource: IssueValidationResult["resolutionSource"],
+  blocksDirectImplementationForUninitializedProduct: boolean,
+  productInitializationState: ProductInitializationState | null,
 ): string[] {
   const notes: string[] = [];
 
@@ -111,6 +128,16 @@ function buildRoutingNotes(
     notes.push("Durable planning comment found — broad issues may proceed to implementation.");
   }
 
+  if (blocksDirectImplementationForUninitializedProduct) {
+    notes.push(
+      "Target product is uninitialized — route foundation work through Ready for Planning first.",
+    );
+  }
+
+  if (productInitializationState === "initialized") {
+    notes.push("Target product marker reports initialized status.");
+  }
+
   if (intendedPhase === "implementation" && validForPlanning && !validForDirectImplementation) {
     notes.push("Recommended status should be Ready for Planning, not Ready for Build.");
   }
@@ -126,10 +153,12 @@ export function computeIssueValidation(
     intendedPhase?: IntendedPhase;
     hasPlanningMarker?: boolean;
     planningMarkerMode: "file" | "issue";
+    productInitializationState?: ProductInitializationState | null;
   },
 ): IssueValidationResult {
   const intendedPhase = options.intendedPhase ?? null;
   const hasPlanningMarker = options.hasPlanningMarker ?? false;
+  const productInitializationState = options.productInitializationState ?? null;
   const parsed = parseIssueDescription(description);
   const parseErrors = [...parsed.parseErrors];
 
@@ -160,8 +189,12 @@ export function computeIssueValidation(
   const validForPlanning = parseErrors.length === 0 && resolverError === null;
   const narrowIssue = isNarrowImplementationIssue(parsed);
   const narrowFailureReason = getNarrowFailureReason(parsed);
+  const blocksDirectImplementationForUninitializedProduct =
+    productInitializationState === "uninitialized";
   const validForDirectImplementation =
-    validForPlanning && (narrowIssue || hasPlanningMarker);
+    validForPlanning &&
+    !blocksDirectImplementationForUninitializedProduct &&
+    (narrowIssue || hasPlanningMarker);
 
   const routingNotes = buildRoutingNotes(
     validForPlanning,
@@ -170,6 +203,8 @@ export function computeIssueValidation(
     hasPlanningMarker,
     intendedPhase,
     resolutionSource,
+    blocksDirectImplementationForUninitializedProduct,
+    productInitializationState,
   );
 
   const base = {
@@ -183,6 +218,8 @@ export function computeIssueValidation(
     narrowFailureReason,
     hasPlanningMarker,
     planningMarkerMode: options.planningMarkerMode,
+    productInitializationState,
+    blocksDirectImplementationForUninitializedProduct,
     routingNotes,
   };
 

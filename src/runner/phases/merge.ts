@@ -31,6 +31,8 @@ import {
   writeCommentsArtifact,
 } from "../../linear/comments.js";
 import { parseHarnessMarkers } from "../../linear/markers.js";
+import { syncProjectHarnessMetadataAfterFoundationMerge } from "../../linear/project-metadata-sync.js";
+import { getLinearProject } from "../../setup/linear-setup-client.js";
 import { fetchLinearIssue } from "../../linear/client.js";
 import { findLatestMergeSourceComment } from "../../linear/merge-source-comment.js";
 import {
@@ -39,6 +41,7 @@ import {
   postErrorComment,
   postMergeCompletionComment,
   postPhaseStartCommentIfNeeded,
+  postIssueComment,
   transitionIssueStatus,
 } from "../../linear/writer.js";
 import { GitHubClient } from "../../github/client.js";
@@ -56,6 +59,7 @@ import {
 } from "../../github/pr-inspector.js";
 import { parsePrUrl, type ParsedPrUrl } from "../../github/pr-url.js";
 import { pollForProductionDeployment, inferVercelReadyFromComments } from "../../preview/production-from-merge.js";
+import { shouldCaptureApplicationPreview } from "../../preview/preview-capability.js";
 import { resolvePreviewLinks } from "../../preview/urls.js";
 import { normalizeRepoUrl } from "../../resolver/normalize-repo.js";
 import { manifestModelEvidence } from "../../cursor/model.js";
@@ -727,6 +731,7 @@ export async function executeMergePhase(
         checkPolicy.decision === "block" &&
         (checkPolicy.classification === "checks_pending" ||
           checkPolicy.classification === "checks_unknown") &&
+        shouldCaptureApplicationPreview(resolved.previewProvider) &&
         inferVercelReadyFromComments(preInspection.comments)
       ) {
         const warning =
@@ -941,67 +946,76 @@ export async function executeMergePhase(
     );
 
     if (mergedToProduction) {
-      const deploymentPollTimeout =
-        config.merge?.deploymentPollTimeoutSeconds ??
-        DEFAULT_MERGE_DEPLOYMENT_POLL_TIMEOUT_SECONDS;
-      const deploymentPollInterval =
-        config.merge?.deploymentPollIntervalSeconds ??
-        DEFAULT_MERGE_DEPLOYMENT_POLL_INTERVAL_SECONDS;
+      if (shouldCaptureApplicationPreview(resolved.previewProvider)) {
+        const deploymentPollTimeout =
+          config.merge?.deploymentPollTimeoutSeconds ??
+          DEFAULT_MERGE_DEPLOYMENT_POLL_TIMEOUT_SECONDS;
+        const deploymentPollInterval =
+          config.merge?.deploymentPollIntervalSeconds ??
+          DEFAULT_MERGE_DEPLOYMENT_POLL_INTERVAL_SECONDS;
 
-      await events.log("deployment_poll_started", "info", {
-        pollTimeoutSeconds: deploymentPollTimeout,
-        mergedToProduction: true,
-      });
-
-      const deploymentResult = await pollForProductionDeployment(
-        async () => {
-          const latest = await inspectPullRequestPostMerge(
-            github,
-            parsedPr,
-            markerTargetRepo,
-          ).catch(() => postInspection);
-          return {
-            comments: latest.comments,
-            checks: latest.checks,
-          };
-        },
-        {
+        await events.log("deployment_poll_started", "info", {
           pollTimeoutSeconds: deploymentPollTimeout,
-          pollIntervalSeconds: deploymentPollInterval,
-          productionUrlReference: productionReference,
-        },
-      );
-
-      deploymentUrl = deploymentResult.deploymentUrl;
-      await mkdir(`${runDirectory}/vercel`, { recursive: true });
-      await writeFile(
-        getProductionDeploymentPath(runDirectory),
-        `${JSON.stringify(deploymentResult, null, 2)}\n`,
-        "utf8",
-      );
-
-      const deploymentRequired =
-        config.merge?.deploymentRequiredForSuccess ??
-        DEFAULT_MERGE_DEPLOYMENT_REQUIRED;
-
-      let deploymentWarning: string | null = null;
-      if (!deploymentUrl) {
-        deploymentWarning =
-          deploymentResult.warnings.join("; ") ||
-          "Production deployment URL not captured";
-        await events.log("deployment_not_found", "warn", {
-          warnings: deploymentResult.warnings,
+          mergedToProduction: true,
         });
-        if (deploymentRequired) {
-          throw new MergeError("deployment_not_found", deploymentWarning);
+
+        const deploymentResult = await pollForProductionDeployment(
+          async () => {
+            const latest = await inspectPullRequestPostMerge(
+              github,
+              parsedPr,
+              markerTargetRepo,
+            ).catch(() => postInspection);
+            return {
+              comments: latest.comments,
+              checks: latest.checks,
+            };
+          },
+          {
+            pollTimeoutSeconds: deploymentPollTimeout,
+            pollIntervalSeconds: deploymentPollInterval,
+            productionUrlReference: productionReference,
+          },
+        );
+
+        deploymentUrl = deploymentResult.deploymentUrl;
+        await mkdir(`${runDirectory}/vercel`, { recursive: true });
+        await writeFile(
+          getProductionDeploymentPath(runDirectory),
+          `${JSON.stringify(deploymentResult, null, 2)}\n`,
+          "utf8",
+        );
+
+        const deploymentRequired =
+          config.merge?.deploymentRequiredForSuccess ??
+          DEFAULT_MERGE_DEPLOYMENT_REQUIRED;
+
+        let deploymentWarning: string | null = null;
+        if (!deploymentUrl) {
+          deploymentWarning =
+            deploymentResult.warnings.join("; ") ||
+            "Production deployment URL not captured";
+          await events.log("deployment_not_found", "warn", {
+            warnings: deploymentResult.warnings,
+          });
+          if (deploymentRequired) {
+            throw new MergeError("deployment_not_found", deploymentWarning);
+          }
+          validationSummary = [validationSummary, deploymentWarning]
+            .filter(Boolean)
+            .join("; ");
+        } else {
+          await events.log("deployment_captured", "info", {
+            deploymentUrl,
+            source: deploymentResult.source,
+          });
         }
-        validationSummary = [validationSummary, deploymentWarning]
-          .filter(Boolean)
-          .join("; ");
       } else {
-        await events.log("deployment_captured", "info", {
-          deploymentUrl,
-          source: deploymentResult.source,
+        await events.log("deployment_poll_skipped", "info", {
+          reason: "application_preview_not_configured",
+          previewProvider: resolved.previewProvider,
+          baseBranch: resolved.baseBranch,
+          productionBranch: resolved.productionBranch,
         });
       }
     } else {
@@ -1087,6 +1101,41 @@ export async function executeMergePhase(
 
     if (commentsWritten.length > 0) {
       await writeCommentsArtifact(runDirectory, commentsWritten);
+    }
+
+    if (issue.projectId && resolved.baseBranch !== resolved.productionBranch) {
+      const project = await getLinearProject(client, issue.projectId);
+      if (project) {
+        const metadataSync = await syncProjectHarnessMetadataAfterFoundationMerge({
+          linearClient: client,
+          projectId: issue.projectId,
+          currentDescription: project.description,
+          targetRepo: resolved.targetRepo,
+          developmentBranch: resolved.baseBranch,
+          github,
+          orchestratorMarker: config.orchestratorMarker,
+          mergeRunId: runId,
+          comments,
+        });
+        await events.log("project_metadata_sync", "info", {
+          updated: metadataSync.updated,
+          skippedReason: metadataSync.skippedReason,
+          initializationState: metadataSync.productInitialization?.state,
+        });
+        if (metadataSync.updated) {
+          const syncComment = [
+            "Harness updated Linear project metadata to `Product initialization: initialized` after foundation merge.",
+            "",
+            "<!--",
+            config.orchestratorMarker,
+            "phase: project_metadata_initialized_sync",
+            `run_id: ${runId}`,
+            `target_repo: ${resolved.targetRepo}`,
+            "-->",
+          ].join("\n");
+          await postIssueComment(client, issue.id, syncComment);
+        }
+      }
     }
 
     finalOutcome = "success";

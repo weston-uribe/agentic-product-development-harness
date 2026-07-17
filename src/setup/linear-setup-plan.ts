@@ -23,6 +23,10 @@ import {
 import { formatLinearCategoryLabel } from "./linear-category-labels.js";
 import { SETUP_PERMISSIONS } from "./permission-model.js";
 import { tokenizeSecretInput } from "./secret-change-token.js";
+import {
+  formatHarnessMetadataBlock,
+  upsertHarnessMetadataInDescription,
+} from "../linear/project-harness-metadata.js";
 
 export const LINEAR_SETUP_ACTIONS = {
   preview: {
@@ -47,6 +51,7 @@ export interface LinearProjectPlanInput {
   projectId?: string;
   projectName?: string;
   description?: string;
+  targetRepo?: string;
 }
 
 export interface LinearSetupPlanInput {
@@ -108,6 +113,23 @@ function hashPreview(input: unknown): string {
 
 export function normalizeLinearName(name: string): string {
   return name.trim().toLowerCase();
+}
+
+export function buildNewProductProjectDescription(input: {
+  baseDescription?: string;
+  targetRepo: string;
+}): string {
+  const metadataBlock = formatHarnessMetadataBlock({
+    targetRepo: input.targetRepo.replace(/^https:\/\/github\.com\//, ""),
+    productInitialization: "uninitialized",
+  });
+  if (!input.baseDescription?.trim()) {
+    return `${metadataBlock}\n`;
+  }
+  return upsertHarnessMetadataInDescription(input.baseDescription, {
+    targetRepo: input.targetRepo.replace(/^https:\/\/github\.com\//, ""),
+    productInitialization: "uninitialized",
+  });
 }
 
 export function matchWorkflowStates(

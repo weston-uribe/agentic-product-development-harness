@@ -24,6 +24,14 @@ When the work touches a published artifact, deployment contract, persisted data 
 
 Omit this section for internal prototype work with no distributable surface unless the issue explicitly asks for release analysis.
 
+## Uninitialized product foundation (conditional)
+
+When the target product marker is `uninitialized` or the issue includes `## Product foundation`:
+
+- Plan only the foundation PR that establishes approved architecture in `.p-dev/product.json`.
+- Do not plan feature delivery beyond initialization.
+- Keep deployment/provider assumptions technology-neutral.
+
 ## Linear issue
 
 - **Key:** {{issueKey}}

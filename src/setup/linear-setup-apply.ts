@@ -20,6 +20,7 @@ import {
 import { lookupRequiredStatus } from "./linear-status-contract.js";
 import {
   LINEAR_SETUP_ACTIONS,
+  buildNewProductProjectDescription,
   findExistingProjectForCreateInput,
   findExistingTeamForCreateInput,
   isWorkflowStatusCoverageComplete,
@@ -213,10 +214,17 @@ export async function applyLinearSetup(input: {
       project = existingProject;
       skipped.push(`project:${project.name}`);
     } else {
+      const description =
+        input.plan.project.targetRepo
+          ? buildNewProductProjectDescription({
+              baseDescription: input.plan.project.description,
+              targetRepo: input.plan.project.targetRepo,
+            })
+          : input.plan.project.description;
       project = await createLinearProject(client, {
         name: input.plan.project.projectName,
         teamIds: [team.id],
-        description: input.plan.project.description,
+        description,
       });
       created.push(`project:${project.name}`);
     }

@@ -11,6 +11,7 @@ export interface LinearTeamSummary {
 export interface LinearProjectSummary {
   id: string;
   name: string;
+  description?: string | null;
   /** Team IDs from `project.teams()` — not on the default Project list fragment. */
   teamIds: string[];
 }
@@ -87,9 +88,38 @@ export async function listLinearProjects(
     projects.map(async (project) => ({
       id: project.id,
       name: project.name ?? "",
+      description: project.description ?? null,
       teamIds: await resolveProjectTeamIds(project),
     })),
   );
+}
+
+export async function getLinearProject(
+  client: LinearClient,
+  projectId: string,
+): Promise<LinearProjectSummary | null> {
+  try {
+    const project = await client.project(projectId);
+    if (!project) {
+      return null;
+    }
+    return {
+      id: project.id,
+      name: project.name ?? "",
+      description: project.description ?? null,
+      teamIds: await resolveProjectTeamIds(project),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function updateLinearProjectDescription(
+  client: LinearClient,
+  projectId: string,
+  description: string,
+): Promise<void> {
+  await client.updateProject(projectId, { description });
 }
 
 export async function listTeamWorkflowStates(
