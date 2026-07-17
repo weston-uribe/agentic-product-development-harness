@@ -1,5 +1,6 @@
 import type { FirstRunStepId } from "@harness/setup/first-run-readiness";
 import type { FirstRunStep } from "@harness/setup/first-run-readiness";
+import type { ControlPlaneReadinessContext } from "@harness/setup/control-plane-types";
 import type { SetupGuiViewModel } from "@/lib/setup-server";
 
 /** Number of guided setup steps before the "Ready for first run" completion state. */
@@ -128,15 +129,63 @@ export function progressStageForDisplayStep(
   return step;
 }
 
+function isLinearWorkspaceDurablelyComplete(
+  context?: ControlPlaneReadinessContext,
+): boolean {
+  const linear = context?.state?.linear;
+  if (!linear?.teamKey) {
+    return false;
+  }
+  return linear.statusCoverageComplete || linear.manualComplete === true;
+}
+
+function isVercelBridgeDurablelyComplete(
+  context?: ControlPlaneReadinessContext,
+): boolean {
+  return Boolean(context?.state?.vercel?.projectId);
+}
+
+function isProgressStageDurablelyComplete(
+  stageId: GuidedProgressStageId,
+  input: {
+    summary?: SetupGuiViewModel;
+    controlPlaneContext?: ControlPlaneReadinessContext;
+  },
+): boolean {
+  switch (stageId) {
+    case "connect-services":
+      return input.summary ? connectServicesComplete(input.summary) : false;
+    case "linear-workspace":
+      return isLinearWorkspaceDurablelyComplete(input.controlPlaneContext);
+    case "vercel-bridge":
+      return isVercelBridgeDurablelyComplete(input.controlPlaneContext);
+    case "choose-target-repos":
+      return input.summary?.overview.localFilesPresent === true;
+    default:
+      return false;
+  }
+}
+
 function isProgressStageObjectivelyComplete(
   stageId: GuidedProgressStageId,
   input: {
     readinessCurrentStepId: FirstRunStepId;
     readinessSteps: readonly FirstRunStep[];
     readyForFirstRun: boolean;
+    summary?: SetupGuiViewModel;
+    controlPlaneContext?: ControlPlaneReadinessContext;
   },
 ): boolean {
   if (input.readyForFirstRun) {
+    return true;
+  }
+
+  if (
+    isProgressStageDurablelyComplete(stageId, {
+      summary: input.summary,
+      controlPlaneContext: input.controlPlaneContext,
+    })
+  ) {
     return true;
   }
 
@@ -157,6 +206,8 @@ export function deriveGuidedProgressStages(input: {
   readinessCurrentStepId: FirstRunStepId;
   readinessSteps: readonly FirstRunStep[];
   readyForFirstRun: boolean;
+  summary?: SetupGuiViewModel;
+  controlPlaneContext?: ControlPlaneReadinessContext;
 }): GuidedProgressStage[] {
   const displayStageId = progressStageForDisplayStep(input.displayedStep);
   const allComplete =
@@ -167,6 +218,8 @@ export function deriveGuidedProgressStages(input: {
       readinessCurrentStepId: input.readinessCurrentStepId,
       readinessSteps: input.readinessSteps,
       readyForFirstRun: input.readyForFirstRun,
+      summary: input.summary,
+      controlPlaneContext: input.controlPlaneContext,
     });
     const isDisplayCurrent = !allComplete && displayStageId === stage.id;
 

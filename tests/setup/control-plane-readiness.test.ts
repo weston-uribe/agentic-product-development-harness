@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+import {
+  collectLinearWorkspaceBlockers,
+  collectVercelBridgeBlockers,
+} from "../../src/setup/control-plane-readiness.js";
 import { deriveVercelBridgeReadiness } from "../../src/setup/vercel-bridge-readiness.js";
 import { getDispatchTriggerStatuses } from "../../src/setup/linear-status-contract.js";
 import { requiredStatusNames } from "../../src/setup/linear-status-contract.js";
@@ -19,6 +23,68 @@ function completeBridgeInput() {
     deploymentRedeployRequired: false,
   };
 }
+
+describe("control plane preview stale blockers", () => {
+  it("does not block applied Linear workspace when preview is stale", () => {
+    const blockers = collectLinearWorkspaceBlockers(
+      {
+        state: {
+          version: 1,
+          linear: {
+            teamKey: "WES",
+            statusCoverageComplete: true,
+          },
+        },
+      },
+      { linearPreviewStale: true },
+    );
+
+    expect(blockers.some((blocker) => blocker.id === "linear-preview-stale")).toBe(
+      false,
+    );
+  });
+
+  it("blocks unapplied Linear workspace when preview is stale", () => {
+    const blockers = collectLinearWorkspaceBlockers(
+      { state: { version: 1 } },
+      { linearPreviewStale: true },
+    );
+
+    expect(blockers.some((blocker) => blocker.id === "linear-preview-stale")).toBe(
+      true,
+    );
+  });
+
+  it("does not block applied Vercel bridge when preview is stale", () => {
+    const blockers = collectVercelBridgeBlockers(
+      {
+        state: {
+          version: 1,
+          vercel: {
+            projectId: "prj_1",
+            projectName: "bridge",
+          },
+        },
+      },
+      { vercelPreviewStale: true },
+    );
+
+    expect(blockers.some((blocker) => blocker.id === "vercel-preview-stale")).toBe(
+      false,
+    );
+  });
+
+  it("blocks unapplied Vercel bridge when preview is stale", () => {
+    const blockers = collectVercelBridgeBlockers(
+      { state: { version: 1 } },
+      { vercelPreviewStale: true },
+    );
+
+    expect(blockers.some((blocker) => blocker.id === "vercel-preview-stale")).toBe(
+      true,
+    );
+  });
+});
 
 describe("vercel bridge readiness", () => {
   it("reports ready when all bridge checks pass", () => {

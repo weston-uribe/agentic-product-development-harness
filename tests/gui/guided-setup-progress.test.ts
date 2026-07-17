@@ -8,6 +8,27 @@ import {
   progressStageForFirstRunStepId,
 } from "../../apps/gui/lib/guided-setup";
 import type { FirstRunStep } from "../../src/setup/first-run-readiness";
+import type { SetupGuiViewModel } from "../../src/setup/gui-view-model";
+
+function summary(partial: Partial<SetupGuiViewModel>): SetupGuiViewModel {
+  return {
+    overview: {
+      configResolved: false,
+      operatorConfigResolved: false,
+      readyForLocalDoctor: false,
+      localFilesPresent: false,
+    },
+    envKeyPresence: {
+      HARNESS_CONFIG_PATH: false,
+      LINEAR_API_KEY: false,
+      CURSOR_API_KEY: false,
+      GITHUB_TOKEN: false,
+      VERCEL_TOKEN: false,
+    },
+    localFiles: [],
+    ...partial,
+  } as SetupGuiViewModel;
+}
 
 function readinessStep(
   id: FirstRunStep["id"],
@@ -145,6 +166,102 @@ describe("deriveGuidedProgressStages", () => {
     );
     expect(stages.find((stage) => stage.id === "target-workflow")?.state).toBe(
       "upcoming",
+    );
+  });
+
+  it("preserves completed Steps 1-4 from durable state after reload", () => {
+    const stages = deriveGuidedProgressStages({
+      displayedStep: "local-readiness",
+      readinessCurrentStepId: "local-readiness",
+      readinessSteps: buildReadinessSteps("local-readiness"),
+      readyForFirstRun: false,
+      summary: summary({
+        overview: { localFilesPresent: true },
+        envKeyPresence: {
+          HARNESS_CONFIG_PATH: true,
+          LINEAR_API_KEY: true,
+          CURSOR_API_KEY: true,
+          GITHUB_TOKEN: true,
+          VERCEL_TOKEN: true,
+        },
+      }),
+      controlPlaneContext: {
+        state: {
+          version: 1,
+          linear: {
+            teamKey: "WES",
+            statusCoverageComplete: true,
+          },
+          vercel: {
+            projectId: "prj_1",
+            projectName: "bridge",
+          },
+        },
+      },
+    });
+
+    expect(stages.find((stage) => stage.id === "connect-services")?.state).toBe(
+      "completed",
+    );
+    expect(stages.find((stage) => stage.id === "linear-workspace")?.state).toBe(
+      "completed",
+    );
+    expect(stages.find((stage) => stage.id === "vercel-bridge")?.state).toBe(
+      "completed",
+    );
+    expect(stages.find((stage) => stage.id === "choose-target-repos")?.state).toBe(
+      "completed",
+    );
+    expect(stages.find((stage) => stage.id === "local-readiness")?.state).toBe(
+      "current",
+    );
+  });
+
+  it("does not clear prior-step completion when Step 5 readiness regresses", () => {
+    const stages = deriveGuidedProgressStages({
+      displayedStep: "local-readiness",
+      readinessCurrentStepId: "linear-workspace",
+      readinessSteps: buildReadinessSteps("linear-workspace"),
+      readyForFirstRun: false,
+      summary: summary({
+        overview: { localFilesPresent: true },
+        envKeyPresence: {
+          HARNESS_CONFIG_PATH: true,
+          LINEAR_API_KEY: true,
+          CURSOR_API_KEY: true,
+          GITHUB_TOKEN: true,
+          VERCEL_TOKEN: true,
+        },
+      }),
+      controlPlaneContext: {
+        state: {
+          version: 1,
+          linear: {
+            teamKey: "WES",
+            statusCoverageComplete: true,
+          },
+          vercel: {
+            projectId: "prj_1",
+            projectName: "bridge",
+          },
+        },
+      },
+    });
+
+    expect(stages.find((stage) => stage.id === "connect-services")?.state).toBe(
+      "completed",
+    );
+    expect(stages.find((stage) => stage.id === "linear-workspace")?.state).toBe(
+      "completed",
+    );
+    expect(stages.find((stage) => stage.id === "vercel-bridge")?.state).toBe(
+      "completed",
+    );
+    expect(stages.find((stage) => stage.id === "choose-target-repos")?.state).toBe(
+      "completed",
+    );
+    expect(stages.find((stage) => stage.id === "local-readiness")?.state).toBe(
+      "current",
     );
   });
 });

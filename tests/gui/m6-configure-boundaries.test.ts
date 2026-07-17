@@ -563,6 +563,8 @@ describe("M6 configure GUI boundaries", () => {
     expect(readinessCardSource).toContain("/api/setup/local-readiness");
     expect(readinessCardSource).toContain("LocalReadinessChecklist");
     expect(routeSource).toContain("runLocalReadinessChecks");
+    expect(routeSource).toContain("resolveHarnessWorkspaceDir");
+    expect(routeSource).not.toContain("resolveHarnessRepoRoot");
     expect(readinessCardSource).not.toContain("CLI-only");
     expect(readinessCardSource).not.toContain("Milestone 3");
     expect(readinessCardSource).not.toContain("npm run harness:doctor");

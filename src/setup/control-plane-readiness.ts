@@ -93,7 +93,7 @@ export function collectLinearWorkspaceBlockers(
     });
   }
 
-  if (uiState?.linearPreviewStale) {
+  if (uiState?.linearPreviewStale && !linear?.teamKey) {
     pushBlocker(blockers, {
       id: "linear-preview-stale",
       stepId: "linear-workspace",
@@ -210,7 +210,7 @@ export function collectVercelBridgeBlockers(
     }
   }
 
-  if (uiState?.vercelPreviewStale) {
+  if (uiState?.vercelPreviewStale && !vercel?.projectId) {
     pushBlocker(blockers, {
       id: "vercel-preview-stale",
       stepId: "vercel-bridge",

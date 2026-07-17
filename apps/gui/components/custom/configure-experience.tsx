@@ -580,12 +580,16 @@ export function ConfigureExperience({
         readinessCurrentStepId: readiness.currentStepId,
         readinessSteps: readiness.steps,
         readyForFirstRun: readiness.readyForFirstRun,
+        summary,
+        controlPlaneContext,
       }),
     [
+      controlPlaneContext,
       displayedGuidedStep,
       readiness.currentStepId,
       readiness.readyForFirstRun,
       readiness.steps,
+      summary,
     ],
   );
 
