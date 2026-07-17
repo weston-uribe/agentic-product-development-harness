@@ -8,6 +8,7 @@ import {
   isRepoVerifiedForUrl,
   isServiceFailedForValue,
   isServiceVerifiedForValue,
+  resolveServiceConnectionBadgeState,
   resolveActiveGitHubToken,
   SAVED_GITHUB_TOKEN_FINGERPRINT,
   valueFingerprint,
@@ -44,6 +45,40 @@ describe("verification-state helpers", () => {
 
     expect(isServiceFailedForValue(verification, token)).toBe(true);
     expect(isServiceFailedForValue(verification, "other-token")).toBe(false);
+  });
+
+  it("treats saved local credentials as connected before re-verification", () => {
+    expect(
+      resolveServiceConnectionBadgeState(
+        true,
+        { state: "unchecked" },
+        "",
+      ),
+    ).toBe("connected");
+  });
+
+  it("shows failed when saved credential verification fails in session", () => {
+    expect(
+      resolveServiceConnectionBadgeState(
+        true,
+        {
+          state: "failed",
+          attemptedValueFingerprint: valueFingerprint("bad-token"),
+          message: "Linear rejected this key",
+        },
+        "",
+      ),
+    ).toBe("failed");
+  });
+
+  it("shows unchecked when no saved credential and no verification", () => {
+    expect(
+      resolveServiceConnectionBadgeState(
+        false,
+        { state: "unchecked" },
+        "",
+      ),
+    ).toBe("unchecked");
   });
 
   it("detects repo verification for the exact current URL", () => {

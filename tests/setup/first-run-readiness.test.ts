@@ -756,6 +756,28 @@ describe("cloud secrets apply evidence", () => {
     ).toBe(false);
   });
 
+  it("does not block on remote-secret-preview-stale until preview was opened", () => {
+    const summary = completeLocalSummary();
+    const remoteSummary = allSecretsPresentRemoteSummary();
+
+    const withoutOpened = collectCloudSecretsBlockers(
+      summary,
+      remoteSummary,
+      { remoteSecretPreviewStale: true },
+    ).blockers;
+    expect(
+      withoutOpened.some((blocker) => blocker.id === "remote-secret-preview-stale"),
+    ).toBe(false);
+
+    const withOpened = collectCloudSecretsBlockers(summary, remoteSummary, {
+      remoteSecretPreviewStale: true,
+      cloudSecretsPreviewOpened: true,
+    }).blockers;
+    expect(
+      withOpened.some((blocker) => blocker.id === "remote-secret-preview-stale"),
+    ).toBe(true);
+  });
+
   it("filters cloud-secrets-stale-linear-config using matching evidence", () => {
     const summary = completeLocalSummary();
     const controlPlaneContext = staleLinearControlPlaneContext();
@@ -941,7 +963,10 @@ describe("deriveStep6ContinueEligibility", () => {
       summary: remoteSummary,
       setupSummary: summary,
       localReadinessComplete: readiness.localReadinessComplete,
-      uiState: { remoteSecretPreviewStale: true },
+      uiState: {
+        remoteSecretPreviewStale: true,
+        cloudSecretsPreviewOpened: true,
+      },
       staleSmokeDiagnostics: remoteSummary.staleSmokeDiagnostics,
       previewStaleCleared: false,
     });
@@ -949,7 +974,10 @@ describe("deriveStep6ContinueEligibility", () => {
       summary: remoteSummary,
       setupSummary: summary,
       localReadinessComplete: readiness.localReadinessComplete,
-      uiState: { remoteSecretPreviewStale: true },
+      uiState: {
+        remoteSecretPreviewStale: true,
+        cloudSecretsPreviewOpened: true,
+      },
       staleSmokeDiagnostics: remoteSummary.staleSmokeDiagnostics,
       previewStaleCleared: true,
     });

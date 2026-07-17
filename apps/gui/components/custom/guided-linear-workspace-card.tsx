@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { LinearSetupPreview } from "@harness/setup/linear-setup-apply";
 import type { LinearSetupApplyResult } from "@harness/setup/linear-setup-apply";
 import type { LinearSetupSummary } from "@harness/setup/linear-setup-summary";
+import { formatLinearCategoryLabel } from "@harness/setup/linear-category-labels";
 import type {
   LinearProjectSummary,
   LinearTeamSummary,
@@ -462,6 +463,31 @@ export function GuidedLinearWorkspaceCard({
                 <p>
                   Dispatch triggers: {preview.dispatchTriggerStatuses.join(", ")}
                 </p>
+                {preview.repairActions.length > 0 ? (
+                  <div className="space-y-2">
+                    <p className="font-medium">Workflow status repairs</p>
+                    <ul className="space-y-2">
+                      {preview.repairActions.map((repair) => (
+                        <li
+                          key={repair.existingStatusId}
+                          className="rounded-md border border-border bg-background p-2"
+                        >
+                          <p className="font-medium">{repair.statusName}</p>
+                          <p className="text-muted-foreground">{repair.explanation}</p>
+                          <p>
+                            Current category:{" "}
+                            {formatLinearCategoryLabel(repair.actualCategory)} · Required:{" "}
+                            {formatLinearCategoryLabel(repair.expectedCategory)}
+                          </p>
+                          <p>
+                            Affected issues: {repair.affectedIssueCount} · Strategy:{" "}
+                            {repair.repairStrategy}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
                 {preview.manualSteps.length > 0 ? (
                   <ul className="list-disc pl-5 text-muted-foreground">
                     {preview.manualSteps.map((step) => (
@@ -509,7 +535,7 @@ export function GuidedLinearWorkspaceCard({
             {verifiedSuccess && applyResult ? (
               <SetupApplyResult
                 success
-                message={`Linear workspace verified. Created: ${applyResult.created.join(", ") || "none"}. Reused: ${applyResult.skipped.join(", ") || "none"}.`}
+                message={`Linear workspace verified. Created: ${applyResult.created.join(", ") || "none"}. Reused: ${applyResult.skipped.join(", ") || "none"}. Repaired: ${applyResult.repaired.join(", ") || "none"}.`}
               />
             ) : null}
 

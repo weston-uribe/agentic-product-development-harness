@@ -18,6 +18,10 @@ Execute exactly one approved implementation unit at a time, validate it, and rep
 - Merge-owned **integration repair** is required on an existing PR branch
 - The operator wants scoped implementation with objective validation reporting
 
+## Uninitialized product guardrail
+
+Do not run initial-build implementation when the target product marker on the development branch is `uninitialized` unless the runner has explicitly routed a foundation slice. If the product is uninitialized, stop and report that foundation planning must complete first.
+
 ## Skill boundaries
 
 ### Must do

@@ -39,6 +39,7 @@ import {
 } from "../../github/pr-inspector.js";
 import { parsePrUrl } from "../../github/pr-url.js";
 import { pollForVercelPreview } from "../../preview/vercel-from-pr.js";
+import { shouldCaptureApplicationPreview } from "../../preview/preview-capability.js";
 import { normalizeRepoUrl } from "../../resolver/normalize-repo.js";
 import { resolveBuilderThreadMarkerEvidence } from "../builder-thread-lineage.js";
 import { HandoffError } from "../errors.js";
@@ -425,58 +426,67 @@ export async function executeHandoffPhase(
     const pollInterval =
       config.preview?.pollIntervalSeconds ?? DEFAULT_PREVIEW_POLL_INTERVAL_SECONDS;
 
-    await events.log("preview_poll_started", "info", {
-      pollTimeoutSeconds: pollTimeout,
-      pollIntervalSeconds: pollInterval,
-    });
+    let previewWarning: string | null = null;
 
-    const previewResult = await pollForVercelPreview(
-      async () => {
-        const latest = await inspectPullRequest(github, parsedPr, markerTargetRepo);
-        return latest.comments;
-      },
-      {
+    if (shouldCaptureApplicationPreview(resolved.previewProvider)) {
+      await events.log("preview_poll_started", "info", {
         pollTimeoutSeconds: pollTimeout,
         pollIntervalSeconds: pollInterval,
-      },
-    );
-
-    previewUrl = previewResult.previewUrl;
-
-    await mkdir(`${runDirectory}/vercel`, { recursive: true });
-    await writeFile(
-      getVercelDeploymentPath(runDirectory),
-      `${JSON.stringify(previewResult, null, 2)}\n`,
-      "utf8",
-    );
-
-    if (previewUrl) {
-      await events.log("preview_captured", "info", {
-        previewUrl,
-        source: previewResult.source,
       });
-    } else {
-      await events.log("preview_not_found", "warn", {
-        warnings: previewResult.warnings,
-      });
-    }
 
-    const allowWithoutPreview =
-      config.handoff?.allowPmReviewWithoutPreview ??
-      DEFAULT_HANDOFF_ALLOW_PM_REVIEW_WITHOUT_PREVIEW;
-
-    if (!previewUrl && !allowWithoutPreview) {
-      throw new HandoffError(
-        "preview_not_found",
-        previewResult.warnings.join("; ") || "Vercel preview URL not found",
+      const previewResult = await pollForVercelPreview(
+        async () => {
+          const latest = await inspectPullRequest(github, parsedPr, markerTargetRepo);
+          return latest.comments;
+        },
+        {
+          pollTimeoutSeconds: pollTimeout,
+          pollIntervalSeconds: pollInterval,
+        },
       );
-    }
 
-    const previewWarning =
-      !previewUrl && allowWithoutPreview
-        ? previewResult.warnings.join("; ") ||
-          "Preview URL not found; proceeding to PM Review per fallback policy"
-        : null;
+      previewUrl = previewResult.previewUrl;
+
+      await mkdir(`${runDirectory}/vercel`, { recursive: true });
+      await writeFile(
+        getVercelDeploymentPath(runDirectory),
+        `${JSON.stringify(previewResult, null, 2)}\n`,
+        "utf8",
+      );
+
+      if (previewUrl) {
+        await events.log("preview_captured", "info", {
+          previewUrl,
+          source: previewResult.source,
+        });
+      } else {
+        await events.log("preview_not_found", "warn", {
+          warnings: previewResult.warnings,
+        });
+      }
+
+      const allowWithoutPreview =
+        config.handoff?.allowPmReviewWithoutPreview ??
+        DEFAULT_HANDOFF_ALLOW_PM_REVIEW_WITHOUT_PREVIEW;
+
+      if (!previewUrl && !allowWithoutPreview) {
+        throw new HandoffError(
+          "preview_not_found",
+          previewResult.warnings.join("; ") || "Vercel preview URL not found",
+        );
+      }
+
+      previewWarning =
+        !previewUrl && allowWithoutPreview
+          ? previewResult.warnings.join("; ") ||
+            "Preview URL not found; proceeding to PM Review per fallback policy"
+          : null;
+    } else {
+      await events.log("application_preview_not_configured", "info", {
+        previewProvider: resolved.previewProvider,
+        phase: "handoff",
+      });
+    }
 
     const handoffBody = buildHandoffCommentBody({
       prTitle: inspection.title,

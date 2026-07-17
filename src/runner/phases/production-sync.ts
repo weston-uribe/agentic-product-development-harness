@@ -23,6 +23,7 @@ import {
 import { GitHubClient } from "../../github/client.js";
 import { resolvePromotionProof } from "../../github/commit-reachability.js";
 import { resolveTargetRepo } from "../../resolver/target-repo.js";
+import { shouldCaptureApplicationPreview } from "../../preview/preview-capability.js";
 import { loadHarnessConfig } from "../../config/load-config.js";
 import { resolveHarnessWorkspaceRootFromConfigSource } from "../../config/workspace-root.js";
 import { checkProductionSyncIdempotency } from "../idempotency.js";
@@ -137,6 +138,13 @@ export async function executeProductionSyncForIssue(
       },
       config,
     );
+
+    if (!shouldCaptureApplicationPreview(resolved.previewProvider)) {
+      await events.log("application_preview_not_configured", "info", {
+        previewProvider: resolved.previewProvider,
+        phase: "production_sync",
+      });
+    }
 
     const gateResult = await runAuthoritativeCanonicalWorkflowGate({
       linearApiKey,

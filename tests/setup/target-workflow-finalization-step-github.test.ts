@@ -432,4 +432,148 @@ describe("advanceTargetWorkflowFinalizationStep GitHub head SHA handling", () =>
       ACTUAL_HEAD_SHA,
     );
   });
+
+  it("attempts merge when mergeable_state is blocked but mergeable is true", async () => {
+    const client = createMockGitHubClient({
+      pull: openPull({
+        mergeable_state: "blocked",
+        mergeable: true,
+      }),
+    });
+    const provider = createStubProvider("missing");
+    (provider.checkTargetWorkflowStatus as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ workflowStatus: "missing" })
+      .mockResolvedValue({ workflowStatus: "present" });
+
+    const result = await advanceTargetWorkflowFinalizationStep({
+      cwd: tempRoot,
+      input: baseInput,
+      provider,
+      client: client as never,
+    });
+
+    expect(result.blockedCategory).not.toBe("review-required");
+    expect(client.mergePullRequest).toHaveBeenCalledWith(
+      "owner",
+      "example-target-app",
+      PR_NUMBER,
+      expect.objectContaining({ expectedHeadSha: ACTUAL_HEAD_SHA }),
+    );
+    expect(["merging", "verifying", "complete"]).toContain(result.lifecycle);
+  });
+
+  it("does not attempt merge when mergeable is false", async () => {
+    const client = createMockGitHubClient({
+      pull: openPull({
+        mergeable: false,
+        mergeable_state: "dirty",
+      }),
+    });
+    const provider = createStubProvider("missing");
+
+    const result = await advanceTargetWorkflowFinalizationStep({
+      cwd: tempRoot,
+      input: baseInput,
+      provider,
+      client: client as never,
+    });
+
+    expect(result.lifecycle).toBe("blocked");
+    expect(result.blockedCategory).toBe("merge-conflict");
+    expect(client.mergePullRequest).not.toHaveBeenCalled();
+  });
+
+  it("does not attempt merge when PR content validation fails", async () => {
+    const client = createMockGitHubClient({
+      pull: openPull({ mergeable_state: "blocked", mergeable: true }),
+    });
+    (client.getPullRequestFiles as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { filename: "README.md", status: "modified" },
+    ]);
+    const provider = createStubProvider("missing");
+
+    const result = await advanceTargetWorkflowFinalizationStep({
+      cwd: tempRoot,
+      input: baseInput,
+      provider,
+      client: client as never,
+    });
+
+    expect(client.mergePullRequest).not.toHaveBeenCalled();
+    expect(result.lifecycle).not.toBe("complete");
+  });
+
+  it("recovers a stale harness-owned install branch before blocking on empty PR files", async () => {
+    const workflow = intendedWorkflowContent();
+    const productionSha = "production-head-sha";
+    const staleHeadSha = "stale-install-head-sha";
+    const recoveredHeadSha = "recovered-install-head-sha";
+
+    const client = {
+      ...createMockGitHubClient({
+        pull: openPull({
+          mergeable_state: "behind",
+          head: { ref: BRANCH_NAME, sha: staleHeadSha },
+        }),
+        checkRunsForRef: checksOnActualHeadOnly,
+        combinedStatus: combinedStatusOnActualHeadOnly,
+      }),
+      getPullRequestFiles: vi.fn(async () => []),
+      compareCommits: vi.fn(async () => ({
+        status: "diverged",
+        ahead_by: 3,
+        behind_by: 1,
+        commits: [],
+      })),
+      getBranchRef: vi.fn(async (_owner, _repo, ref: string) => ({
+        ref: `refs/heads/${ref}`,
+        object: {
+          sha: ref === "main" ? productionSha : recoveredHeadSha,
+          type: "commit",
+          url: "",
+        },
+      })),
+      updateGitRef: vi.fn(async () => ({
+        ref: `refs/heads/${BRANCH_NAME}`,
+        object: { sha: productionSha, type: "commit", url: "" },
+      })),
+      createOrUpdateRepositoryFile: vi.fn(async () => ({
+        content: {
+          sha: "file-sha",
+          path: TARGET_WORKFLOW_PATH,
+        },
+      })),
+      listPullRequests: vi.fn(async () => [
+        {
+          number: PR_NUMBER,
+          html_url: PR_URL,
+          head: { ref: BRANCH_NAME, sha: staleHeadSha },
+          base: { ref: PRODUCTION_BRANCH },
+        },
+      ]),
+      getRepositoryContent: vi.fn(async () => ({
+        content: Buffer.from(workflow).toString("base64"),
+        encoding: "base64",
+      })),
+    };
+    const provider = createStubProvider("missing");
+
+    const result = await advanceTargetWorkflowFinalizationStep({
+      cwd: tempRoot,
+      input: baseInput,
+      provider,
+      client: client as never,
+    });
+
+    expect(result.lifecycle).toBe("updating-branch");
+    expect(result.message).toContain("Refreshing the workflow install branch");
+    expect(client.updateGitRef).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ref: BRANCH_NAME,
+        sha: productionSha,
+        force: true,
+      }),
+    );
+    expect(client.createOrUpdateRepositoryFile).toHaveBeenCalled();
+  });
 });

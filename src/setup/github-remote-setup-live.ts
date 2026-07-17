@@ -391,13 +391,7 @@ export class LiveGitHubRemoteSetupProvider implements GitHubRemoteSetupProvider 
       hashWorkflowContent(existingContent) ===
         hashWorkflowContent(input.workflowContent)
     ) {
-      const openPr = await this.findOpenInstallPullRequest(input);
-      return {
-        outcome: openPr ? "pr-updated" : "branch-updated",
-        branchName: input.branchName,
-        prUrl: openPr?.html_url,
-        directProductionBranchWrite: false,
-      };
+      return this.resolveInstallPullRequestOutcome(input);
     }
 
     await this.client.createOrUpdateRepositoryFile({
@@ -410,6 +404,12 @@ export class LiveGitHubRemoteSetupProvider implements GitHubRemoteSetupProvider 
       sha: existingSha,
     });
 
+    return this.resolveInstallPullRequestOutcome(input);
+  }
+
+  private async resolveInstallPullRequestOutcome(
+    input: TargetWorkflowApplyInput,
+  ): Promise<TargetWorkflowApplyResult> {
     const openPr = await this.findOpenInstallPullRequest(input);
     if (openPr) {
       return {
@@ -420,6 +420,7 @@ export class LiveGitHubRemoteSetupProvider implements GitHubRemoteSetupProvider 
       };
     }
 
+    const { owner, repo } = parseRepoSlug(input.targetRepoSlug);
     const created = await this.client.createPullRequest({
       owner,
       repo,

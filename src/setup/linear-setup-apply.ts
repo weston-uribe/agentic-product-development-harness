@@ -20,6 +20,7 @@ import {
 import { lookupRequiredStatus } from "./linear-status-contract.js";
 import {
   LINEAR_SETUP_ACTIONS,
+  buildNewProductProjectDescription,
   findExistingProjectForCreateInput,
   findExistingTeamForCreateInput,
   isWorkflowStatusCoverageComplete,
@@ -29,6 +30,7 @@ import {
   type LinearSetupPlanInput,
   type LinearSetupPreview,
 } from "./linear-setup-plan.js";
+import { executeWorkflowStatusRepairs } from "./linear-workflow-status-repair.js";
 import {
   assertRemoteSetupConfirmed,
   assertRemoteSetupFingerprint,
@@ -43,6 +45,7 @@ export interface LinearSetupApplyResult {
   project: LinearProjectSummary;
   created: string[];
   skipped: string[];
+  repaired: string[];
   statusCoverageComplete: boolean;
   verified: boolean;
   fingerprint: string;
@@ -166,6 +169,7 @@ export async function applyLinearSetup(input: {
   const client = createLinearSetupClient(input.plan.linearApiKey);
   const created: string[] = [];
   const skipped: string[] = [];
+  const repaired: string[] = [];
 
   let team: LinearTeamSummary;
   if (input.plan.team.mode === "create") {
@@ -210,10 +214,17 @@ export async function applyLinearSetup(input: {
       project = existingProject;
       skipped.push(`project:${project.name}`);
     } else {
+      const description =
+        input.plan.project.targetRepo
+          ? buildNewProductProjectDescription({
+              baseDescription: input.plan.project.description,
+              targetRepo: input.plan.project.targetRepo,
+            })
+          : input.plan.project.description;
       project = await createLinearProject(client, {
         name: input.plan.project.projectName,
         teamIds: [team.id],
-        description: input.plan.project.description,
+        description,
       });
       created.push(`project:${project.name}`);
     }
@@ -226,12 +237,28 @@ export async function applyLinearSetup(input: {
     skipped.push(`project:${project.name}`);
   }
 
-  const statusCoverageComplete = await ensureWorkflowStatesForTeam({
+  let statusCoverageComplete = await ensureWorkflowStatesForTeam({
     client,
     teamId: team.id,
     created,
     skipped,
   });
+
+  const repairEntries = preview.workflowStates.filter(
+    (entry) => entry.action === "repair",
+  );
+  if (repairEntries.length > 0) {
+    const repairResults = await executeWorkflowStatusRepairs({
+      client,
+      teamId: team.id,
+      entries: repairEntries,
+    });
+    repaired.push(...repairResults);
+    const finalStates = await listTeamWorkflowStates(client, team.id);
+    statusCoverageComplete = isWorkflowStatusCoverageComplete(
+      matchWorkflowStates(finalStates),
+    );
+  }
 
   const selection: LinearWorkspaceSelection = {
     teamMode: input.plan.team.mode,
@@ -259,6 +286,7 @@ export async function applyLinearSetup(input: {
     project,
     created,
     skipped,
+    repaired,
     statusCoverageComplete,
     verified: Boolean(team.id && project.id && statusCoverageComplete),
     fingerprint: preview.fingerprint,

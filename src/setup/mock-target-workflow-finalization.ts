@@ -10,6 +10,7 @@ import type {
   WorkflowInstallLifecycle,
 } from "./target-workflow-finalization-types.js";
 import { blockedCategoryMessage } from "./workflow-install-merge-errors.js";
+import { shouldAttemptMerge } from "./workflow-install-merge-gate.js";
 
 export interface MockWorkflowFinalizationScenario {
   prUrl?: string;
@@ -297,18 +298,24 @@ export function advanceMockTargetWorkflowFinalization(input: {
     });
   }
 
-  if (scenario.mergeableState === "blocked") {
+  const mockMergeable = true;
+  if (
+    !shouldAttemptMerge({
+      mergeableState: scenario.mergeableState ?? "clean",
+      mergeable: mockMergeable,
+    })
+  ) {
     return baseResult({
       input: input.finalizeInput,
       targetRepoSlug,
       branchName,
       lifecycle: "blocked",
       workflowStatus,
-      message: blockedCategoryMessage("review-required"),
+      message: blockedCategoryMessage("merge-conflict"),
       prUrl,
       prNumber,
       validatedHeadSha: headSha,
-      blockedCategory: "review-required",
+      blockedCategory: "merge-conflict",
       requiresGitHubIntervention: true,
     });
   }

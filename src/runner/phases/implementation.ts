@@ -39,6 +39,7 @@ import { GitHubClient } from "../../github/client.js";
 import { classifyGitHubError, inspectPullRequest } from "../../github/pr-inspector.js";
 import { parsePrUrl } from "../../github/pr-url.js";
 import { pollForVercelPreview } from "../../preview/vercel-from-pr.js";
+import { shouldCaptureApplicationPreview } from "../../preview/preview-capability.js";
 import { buildBranchName } from "../../prompts/branch-name.js";
 import { buildImplementationPrompt } from "../../prompts/builder.js";
 import { buildImplementationIdempotencyKey } from "../builder-thread-idempotency.js";
@@ -48,7 +49,9 @@ import {
 } from "../builder-thread-evidence.js";
 import type { BuilderThreadResolution } from "../builder-thread-types.js";
 import { ImplementationError } from "../errors.js";
+import { blocksDirectImplementationForInitialization } from "../../product/initialization-state.js";
 import { runPreflight } from "../preflight.js";
+import { rerouteUninitializedProductToPlanning } from "../uninitialized-product-routing.js";
 import {
   assertImplementationEligibleStatus,
   checkImplementationIdempotency,
@@ -205,6 +208,7 @@ export async function executeImplementationPhase(
     issue,
     parsed,
     resolved,
+    productInitialization,
     runId,
     runDirectory,
     events,
@@ -245,6 +249,63 @@ export async function executeImplementationPhase(
   const client = createLinearClient(linearApiKey);
 
   try {
+    const reroute = await rerouteUninitializedProductToPlanning({
+      config,
+      issue,
+      targetRepo: resolved.targetRepo,
+      productInitialization,
+      linearApiKey,
+      linearClient: client,
+    });
+    if (reroute.rerouted) {
+      await events.log("uninitialized_product_rerouted", "info", {
+        planningStatus: reroute.planningStatus,
+        commentId: reroute.commentId,
+      });
+      finalOutcome = "skipped";
+      errorClassification = "wrong_status";
+      const manifest: RunManifest = {
+        runId,
+        issueKey: options.issueKey,
+        phase,
+        phaseInferredFromStatus,
+        linearStatusBefore,
+        linearStatusAfter: reroute.planningStatus ?? linearStatusBefore,
+        targetRepo: resolved.targetRepo,
+        baseBranch: resolved.baseBranch,
+        resolutionSource: resolved.resolutionSource,
+        dryRun: false,
+        finalOutcome,
+        errorClassification,
+        startedAt: startedAt.toISOString(),
+        finishedAt: new Date().toISOString(),
+        milestone: MILESTONE,
+        promptVersion: null,
+        cursorAgentId: null,
+        cursorRunId: null,
+        branch: null,
+        prUrl: null,
+        previewUrl: null,
+        validationSummary: "Rerouted uninitialized product from Ready for Build to Ready for Planning.",
+        changedFiles: null,
+        checkSummary: null,
+        previousImplementationRunId: null,
+        previousHandoffRunId: null,
+        pmFeedbackCommentId: null,
+        ...emptyMergeManifestFields(),
+        model,
+      };
+      return writeFinalManifest(
+        manifest,
+        runDirectory,
+        parsed,
+        resolved,
+        events,
+        finalOutcome,
+        errorClassification,
+      );
+    }
+
     try {
       assertImplementationEligibleStatus(config, issue, Boolean(options.force));
     } catch (error) {
@@ -335,6 +396,15 @@ export async function executeImplementationPhase(
       );
     }
 
+    if (
+      blocksDirectImplementationForInitialization(productInitialization)
+    ) {
+      throw new ImplementationError(
+        "wrong_status",
+        "Target product is uninitialized — complete product foundation planning before implementation",
+      );
+    }
+
     if (planningComment) {
       await mkdir(`${runDirectory}/linear`, { recursive: true });
       await writeFile(
@@ -366,6 +436,7 @@ export async function executeImplementationPhase(
       branchName,
       planningCommentBody: planningComment?.body ?? null,
       validationCommands,
+      productInitializationState: productInitialization.state,
     });
 
     await mkdir(`${runDirectory}/prompts`, { recursive: true });
@@ -533,26 +604,34 @@ export async function executeImplementationPhase(
           config.preview?.pollTimeoutSeconds ?? DEFAULT_PREVIEW_POLL_TIMEOUT_SECONDS;
         const pollInterval =
           config.preview?.pollIntervalSeconds ?? DEFAULT_PREVIEW_POLL_INTERVAL_SECONDS;
-        const previewResult = await pollForVercelPreview(
-          async () => {
-            const latest = await inspectPullRequest(github, parsedPr, resolved.targetRepo);
-            return latest.comments;
-          },
-          {
-            pollTimeoutSeconds: pollTimeout,
-            pollIntervalSeconds: pollInterval,
-          },
-        );
-        if (previewResult.previewUrl) {
-          previewUrl = previewResult.previewUrl;
-          await events.log("preview_captured", "info", {
-            previewUrl,
-            source: previewResult.source,
-            phase: "implementation",
-          });
+
+        if (shouldCaptureApplicationPreview(resolved.previewProvider)) {
+          const previewResult = await pollForVercelPreview(
+            async () => {
+              const latest = await inspectPullRequest(github, parsedPr, resolved.targetRepo);
+              return latest.comments;
+            },
+            {
+              pollTimeoutSeconds: pollTimeout,
+              pollIntervalSeconds: pollInterval,
+            },
+          );
+          if (previewResult.previewUrl) {
+            previewUrl = previewResult.previewUrl;
+            await events.log("preview_captured", "info", {
+              previewUrl,
+              source: previewResult.source,
+              phase: "implementation",
+            });
+          } else {
+            await events.log("preview_not_found", "warn", {
+              warnings: previewResult.warnings,
+              phase: "implementation",
+            });
+          }
         } else {
-          await events.log("preview_not_found", "warn", {
-            warnings: previewResult.warnings,
+          await events.log("application_preview_not_configured", "info", {
+            previewProvider: resolved.previewProvider,
             phase: "implementation",
           });
         }

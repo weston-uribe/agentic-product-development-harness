@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { mkdtemp, writeFile, mkdir } from "node:fs/promises";
+import { mkdtemp, writeFile, mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 
@@ -179,5 +179,21 @@ describe("local-readiness-checks", () => {
     expect(github?.detail).toContain(GITHUB_CLASSIC_PAT_MISSING_WORKFLOW_MESSAGE);
     expect(targetRepo?.status).toBe("failed");
     expect(result.allPassed).toBe(false);
+  });
+
+  it("reports missing config using the operator workspace path", async () => {
+    await rm(path.join(tempRoot, ".harness", "config.local.json"));
+
+    const result = await runLocalReadinessChecks({ cwd: tempRoot });
+    const configParse = result.checks.find((check) => check.id === "config-parses");
+    const configExists = result.checks.find(
+      (check) => check.id === "config-local-exists",
+    );
+
+    expect(configParse?.status).toBe("failed");
+    expect(configParse?.detail).toContain(tempRoot);
+    expect(configExists?.status).toBe("failed");
+    expect(JSON.stringify(result)).not.toContain("lin_test_key");
+    expect(JSON.stringify(result)).not.toContain("ghp_test_token");
   });
 });

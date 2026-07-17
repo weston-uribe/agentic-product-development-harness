@@ -10,6 +10,7 @@ import { GitHubClient } from "../github/client.js";
 import { findImplementationPullRequest } from "../github/pr-discovery.js";
 import { isImplementationStartStale } from "./building-recovery.js";
 import { inferPhaseFromStatus } from "./phase-infer.js";
+import { runLinearAssociationGate } from "../config/linear-association-gate.js";
 import type { RunPhase } from "../types/run.js";
 import type { DispatchPhaseArg } from "./phase-args.js";
 
@@ -115,12 +116,33 @@ export async function resolveRoute(
 
   const issueKey = options.issueKey.toUpperCase();
   const issue = await fetchLinearIssue(issueKey, apiKey);
+
+  const associationGate = runLinearAssociationGate({
+    config,
+    teamId: issue.teamId,
+    projectId: issue.projectId,
+  });
+  if (!associationGate.ok) {
+    return {
+      issueKey,
+      phase: "none",
+      repoConfigId: "",
+      baseBranch: "",
+      targetRepo: "",
+      linearStatus: issue.status,
+      mergeConcurrencyGroup: "",
+      shouldRun: false,
+    };
+  }
+
   const parsed = parseIssueDescription(issue.description ?? "");
   const resolved = resolveTargetRepo(
     parsed,
     {
       projectName: issue.projectName ?? undefined,
       teamName: issue.teamName ?? undefined,
+      teamId: issue.teamId ?? undefined,
+      projectId: issue.projectId ?? undefined,
     },
     config,
   );

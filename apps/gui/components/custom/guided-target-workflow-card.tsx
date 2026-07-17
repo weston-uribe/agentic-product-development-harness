@@ -77,6 +77,38 @@ function shouldContinuePolling(
   return true;
 }
 
+function isRecoveringInstallBranch(
+  finalization: TargetWorkflowFinalizationResult,
+): boolean {
+  return (
+    finalization.lifecycle === "updating-branch" &&
+    finalization.message.includes("Refreshing")
+  );
+}
+
+function isNewerFinalization(
+  existing: TargetWorkflowFinalizationResult | undefined,
+  incoming: TargetWorkflowFinalizationResult,
+): boolean {
+  if (!existing) {
+    return true;
+  }
+  if (isTerminalFinalization(existing) && !isTerminalFinalization(incoming)) {
+    return false;
+  }
+  if (
+    existing.validatedHeadSha &&
+    incoming.validatedHeadSha &&
+    existing.validatedHeadSha !== incoming.validatedHeadSha
+  ) {
+    return incoming.advancedThisRequest;
+  }
+  if (isRecoveringInstallBranch(incoming)) {
+    return true;
+  }
+  return incoming.advancedThisRequest || !existing.lockContended;
+}
+
 function isTerminalFinalization(
   finalization: TargetWorkflowFinalizationResult | undefined,
 ): boolean {
@@ -102,6 +134,15 @@ export function GuidedTargetWorkflowCard({
     finalizationByRepo,
   );
   const pollGenerationRef = useRef(0);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      pollGenerationRef.current += 1;
+    };
+  }, []);
 
   useEffect(() => {
     setSummary(initialSummary);
@@ -151,13 +192,13 @@ export function GuidedTargetWorkflowCard({
       const finalization = data.finalization as TargetWorkflowFinalizationResult;
       const nextSummary = data.summary as RemoteSetupSummary;
 
+      if (!mountedRef.current) {
+        return finalization;
+      }
+
       setLocalFinalizationByRepo((previous) => {
         const existing = previous[repoConfigId];
-        if (
-          existing &&
-          isTerminalFinalization(existing) &&
-          !isTerminalFinalization(finalization)
-        ) {
+        if (!isNewerFinalization(existing, finalization)) {
           return previous;
         }
         const next = { ...previous, [repoConfigId]: finalization };
@@ -340,6 +381,7 @@ export function GuidedTargetWorkflowCard({
                     <WorkflowInstallReadyPanel repoConfigId={repo.repoConfigId} />
                   ) : finalization ? (
                     <WorkflowInstallProgressPanel
+                      variant="guided"
                       finalization={finalization}
                       onRetry={
                         finalization.canRetry
@@ -349,6 +391,7 @@ export function GuidedTargetWorkflowCard({
                     />
                   ) : pending && isPendingInstallResult(pending) ? (
                     <WorkflowInstallProgressPanel
+                      variant="guided"
                       finalization={{
                         repoConfigId: repo.repoConfigId,
                         targetRepo: repo.targetRepo,
@@ -367,8 +410,8 @@ export function GuidedTargetWorkflowCard({
                   ) : (
                     <>
                       <p className="text-sm text-muted-foreground">
-                        Preview and confirm to create or update the workflow install
-                        PR. Finalization runs automatically after apply.
+                        Confirm to create or update the workflow install PR.
+                        Preview is optional. Finalization runs automatically after apply.
                       </p>
                       <TargetWorkflowPrCard
                         repo={repo}

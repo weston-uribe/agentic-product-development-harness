@@ -59,6 +59,7 @@ Recommend **Linear status** (not a description section):
 | Structurally incomplete | Backlog |
 | Narrow + low-risk (task ≤240 chars, AC ≤7) | Ready for Build only after operator confirms |
 | Broad, ambiguous, cross-cutting, or high-risk | Ready for Planning or Backlog |
+| Uninitialized product (metadata or marker) | Ready for Planning only |
 | Default | Backlog |
 
 **Never** recommend Ready for Build for broad or ambiguous work.
@@ -74,9 +75,20 @@ Read Linear project description for:
 ```text
 Harness metadata:
 Target repo: owner/repo
+Product initialization: uninitialized | initialized
 ```
 
 Copy derived repo into `## Target repo` in the issue description.
+
+### Uninitialized products
+
+When project metadata reports `Product initialization: uninitialized` (or the target repo marker on the development branch is uninitialized):
+
+- Recommend **Ready for Planning** for the first foundation issue.
+- **Never** recommend Ready for Build until the product is initialized.
+- For foundation planning issues, include optional `## Product foundation` with at least:
+  - `Platform runtime: ...`
+  - `Language framework: ...`
 
 ## Narrow-issue thresholds (build-direct)
 
@@ -115,7 +127,7 @@ Required sections (level-2 headers, case-insensitive):
 - `## Acceptance criteria` — at least one `-` bullet
 - `## Out of scope` — at least one `-` bullet
 
-Optional: `## Validation expectations`, `## Context and links`, `## User / job story`, `## Eval hints`, `## Definition of ready`
+Optional: `## Validation expectations`, `## Context and links`, `## Product foundation`, `## User / job story`, `## Eval hints`, `## Definition of ready`
 
 Authoritative copy: [`prompts/issue-intake-chatgpt.md`](../../../prompts/issue-intake-chatgpt.md)
 

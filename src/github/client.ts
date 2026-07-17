@@ -601,12 +601,16 @@ export class GitHubClient {
   async updateUserRepository(input: {
     owner: string;
     repo: string;
-    description: string;
+    description?: string;
+    default_branch?: string;
   }): Promise<GitHubRepository> {
     return this.request<GitHubRepository>(`/repos/${input.owner}/${input.repo}`, {
       method: "PATCH",
       body: {
-        description: input.description,
+        ...(input.description !== undefined ? { description: input.description } : {}),
+        ...(input.default_branch !== undefined
+          ? { default_branch: input.default_branch }
+          : {}),
       },
     });
   }

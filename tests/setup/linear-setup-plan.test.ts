@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildNewProductProjectDescription,
   findExistingProjectForCreateInput,
   findExistingTeamForCreateInput,
   isWorkflowStatusCoverageComplete,
@@ -71,13 +72,13 @@ describe("linear-setup-plan", () => {
     ).toBe("project-1");
   });
 
-  it("reports workflow coverage complete only when creatable statuses are present", () => {
+  it("reports workflow coverage complete only when creatable statuses are present with matching categories", () => {
     const incomplete = matchWorkflowStates([
       { id: "1", name: "Backlog", type: "backlog" },
     ]);
     expect(isWorkflowStatusCoverageComplete(incomplete)).toBe(false);
 
-    const complete = matchWorkflowStates(
+    const wrongCategory = matchWorkflowStates(
       [
         "Backlog",
         "Ready for Planning",
@@ -98,9 +99,51 @@ describe("linear-setup-plan", () => {
       ].map((name, index) => ({
         id: String(index),
         name,
-        type: "started",
+        type: name === "Needs Revision" ? "started" : "started",
+      })),
+    );
+    const needsRevision = wrongCategory.find(
+      (entry) => entry.name === "Needs Revision",
+    );
+    expect(needsRevision?.action).toBe("repair");
+    expect(needsRevision?.repairStrategy).toBe("replacement");
+    expect(isWorkflowStatusCoverageComplete(wrongCategory)).toBe(false);
+
+    const complete = matchWorkflowStates(
+      [
+        ["Backlog", "backlog"],
+        ["Ready for Planning", "unstarted"],
+        ["Planning", "started"],
+        ["Ready for Build", "unstarted"],
+        ["Building", "started"],
+        ["PR Open", "started"],
+        ["PM Review", "started"],
+        ["Engineering Review", "started"],
+        ["Needs Revision", "unstarted"],
+        ["Revising", "started"],
+        ["Ready to Merge", "started"],
+        ["Merging", "started"],
+        ["Merged to Dev", "completed"],
+        ["Merged / Deployed", "completed"],
+        ["Blocked", "started"],
+        ["Canceled", "canceled"],
+      ].map(([name, type], index) => ({
+        id: String(index),
+        name,
+        type,
       })),
     );
     expect(isWorkflowStatusCoverageComplete(complete)).toBe(true);
+  });
+
+  it("builds harness metadata for new product project descriptions", () => {
+    const description = buildNewProductProjectDescription({
+      targetRepo: "https://github.com/owner/new-product",
+      baseDescription: "Operator notes",
+    });
+    expect(description).toContain("Harness metadata:");
+    expect(description).toContain("Target repo: owner/new-product");
+    expect(description).toContain("Product initialization: uninitialized");
+    expect(description).toContain("Operator notes");
   });
 });

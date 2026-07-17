@@ -67,6 +67,8 @@ export interface FirstRunStep {
 
 export interface FirstRunReadinessUiState {
   localPreviewStale?: boolean;
+  /** True after the operator opened the optional cloud-secrets preview disclosure. */
+  cloudSecretsPreviewOpened?: boolean;
   remoteSecretPreviewStale?: boolean;
   linearPreviewStale?: boolean;
   vercelPreviewStale?: boolean;
@@ -433,7 +435,7 @@ export function collectCloudSecretsBlockers(
     }
   }
 
-  if (uiState?.remoteSecretPreviewStale) {
+  if (uiState?.remoteSecretPreviewStale && uiState.cloudSecretsPreviewOpened) {
     pushBlocker(blockers, {
       id: "remote-secret-preview-stale",
       stepId: "cloud-secrets",

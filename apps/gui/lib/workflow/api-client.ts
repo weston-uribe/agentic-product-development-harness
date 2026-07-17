@@ -67,9 +67,14 @@ export async function saveWorkflowModel(input: {
     configFingerprint?: string;
     savedAt?: string;
     error?: string;
+    code?: string;
   };
   if (!response.ok || !payload.saved || !payload.configFingerprint) {
-    throw new Error(payload.error ?? "Couldn't save model settings.");
+    const error = new Error(payload.error ?? "Couldn't save model settings.") as Error & {
+      code?: string;
+    };
+    error.code = payload.code;
+    throw error;
   }
   return {
     configFingerprint: payload.configFingerprint,

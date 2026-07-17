@@ -167,6 +167,7 @@ export async function executePlanningPhase(
     issue,
     parsed,
     resolved,
+    productInitialization,
     runId,
     runDirectory,
     events,
@@ -275,6 +276,7 @@ export async function executePlanningPhase(
       issue,
       parsed,
       resolved,
+      { productInitializationState: productInitialization.state },
     );
     promptVersion = version;
     await mkdir(`${runDirectory}/prompts`, { recursive: true });

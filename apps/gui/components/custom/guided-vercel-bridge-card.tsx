@@ -52,7 +52,7 @@ function buildVercelApplyResultMessage(apply: VercelBridgeApplyResult): string {
   }
 
   if (apply.verified && apply.signedProbeVerified) {
-    return "Vercel settings verified.";
+    return "PDev automation bridge verified.";
   }
 
   const parts = [
@@ -581,13 +581,13 @@ export function GuidedVercelBridgeCard({
 
   return (
     <SectionCard
-      title={`Step 3 of ${GUIDED_SETUP_STEP_COUNT} · Configure Vercel settings`}
-      description="Choose the Vercel team and project this setup should use for automation and issue previews before merging code."
+      title={`Step 3 of ${GUIDED_SETUP_STEP_COUNT} · Configure PDev automation bridge`}
+      description="Choose the Vercel team and project that host the PDev automation bridge. This is separate from application preview deployment on target repos."
     >
       <div className={SPACING.stackSm}>
         {!summary.vercelTokenConfigured ? (
           <p className="text-sm text-muted-foreground">
-            Add VERCEL_TOKEN in Step 1 before configuring Vercel settings.
+            Add VERCEL_TOKEN in Step 1 before configuring the PDev automation bridge.
           </p>
         ) : (
           <>
@@ -754,7 +754,7 @@ export function GuidedVercelBridgeCard({
                 onClick={() => void handlePreview()}
                 disabled={controlsLocked || !formComplete}
               >
-                {loading === "preview" ? "Previewing…" : "Preview Vercel settings"}
+                {loading === "preview" ? "Previewing…" : "Preview PDev automation bridge"}
               </Button>
               <Button
                 type="button"
@@ -843,8 +843,8 @@ export function GuidedVercelBridgeCard({
                   }
                 >
                   {loading === "apply"
-                    ? "Applying Vercel settings…"
-                    : "Apply Vercel Settings"}
+                    ? "Applying PDev automation bridge…"
+                    : "Apply PDev automation bridge"}
                 </Button>
               </div>
             ) : null}

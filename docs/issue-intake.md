@@ -101,7 +101,19 @@ Project descriptions may include:
 ```text
 Harness metadata:
 Target repo: owner/repo
+Product initialization: uninitialized
 ```
+
+For PDev-created products, Linear project metadata is written during workspace setup and updated to `initialized` after the approved foundation PR merges to the development branch.
+
+### ChatGPT vs Cursor inspection
+
+| Path | Product initialization signal |
+|------|------------------------------|
+| **ChatGPT intake** | Reads `Harness metadata:` from the Linear project description (or asks the PM) |
+| **Cursor issue-intake skill** | May inspect the target repo marker on the **development branch** (`dev` by default) via GitHub |
+
+Neither path should assume application deployment is configured from `.p-dev/product.json`. Runtime preview/deployment capability comes from harness `repos[].previewProvider` only.
 
 Required description sections:
 

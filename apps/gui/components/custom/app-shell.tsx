@@ -3,28 +3,22 @@ import { APP_MAIN_CLASS, LAYOUT } from "@/lib/constants/layout";
 
 type AppShellProps = {
   children: React.ReactNode;
-  configureHref?: string;
-  isConfigureActive?: boolean;
-  dataSharingHref?: string;
-  isDataSharingActive?: boolean;
+  settingsHref?: string;
+  isSettingsActive?: boolean;
   isWorkflowActive?: boolean;
 };
 
 export function AppShell({
   children,
-  configureHref,
-  isConfigureActive,
-  dataSharingHref,
-  isDataSharingActive,
+  settingsHref,
+  isSettingsActive,
   isWorkflowActive,
 }: AppShellProps) {
   return (
     <div className={LAYOUT.shell}>
       <ApplicationHeader
-        configureHref={configureHref}
-        isConfigureActive={isConfigureActive}
-        dataSharingHref={dataSharingHref}
-        isDataSharingActive={isDataSharingActive}
+        settingsHref={settingsHref}
+        isSettingsActive={isSettingsActive}
         isWorkflowActive={isWorkflowActive}
       />
       <main className={APP_MAIN_CLASS}>{children}</main>

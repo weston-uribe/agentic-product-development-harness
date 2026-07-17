@@ -8,9 +8,21 @@ interface WorkflowInstallProgressPanelProps {
   finalization: TargetWorkflowFinalizationResult;
   onRetry?: () => void;
   retrying?: boolean;
+  variant?: "guided" | "advanced";
 }
 
-function lifecycleLabel(lifecycle: TargetWorkflowFinalizationResult["lifecycle"]): string {
+function lifecycleLabel(
+  lifecycle: TargetWorkflowFinalizationResult["lifecycle"],
+  message: string,
+  variant: "guided" | "advanced",
+): string {
+  if (
+    variant === "guided" &&
+    lifecycle === "updating-branch" &&
+    message.includes("Refreshing")
+  ) {
+    return "Refreshing install branch";
+  }
   switch (lifecycle) {
     case "preparing":
       return "Creating workflow install";
@@ -53,15 +65,25 @@ export function WorkflowInstallProgressPanel({
   finalization,
   onRetry,
   retrying = false,
+  variant = "advanced",
 }: WorkflowInstallProgressPanelProps) {
   const blocked = finalization.lifecycle === "blocked";
   const complete = finalization.lifecycle === "complete";
+  const showGitHubDetails =
+    variant === "advanced" &&
+    blocked &&
+    finalization.requiresGitHubIntervention &&
+    finalization.prUrl;
 
   return (
     <div className="rounded-md border border-border bg-muted/20 p-4 space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <StatusBadge
-          label={lifecycleLabel(finalization.lifecycle)}
+          label={lifecycleLabel(
+            finalization.lifecycle,
+            finalization.message,
+            variant,
+          )}
           variant={lifecycleVariant(finalization.lifecycle)}
         />
       </div>
@@ -74,7 +96,7 @@ export function WorkflowInstallProgressPanel({
               {retrying ? "Retrying…" : "Retry finalization"}
             </Button>
           ) : null}
-          {finalization.requiresGitHubIntervention && finalization.prUrl ? (
+          {showGitHubDetails ? (
             <Button asChild variant="outline">
               <a
                 href={finalization.prUrl}

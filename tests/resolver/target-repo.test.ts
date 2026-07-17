@@ -88,4 +88,70 @@ describe("resolveTargetRepo", () => {
 
     expect(() => resolveTargetRepo(parsed, {}, config)).toThrowError(ResolverError);
   });
+
+  it("resolves by exact linearAssociations when configured", () => {
+    const associationConfig: HarnessConfig = {
+      ...config,
+      repos: [
+        {
+          id: "target-app",
+          targetRepo: "https://github.com/owner/example-target-app",
+          baseBranch: "dev",
+          productionBranch: "main",
+          linearAssociations: [
+            {
+              workspaceId: "ws-1",
+              teamId: "team-a",
+              teamKey: "TEA",
+              projectId: "proj-1",
+              projectName: "Alpha",
+            },
+          ],
+        },
+      ],
+    };
+    const parsed = parseIssueDescription(
+      "## Task\nx\n\n## Acceptance criteria\n- [ ] y\n\n## Out of scope\n- [ ] z",
+    );
+    const resolved = resolveTargetRepo(
+      parsed,
+      { teamId: "team-a", projectId: "proj-1" },
+      associationConfig,
+    );
+    expect(resolved.resolutionSource).toBe("association");
+    expect(resolved.repoConfigId).toBe("target-app");
+  });
+
+  it("rejects unconfigured team-project pairs when associations exist", () => {
+    const associationConfig: HarnessConfig = {
+      ...config,
+      repos: [
+        {
+          id: "target-app",
+          targetRepo: "https://github.com/owner/example-target-app",
+          baseBranch: "dev",
+          productionBranch: "main",
+          linearAssociations: [
+            {
+              workspaceId: "ws-1",
+              teamId: "team-a",
+              teamKey: "TEA",
+              projectId: "proj-1",
+              projectName: "Alpha",
+            },
+          ],
+        },
+      ],
+    };
+    const parsed = parseIssueDescription(
+      "## Task\nx\n\n## Acceptance criteria\n- [ ] y\n\n## Out of scope\n- [ ] z",
+    );
+    expect(() =>
+      resolveTargetRepo(
+        parsed,
+        { teamId: "team-b", projectId: "proj-1" },
+        associationConfig,
+      ),
+    ).toThrowError(ResolverError);
+  });
 });

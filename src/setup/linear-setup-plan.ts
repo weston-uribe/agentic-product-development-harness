@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import {
-  lookupRequiredStatus,
   requiredCreatableStatuses,
   getDispatchTriggerStatuses,
   type RequiredWorkflowStatus,
@@ -16,8 +15,18 @@ import {
   type LinearTeamSummary,
   type LinearWorkflowStateSummary,
 } from "./linear-setup-client.js";
+import {
+  buildNeedsRevisionRepairExplanation,
+  enrichRepairEntryMetadata,
+  isRepairableWorkflowStatus,
+} from "./linear-workflow-status-repair.js";
+import { formatLinearCategoryLabel } from "./linear-category-labels.js";
 import { SETUP_PERMISSIONS } from "./permission-model.js";
 import { tokenizeSecretInput } from "./secret-change-token.js";
+import {
+  formatHarnessMetadataBlock,
+  upsertHarnessMetadataInDescription,
+} from "../linear/project-harness-metadata.js";
 
 export const LINEAR_SETUP_ACTIONS = {
   preview: {
@@ -42,6 +51,7 @@ export interface LinearProjectPlanInput {
   projectId?: string;
   projectName?: string;
   description?: string;
+  targetRepo?: string;
 }
 
 export interface LinearSetupPlanInput {
@@ -56,8 +66,24 @@ export interface WorkflowStatusPlanEntry {
   role: RequiredWorkflowStatus["role"];
   present: boolean;
   existingType?: string;
-  action: "skip" | "create" | "manual";
+  existingStatusId?: string;
+  categoryMatches: boolean;
+  action: "skip" | "create" | "repair" | "manual";
   creatable: boolean;
+  repairStrategy?: "replacement";
+  affectedIssueCount?: number;
+  affectedIssueSetHash?: string;
+}
+
+export interface LinearWorkflowRepairActionPreview {
+  statusName: string;
+  existingStatusId: string;
+  expectedCategory: string;
+  actualCategory: string;
+  affectedIssueCount: number;
+  affectedIssueSetHash: string;
+  repairStrategy: "replacement";
+  explanation: string;
 }
 
 export interface LinearSetupPreview {
@@ -71,6 +97,7 @@ export interface LinearSetupPreview {
   dispatchTriggerStatuses: readonly string[];
   missingStatuses: string[];
   createActions: Array<{ kind: "team" | "project" | "workflow-state"; name: string }>;
+  repairActions: LinearWorkflowRepairActionPreview[];
   manualSteps: string[];
   fingerprint: string;
   permission: typeof SETUP_PERMISSIONS.remoteRead;
@@ -88,6 +115,23 @@ export function normalizeLinearName(name: string): string {
   return name.trim().toLowerCase();
 }
 
+export function buildNewProductProjectDescription(input: {
+  baseDescription?: string;
+  targetRepo: string;
+}): string {
+  const metadataBlock = formatHarnessMetadataBlock({
+    targetRepo: input.targetRepo.replace(/^https:\/\/github\.com\//, ""),
+    productInitialization: "uninitialized",
+  });
+  if (!input.baseDescription?.trim()) {
+    return `${metadataBlock}\n`;
+  }
+  return upsertHarnessMetadataInDescription(input.baseDescription, {
+    targetRepo: input.targetRepo.replace(/^https:\/\/github\.com\//, ""),
+    productInitialization: "uninitialized",
+  });
+}
+
 export function matchWorkflowStates(
   existing: LinearWorkflowStateSummary[],
 ): WorkflowStatusPlanEntry[] {
@@ -98,18 +142,30 @@ export function matchWorkflowStates(
   return requiredCreatableStatuses().map((required) => {
     const match = byName.get(normalizeLinearName(required.name));
     const present = Boolean(match);
+    const categoryMatches = present && match!.type === required.category;
     let action: WorkflowStatusPlanEntry["action"] = "skip";
+
     if (!present) {
       action = required.creatable ? "create" : "manual";
+    } else if (categoryMatches) {
+      action = "skip";
+    } else if (isRepairableWorkflowStatus(required.name)) {
+      action = "repair";
+    } else {
+      action = "manual";
     }
+
     return {
       name: required.name,
       category: required.category,
       role: required.role,
       present,
       existingType: match?.type,
+      existingStatusId: match?.id,
+      categoryMatches,
       action,
       creatable: required.creatable,
+      repairStrategy: action === "repair" ? "replacement" : undefined,
     };
   });
 }
@@ -148,7 +204,7 @@ export function findExistingProjectForCreateInput(
 export function isWorkflowStatusCoverageComplete(
   workflowStates: WorkflowStatusPlanEntry[],
 ): boolean {
-  return workflowStates.every((entry) => entry.present || !entry.creatable);
+  return workflowStates.every((entry) => entry.present && entry.categoryMatches);
 }
 
 export async function previewLinearSetup(
@@ -170,6 +226,7 @@ export async function previewLinearSetup(
         .filter((status) => status.creatable)
         .map((status) => status.name),
       createActions: [],
+      repairActions: [],
       manualSteps: ["Add LINEAR_API_KEY in Step 1 before previewing Linear setup."],
       fingerprint: hashPreview({ invalid: "missing-linear-key" }),
       permission: LINEAR_SETUP_ACTIONS.preview.permission,
@@ -194,6 +251,7 @@ export async function previewLinearSetup(
         dispatchTriggerStatuses: getDispatchTriggerStatuses(),
         missingStatuses: [],
         createActions: [],
+        repairActions: [],
         manualSteps: [],
         fingerprint: hashPreview({ invalid: "team-not-found" }),
         permission: LINEAR_SETUP_ACTIONS.preview.permission,
@@ -246,26 +304,53 @@ export async function previewLinearSetup(
   }
 
   let workflowStates: WorkflowStatusPlanEntry[] = [];
+  const repairActions: LinearWorkflowRepairActionPreview[] = [];
   if (selectedTeam && selectedTeam.id !== "pending-team") {
     const existingStates = await listTeamWorkflowStates(client, selectedTeam.id);
     workflowStates = matchWorkflowStates(existingStates);
+    workflowStates = await Promise.all(
+      workflowStates.map((entry) =>
+        enrichRepairEntryMetadata({
+          client,
+          teamId: selectedTeam.id,
+          entry,
+        }),
+      ),
+    );
     for (const entry of workflowStates) {
       if (entry.action === "create") {
         createActions.push({ kind: "workflow-state", name: entry.name });
       }
       if (entry.action === "manual") {
-        manualSteps.push(
-          `${entry.name} is Linear-managed and must be verified manually in the workspace.`,
-        );
+        if (!entry.present) {
+          manualSteps.push(
+            `${entry.name} is Linear-managed and must be verified manually in the workspace.`,
+          );
+        } else if (!entry.categoryMatches) {
+          manualSteps.push(
+            `${entry.name} exists but uses category ${formatLinearCategoryLabel(entry.existingType ?? "unknown")}; harness expects ${formatLinearCategoryLabel(entry.category)}. Rename manually if needed.`,
+          );
+        }
       }
       if (
-        entry.present &&
+        entry.action === "repair" &&
+        entry.existingStatusId &&
         entry.existingType &&
-        lookupRequiredStatus(entry.name)?.category !== entry.existingType
+        entry.affectedIssueSetHash
       ) {
-        manualSteps.push(
-          `${entry.name} exists but uses category ${entry.existingType}; harness expects ${lookupRequiredStatus(entry.name)?.category}. Rename manually if needed.`,
-        );
+        repairActions.push({
+          statusName: entry.name,
+          existingStatusId: entry.existingStatusId,
+          expectedCategory: entry.category,
+          actualCategory: entry.existingType,
+          affectedIssueCount: entry.affectedIssueCount ?? 0,
+          affectedIssueSetHash: entry.affectedIssueSetHash,
+          repairStrategy: "replacement",
+          explanation:
+            entry.name === "Needs Revision"
+              ? buildNeedsRevisionRepairExplanation()
+              : `${entry.name} must use the ${formatLinearCategoryLabel(entry.category)} category.`,
+        });
       }
     }
   } else if (selectedTeam) {
@@ -274,6 +359,7 @@ export async function previewLinearSetup(
       category: required.category,
       role: required.role,
       present: false,
+      categoryMatches: false,
       action: required.creatable ? "create" : "manual",
       creatable: required.creatable,
     }));
@@ -292,9 +378,16 @@ export async function previewLinearSetup(
     actionId: LINEAR_SETUP_ACTIONS.preview.id,
     team: input.team,
     project: input.project,
+    teamId: selectedTeam?.id,
     workflowStates: workflowStates.map((entry) => ({
       name: entry.name,
       action: entry.action,
+      existingStatusId: entry.existingStatusId,
+      existingType: entry.existingType,
+      category: entry.category,
+      categoryMatches: entry.categoryMatches,
+      repairStrategy: entry.repairStrategy,
+      affectedIssueSetHash: entry.affectedIssueSetHash,
     })),
     linearApiKeyToken: tokenizeSecretInput(input.linearApiKey),
   });
@@ -310,6 +403,7 @@ export async function previewLinearSetup(
     dispatchTriggerStatuses: getDispatchTriggerStatuses(),
     missingStatuses,
     createActions,
+    repairActions,
     manualSteps,
     fingerprint,
     permission: LINEAR_SETUP_ACTIONS.preview.permission,
