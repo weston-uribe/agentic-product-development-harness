@@ -9,6 +9,13 @@ import type {
   LinearTeamSummary,
 } from "@harness/setup/linear-setup-client";
 import { linearAssociationKey } from "@harness/config/resolve-linear-workspace";
+import {
+  addProjectsToDraft,
+  buildConfiguredAssociationKeys,
+  groupAssociationsByTeam,
+  removeDraftAssociation,
+  removeDraftTeam,
+} from "@/lib/linear-association-draft";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { SettingsMutationPanel } from "@/components/settings/settings-mutation-panel";
@@ -38,16 +45,6 @@ type LinearSettingsEditorProps = {
 
 const selectClassName =
   "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
-
-function groupAssociationsByTeam(associations: ResolvedLinearAssociation[]) {
-  const grouped = new Map<string, ResolvedLinearAssociation[]>();
-  for (const association of associations) {
-    const existing = grouped.get(association.teamId) ?? [];
-    existing.push(association);
-    grouped.set(association.teamId, existing);
-  }
-  return grouped;
-}
 
 export function LinearSettingsEditor({ initialData }: LinearSettingsEditorProps) {
   const [summary, setSummary] = useState(initialData.summary);
@@ -135,10 +132,7 @@ export function LinearSettingsEditor({ initialData }: LinearSettingsEditorProps)
   }, [linearApiKeyConfigured]);
 
   const configuredKeys = useMemo(
-    () =>
-      new Set(
-        draftAssociations.map((association) => linearAssociationKey(association)),
-      ),
+    () => buildConfiguredAssociationKeys(draftAssociations),
     [draftAssociations],
   );
 
@@ -239,27 +233,22 @@ export function LinearSettingsEditor({ initialData }: LinearSettingsEditorProps)
     if (!selectedTeam || !targetRepo || addProjectIds.length === 0) {
       return;
     }
-    const next = [...draftAssociations];
-    for (const projectId of addProjectIds) {
-      const project = projects.find((item) => item.id === projectId);
-      if (!project) {
-        continue;
-      }
-      const candidate = {
+    const selectedProjects = addProjectIds
+      .map((projectId) => projects.find((item) => item.id === projectId))
+      .filter((project): project is LinearProjectSummary => Boolean(project));
+    setDraftAssociations((current) =>
+      addProjectsToDraft({
+        draft: current,
         workspaceId: initialData.workspaceId,
-        teamId: selectedTeam.id,
-        teamKey: selectedTeam.key,
-        projectId: project.id,
-        projectName: project.name,
+        team: { id: selectedTeam.id, key: selectedTeam.key },
+        projects: selectedProjects.map((project) => ({
+          id: project.id,
+          name: project.name,
+        })),
         targetRepo,
         repoConfigId: addRepoId,
-      };
-      const key = linearAssociationKey(candidate);
-      if (!configuredKeys.has(key)) {
-        next.push(candidate);
-      }
-    }
-    setDraftAssociations(next);
+      }),
+    );
     setAddProjectIds([]);
   };
 
@@ -270,15 +259,7 @@ export function LinearSettingsEditor({ initialData }: LinearSettingsEditorProps)
     if (!confirmedDetach) {
       return;
     }
-    setDraftAssociations((current) =>
-      current.filter(
-        (item) =>
-          !(
-            item.teamId === association.teamId &&
-            item.projectId === association.projectId
-          ),
-      ),
-    );
+    setDraftAssociations((current) => removeDraftAssociation(current, association));
   };
 
   const detachTeam = (teamId: string) => {
@@ -294,9 +275,7 @@ export function LinearSettingsEditor({ initialData }: LinearSettingsEditorProps)
     if (!confirmedDetach) {
       return;
     }
-    setDraftAssociations((current) =>
-      current.filter((association) => association.teamId !== teamId),
-    );
+    setDraftAssociations((current) => removeDraftTeam(current, teamId));
   };
 
   const draftDirty =

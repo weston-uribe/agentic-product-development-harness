@@ -4,10 +4,14 @@ import type {
   AutomationSettingsPatch,
   SettingsConfigPatch,
 } from "@harness/setup/settings-config-patch";
-import type { LinearWorkspacePlanInput } from "@harness/setup/linear-workspace-apply";
+import type {
+  LinearWorkspaceApplyResult,
+  LinearWorkspacePlanInput,
+} from "@harness/setup/linear-workspace-apply";
 import type {
   LinearSetupPlanInput,
   LinearSetupPreview,
+  LinearSetupApplyResult,
 } from "@harness/setup/linear-setup-apply";
 import type { VercelBridgePreview } from "@harness/setup/vercel-setup-apply";
 import type { LocalEnvFormInput } from "@harness/setup/local-apply-actions";
@@ -90,7 +94,7 @@ export async function applyLinearWorkspace(input: {
     }),
   });
   return readSetupJsonResponse<{
-    apply: { verified: boolean };
+    apply: LinearWorkspaceApplyResult;
     summary: unknown;
     expectedCommittedFingerprint: string;
   }>(response, "POST /api/setup/apply-linear-workspace");
@@ -125,7 +129,7 @@ export async function applyLinearSetup(input: {
       fingerprint: input.fingerprint,
     }),
   });
-  return readSetupJsonResponse<{ apply: { verified: boolean }; summary: unknown }>(
+  return readSetupJsonResponse<{ apply: LinearSetupApplyResult; summary: unknown }>(
     response,
     "POST /api/setup/apply-linear-setup",
   );
