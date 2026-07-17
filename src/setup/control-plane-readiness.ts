@@ -74,9 +74,22 @@ export function collectLinearWorkspaceBlockers(
   uiState?: { linearPreviewStale?: boolean },
 ): ReadinessBlocker[] {
   const blockers: ReadinessBlocker[] = [];
-  const linear = context.state?.linear;
+  const evidence = context.state?.linearWorkspace;
+  const legacy = context.state?.linear;
+  const configured = Boolean(
+    evidence?.teams.some((team) => team.projects.length > 0) || legacy?.teamKey,
+  );
+  const statusCoverageComplete = Boolean(
+    evidence?.teams.every(
+      (team) =>
+        team.health === "healthy" ||
+        team.projects.every((project) => project.health === "healthy"),
+    ) ||
+      legacy?.statusCoverageComplete ||
+      legacy?.manualComplete,
+  );
 
-  if (!linear?.teamKey) {
+  if (!configured) {
     pushBlocker(blockers, {
       id: "linear-workspace-not-applied",
       stepId: "linear-workspace",
@@ -85,7 +98,7 @@ export function collectLinearWorkspaceBlockers(
         "Next: Preview and apply Linear team, project, and workflow statuses.",
       priority: 150,
     });
-  } else if (!linear.statusCoverageComplete && !linear.manualComplete) {
+  } else if (!statusCoverageComplete) {
     pushBlocker(blockers, {
       id: "linear-status-coverage-incomplete",
       stepId: "linear-workspace",
@@ -96,7 +109,7 @@ export function collectLinearWorkspaceBlockers(
     });
   }
 
-  if (uiState?.linearPreviewStale && !linear?.teamKey) {
+  if (uiState?.linearPreviewStale && !configured) {
     pushBlocker(blockers, {
       id: "linear-preview-stale",
       stepId: "linear-workspace",
@@ -284,16 +297,29 @@ export function summarizeLinearWorkspaceStatus(
   configured: boolean;
   teamKey?: string;
   projectName?: string;
+  teamCount: number;
+  projectCount: number;
   statusCoverageComplete: boolean;
   requiredStatusCount: number;
 } {
-  const linear = context.state?.linear;
+  const evidence = context.state?.linearWorkspace;
+  const legacy = context.state?.linear;
+  const teamCount = evidence?.teams.length ?? (legacy?.teamKey ? 1 : 0);
+  const projectCount =
+    evidence?.teams.reduce((count, team) => count + team.projects.length, 0) ??
+    (legacy?.projectName ? 1 : 0);
+
   return {
-    configured: Boolean(linear?.teamKey),
-    teamKey: linear?.teamKey,
-    projectName: linear?.projectName,
+    configured: Boolean(teamCount > 0 && projectCount > 0),
+    teamKey: evidence?.teams[0]?.teamKey ?? legacy?.teamKey,
+    projectName:
+      evidence?.teams[0]?.projects[0]?.projectName ?? legacy?.projectName,
+    teamCount,
+    projectCount,
     statusCoverageComplete: Boolean(
-      linear?.statusCoverageComplete || linear?.manualComplete,
+      evidence?.teams.every((team) => team.health === "healthy") ||
+        legacy?.statusCoverageComplete ||
+        legacy?.manualComplete,
     ),
     requiredStatusCount: requiredStatusNames().length,
   };

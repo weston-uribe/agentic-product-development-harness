@@ -32,6 +32,7 @@ import {
 } from "../../linear/comments.js";
 import { parseHarnessMarkers } from "../../linear/markers.js";
 import { syncProjectHarnessMetadataAfterFoundationMerge } from "../../linear/project-metadata-sync.js";
+import { runLinearAssociationGate } from "../../config/linear-association-gate.js";
 import { getLinearProject } from "../../setup/linear-setup-client.js";
 import { fetchLinearIssue } from "../../linear/client.js";
 import { findLatestMergeSourceComment } from "../../linear/merge-source-comment.js";
@@ -1104,6 +1105,17 @@ export async function executeMergePhase(
     }
 
     if (issue.projectId && resolved.baseBranch !== resolved.productionBranch) {
+      const associationGate = runLinearAssociationGate({
+        config,
+        teamId: issue.teamId,
+        projectId: issue.projectId,
+      });
+      if (!associationGate.ok) {
+        await events.log("project_metadata_sync", "info", {
+          updated: false,
+          skippedReason: associationGate.code,
+        });
+      } else {
       const project = await getLinearProject(client, issue.projectId);
       if (project) {
         const metadataSync = await syncProjectHarnessMetadataAfterFoundationMerge({
@@ -1135,6 +1147,7 @@ export async function executeMergePhase(
           ].join("\n");
           await postIssueComment(client, issue.id, syncComment);
         }
+      }
       }
     }
 

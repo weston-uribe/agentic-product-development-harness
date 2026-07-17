@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import type { HarnessConfig } from "../../src/config/types.js";
 import { DISPATCH_TRIGGER_STATUSES } from "../../src/webhook/dispatch-statuses.js";
 import { shouldDispatchLinearIssueEvent } from "../../src/webhook/filter.js";
 import { parseLinearIssueEvent } from "../../src/webhook/parse-linear-issue-event.js";
@@ -40,6 +41,8 @@ describe("shouldDispatchLinearIssueEvent", () => {
       issueKey: "WES-1",
       issueId: "id-1",
       issueUrl: null,
+      teamId: null,
+      projectId: null,
       action: "create",
       statusName,
       previousStatusName: null,
@@ -70,6 +73,8 @@ describe("shouldDispatchLinearIssueEvent", () => {
       issueKey: "WES-1",
       issueId: "id-1",
       issueUrl: null,
+      teamId: null,
+      projectId: null,
       action: "update",
       statusName,
       previousStatusName: "Backlog",
@@ -101,6 +106,8 @@ describe("shouldDispatchLinearIssueEvent", () => {
       issueKey: "WES-1",
       issueId: "id-1",
       issueUrl: null,
+      teamId: null,
+      projectId: null,
       action: "create",
       statusName: "Ready for Planning",
       previousStatusName: null,
@@ -118,6 +125,8 @@ describe("shouldDispatchLinearIssueEvent", () => {
       issueKey: "WES-1",
       issueId: "id-1",
       issueUrl: null,
+      teamId: null,
+      projectId: null,
       action: "remove",
       statusName: "Ready for Planning",
       previousStatusName: null,
@@ -128,5 +137,51 @@ describe("shouldDispatchLinearIssueEvent", () => {
       eventType: "Issue",
     });
     expect(result).toEqual({ dispatch: false, reason: "ignored_event" });
+  });
+
+  it("ignores webhook events for unconfigured team-project pairs", () => {
+    const config: HarnessConfig = {
+      version: 1,
+      repos: [
+        {
+          id: "primary",
+          targetRepo: "https://github.com/acme/app",
+          linearAssociations: [
+            {
+              workspaceId: "ws-1",
+              teamId: "team-a",
+              teamKey: "TEA",
+              projectId: "proj-1",
+              projectName: "Alpha",
+            },
+          ],
+        },
+      ],
+      allowedTargetRepos: ["https://github.com/acme/app"],
+    };
+
+    const result = shouldDispatchLinearIssueEvent(
+      {
+        issueKey: "TEA-1",
+        issueId: "issue-1",
+        issueUrl: null,
+        teamId: "team-b",
+        projectId: "proj-1",
+        action: "update",
+        statusName: "Ready for Planning",
+        previousStatusName: "Backlog",
+        statusChanged: true,
+        linearDeliveryId: null,
+        linearWebhookId: null,
+        actorSummary: null,
+        eventType: "Issue",
+      },
+      { config },
+    );
+
+    expect(result).toEqual({
+      dispatch: false,
+      reason: "linear_team_project_not_configured",
+    });
   });
 });

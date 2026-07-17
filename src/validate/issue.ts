@@ -147,7 +147,12 @@ function buildRoutingNotes(
 
 export function computeIssueValidation(
   description: string,
-  context: { projectName?: string; teamName?: string },
+  context: {
+    projectName?: string;
+    teamName?: string;
+    teamId?: string;
+    projectId?: string;
+  },
   config: HarnessConfig,
   options: {
     intendedPhase?: IntendedPhase;
@@ -278,6 +283,8 @@ export async function validateIssueFromLinear(
     {
       projectName: issue.projectName ?? undefined,
       teamName: issue.teamName ?? undefined,
+      teamId: issue.teamId ?? undefined,
+      projectId: issue.projectId ?? undefined,
     },
     config,
     {

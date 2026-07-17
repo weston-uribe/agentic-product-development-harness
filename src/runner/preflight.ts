@@ -162,6 +162,8 @@ export async function runPreflight(
       {
         projectName: issue.projectName ?? undefined,
         teamName: issue.teamName ?? undefined,
+        teamId: issue.teamId ?? undefined,
+        projectId: issue.projectId ?? undefined,
       },
       config,
     );

@@ -36,8 +36,11 @@ export function assessCompletionEvidence(input: {
     setupSummary.overview.readyForLocalDoctor;
 
   const linearConfigured = Boolean(
-    controlPlane?.linear?.teamId?.trim() &&
-      controlPlane.linear.teamKey?.trim(),
+    controlPlane?.linearWorkspace?.teams.some(
+      (team) => team.projects.length > 0,
+    ) ||
+      (controlPlane?.linear?.teamId?.trim() &&
+        controlPlane.linear.teamKey?.trim()),
   );
 
   const vercelConfigured = Boolean(controlPlane?.vercel?.projectId?.trim());

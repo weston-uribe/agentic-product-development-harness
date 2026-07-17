@@ -63,6 +63,7 @@ export type ErrorClassification =
   | "linear_team_mismatch"
   | "linear_team_identity_missing"
   | "canonical_workflow_load_failed"
+  | "linear_team_project_not_configured"
   | "builder_lineage_integrity"
   | null;
 
@@ -75,7 +76,7 @@ export interface RunManifest {
   linearStatusAfter: string | null;
   targetRepo: string | null;
   baseBranch: string | null;
-  resolutionSource: "explicit" | "project" | "team" | null;
+  resolutionSource: "explicit" | "association" | "project" | "team" | null;
   dryRun: boolean;
   finalOutcome: FinalOutcome;
   errorClassification: ErrorClassification;
