@@ -22,6 +22,7 @@ import type { SetupGuiViewModel } from "../../src/setup/gui-view-model.js";
 import type { RemoteSetupSummary } from "../../src/setup/remote-setup-summary.js";
 import { HARNESS_ACTIONS_SECRET_NAMES } from "../../src/setup/remote-actions.js";
 import type { ControlPlaneReadinessContext } from "../../src/setup/control-plane-types.js";
+import type { HarnessRepoProvisioningSummary } from "../../src/setup/harness-repo-provisioning.js";
 
 function baseSummary(
   overrides: Partial<SetupGuiViewModel> = {},
@@ -211,6 +212,23 @@ function allSecretsPresentRemoteSummary(
   });
 }
 
+function harnessProvisioningSummary(
+  overrides: Partial<HarnessRepoProvisioningSummary> = {},
+): HarnessRepoProvisioningSummary {
+  return {
+    runtimeMode: "packaged",
+    eligible: true,
+    state: "repo-absent",
+    harnessDispatchRepo: null,
+    authenticatedLogin: null,
+    message: "Packaged workspace provisioning has not completed yet.",
+    recoverable: true,
+    connectedAutomatically: false,
+    verifiedSavedRepo: false,
+    ...overrides,
+  };
+}
+
 function staleLinearControlPlaneContext(): ControlPlaneReadinessContext {
   return {
     state: {
@@ -236,6 +254,7 @@ function deriveReadiness(input: {
   uiState?: Parameters<typeof deriveFirstRunReadiness>[0]["uiState"];
   staleSmokeDiagnostics?: Parameters<typeof deriveFirstRunReadiness>[0]["staleSmokeDiagnostics"];
   controlPlaneContext?: ControlPlaneReadinessContext;
+  harnessProvisioningSummary?: HarnessRepoProvisioningSummary;
 }) {
   return deriveFirstRunReadiness({
     ...input,
@@ -284,6 +303,91 @@ describe("first-run-readiness", () => {
         warning.id.includes("doctor-skipped"),
       ),
     ).toBe(false);
+  });
+
+  it("keeps Step 1 current until packaged harness provisioning is persisted", () => {
+    const summary = baseSummary({
+      envKeyPresence: {
+        LINEAR_API_KEY: true,
+        CURSOR_API_KEY: true,
+        GITHUB_TOKEN: true,
+        VERCEL_TOKEN: true,
+        HARNESS_CONFIG_PATH: false,
+      },
+    });
+
+    const readiness = deriveReadiness({
+      summary,
+      remoteSummary: baseRemoteSummary({ githubTokenConfigured: true }),
+      controlPlaneContext: { state: null },
+      harnessProvisioningSummary: harnessProvisioningSummary({
+        state: "repo-created-pending-verification",
+        harnessDispatchRepo: "owner/p-dev-harness",
+        message: "Harness workspace provisioning is incomplete.",
+      }),
+    });
+
+    expect(readiness.currentStepId).toBe("connect-services");
+    expect(
+      readiness.steps
+        .find((step) => step.id === "connect-services")
+        ?.blockers.some(
+          (blocker) => blocker.id === "harness-workspace-not-provisioned",
+        ),
+    ).toBe(true);
+  });
+
+  it("allows Step 2 after verified persisted packaged harness provisioning", () => {
+    const summary = baseSummary({
+      envKeyPresence: {
+        LINEAR_API_KEY: true,
+        CURSOR_API_KEY: true,
+        GITHUB_TOKEN: true,
+        VERCEL_TOKEN: true,
+        HARNESS_CONFIG_PATH: false,
+      },
+    });
+
+    const readiness = deriveReadiness({
+      summary,
+      remoteSummary: baseRemoteSummary({ githubTokenConfigured: true }),
+      controlPlaneContext: { state: null },
+      harnessProvisioningSummary: harnessProvisioningSummary({
+        state: "verified-and-persisted",
+        harnessDispatchRepo: "owner/p-dev-harness",
+        message: "Connected to validated harness workspace.",
+        recoverable: false,
+        verifiedSavedRepo: true,
+      }),
+    });
+
+    expect(readiness.currentStepId).toBe("linear-workspace");
+  });
+
+  it("keeps source mode Step 1 skip behavior for provisioning", () => {
+    const summary = baseSummary({
+      envKeyPresence: {
+        LINEAR_API_KEY: true,
+        CURSOR_API_KEY: true,
+        GITHUB_TOKEN: true,
+        VERCEL_TOKEN: true,
+        HARNESS_CONFIG_PATH: false,
+      },
+    });
+
+    const readiness = deriveReadiness({
+      summary,
+      remoteSummary: baseRemoteSummary({ githubTokenConfigured: true }),
+      controlPlaneContext: { state: null },
+      harnessProvisioningSummary: harnessProvisioningSummary({
+        runtimeMode: "source",
+        eligible: false,
+        state: "skipped-source-mode",
+        recoverable: false,
+      }),
+    });
+
+    expect(readiness.currentStepId).toBe("linear-workspace");
   });
 
   it("blocks step 2 on config parse errors with PM-readable copy", () => {

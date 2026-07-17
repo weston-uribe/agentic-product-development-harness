@@ -19,6 +19,7 @@ import {
   isCloudSecretsStaleFromControlPlane,
 } from "./control-plane-readiness.js";
 import type { ControlPlaneReadinessContext } from "./control-plane-types.js";
+import type { HarnessRepoProvisioningSummary } from "./harness-repo-provisioning.js";
 
 export type FirstRunStepId =
   | "connect-services"
@@ -1197,6 +1198,7 @@ export function deriveFirstRunReadiness(input: {
   uiState?: FirstRunReadinessUiState;
   staleSmokeDiagnostics?: StaleSmokeDiagnostics;
   controlPlaneContext?: ControlPlaneReadinessContext;
+  harnessProvisioningSummary?: HarnessRepoProvisioningSummary;
 }): FirstRunReadiness {
   const staleSmokeDiagnostics = input.staleSmokeDiagnostics ?? {
     hasStaleConfig: false,
@@ -1206,7 +1208,10 @@ export function deriveFirstRunReadiness(input: {
 
   const controlPlaneContext = input.controlPlaneContext ?? { state: null };
 
-  const connectServicesBlockers = collectConnectServicesBlockers(input.summary);
+  const connectServicesBlockers = collectConnectServicesBlockers(
+    input.summary,
+    input.harnessProvisioningSummary,
+  );
   const linearWorkspaceBlockers = collectLinearWorkspaceBlockers(
     controlPlaneContext,
     input.uiState,

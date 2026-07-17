@@ -4,6 +4,7 @@ import { allReposSkipApplicationPreview } from "../preview/preview-capability.js
 import { requiredStatusNames } from "./linear-status-contract.js";
 import { isVercelBridgeStale } from "./vercel-bridge-readiness.js";
 import type { ReadinessBlocker } from "./first-run-readiness.js";
+import type { HarnessRepoProvisioningSummary } from "./harness-repo-provisioning.js";
 
 function pushBlocker(
   blockers: ReadinessBlocker[],
@@ -23,6 +24,7 @@ export { allReposSkipApplicationPreview } from "../preview/preview-capability.js
 
 export function collectConnectServicesBlockers(
   summary: SetupGuiViewModel,
+  harnessProvisioningSummary?: HarnessRepoProvisioningSummary,
 ): ReadinessBlocker[] {
   const blockers: ReadinessBlocker[] = [];
 
@@ -64,6 +66,25 @@ export function collectConnectServicesBlockers(
       action: "Add it in Step 1 · Connect services.",
       priority: 106,
     });
+  }
+
+  if (harnessProvisioningSummary) {
+    const provisioningComplete =
+      harnessProvisioningSummary.state === "verified-and-persisted" ||
+      harnessProvisioningSummary.state === "skipped-source-mode" ||
+      harnessProvisioningSummary.state === "skipped-not-packaged";
+
+    if (!provisioningComplete) {
+      pushBlocker(blockers, {
+        id: "harness-workspace-not-provisioned",
+        stepId: "connect-services",
+        message: `Blocked: Harness workspace provisioning is not complete (${harnessProvisioningSummary.state}).`,
+        action:
+          "Next: Verify and save service keys, then use Set up workspace in Step 1.",
+        priority: 107,
+        tone: harnessProvisioningSummary.recoverable ? "setup_needed" : "error",
+      });
+    }
   }
 
   return blockers.sort((left, right) => left.priority - right.priority);

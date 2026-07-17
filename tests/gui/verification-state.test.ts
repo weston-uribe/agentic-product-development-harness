@@ -47,11 +47,21 @@ describe("verification-state helpers", () => {
     expect(isServiceFailedForValue(verification, "other-token")).toBe(false);
   });
 
-  it("treats saved local credentials as connected before re-verification", () => {
+  it("does not treat saved local credentials as connected without verification", () => {
     expect(
       resolveServiceConnectionBadgeState(
         true,
         { state: "unchecked" },
+        "",
+      ),
+    ).toBe("unchecked");
+  });
+
+  it("uses server-seeded connected verification for saved credentials", () => {
+    expect(
+      resolveServiceConnectionBadgeState(
+        true,
+        { state: "connected", message: "Connected as Weston" },
         "",
       ),
     ).toBe("connected");

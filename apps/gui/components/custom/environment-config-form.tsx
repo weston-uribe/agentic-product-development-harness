@@ -133,6 +133,19 @@ function verificationBadge(state: VerificationUiState) {
   }
 }
 
+function savedConnectionBadge(input: {
+  present: boolean;
+  state: VerificationUiState;
+}) {
+  if (input.present && input.state === "connected") {
+    return { label: "Saved locally and connected", variant: "success" as const };
+  }
+  if (input.present) {
+    return { label: "Saved locally", variant: "secondary" as const };
+  }
+  return null;
+}
+
 export function EnvironmentConfigForm({
   values,
   presence,
@@ -255,9 +268,13 @@ function ServiceConnectionCard({
   onVerify?: () => void;
   onBlur?: () => void;
 }) {
-  const badge = verificationBadge(
-    resolveServiceConnectionBadgeState(present, verification, value),
+  const badgeState = resolveServiceConnectionBadgeState(
+    present,
+    verification,
+    value,
   );
+  const badge = verificationBadge(badgeState);
+  const savedBadge = savedConnectionBadge({ present, state: badgeState });
   const trimmedValue = value.trim();
   const verifiedForCurrentValue =
     verification.state === "connected" &&
@@ -294,10 +311,12 @@ function ServiceConnectionCard({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {present ? (
-            <StatusBadge label="Saved locally" variant="secondary" />
+          {savedBadge ? (
+            <StatusBadge label={savedBadge.label} variant={savedBadge.variant} />
           ) : null}
-          <StatusBadge label={badge.label} variant={badge.variant} />
+          {!savedBadge || badgeState !== "connected" ? (
+            <StatusBadge label={badge.label} variant={badge.variant} />
+          ) : null}
         </div>
       </div>
 

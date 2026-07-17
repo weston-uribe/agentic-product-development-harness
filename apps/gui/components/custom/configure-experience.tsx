@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SetupGuiViewModel } from "@/lib/setup-server";
 import type { RemoteSetupSummary } from "@/lib/setup-server";
+import type {
+  HarnessRepoProvisioningSummary,
+  ServiceConnectionSummaryMap,
+} from "@/lib/setup-server";
 import type { LocalConfigFormInput } from "@harness/setup/config-local-editor";
 import type { LinearSetupSummary } from "@harness/setup/linear-setup-summary";
 import type { VercelSetupSummary } from "@harness/setup/vercel-setup-summary";
@@ -68,6 +72,7 @@ interface ConfigureExperienceProps {
   initialRemoteSummary: RemoteSetupSummary;
   initialLinearSummary: LinearSetupSummary;
   initialVercelSummary: VercelSetupSummary;
+  initialHarnessProvisioningSummary: HarnessRepoProvisioningSummary;
   formDefaults: {
     env: {
       harnessConfigPath: string;
@@ -79,6 +84,7 @@ interface ConfigureExperienceProps {
         GITHUB_TOKEN: boolean;
         VERCEL_TOKEN: boolean;
       };
+      serviceConnectionSummaries: ServiceConnectionSummaryMap;
     };
     config: LocalConfigFormInput;
   };
@@ -106,6 +112,7 @@ export function ConfigureExperience({
   initialRemoteSummary,
   initialLinearSummary,
   initialVercelSummary,
+  initialHarnessProvisioningSummary,
   formDefaults,
   observabilityNonce,
   initialObservabilityPreferences,
@@ -119,6 +126,9 @@ export function ConfigureExperience({
   const [remoteSummary, setRemoteSummary] = useState(initialRemoteSummary);
   const [linearSummary, setLinearSummary] = useState(initialLinearSummary);
   const [vercelSummary, setVercelSummary] = useState(initialVercelSummary);
+  const [harnessProvisioningSummary, setHarnessProvisioningSummary] = useState(
+    initialHarnessProvisioningSummary,
+  );
   const [uiState, setUiState] = useState<FirstRunReadinessUiState>({});
 
   useEffect(() => {
@@ -143,6 +153,7 @@ export function ConfigureExperience({
           remoteSummary: initialRemoteSummary,
           uiState: {},
           staleSmokeDiagnostics: initialRemoteSummary.staleSmokeDiagnostics,
+          harnessProvisioningSummary: initialHarnessProvisioningSummary,
           controlPlaneContext: buildControlPlaneContext({
             linearSummary: initialLinearSummary,
             vercelSummary: initialVercelSummary,
@@ -238,9 +249,10 @@ export function ConfigureExperience({
         remoteSummary,
         uiState,
         staleSmokeDiagnostics: remoteSummary.staleSmokeDiagnostics,
+        harnessProvisioningSummary,
         controlPlaneContext,
       }),
-    [summary, remoteSummary, uiState, controlPlaneContext],
+    [summary, remoteSummary, uiState, harnessProvisioningSummary, controlPlaneContext],
   );
 
   useEffect(() => {
@@ -262,6 +274,17 @@ export function ConfigureExperience({
     }
     previousReadinessStepRef.current = nextStepId;
   }, [readiness.currentStepId, summary]);
+
+  useEffect(() => {
+    const clamped = clampGuidedDisplayStep({
+      target: displayedGuidedStep,
+      currentStepId: readiness.currentStepId,
+    });
+    if (clamped !== displayedGuidedStep) {
+      setDisplayedGuidedStep(clamped);
+      pinnedGuidedDisplayStepRef.current = clamped;
+    }
+  }, [displayedGuidedStep, readiness.currentStepId]);
 
   useEffect(() => {
     if (readiness.readyForFirstRun) {
@@ -312,6 +335,7 @@ export function ConfigureExperience({
         GITHUB_TOKEN: summary.envKeyPresence.GITHUB_TOKEN,
         VERCEL_TOKEN: summary.envKeyPresence.VERCEL_TOKEN,
       },
+      serviceConnectionSummaries: formDefaults.env.serviceConnectionSummaries,
     };
   }, [
     formDefaults.env,
@@ -424,6 +448,13 @@ export function ConfigureExperience({
       // Fall back to env presence synced via handleSummaryUpdated after Step 1 save.
     }
   }, [clearPinnedGuidedDisplayStep, recordStepCompleted]);
+
+  const handleHarnessProvisioningSummaryUpdated = useCallback(
+    (nextSummary: HarnessRepoProvisioningSummary) => {
+      setHarnessProvisioningSummary(nextSummary);
+    },
+    [],
+  );
 
   const handleLinearWorkspaceContinue = useCallback(() => {
     clearPinnedGuidedDisplayStep();
@@ -643,7 +674,11 @@ export function ConfigureExperience({
             guidedStep="connect-services"
             initialEnv={initialEnvForWorkflow}
             initialConfig={formDefaults.config}
+            initialHarnessProvisioningSummary={harnessProvisioningSummary}
             onSummaryUpdated={handleSummaryUpdated}
+            onHarnessProvisioningSummaryUpdated={
+              handleHarnessProvisioningSummaryUpdated
+            }
             onConnectServicesComplete={handleConnectServicesComplete}
           />
         );
@@ -676,9 +711,13 @@ export function ConfigureExperience({
             guidedStep="choose-target-repos"
             initialEnv={initialEnvForWorkflow}
             initialConfig={formDefaults.config}
+            initialHarnessProvisioningSummary={harnessProvisioningSummary}
             highlightStaleDispatch={staleDispatchRepoNeedsAttention}
             highlightStaleTarget={staleTargetRepoNeedsAttention}
             onSummaryUpdated={handleSummaryUpdated}
+            onHarnessProvisioningSummaryUpdated={
+              handleHarnessProvisioningSummaryUpdated
+            }
             onUiStateChange={handleLocalUiStateChange}
             onGuidedLocalApplySuccess={handleGuidedLocalApplySuccess}
             localSetupFilesExist={localSetupFilesExist(summary)}
