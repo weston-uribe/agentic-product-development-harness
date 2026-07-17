@@ -1,9 +1,12 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { LinearSetupSummary } from "@harness/setup/linear-setup-summary";
 import type { LinearSetupPreview } from "@harness/setup/linear-setup-apply";
-import { Button } from "@/components/ui/button";
+import type {
+  LinearProjectSummary,
+  LinearTeamSummary,
+} from "@harness/setup/linear-setup-client";
 import { Label } from "@/components/ui/label";
 import { SettingsMutationPanel } from "@/components/settings/settings-mutation-panel";
 import {
@@ -25,10 +28,10 @@ const selectClassName =
 
 export function LinearSettingsEditor({ initialSummary }: LinearSettingsEditorProps) {
   const [summary, setSummary] = useState(initialSummary);
-  const [teams, setTeams] = useState<
-    Array<{ id: string; key: string; name: string }>
-  >([]);
-  const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([]);
+  const [teams, setTeams] = useState<LinearTeamSummary[]>([]);
+  const [projects, setProjects] = useState<LinearProjectSummary[]>([]);
+  const [optionsLoading, setOptionsLoading] = useState(false);
+  const [optionsError, setOptionsError] = useState<string | null>(null);
   const [teamId, setTeamId] = useState(summary.controlPlane?.linear?.teamId ?? "");
   const [projectId, setProjectId] = useState(
     summary.controlPlane?.linear?.projectId ?? "",
@@ -36,26 +39,78 @@ export function LinearSettingsEditor({ initialSummary }: LinearSettingsEditorPro
   const [mutation, setMutation] =
     useState<SettingsMutationState<LinearSetupPreview>>(initialSettingsMutationState());
   const [confirmed, setConfirmed] = useState(false);
+  const requestGenerationRef = useRef(0);
 
-  const loadOptions = useCallback(async () => {
-    const response = await fetch("/api/setup/linear-options");
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.error ?? "Failed to load Linear options");
+  const linearApiKeyConfigured = summary.linearApiKeyConfigured;
+
+  useEffect(() => {
+    if (!linearApiKeyConfigured) {
+      requestGenerationRef.current += 1;
+      setTeams([]);
+      setProjects([]);
+      setOptionsLoading(false);
+      setOptionsError(null);
+      return;
     }
-    setTeams(data.teams ?? []);
-    setProjects(data.projects ?? []);
-  }, []);
 
-  const buildPlan = useCallback(
-    () => ({
-      team: { mode: "existing" as const, teamId },
-      project: { mode: "existing" as const, projectId },
-    }),
-    [projectId, teamId],
-  );
+    const generation = ++requestGenerationRef.current;
+    let cancelled = false;
 
-  const runPreview = useCallback(async () => {
+    const loadOptions = async () => {
+      setOptionsLoading(true);
+      setOptionsError(null);
+      try {
+        const response = await fetch("/api/setup/linear-options");
+        const data = await response.json();
+        if (cancelled || generation !== requestGenerationRef.current) {
+          return;
+        }
+        if (!response.ok) {
+          throw new Error(data.error ?? "Failed to load Linear options");
+        }
+        setTeams((data.teams ?? []) as LinearTeamSummary[]);
+        setProjects((data.projects ?? []) as LinearProjectSummary[]);
+      } catch (error) {
+        if (cancelled || generation !== requestGenerationRef.current) {
+          return;
+        }
+        setTeams([]);
+        setProjects([]);
+        setOptionsError(
+          error instanceof Error ? error.message : "Failed to load Linear options",
+        );
+      } finally {
+        if (!cancelled && generation === requestGenerationRef.current) {
+          setOptionsLoading(false);
+        }
+      }
+    };
+
+    void loadOptions();
+
+    return () => {
+      cancelled = true;
+      requestGenerationRef.current += 1;
+    };
+  }, [linearApiKeyConfigured]);
+
+  const projectOptions = useMemo(() => {
+    if (!teamId) {
+      return projects;
+    }
+    const scoped = projects.filter(
+      (project) =>
+        project.teamIds.length === 0 || project.teamIds.includes(teamId),
+    );
+    return scoped.length > 0 ? scoped : projects;
+  }, [projects, teamId]);
+
+  const buildPlan = () => ({
+    team: { mode: "existing" as const, teamId },
+    project: { mode: "existing" as const, projectId },
+  });
+
+  const runPreview = async () => {
     setMutation((current) => ({ ...current, phase: "previewing", error: null }));
     setConfirmed(false);
     try {
@@ -79,9 +134,9 @@ export function LinearSettingsEditor({ initialSummary }: LinearSettingsEditorPro
         successMessage: null,
       });
     }
-  }, [buildPlan]);
+  };
 
-  const runApply = useCallback(async () => {
+  const runApply = async () => {
     if (!mutation.preview) {
       return;
     }
@@ -112,7 +167,7 @@ export function LinearSettingsEditor({ initialSummary }: LinearSettingsEditorPro
         successMessage: null,
       });
     }
-  }, [buildPlan, mutation.preview]);
+  };
 
   const formComplete = Boolean(teamId && projectId);
 
@@ -133,14 +188,18 @@ export function LinearSettingsEditor({ initialSummary }: LinearSettingsEditorPro
       </div>
 
       <div className="space-y-4">
-        <div className="flex items-center justify-between gap-3">
+        <p className="text-sm text-muted-foreground">
+          Replace the active Linear team and project. Status repair runs during apply.
+        </p>
+
+        {!linearApiKeyConfigured ? (
           <p className="text-sm text-muted-foreground">
-            Replace the active Linear team and project. Status repair runs during apply.
+            Configure a Linear API key in Connections before choosing a workspace.
           </p>
-          <Button type="button" variant="outline" size="sm" onClick={() => void loadOptions()}>
-            Load workspace options
-          </Button>
-        </div>
+        ) : null}
+        {optionsError ? (
+          <p className="text-sm text-destructive">{optionsError}</p>
+        ) : null}
 
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
@@ -149,9 +208,12 @@ export function LinearSettingsEditor({ initialSummary }: LinearSettingsEditorPro
               id="settings-linear-team"
               className={selectClassName}
               value={teamId}
+              disabled={optionsLoading || !linearApiKeyConfigured}
               onChange={(event) => setTeamId(event.target.value)}
             >
-              <option value="">Select a team</option>
+              <option value="">
+                {optionsLoading ? "Loading teams…" : "Select a team"}
+              </option>
               {teams.map((team) => (
                 <option key={team.id} value={team.id}>
                   {team.name} ({team.key})
@@ -165,10 +227,13 @@ export function LinearSettingsEditor({ initialSummary }: LinearSettingsEditorPro
               id="settings-linear-project"
               className={selectClassName}
               value={projectId}
+              disabled={optionsLoading || !linearApiKeyConfigured}
               onChange={(event) => setProjectId(event.target.value)}
             >
-              <option value="">Select a project</option>
-              {projects.map((project) => (
+              <option value="">
+                {optionsLoading ? "Loading projects…" : "Select a project"}
+              </option>
+              {projectOptions.map((project) => (
                 <option key={project.id} value={project.id}>
                   {project.name}
                 </option>

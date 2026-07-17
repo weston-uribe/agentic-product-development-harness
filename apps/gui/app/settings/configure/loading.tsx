@@ -10,7 +10,7 @@ export default function ConfigureLoading() {
   }, []);
 
   return (
-    <AppShell isConfigureActive>
+    <AppShell>
       <div className="mx-auto w-full max-w-3xl space-y-4 px-4 py-8">
         <div className="h-8 w-56 animate-pulse rounded-md bg-muted" />
         <div className="h-4 w-full animate-pulse rounded-md bg-muted/70" />

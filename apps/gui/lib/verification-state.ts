@@ -67,6 +67,10 @@ export function resolveServiceConnectionBadgeState(
     return present ? "failed" : "unchecked";
   }
 
+  if (!trimmedValue && present) {
+    return "connected";
+  }
+
   return "unchecked";
 }
 

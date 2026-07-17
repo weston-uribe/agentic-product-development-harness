@@ -13,16 +13,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { markConfigureClient } from "@/lib/configure-navigation-timing";
 import { useThemeToggle } from "@/lib/use-theme-toggle";
 
 type SettingsMenuProps = {
   settingsHref?: string;
   isSettingsActive?: boolean;
-  configureHref?: string;
-  isConfigureActive?: boolean;
-  dataSharingHref?: string;
-  isDataSharingActive?: boolean;
   workflowHref?: string;
   isWorkflowActive?: boolean;
 };
@@ -30,10 +25,6 @@ type SettingsMenuProps = {
 export function SettingsMenu({
   settingsHref = "/settings",
   isSettingsActive = false,
-  configureHref = "/settings/configure",
-  isConfigureActive = false,
-  dataSharingHref = "/settings/data-sharing",
-  isDataSharingActive = false,
   workflowHref = "/workflow",
   isWorkflowActive = false,
 }: SettingsMenuProps) {
@@ -62,11 +53,6 @@ export function SettingsMenu({
     },
     [prefetchRoute, settingsHref, workflowHref],
   );
-
-  const handleConfigureIntent = useCallback(() => {
-    markConfigureClient("configure_nav_start");
-    prefetchRoute(configureHref);
-  }, [configureHref, prefetchRoute]);
 
   return (
     <DropdownMenu onOpenChange={handleOpenChange}>
@@ -109,24 +95,6 @@ export function SettingsMenu({
             onFocus={() => prefetchRoute(settingsHref)}
           >
             Settings
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <Link
-            href={configureHref}
-            aria-current={isConfigureActive ? "page" : undefined}
-            onMouseEnter={handleConfigureIntent}
-            onFocus={handleConfigureIntent}
-          >
-            Setup wizard
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <Link
-            href={dataSharingHref}
-            aria-current={isDataSharingActive ? "page" : undefined}
-          >
-            Data sharing
           </Link>
         </DropdownMenuItem>
       </DropdownMenuContent>

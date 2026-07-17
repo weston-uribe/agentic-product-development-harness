@@ -1,10 +1,7 @@
 import { resolveHarnessWorkspaceDir } from "@harness/gui/repo-root";
 import { loadHarnessConfig } from "@harness/config/load-config";
 import { configToFormInput } from "@harness/setup/config-local-editor";
-import {
-  automationPatchFromConfig,
-  readSettingsConfigFingerprint,
-} from "@harness/setup/settings-config-patch";
+import { readSettingsConfigFingerprint } from "@harness/setup/settings-config-patch";
 import {
   loadLinearSetupSummary,
   loadSetupFormDefaults,
@@ -39,18 +36,6 @@ export async function loadRepositoriesEditorData() {
   ]);
   return {
     configForm: configToFormInput(config),
-    configFingerprint: fingerprint,
-  };
-}
-
-export async function loadAutomationEditorData() {
-  const cwd = resolveHarnessWorkspaceDir();
-  const [{ config }, fingerprint] = await Promise.all([
-    loadHarnessConfig({ baseDir: cwd }),
-    readSettingsConfigFingerprint(cwd),
-  ]);
-  return {
-    automation: automationPatchFromConfig(config),
     configFingerprint: fingerprint,
   };
 }
