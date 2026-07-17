@@ -196,10 +196,29 @@ export async function applyRunnerUpgrade(input: {
       resume: input.resume === true,
     }),
   });
-  return readSetupJsonResponse<{
-    apply: import("@harness/setup/runner-upgrade-types").RunnerUpgradeApplyResult;
+  const bodyText = await response.text();
+  if (response.status !== 202) {
+    let message = `Setup request failed: POST /api/setup/apply-runner-upgrade returned HTTP ${response.status}`;
+    try {
+      const parsed = JSON.parse(bodyText) as { error?: string };
+      if (parsed.error) {
+        message = parsed.error;
+      }
+    } catch {
+      // keep default message
+    }
+    throw new Error(message);
+  }
+  if (!bodyText.trim()) {
+    throw new Error(
+      "Setup request failed: POST /api/setup/apply-runner-upgrade returned an empty response body",
+    );
+  }
+  return JSON.parse(bodyText) as {
+    apply: import("@harness/setup/runner-upgrade-types").RunnerUpgradeAcceptResult;
+    progress: import("@harness/setup/runner-upgrade-progress").RunnerUpgradeProgressState;
     status: import("@harness/setup/runner-upgrade-types").RunnerUpgradeStatusResult;
-  }>(response, "POST /api/setup/apply-runner-upgrade");
+  };
 }
 
 export async function fetchRunnerUpgradeProgress() {

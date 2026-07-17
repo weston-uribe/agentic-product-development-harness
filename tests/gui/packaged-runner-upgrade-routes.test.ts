@@ -18,7 +18,15 @@ import {
   registerHarnessTestRunnerUpgradeProviderFactory,
 } from "../../src/setup/test-only-runner-upgrade-provider.js";
 import { createMockRunnerUpgradeProvider } from "../../src/setup/runner-upgrade-provider.js";
+import {
+  configureRunnerUpgradeWorker,
+  resetRunnerUpgradeWorkerForTests,
+  waitForRunnerUpgradeWorkerIdle,
+} from "../../src/setup/runner-upgrade-worker.js";
+import { executeRunnerUpgradeOperation } from "../../src/setup/runner-upgrade.js";
+import { readRunnerUpgradePendingState } from "../../src/setup/runner-upgrade-pending-state.js";
 import { createTestWorkspaceSnapshotRoot } from "../setup/test-workspace-snapshot-fixture.js";
+import { createRunnerUpgradeCheckingSkeleton } from "../../apps/gui/lib/settings/runner-upgrade-ssr.js";
 
 vi.mock("server-only", () => ({}));
 
@@ -208,9 +216,18 @@ describe("packaged runner upgrade Deployments routes", () => {
       },
     });
     registerHarnessTestRunnerUpgradeProviderFactory(() => provider);
+    configureRunnerUpgradeWorker({
+      resolveProvider: async () => provider,
+      execute: async (cwd, resolved) =>
+        executeRunnerUpgradeOperation(cwd, resolved, {
+          canaryPollIntervalMs: 1,
+          canaryPollTimeoutMs: 50,
+        }),
+    });
   });
 
   afterEach(async () => {
+    resetRunnerUpgradeWorkerForTests();
     clearHarnessTestRunnerUpgradeProviderFactory();
     if (originalRepoRoot === undefined) {
       delete process.env.HARNESS_REPO_ROOT;
@@ -233,7 +250,9 @@ describe("packaged runner upgrade Deployments routes", () => {
     }
   });
 
-  it("detects update available, resumes after config sync failure, and reaches up to date after canary", async () => {
+  it("detects update available, accepts apply with 202, resumes after sync failure", async () => {
+    expect(createRunnerUpgradeCheckingSkeleton().status).toBe("checking");
+
     const statusResponse = await statusRoute();
     expect(statusResponse.status).toBe(200);
     const statusBody = (await statusResponse.json()) as {
@@ -275,16 +294,25 @@ describe("packaged runner upgrade Deployments routes", () => {
         }),
       }),
     );
-    expect(failingApply.status).toBe(200);
+    expect(failingApply.status).toBe(202);
     const failBody = (await failingApply.json()) as {
-      apply: { status: string };
+      apply: { status: string; operationId: string };
       status: { status: string };
+      progress: { operationId: string; phase: string };
     };
-    expect(failBody.apply.status).toBe("partially_updated");
-    expect(failBody.status.status).toBe("partially_updated");
+    expect(failBody.apply.status).toBe("updating");
+    expect(failBody.status.status).toBe("updating");
+    expect(failBody.progress.phase).toBe("verifying-managed-repository");
+    expect(await readRunnerUpgradePendingState(workspaceDir)).toBeTruthy();
+
+    await waitForRunnerUpgradeWorkerIdle(30_000);
 
     const progressResponse = await progressRoute();
     expect(progressResponse.status).toBe(200);
+
+    const failedStatus = await statusRoute();
+    const failedStatusBody = (await failedStatus.json()) as { status: string };
+    expect(failedStatusBody.status).toBe("partially_updated");
 
     provider.syncShouldFail = false;
     provider.canaryConclusion = "success";
@@ -299,13 +327,12 @@ describe("packaged runner upgrade Deployments routes", () => {
         }),
       }),
     );
-    expect(resumeApply.status).toBe(200);
-    const resumeBody = (await resumeApply.json()) as {
-      apply: { status: string };
-      status: { status: string };
-    };
-    expect(resumeBody.apply.status).toBe("up_to_date");
-    expect(resumeBody.status.status).toBe("up_to_date");
+    expect(resumeApply.status).toBe(202);
+    await waitForRunnerUpgradeWorkerIdle(30_000);
+
+    const finalStatus = await statusRoute();
+    const finalBody = (await finalStatus.json()) as { status: string };
+    expect(finalBody.status).toBe("up_to_date");
 
     const secretBeforeVariable = provider.remoteWriteOrder.indexOf("secret");
     const variableIndex = provider.remoteWriteOrder.indexOf("variable");

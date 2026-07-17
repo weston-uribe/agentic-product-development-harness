@@ -6,12 +6,13 @@ import {
   loadLinearWorkspaceEditorState,
   loadSetupFormDefaults,
   loadSetupSummary,
-  loadRunnerUpgradeStatusForGui,
   loadVercelSetupSummary,
 } from "@/lib/setup-server";
 import { loadDurableServiceConnectionSummaries } from "@/lib/verification-state";
+import { createRunnerUpgradeCheckingSkeleton } from "@/lib/settings/runner-upgrade-ssr";
 
 export { loadDurableServiceConnectionSummaries };
+export { createRunnerUpgradeCheckingSkeleton } from "@/lib/settings/runner-upgrade-ssr";
 
 export async function loadConnectionsEditorData() {
   const summary = await loadSetupSummary();
@@ -30,16 +31,11 @@ export async function loadLinearEditorData() {
 }
 
 export async function loadDeploymentsEditorData() {
-  const [summary, runnerUpgradeStatus] = await Promise.all([
-    loadVercelSetupSummary(),
-    loadRunnerUpgradeStatusForGui().catch(() => ({
-      status: "failed" as const,
-      statusLabel: "Failed",
-      blockedReason:
-        "Runner upgrade status is unavailable. Connect GitHub in Settings → Connections.",
-    })),
-  ]);
-  return { summary, runnerUpgradeStatus };
+  const summary = await loadVercelSetupSummary();
+  return {
+    summary,
+    runnerUpgradeStatus: createRunnerUpgradeCheckingSkeleton(),
+  };
 }
 
 export async function loadRepositoriesEditorData() {

@@ -8,6 +8,7 @@ import type {
   RunnerUpgradeStatusResult,
 } from "@harness/setup/runner-upgrade-types";
 import { runnerUpgradePhaseLabel } from "@harness/setup/runner-upgrade-types";
+import { runnerUpgradeProgressShowsNoProgress } from "@harness/setup/runner-upgrade-timeouts";
 import { Button } from "@/components/ui/button";
 import {
   GuidedOperationPanel,
@@ -26,7 +27,7 @@ import {
   previewRunnerUpgrade,
 } from "@/lib/settings/settings-setup-client";
 
-const RUNNER_UPGRADE_PHASE_LABELS = [
+const RUNNER_UPGRADE_PHASE_IDS = [
   "verifying-managed-repository",
   "comparing-runner-snapshots",
   "preparing-upgrade-commit",
@@ -34,10 +35,22 @@ const RUNNER_UPGRADE_PHASE_LABELS = [
   "verifying-runner-on-production-branch",
   "synchronizing-cloud-configuration",
   "running-configuration-canary",
-].map((phase) => runnerUpgradePhaseLabel(phase as never));
+] as const;
+
+const RUNNER_UPGRADE_PHASE_LABELS = RUNNER_UPGRADE_PHASE_IDS.map((phase) =>
+  runnerUpgradePhaseLabel(phase),
+);
+
+type ClientLifecycle =
+  | "idle"
+  | "submitting"
+  | "accepted"
+  | "running"
+  | "success"
+  | "failed";
 
 type RunnerUpgradeSettingsCardProps = {
-  initialStatus: RunnerUpgradeStatusResult;
+  initialStatus: RunnerUpgradeStatusResult | null;
 };
 
 function formatSnapshotLine(
@@ -53,29 +66,26 @@ function formatSnapshotLine(
 export function RunnerUpgradeSettingsCard({
   initialStatus,
 }: RunnerUpgradeSettingsCardProps) {
-  const [status, setStatus] = useState(initialStatus);
+  const [status, setStatus] = useState<RunnerUpgradeStatusResult | null>(
+    initialStatus,
+  );
+  const [statusLoading, setStatusLoading] = useState(initialStatus === null);
   const [progress, setProgress] = useState<RunnerUpgradeProgressState | null>(
     null,
+  );
+  const [lifecycle, setLifecycle] = useState<ClientLifecycle>("idle");
+  const [operationId, setOperationId] = useState<string | null>(
+    initialStatus?.pendingOperationId ?? null,
   );
   const [mutation, setMutation] =
     useState<SettingsMutationState<RunnerUpgradePreviewResult>>(
       initialSettingsMutationState(),
     );
   const [confirmed, setConfirmed] = useState(false);
-  const [applying, setApplying] = useState(false);
+  const [noProgress, setNoProgress] = useState(false);
 
   const mountedRef = useRef(true);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      if (pollRef.current) {
-        clearInterval(pollRef.current);
-      }
-    };
-  }, []);
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) {
@@ -88,26 +98,111 @@ export function RunnerUpgradeSettingsCard({
     const nextStatus = await fetchRunnerUpgradeStatus();
     if (mountedRef.current) {
       setStatus(nextStatus);
+      setStatusLoading(false);
+      if (nextStatus.pendingOperationId) {
+        setOperationId(nextStatus.pendingOperationId);
+      }
     }
     return nextStatus;
   }, []);
 
+  const pollOnce = useCallback(async () => {
+    try {
+      const [nextProgress, nextStatus] = await Promise.all([
+        fetchRunnerUpgradeProgress(),
+        fetchRunnerUpgradeStatus(),
+      ]);
+      if (!mountedRef.current) {
+        return;
+      }
+      setProgress(nextProgress);
+      setStatus(nextStatus);
+      setStatusLoading(false);
+      if (nextStatus.pendingOperationId) {
+        setOperationId(nextStatus.pendingOperationId);
+      }
+      setNoProgress(runnerUpgradeProgressShowsNoProgress(nextProgress));
+
+      if (nextStatus.status === "up_to_date") {
+        stopPolling();
+        setLifecycle("success");
+        setMutation({
+          phase: "success",
+          preview: null,
+          error: null,
+          successMessage: "PDev runner updated and configuration canary passed.",
+        });
+        setConfirmed(false);
+        return;
+      }
+      if (
+        nextStatus.status === "failed" ||
+        nextStatus.status === "partially_updated" ||
+        nextStatus.status === "blocked_operator_conflicts" ||
+        nextStatus.status === "blocked_unexpected_remote" ||
+        nextStatus.status === "blocked_non_managed"
+      ) {
+        if (nextStatus.status !== "partially_updated" || nextStatus.blockedReason) {
+          stopPolling();
+          setLifecycle(
+            nextStatus.status === "partially_updated" ? "idle" : "failed",
+          );
+          if (nextStatus.blockedReason) {
+            setMutation({
+              phase: "error",
+              preview: mutation.preview,
+              error: sanitizeSettingsErrorMessage(nextStatus.blockedReason),
+              successMessage: null,
+            });
+          }
+        }
+      }
+    } catch {
+      // Polling is best-effort.
+    }
+  }, [mutation.preview, stopPolling]);
+
   const startProgressPolling = useCallback(() => {
     stopPolling();
     pollRef.current = setInterval(() => {
-      void (async () => {
-        try {
-          const nextProgress = await fetchRunnerUpgradeProgress();
-          if (!mountedRef.current) {
-            return;
-          }
-          setProgress(nextProgress);
-        } catch {
-          // Progress polling is best-effort during apply.
-        }
-      })();
+      void pollOnce();
     }, 2_000);
-  }, [stopPolling]);
+  }, [pollOnce, stopPolling]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    void (async () => {
+      try {
+        await refreshStatus();
+        const nextProgress = await fetchRunnerUpgradeProgress();
+        if (!mountedRef.current) {
+          return;
+        }
+        setProgress(nextProgress);
+        if (
+          nextProgress?.operationId ||
+          status?.status === "updating" ||
+          status?.status === "partially_updated"
+        ) {
+          if (nextProgress?.operationId) {
+            setOperationId(nextProgress.operationId);
+            setLifecycle("running");
+            startProgressPolling();
+          }
+        }
+      } catch {
+        if (mountedRef.current) {
+          setStatusLoading(false);
+        }
+      }
+    })();
+    return () => {
+      mountedRef.current = false;
+      stopPolling();
+    };
+    // Mount-only hydrate.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const runPreview = useCallback(async () => {
     setMutation((current) => ({ ...current, phase: "previewing", error: null }));
@@ -139,54 +234,31 @@ export function RunnerUpgradeSettingsCard({
     if (!confirmed) {
       return;
     }
-    setApplying(true);
+    setLifecycle("submitting");
     setMutation((current) => ({ ...current, phase: "applying", error: null }));
-    startProgressPolling();
+    setNoProgress(false);
     try {
-      let previewFingerprint = mutation.preview?.previewFingerprint;
-      if (!previewFingerprint) {
-        const freshPreview = await previewRunnerUpgrade();
-        if (freshPreview.blocked) {
-          throw new Error(
-            freshPreview.message ?? "Runner upgrade preview is blocked.",
-          );
-        }
-        previewFingerprint = freshPreview.previewFingerprint;
-      }
       const resume =
-        status.status === "partially_updated" ||
-        status.status === "updating" ||
-        status.status === "failed";
+        status?.status === "partially_updated" ||
+        status?.status === "updating" ||
+        status?.status === "failed";
       const result = await applyRunnerUpgrade({
-        previewFingerprint,
+        previewFingerprint: mutation.preview?.previewFingerprint,
         resume,
       });
-      stopPolling();
-      const nextProgress = await fetchRunnerUpgradeProgress();
-      if (mountedRef.current) {
-        setProgress(nextProgress);
-        setStatus(result.status);
+      if (!mountedRef.current) {
+        return;
       }
-      if (result.apply.status === "up_to_date" && result.status.status === "up_to_date") {
-        setMutation({
-          phase: "success",
-          preview: null,
-          error: null,
-          successMessage: "PDev runner updated and configuration canary passed.",
-        });
-        setConfirmed(false);
-      } else {
-        setMutation({
-          phase: "error",
-          preview: mutation.preview,
-          error: sanitizeSettingsErrorMessage(
-            result.apply.message ?? "Runner upgrade did not complete successfully.",
-          ),
-          successMessage: null,
-        });
-      }
+      setOperationId(result.apply.operationId);
+      setProgress(result.progress);
+      setStatus(result.status);
+      setLifecycle("accepted");
+      setLifecycle("running");
+      startProgressPolling();
+      void pollOnce();
     } catch (error) {
       stopPolling();
+      setLifecycle("failed");
       setMutation({
         phase: "error",
         preview: mutation.preview,
@@ -195,59 +267,56 @@ export function RunnerUpgradeSettingsCard({
         ),
         successMessage: null,
       });
-    } finally {
-      if (mountedRef.current) {
-        setApplying(false);
-      }
     }
   }, [
     confirmed,
     mutation.preview,
+    pollOnce,
     startProgressPolling,
-    status.status,
+    status?.status,
     stopPolling,
   ]);
 
   const activePhaseIndex = useMemo(() => {
-    const phase = progress?.uiPhase ?? status.pendingPhase;
-    if (!phase) {
-      return 0;
+    const phase = progress?.uiPhase ?? status?.pendingPhase;
+    if (!phase || !operationId) {
+      return -1;
     }
-    const index = RUNNER_UPGRADE_PHASE_LABELS.findIndex(
-      (_, candidateIndex) =>
-        [
-          "verifying-managed-repository",
-          "comparing-runner-snapshots",
-          "preparing-upgrade-commit",
-          "updating-managed-runner",
-          "verifying-runner-on-production-branch",
-          "synchronizing-cloud-configuration",
-          "running-configuration-canary",
-        ][candidateIndex] === phase,
+    const index = RUNNER_UPGRADE_PHASE_IDS.findIndex(
+      (candidate) => candidate === phase,
     );
     return index >= 0 ? index : 0;
-  }, [progress?.uiPhase, status.pendingPhase]);
+  }, [operationId, progress?.uiPhase, status?.pendingPhase]);
 
   const guidedPhases = buildGuidedOperationPhases({
     labels: RUNNER_UPGRADE_PHASE_LABELS,
-    activeIndex: activePhaseIndex,
+    activeIndex: Math.max(activePhaseIndex, 0),
   });
 
   const tokenUnavailable = Boolean(
-    status.blockedReason?.includes("GITHUB_TOKEN is required"),
+    status?.blockedReason?.includes("GITHUB_TOKEN is required"),
   );
   const updateAvailable =
-    status.status === "update_available" ||
-    status.status === "partially_updated" ||
-    status.status === "failed";
+    status?.status === "update_available" ||
+    status?.status === "partially_updated" ||
+    status?.status === "failed";
   const canApply =
-    updateAvailable &&
+    Boolean(updateAvailable) &&
     !tokenUnavailable &&
-    status.status !== "blocked_non_managed" &&
-    status.status !== "blocked_operator_conflicts" &&
-    status.status !== "blocked_unexpected_remote";
+    status?.status !== "blocked_non_managed" &&
+    status?.status !== "blocked_operator_conflicts" &&
+    status?.status !== "blocked_unexpected_remote" &&
+    lifecycle !== "submitting" &&
+    lifecycle !== "running" &&
+    lifecycle !== "accepted";
 
-  const canaryRunUrl = progress?.canaryRunUrl ?? status.canaryRunUrl;
+  const canaryRunUrl = progress?.canaryRunUrl ?? status?.canaryRunUrl;
+  const showRunningPanel =
+    Boolean(operationId) &&
+    (lifecycle === "running" ||
+      lifecycle === "accepted" ||
+      status?.status === "updating");
+  const submitting = lifecycle === "submitting";
 
   return (
     <div className="space-y-6 rounded-md border border-border p-4">
@@ -260,16 +329,24 @@ export function RunnerUpgradeSettingsCard({
 
       <div className="rounded-md border border-border bg-muted/10 p-4 text-sm">
         <p>
-          <span className="text-muted-foreground">Status:</span> {status.statusLabel}
+          <span className="text-muted-foreground">Status:</span>{" "}
+          {statusLoading || !status
+            ? "Checking runner version"
+            : status.statusLabel}
         </p>
-        <p className="mt-2">{formatSnapshotLine("Current runner", status.currentSnapshot)}</p>
         <p className="mt-2">
-          {formatSnapshotLine("Available runner", status.availableSnapshot)}
+          {formatSnapshotLine("Current runner", status?.currentSnapshot)}
         </p>
-        {status.blockedReason ? (
+        <p className="mt-2">
+          {formatSnapshotLine("Available runner", status?.availableSnapshot)}
+        </p>
+        {status?.blockedReason && status.status !== "checking" ? (
           <p className="mt-2 text-destructive">{status.blockedReason}</p>
         ) : null}
-        {status.conflictPaths?.length ? (
+        {status?.retryGuidance && status.degraded ? (
+          <p className="mt-2 text-muted-foreground">{status.retryGuidance}</p>
+        ) : null}
+        {status?.conflictPaths?.length ? (
           <div className="mt-2">
             <p className="text-muted-foreground">Conflict paths:</p>
             <ul className="mt-1 list-disc pl-5">
@@ -279,7 +356,7 @@ export function RunnerUpgradeSettingsCard({
             </ul>
           </div>
         ) : null}
-        {status.prUrl ? (
+        {status?.prUrl ? (
           <p className="mt-2">
             <span className="text-muted-foreground">Upgrade PR:</span>{" "}
             <a href={status.prUrl} className="underline" target="_blank" rel="noreferrer">
@@ -315,7 +392,11 @@ export function RunnerUpgradeSettingsCard({
         </div>
       ) : null}
 
-      {applying || status.status === "updating" ? (
+      {submitting ? (
+        <p className="text-sm text-muted-foreground">Starting update…</p>
+      ) : null}
+
+      {showRunningPanel && activePhaseIndex >= 0 ? (
         <GuidedOperationPanel
           phases={guidedPhases}
           supportingText={
@@ -323,8 +404,35 @@ export function RunnerUpgradeSettingsCard({
               ? "Waiting for configuration canary to finish."
               : "Runner upgrade in progress."
           }
-          busy={applying || status.status === "updating"}
+          busy
         />
+      ) : null}
+
+      {noProgress && showRunningPanel ? (
+        <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
+          <p>The runner update has not made progress recently.</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                setConfirmed(true);
+                void runApply();
+              }}
+            >
+              Retry
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => void refreshStatus()}
+            >
+              Refresh status
+            </Button>
+          </div>
+        </div>
       ) : null}
 
       {canaryRunUrl ? (
@@ -357,17 +465,17 @@ export function RunnerUpgradeSettingsCard({
         onApply={() => void runApply()}
         previewLabel="Preview runner update"
         applyLabel="Update runner"
-        disablePreview={!canApply || applying}
-        disableApply={!canApply || !confirmed || applying}
+        disablePreview={!canApply || submitting}
+        disableApply={!canApply || !confirmed || submitting}
       />
 
-      {status.status === "partially_updated" ? (
+      {status?.status === "partially_updated" ? (
         <div className="flex flex-wrap items-center gap-2">
           <Button
             type="button"
             size="sm"
             variant="outline"
-            disabled={applying}
+            disabled={submitting || lifecycle === "running"}
             onClick={() => {
               setConfirmed(true);
               void runApply();
@@ -379,7 +487,7 @@ export function RunnerUpgradeSettingsCard({
             type="button"
             size="sm"
             variant="ghost"
-            disabled={applying}
+            disabled={submitting}
             onClick={() => void refreshStatus()}
           >
             Refresh status
