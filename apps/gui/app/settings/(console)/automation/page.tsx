@@ -1,27 +1,22 @@
-import { loadHarnessConfigSummary } from "@/lib/settings/load-harness-config-summary";
-import { SettingsSummarySection } from "@/components/settings/settings-summary-section";
+import { AutomationSettingsEditor } from "@/components/settings/editors/automation-settings-editor";
+import { loadAutomationEditorData } from "@/lib/settings/load-settings-editor-data";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsAutomationPage() {
-  const config = await loadHarnessConfigSummary();
+  const data = await loadAutomationEditorData();
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-xl font-semibold tracking-tight">Automation</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Schema-backed automation fields from local harness config.
+          Edit schema-backed automation controls stored in local harness config.
         </p>
       </div>
-      <SettingsSummarySection
-        title="Orchestrator"
-        description="Editable automation controls are planned for a later settings update."
-        rows={[
-          { label: "Orchestrator marker", value: config.orchestratorMarker },
-          { label: "Log directory", value: config.logDirectory },
-          { label: "Allowed target repos", value: String(config.allowedTargetRepos.length) },
-        ]}
+      <AutomationSettingsEditor
+        initialAutomation={data.automation}
+        initialConfigFingerprint={data.configFingerprint}
       />
     </div>
   );

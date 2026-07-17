@@ -11,7 +11,9 @@ Commit A delivers a read-mostly console:
 - **Diagnostics** — cached doctor checks on load; expensive checks only after **Run checks**
 - **Data and privacy** — existing preferences UI inside the console shell
 
-Mutation editors for credentials, Linear, Vercel, target repositories, and automation are deferred to Commit B.
+Mutation editors for credentials, Linear, Vercel, target repositories, and automation are implemented under `apps/gui/components/settings/editors/`. They call the same setup APIs as the wizard but use the settings mutation flow documented in `apps/gui/lib/settings/settings-mutation.ts`.
+
+Local config-only edits (repositories, automation) use `src/setup/settings-config-patch.ts` with fingerprint CAS via `/api/settings/preview-config-patch` and `/api/settings/apply-config-patch`.
 
 ## Future multi-connection model
 
