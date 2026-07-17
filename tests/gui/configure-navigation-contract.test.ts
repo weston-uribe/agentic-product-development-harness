@@ -38,7 +38,7 @@ describe("configure navigation contracts", () => {
     expect(timingSource).not.toMatch(/LINEAR_API_KEY|GITHUB_TOKEN|secret/i);
   });
 
-  it("prefetches configure and workflow routes from settings menu intent", () => {
+  it("prefetches settings and workflow routes from settings menu intent", () => {
     const source = readFileSync(
       path.join(repoRoot, "apps/gui/components/custom/settings-menu.tsx"),
       "utf8",
@@ -46,7 +46,9 @@ describe("configure navigation contracts", () => {
 
     expect(source).toContain("router.prefetch");
     expect(source).toContain("onOpenChange={handleOpenChange}");
-    expect(source).toContain("onMouseEnter={handleConfigureIntent}");
-    expect(source).toContain("markConfigureClient");
+    expect(source).toContain("onMouseEnter={() => prefetchRoute(workflowHref)}");
+    expect(source).toContain("onMouseEnter={() => prefetchRoute(settingsHref)}");
+    expect(source).toContain('workflowHref = "/workflow"');
+    expect(source).toContain('settingsHref = "/settings"');
   });
 });

@@ -267,6 +267,17 @@ async function seedCompletedWorkspace(workspaceDir: string): Promise<string> {
           harnessRepository: "owner/harness-repo",
           syncedAt: "2026-01-01T00:00:00.000Z",
         },
+        initialSetup: {
+          status: "complete",
+          completedAt: "2026-01-01T00:00:00.000Z",
+          completionEvidence: {
+            localConfigPresent: true,
+            linearConfigured: true,
+            vercelConfigured: true,
+            cloudSecretsVerified: true,
+            targetWorkflowsVerified: true,
+          },
+        },
       },
       null,
       2,

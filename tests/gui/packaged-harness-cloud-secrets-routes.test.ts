@@ -25,6 +25,8 @@ describe("packaged harness cloud secrets route regression", () => {
   let workspaceDir = "";
   let provider: MockGitHubRemoteSetupProvider;
   const originalRepoRoot = process.env.HARNESS_REPO_ROOT;
+  const originalPDevHome = process.env.P_DEV_HOME;
+  const originalConfigPath = process.env.HARNESS_CONFIG_PATH;
   const originalRuntimeMode = process.env.P_DEV_RUNTIME_MODE;
   const originalPackagedVersion = process.env.P_DEV_PACKAGE_VERSION;
   const originalTestSeam = process.env.HARNESS_VITEST_REMOTE_SETUP_MOCK;
@@ -33,6 +35,10 @@ describe("packaged harness cloud secrets route regression", () => {
     process.env.P_DEV_RUNTIME_MODE = "packaged";
     process.env.P_DEV_PACKAGE_VERSION = "0.3.0";
     process.env.HARNESS_VITEST_REMOTE_SETUP_MOCK = "enabled";
+    // Prior apply/preview paths may absolutize HARNESS_CONFIG_PATH via dotenv load.
+    // Clear workspace-scoped env so each test resolves config inside its temp dir.
+    delete process.env.HARNESS_CONFIG_PATH;
+    delete process.env.P_DEV_HOME;
 
     workspaceDir = await mkdtemp(path.join(tmpdir(), "packaged-route-cloud-secrets-"));
     process.env.HARNESS_REPO_ROOT = workspaceDir;
@@ -92,6 +98,16 @@ describe("packaged harness cloud secrets route regression", () => {
       delete process.env.HARNESS_REPO_ROOT;
     } else {
       process.env.HARNESS_REPO_ROOT = originalRepoRoot;
+    }
+    if (originalPDevHome === undefined) {
+      delete process.env.P_DEV_HOME;
+    } else {
+      process.env.P_DEV_HOME = originalPDevHome;
+    }
+    if (originalConfigPath === undefined) {
+      delete process.env.HARNESS_CONFIG_PATH;
+    } else {
+      process.env.HARNESS_CONFIG_PATH = originalConfigPath;
     }
     if (originalRuntimeMode === undefined) {
       delete process.env.P_DEV_RUNTIME_MODE;
