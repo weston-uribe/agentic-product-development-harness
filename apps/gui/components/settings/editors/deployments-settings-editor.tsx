@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { VercelSetupSummary } from "@harness/setup/vercel-setup-summary";
 import type { VercelBridgePreview } from "@harness/setup/vercel-setup-apply";
-import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
 import { SettingsMutationPanel } from "@/components/settings/settings-mutation-panel";
 import {
   initialSettingsMutationState,
@@ -20,6 +21,9 @@ type DeploymentsSettingsEditorProps = {
   initialSummary: VercelSetupSummary;
 };
 
+type ScopeOption = { id: string; label: string };
+type ProjectOption = { id: string; name: string };
+
 const selectClassName =
   "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
 
@@ -27,26 +31,152 @@ export function DeploymentsSettingsEditor({
   initialSummary,
 }: DeploymentsSettingsEditorProps) {
   const [summary, setSummary] = useState(initialSummary);
-  const [teams, setTeams] = useState<Array<{ id: string; name: string }>>([]);
-  const [projects, setProjects] = useState<Array<{ id: string; name: string }>>([]);
-  const [teamId, setTeamId] = useState(summary.controlPlane?.vercel?.teamId ?? "");
-  const [projectId, setProjectId] = useState(
-    summary.controlPlane?.vercel?.projectId ?? "",
-  );
+  const [scopes, setScopes] = useState<ScopeOption[]>([]);
+  const [projects, setProjects] = useState<ProjectOption[]>([]);
+  const committedTeamId = summary.controlPlane?.vercel?.teamId ?? "";
+  const committedProjectId = summary.controlPlane?.vercel?.projectId ?? "";
+  const [teamId, setTeamId] = useState(committedTeamId);
+  const [projectId, setProjectId] = useState(committedProjectId);
   const [mutation, setMutation] =
     useState<SettingsMutationState<VercelBridgePreview>>(initialSettingsMutationState());
   const [confirmed, setConfirmed] = useState(false);
+  const [teamsLoading, setTeamsLoading] = useState(false);
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [optionsError, setOptionsError] = useState<string | null>(null);
 
-  const loadOptions = useCallback(async (scopeId?: string) => {
-    const query = scopeId ? `?teamId=${encodeURIComponent(scopeId)}` : "";
-    const response = await fetch(`/api/setup/vercel-bridge-options${query}`);
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.error ?? "Failed to load Vercel options");
-    }
-    setTeams(data.teams ?? []);
-    setProjects(data.projects ?? []);
+  const mountedRef = useRef(true);
+  const teamsRequestIdRef = useRef(0);
+  const projectsRequestIdRef = useRef(0);
+  const credentialFingerprint = summary.vercelTokenConfigured
+    ? "vercel-configured"
+    : "vercel-missing";
+  const loadedCredentialRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
+
+  const loadTeams = useCallback(async () => {
+    if (!summary.vercelTokenConfigured) {
+      return;
+    }
+    const requestId = ++teamsRequestIdRef.current;
+    setTeamsLoading(true);
+    setOptionsError(null);
+    try {
+      const response = await fetch("/api/setup/vercel-bridge-options");
+      const data = await response.json();
+      if (!mountedRef.current || requestId !== teamsRequestIdRef.current) {
+        return;
+      }
+      if (!response.ok) {
+        throw new Error(data.error ?? data.loadError ?? "Failed to load Vercel teams");
+      }
+      const nextScopes: ScopeOption[] = (data.scopes ?? []).map(
+        (scope: { id: string; label: string }) => ({
+          id: scope.id,
+          label: scope.label,
+        }),
+      );
+      setScopes(nextScopes);
+      if (data.loadError) {
+        setOptionsError(data.loadError);
+      }
+      loadedCredentialRef.current = credentialFingerprint;
+    } catch (error) {
+      if (!mountedRef.current || requestId !== teamsRequestIdRef.current) {
+        return;
+      }
+      setOptionsError(
+        sanitizeSettingsErrorMessage(
+          error instanceof Error ? error.message : "Failed to load Vercel teams",
+        ),
+      );
+    } finally {
+      if (mountedRef.current && requestId === teamsRequestIdRef.current) {
+        setTeamsLoading(false);
+      }
+    }
+  }, [credentialFingerprint, summary.vercelTokenConfigured]);
+
+  const loadProjects = useCallback(
+    async (scopeId: string) => {
+      if (!summary.vercelTokenConfigured) {
+        return;
+      }
+      const requestId = ++projectsRequestIdRef.current;
+      setProjectsLoading(true);
+      setOptionsError(null);
+      try {
+        const query = `?teamId=${encodeURIComponent(scopeId)}&projectsOnly=true`;
+        const response = await fetch(`/api/setup/vercel-bridge-options${query}`);
+        const data = await response.json();
+        if (!mountedRef.current || requestId !== projectsRequestIdRef.current) {
+          return;
+        }
+        if (!response.ok) {
+          throw new Error(
+            data.error ?? data.loadError ?? "Failed to load Vercel projects",
+          );
+        }
+        const nextProjects: ProjectOption[] = data.projects ?? [];
+        setProjects(nextProjects);
+        setProjectId((current) => {
+          if (nextProjects.some((project) => project.id === current)) {
+            return current;
+          }
+          if (
+            committedProjectId &&
+            nextProjects.some((project) => project.id === committedProjectId)
+          ) {
+            return committedProjectId;
+          }
+          // Clear only an unsaved selection that does not belong to the new team.
+          if (current && current !== committedProjectId) {
+            return "";
+          }
+          return current;
+        });
+      } catch (error) {
+        if (!mountedRef.current || requestId !== projectsRequestIdRef.current) {
+          return;
+        }
+        setOptionsError(
+          sanitizeSettingsErrorMessage(
+            error instanceof Error
+              ? error.message
+              : "Failed to load Vercel projects",
+          ),
+        );
+      } finally {
+        if (mountedRef.current && requestId === projectsRequestIdRef.current) {
+          setProjectsLoading(false);
+        }
+      }
+    },
+    [committedProjectId, summary.vercelTokenConfigured],
+  );
+
+  useEffect(() => {
+    if (!summary.vercelTokenConfigured) {
+      loadedCredentialRef.current = null;
+      return;
+    }
+    if (loadedCredentialRef.current === credentialFingerprint) {
+      return;
+    }
+    void loadTeams();
+  }, [credentialFingerprint, loadTeams, summary.vercelTokenConfigured]);
+
+  useEffect(() => {
+    if (!summary.vercelTokenConfigured) {
+      return;
+    }
+    void loadProjects(teamId);
+  }, [loadProjects, summary.vercelTokenConfigured, teamId]);
 
   const buildPlanPayload = useCallback(
     () => ({
@@ -94,7 +224,6 @@ export function DeploymentsSettingsEditor({
     }
     setMutation((current) => ({ ...current, phase: "applying", error: null }));
     try {
-      // Fresh server-authoritative plan on every apply; do not reuse a stale viewed preview alone.
       const freshPreview = await previewVercelBridge(buildPlanPayload());
       if (freshPreview.validationError) {
         throw new Error(freshPreview.validationError);
@@ -108,7 +237,8 @@ export function DeploymentsSettingsEditor({
         phase: "success",
         preview: null,
         error: null,
-        successMessage: "PDev automation bridge updated. Redeploy verification may continue in Vercel.",
+        successMessage:
+          "PDev automation bridge updated. Redeploy verification may continue in Vercel.",
       });
       setConfirmed(false);
     } catch (error) {
@@ -123,7 +253,7 @@ export function DeploymentsSettingsEditor({
     }
   }, [buildPlanPayload, confirmed, mutation.preview]);
 
-  const formComplete = Boolean(teamId && projectId);
+  const selectionComplete = Boolean(projectId);
 
   return (
     <div className="space-y-6">
@@ -138,58 +268,109 @@ export function DeploymentsSettingsEditor({
         </p>
         <p className="mt-2">
           <span className="text-muted-foreground">Linear webhook:</span>{" "}
-          {summary.controlPlane?.vercel?.linearWebhookVerified ? "Verified" : "Not verified"}
+          {summary.controlPlane?.vercel?.linearWebhookVerified
+            ? "Verified"
+            : "Not verified"}
         </p>
       </div>
 
-      <div className="space-y-4">
-        <div className="flex items-center justify-between gap-3">
+      {!summary.vercelTokenConfigured ? (
+        <p className="text-sm text-muted-foreground">
+          Connect Vercel in{" "}
+          <Link href="/settings/connections" className="underline">
+            Settings → Connections
+          </Link>{" "}
+          to configure deployments.
+        </p>
+      ) : (
+        <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            Replace the active Vercel team and project for the PDev automation bridge. Endpoint and webhook verification run during apply.
+            Configure optional application preview and production deployment
+            behavior for the selected Vercel team and project.
           </p>
-          <Button type="button" variant="outline" size="sm" onClick={() => void loadOptions(teamId)}>
-            Load Vercel options
-          </Button>
-        </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="settings-vercel-team">Team</Label>
-            <select
-              id="settings-vercel-team"
-              className={selectClassName}
-              value={teamId}
-              onChange={(event) => {
-                setTeamId(event.target.value);
-                void loadOptions(event.target.value);
-              }}
-            >
-              <option value="">Select a team</option>
-              {teams.map((team) => (
-                <option key={team.id} value={team.id}>
-                  {team.name}
+          {optionsError ? (
+            <div className="flex flex-wrap items-center gap-2 text-sm">
+              <p className="text-destructive">{optionsError}</p>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  loadedCredentialRef.current = null;
+                  void loadTeams();
+                  void loadProjects(teamId);
+                }}
+              >
+                Retry
+              </Button>
+            </div>
+          ) : null}
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="settings-vercel-team">Team</Label>
+              <select
+                id="settings-vercel-team"
+                className={selectClassName}
+                value={teamId}
+                disabled={teamsLoading && scopes.length === 0}
+                onChange={(event) => {
+                  setTeamId(event.target.value);
+                  setConfirmed(false);
+                  setMutation(initialSettingsMutationState());
+                }}
+              >
+                {scopes.length === 0 ? (
+                  <option value="">
+                    {teamsLoading ? "Loading Vercel teams…" : "Select a team"}
+                  </option>
+                ) : null}
+                {scopes.map((scope) => (
+                  <option key={scope.id || "personal"} value={scope.id}>
+                    {scope.label}
+                  </option>
+                ))}
+              </select>
+              {teamsLoading ? (
+                <p className="text-xs text-muted-foreground">
+                  Loading Vercel teams…
+                </p>
+              ) : null}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="settings-vercel-project">Project</Label>
+              <select
+                id="settings-vercel-project"
+                className={selectClassName}
+                value={projectId}
+                disabled={projectsLoading && projects.length === 0}
+                onChange={(event) => {
+                  setProjectId(event.target.value);
+                  setConfirmed(false);
+                  setMutation(initialSettingsMutationState());
+                }}
+              >
+                <option value="">
+                  {projectsLoading
+                    ? "Loading Vercel projects…"
+                    : "Select a project"}
                 </option>
-              ))}
-            </select>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="settings-vercel-project">Project</Label>
-            <select
-              id="settings-vercel-project"
-              className={selectClassName}
-              value={projectId}
-              onChange={(event) => setProjectId(event.target.value)}
-            >
-              <option value="">Select a project</option>
-              {projects.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name}
-                </option>
-              ))}
-            </select>
+                {projects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
+              {projectsLoading ? (
+                <p className="text-xs text-muted-foreground">
+                  Loading Vercel projects…
+                </p>
+              ) : null}
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       <SettingsMutationPanel
         title="Apply deployment changes"
@@ -210,8 +391,10 @@ export function DeploymentsSettingsEditor({
         onConfirmedChange={setConfirmed}
         onPreview={() => void runPreview()}
         onApply={() => void runApply()}
-        disablePreview={!formComplete}
-        disableApply={!formComplete || !confirmed}
+        disablePreview={!selectionComplete || !summary.vercelTokenConfigured}
+        disableApply={
+          !selectionComplete || !confirmed || !summary.vercelTokenConfigured
+        }
       />
     </div>
   );

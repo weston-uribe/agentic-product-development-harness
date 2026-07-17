@@ -137,8 +137,9 @@ describe("settings mutation editors", () => {
 
     expect(deploymentsEditor).toContain('previewPolicy="optional"');
     expect(deploymentsEditor).toContain("previewVercelBridge(buildPlanPayload())");
-    expect(deploymentsEditor).toContain("disableApply={!formComplete || !confirmed}");
-    expect(deploymentsEditor).not.toContain("disableApply={!formComplete || !mutation.preview}");
+    expect(deploymentsEditor).toContain(
+      "disableApply={\n          !selectionComplete || !confirmed || !summary.vercelTokenConfigured\n        }",
+    );
 
     expect(connectionsEditor).not.toContain('previewPolicy="optional"');
     expect(mutationPanel).toContain('previewPolicy = "required"');
