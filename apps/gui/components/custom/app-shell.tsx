@@ -6,6 +6,7 @@ type AppShellProps = {
   settingsHref?: string;
   isSettingsActive?: boolean;
   isWorkflowActive?: boolean;
+  showProductNavigation?: boolean;
 };
 
 export function AppShell({
@@ -13,6 +14,7 @@ export function AppShell({
   settingsHref,
   isSettingsActive,
   isWorkflowActive,
+  showProductNavigation = true,
 }: AppShellProps) {
   return (
     <div className={LAYOUT.shell}>
@@ -20,6 +22,7 @@ export function AppShell({
         settingsHref={settingsHref}
         isSettingsActive={isSettingsActive}
         isWorkflowActive={isWorkflowActive}
+        showProductNavigation={showProductNavigation}
       />
       <main className={APP_MAIN_CLASS}>{children}</main>
     </div>

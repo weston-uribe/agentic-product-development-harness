@@ -8,6 +8,7 @@ type ApplicationHeaderProps = {
   isSettingsActive?: boolean;
   workflowHref?: string;
   isWorkflowActive?: boolean;
+  showProductNavigation?: boolean;
 };
 
 export function ApplicationHeader({
@@ -15,6 +16,7 @@ export function ApplicationHeader({
   isSettingsActive,
   workflowHref = "/workflow",
   isWorkflowActive = false,
+  showProductNavigation = true,
 }: ApplicationHeaderProps) {
   return (
     <header className={LAYOUT.header}>
@@ -38,6 +40,7 @@ export function ApplicationHeader({
           isSettingsActive={isSettingsActive}
           workflowHref={workflowHref}
           isWorkflowActive={isWorkflowActive}
+          showProductNavigation={showProductNavigation}
         />
       </div>
     </header>

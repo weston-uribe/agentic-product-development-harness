@@ -20,6 +20,7 @@ type SettingsMenuProps = {
   isSettingsActive?: boolean;
   workflowHref?: string;
   isWorkflowActive?: boolean;
+  showProductNavigation?: boolean;
 };
 
 export function SettingsMenu({
@@ -27,6 +28,7 @@ export function SettingsMenu({
   isSettingsActive = false,
   workflowHref = "/workflow",
   isWorkflowActive = false,
+  showProductNavigation = true,
 }: SettingsMenuProps) {
   const { mounted, isDark, toggleTheme } = useThemeToggle();
   const router = useRouter();
@@ -45,13 +47,13 @@ export function SettingsMenu({
 
   const handleOpenChange = useCallback(
     (open: boolean) => {
-      if (!open) {
+      if (!open || !showProductNavigation) {
         return;
       }
       prefetchRoute(settingsHref);
       prefetchRoute(workflowHref);
     },
-    [prefetchRoute, settingsHref, workflowHref],
+    [prefetchRoute, settingsHref, showProductNavigation, workflowHref],
   );
 
   return (
@@ -76,27 +78,31 @@ export function SettingsMenu({
           )}
           <span>{mounted && isDark ? "Light mode" : "Dark mode"}</span>
         </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem asChild>
-          <Link
-            href={workflowHref}
-            aria-current={isWorkflowActive ? "page" : undefined}
-            onMouseEnter={() => prefetchRoute(workflowHref)}
-            onFocus={() => prefetchRoute(workflowHref)}
-          >
-            Workflow
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <Link
-            href={settingsHref}
-            aria-current={isSettingsActive ? "page" : undefined}
-            onMouseEnter={() => prefetchRoute(settingsHref)}
-            onFocus={() => prefetchRoute(settingsHref)}
-          >
-            Settings
-          </Link>
-        </DropdownMenuItem>
+        {showProductNavigation ? (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem asChild>
+              <Link
+                href={workflowHref}
+                aria-current={isWorkflowActive ? "page" : undefined}
+                onMouseEnter={() => prefetchRoute(workflowHref)}
+                onFocus={() => prefetchRoute(workflowHref)}
+              >
+                Workflow
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link
+                href={settingsHref}
+                aria-current={isSettingsActive ? "page" : undefined}
+                onMouseEnter={() => prefetchRoute(settingsHref)}
+                onFocus={() => prefetchRoute(settingsHref)}
+              >
+                Settings
+              </Link>
+            </DropdownMenuItem>
+          </>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );

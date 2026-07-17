@@ -55,12 +55,25 @@ describe("settings navigation and routing", () => {
       path.join(process.cwd(), "apps/gui/components/custom/settings-menu.tsx"),
       "utf8",
     );
+    const workflowPage = await readFile(
+      path.join(process.cwd(), "apps/gui/app/workflow/page.tsx"),
+      "utf8",
+    );
+    const consoleLayout = await readFile(
+      path.join(process.cwd(), "apps/gui/app/settings/(console)/layout.tsx"),
+      "utf8",
+    );
 
     expect(settingsMenu).toContain('settingsHref = "/settings"');
     expect(settingsMenu).toContain("Settings");
     expect(settingsMenu).toContain("Workflow");
+    expect(settingsMenu).toContain("showProductNavigation = true");
     expect(settingsMenu).not.toContain("Setup wizard");
     expect(settingsMenu).not.toContain("Data sharing");
+    expect(workflowPage).toContain("<AppShell");
+    expect(workflowPage).not.toContain("showProductNavigation={false}");
+    expect(consoleLayout).toContain("<AppShell");
+    expect(consoleLayout).not.toContain("showProductNavigation={false}");
   });
 
   it("shares workflow model save hook for settings models page", async () => {
