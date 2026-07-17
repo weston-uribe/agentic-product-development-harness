@@ -31,6 +31,7 @@ import {
   blockedCategoryMessage,
   classifyWorkflowInstallMergeRejection,
 } from "./workflow-install-merge-errors.js";
+import { shouldAttemptMerge } from "./workflow-install-merge-gate.js";
 import {
   countOpenPullRequestsOnBranch,
   isInstallBranchAlreadyClean,
@@ -917,16 +918,14 @@ export async function advanceTargetWorkflowFinalizationStep(
     });
   }
 
-  if (mergeableState === "dirty" || mergeableState === "blocked") {
-    const category: WorkflowInstallBlockedCategory =
-      mergeableState === "blocked" ? "review-required" : "merge-conflict";
+  if (mergeableState === "dirty") {
     return blockedResult({
       repoConfigId: input.repoConfigId,
       targetRepo: input.targetRepo,
       targetRepoSlug,
       productionBranch: input.productionBranch,
       branchName,
-      category,
+      category: "merge-conflict",
       workflowStatus: productionStatus.workflowStatus,
       prUrl,
       prNumber,
@@ -936,7 +935,12 @@ export async function advanceTargetWorkflowFinalizationStep(
     });
   }
 
-  if (inspection.mergeable === false) {
+  if (
+    !shouldAttemptMerge({
+      mergeableState: inspection.mergeableState,
+      mergeable: inspection.mergeable,
+    })
+  ) {
     return blockedResult({
       repoConfigId: input.repoConfigId,
       targetRepo: input.targetRepo,
@@ -995,6 +999,7 @@ export async function advanceTargetWorkflowFinalizationStep(
         error,
         mergeableState: inspection.mergeableState,
         message: error instanceof Error ? error.message : String(error),
+        checkPolicy,
       });
       if (classified.waiting) {
         sessions.set(sessionKey(targetRepoSlug, input.repoConfigId), session);
