@@ -668,7 +668,7 @@ export function GuidedVercelBridgeCard({
             {!stepPrerequisitesMet && githubDispatchMessage ? (
               <p className="text-sm text-destructive">{githubDispatchMessage}</p>
             ) : null}
-            {orchestrationStatusMessage ? (
+            {orchestrationStatusMessage && !operationActive ? (
               <VercelBridgeOrchestrationStatus
                 message={orchestrationStatusMessage}
                 phaseLabel={mapOrchestrationPhaseLabel(
@@ -904,27 +904,29 @@ export function GuidedVercelBridgeCard({
               </div>
             ) : null}
 
-            <RemoteActionConfirmation
-              scope="vercel-bridge-write"
-              variant="guided"
-              confirmed={confirmed}
-              disabled={controlsLocked || !formComplete}
-              disabledReason={
-                redeployPollingActive
-                  ? REDEPLOY_POLLING_LOCK_MESSAGE
-                  : !formComplete
-                  ? "Select or enter the Vercel team and project before confirming."
-                  : teamMode === "create"
-                    ? "This will create provider resources in Vercel when you apply."
-                    : undefined
-              }
-              onConfirmedChange={(nextConfirmed) => {
-                if (redeployPollingActive) {
-                  return;
+            {loading !== "apply" && !operationActive && !verifiedSuccess ? (
+              <RemoteActionConfirmation
+                scope="vercel-bridge-write"
+                variant="guided"
+                confirmed={confirmed}
+                disabled={controlsLocked || !formComplete}
+                disabledReason={
+                  redeployPollingActive
+                    ? REDEPLOY_POLLING_LOCK_MESSAGE
+                    : !formComplete
+                    ? "Select or enter the Vercel team and project before confirming."
+                    : teamMode === "create"
+                      ? "This will create provider resources in Vercel when you apply."
+                      : undefined
                 }
-                setConfirmed(nextConfirmed);
-              }}
-            />
+                onConfirmedChange={(nextConfirmed) => {
+                  if (redeployPollingActive) {
+                    return;
+                  }
+                  setConfirmed(nextConfirmed);
+                }}
+              />
+            ) : null}
 
             {operationActive ? (
               <GuidedOperationPanel

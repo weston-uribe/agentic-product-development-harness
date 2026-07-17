@@ -39,6 +39,7 @@ import {
   uiPhaseLabel,
   writeHarnessProvisioningProgressAtomic,
 } from "./harness-provisioning-progress.js";
+import { persistHarnessProvisioningLastRun } from "./harness-provisioning-last-run.js";
 import { parseRepoSlug } from "./github-remote-setup-live.js";
 import type { GitHubHarnessProvisioningProvider } from "./github-remote-provider.js";
 import {
@@ -148,6 +149,7 @@ export interface HarnessRepoProvisioningApplyResult {
 }
 
 export interface HarnessRepoProvisioningTimings {
+  authenticationMs?: number;
   snapshotProvisioning?: SnapshotProvisioningTimings;
   remoteVerificationMs?: number;
   localPersistenceMs?: number;
@@ -1244,7 +1246,11 @@ async function applyHarnessRepoProvisioningLocked(options: {
     };
   }
 
+  const authenticationStartedAt = performance.now();
   const user = await options.provider.resolveAuthenticatedUser();
+  const applyTimings: HarnessRepoProvisioningTimings = {
+    authenticationMs: elapsedHarnessProvisioningMs(authenticationStartedAt),
+  };
   const pDevVersion = resolveHarnessPackageVersion();
   const paths = resolveLocalFilePaths(options.cwd);
   const existingEnv = await readExistingEnvFile(paths);
@@ -1393,7 +1399,6 @@ async function applyHarnessRepoProvisioningLocked(options: {
     preview.creationPreviewFingerprint ?? options.fingerprint;
   let activePending = pending;
   let requiresSnapshotVerification = false;
-  const applyTimings: HarnessRepoProvisioningTimings = {};
 
   if (classification.kind === "valid-managed") {
     targetRepo = classification.repoSlug;
@@ -1758,6 +1763,14 @@ async function applyHarnessRepoProvisioningLocked(options: {
   applyTimings.localPersistenceMs = elapsedHarnessProvisioningMs(
     localPersistenceStartedAt,
   );
+  await persistHarnessProvisioningLastRun({
+    cwd: options.cwd,
+    operationId: options.operationId,
+    outcome: "success",
+    timings: applyTimings,
+  }).catch(() => {
+    // Last-run persistence is best-effort; never fail provisioning on it.
+  });
   return {
     state: "verified-and-persisted",
     harnessDispatchRepo: targetRepo,

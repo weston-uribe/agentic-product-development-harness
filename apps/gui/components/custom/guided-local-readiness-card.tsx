@@ -17,10 +17,12 @@ import {
   type LocalReadinessUiStatus,
 } from "@/components/custom/setup-checklist";
 import { LocalReadinessVisualQueue } from "@/lib/local-readiness-visual-queue";
+import { GuidedStepSuccessPanel } from "@/components/custom/guided-step-success-panel";
 
 interface GuidedLocalReadinessCardProps {
   readiness: FirstRunReadiness;
   onContinue: () => void;
+  onStepCompleted?: () => void;
 }
 
 interface UiCheckRow {
@@ -56,12 +58,14 @@ function parseNdjsonLine(line: string): LocalReadinessProgressEvent | null {
 export function GuidedLocalReadinessCard({
   readiness,
   onContinue,
+  onStepCompleted,
 }: GuidedLocalReadinessCardProps) {
   const prefersReducedMotion = useReducedMotion() ?? false;
   const [checks, setChecks] = useState<UiCheckRow[]>([]);
   const [running, setRunning] = useState(true);
   const [runError, setRunError] = useState<string | null>(null);
   const [allPassed, setAllPassed] = useState(false);
+  const [stepCompletedEmitted, setStepCompletedEmitted] = useState(false);
   const runGenerationRef = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
   const visualQueueRef = useRef<LocalReadinessVisualQueue | null>(null);
@@ -82,6 +86,7 @@ export function GuidedLocalReadinessCard({
     setRunning(true);
     setRunError(null);
     setAllPassed(false);
+    setStepCompletedEmitted(false);
     setChecks([]);
 
     const queue = new LocalReadinessVisualQueue((event) => {
@@ -193,8 +198,15 @@ export function GuidedLocalReadinessCard({
     };
   }, [runChecks]);
 
-  const canContinue =
-    allPassed && !running && !readiness.localReadinessReviewed;
+  useEffect(() => {
+    if (!allPassed || running || stepCompletedEmitted) {
+      return;
+    }
+    onStepCompleted?.();
+    setStepCompletedEmitted(true);
+  }, [allPassed, onStepCompleted, running, stepCompletedEmitted]);
+
+  const passedChecks = checks.filter((check) => check.status === "passed");
 
   return (
     <SectionCard
@@ -219,16 +231,18 @@ export function GuidedLocalReadinessCard({
 
         {checks.length > 0 ? <LocalReadinessChecklist checks={checks} /> : null}
 
-        {allPassed && !running ? (
-          <p className="text-sm font-medium text-emerald-700">
-            Local readiness passed.
-          </p>
-        ) : null}
-
-        {canContinue ? (
-          <Button type="button" onClick={onContinue}>
-            Continue to cloud secrets
-          </Button>
+        {allPassed && !running && !readiness.localReadinessReviewed ? (
+          <GuidedStepSuccessPanel
+            heading="Local readiness passed"
+            explanation="This machine passed the local readiness checks required before cloud secrets setup."
+            details={
+              passedChecks.length > 0
+                ? passedChecks.map((check) => check.label)
+                : ["All local readiness checks passed."]
+            }
+            continueLabel="Continue to cloud secrets"
+            onContinue={onContinue}
+          />
         ) : null}
       </div>
     </SectionCard>

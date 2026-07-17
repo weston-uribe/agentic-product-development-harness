@@ -43,6 +43,8 @@ import { SectionCard } from "@/components/custom/section-card";
 import { RemoteActionConfirmation } from "@/components/custom/remote-action-confirmation";
 import { ReviewCloudSecretsDisclosure } from "@/components/custom/review-cloud-secrets-disclosure";
 import { SetupApplyResult } from "@/components/custom/setup-apply-result";
+import { GuidedOperationPanel, buildGuidedOperationPhases } from "@/components/custom/guided-operation-panel";
+import { GuidedStepSuccessPanel } from "@/components/custom/guided-step-success-panel";
 
 type CloudSecretsSetupType = "automatic" | "manual";
 
@@ -61,6 +63,7 @@ interface GuidedCloudSecretsCardProps {
     cloudSecretsApplyEvidence?: CloudSecretsApplyEvidence;
   }) => void;
   onContinue: () => void;
+  onStepCompleted?: () => void;
   blockedByUpstream?: boolean;
   onGoToHarnessRepo?: () => void;
   onGoToConnectServices?: () => void;
@@ -109,6 +112,7 @@ export function GuidedCloudSecretsCard({
   onSummaryUpdated,
   onUiStateChange,
   onContinue,
+  onStepCompleted,
   blockedByUpstream = false,
   onGoToHarnessRepo,
   onGoToConnectServices,
@@ -145,6 +149,9 @@ export function GuidedCloudSecretsCard({
   );
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const [mountRefreshError, setMountRefreshError] = useState<string | null>(null);
+  const [initComplete, setInitComplete] = useState(false);
+
+  const CLOUD_SECRETS_INIT_PHASES = ["Preparing repository configuration"] as const;
 
   const remoteStateRevisionRef = useRef(createStep6RemoteStateRevisionTracker());
   const hasAutoRefreshedRef = useRef(false);
@@ -223,6 +230,9 @@ export function GuidedCloudSecretsCard({
       } finally {
         if (isLatestStep6RemoteStateRevision(remoteStateRevisionRef.current, revision)) {
           setLoading(null);
+          if (source === "mount") {
+            setInitComplete(true);
+          }
         }
       }
     },
@@ -343,8 +353,9 @@ export function GuidedCloudSecretsCard({
       } else {
         setVerifiedManualSuccess(true);
       }
+      onStepCompleted?.();
     },
-    [onUiStateChange],
+    [onStepCompleted, onUiStateChange],
   );
 
   const runPreview = useCallback(async (): Promise<RemoteHarnessSecretPreview> => {
@@ -629,6 +640,10 @@ export function GuidedCloudSecretsCard({
     !loading &&
     !remoteActionsBlocked;
 
+  const showInitializationPanel = !initComplete;
+  const showRemoteActionsBlocked =
+    initComplete && remoteActionsBlocked && !showInitializationPanel;
+
   if (process.env.NODE_ENV !== "production") {
     assertStep6AutomaticApplyOutcomeInvariant({
       outcome: automaticOutcome,
@@ -657,13 +672,17 @@ export function GuidedCloudSecretsCard({
       description="Your local setup is ready. Choose automatic GitHub Actions secret setup or manual setup in GitHub, then verify before continuing."
     >
       <div className={SPACING.stackSm}>
-        {loading === "mount-refresh" ? (
-          <p className="text-sm text-muted-foreground">
-            Refreshing harness repo and secret status…
-          </p>
+        {showInitializationPanel ? (
+          <GuidedOperationPanel
+            phases={buildGuidedOperationPhases({
+              labels: [...CLOUD_SECRETS_INIT_PHASES],
+              activeIndex: 0,
+            })}
+            supportingText={CLOUD_SECRETS_INIT_PHASES[0]}
+          />
         ) : null}
 
-        {mountRefreshError ? (
+        {initComplete && mountRefreshError ? (
           <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-4">
             <p className="text-sm font-medium">{mountRefreshError}</p>
             <Button
@@ -677,7 +696,7 @@ export function GuidedCloudSecretsCard({
           </div>
         ) : null}
 
-        {remoteActionsBlocked ? (
+        {showRemoteActionsBlocked ? (
           <>
             <div className="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 p-4">
               <p className="text-sm font-medium">
@@ -712,7 +731,7 @@ export function GuidedCloudSecretsCard({
               </Button>
             </div>
           </>
-        ) : (
+        ) : initComplete ? (
           <>
             <fieldset className="space-y-3">
               <legend className="text-sm font-medium">Setup type</legend>
@@ -764,14 +783,16 @@ export function GuidedCloudSecretsCard({
                   previewIsCurrent={previewIsCurrent}
                 />
 
-                <RemoteActionConfirmation
-                  scope="remote-secret-write"
-                  variant="guided"
-                  confirmed={confirmed}
-                  disabled={automaticControlState.confirmDisabled}
-                  disabledReason={confirmDisabledReason}
-                  onConfirmedChange={setConfirmed}
-                />
+                {loading !== "apply" && !userVerifiedSuccess ? (
+                  <RemoteActionConfirmation
+                    scope="remote-secret-write"
+                    variant="guided"
+                    confirmed={confirmed}
+                    disabled={automaticControlState.confirmDisabled}
+                    disabledReason={confirmDisabledReason}
+                    onConfirmedChange={setConfirmed}
+                  />
+                ) : null}
 
                 <div className={FORM.actions}>
                   <Button
@@ -1004,12 +1025,21 @@ export function GuidedCloudSecretsCard({
             ) : null}
 
             {canContinue ? (
-              <Button type="button" onClick={onContinue}>
-                Continue to target workflow
-              </Button>
+              <GuidedStepSuccessPanel
+                heading="Cloud secrets verified"
+                explanation="Required GitHub Actions secrets are present in the harness repo and ready for target workflow install."
+                details={[
+                  setupType === "automatic"
+                    ? "Automatic GitHub Actions secret setup verified."
+                    : "Manual GitHub Actions secret setup verified.",
+                  cloudSecretVerificationMessage(summary),
+                ]}
+                continueLabel="Continue to target workflow"
+                onContinue={onContinue}
+              />
             ) : null}
           </>
-        )}
+        ) : null}
       </div>
     </SectionCard>
   );

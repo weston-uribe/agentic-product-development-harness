@@ -172,19 +172,25 @@ export function ConfigureExperience({
   const previousReadinessStepRef = useRef<FirstRunStepId | null>(null);
   const pinnedGuidedDisplayStepRef = useRef<GuidedDisplayStepId | null>(null);
   const [awaitingContinueStep, setAwaitingContinueStep] = useState<
-    "connect-services" | "linear-workspace" | "vercel-bridge" | null
+    | "connect-services"
+    | "linear-workspace"
+    | "vercel-bridge"
+    | "choose-target-repos"
+    | "local-readiness"
+    | "cloud-secrets"
+    | "target-workflow"
+    | null
   >(null);
 
   const clearPinnedGuidedDisplayStep = useCallback(() => {
     pinnedGuidedDisplayStepRef.current = null;
   }, []);
 
-  const holdGuidedStepForContinue = useCallback(
-    (step: "connect-services" | "linear-workspace" | "vercel-bridge") => {
-      setAwaitingContinueStep(step);
-    },
-    [],
-  );
+  type AwaitingContinueStep = NonNullable<typeof awaitingContinueStep>;
+
+  const holdGuidedStepForContinue = useCallback((step: AwaitingContinueStep) => {
+    setAwaitingContinueStep(step);
+  }, []);
   const stepVisitCountsRef = useRef<Partial<Record<GuidedDisplayStepId, number>>>(
     {},
   );
@@ -493,6 +499,7 @@ export function ConfigureExperience({
 
   const handleLocalReadinessReviewed = useCallback(() => {
     clearPinnedGuidedDisplayStep();
+    setAwaitingContinueStep(null);
     recordStepCompleted("local-readiness");
     setUiState((current) => ({
       ...current,
@@ -503,6 +510,7 @@ export function ConfigureExperience({
 
   const handleCloudSecretsReviewed = useCallback(() => {
     clearPinnedGuidedDisplayStep();
+    setAwaitingContinueStep(null);
     recordStepCompleted("cloud-secrets");
     setUiState((current) => ({
       ...current,
@@ -575,8 +583,6 @@ export function ConfigureExperience({
   }, [observabilityNonce, recordStepCompleted]);
 
   const handleGuidedLocalApplySuccess = useCallback(() => {
-    clearPinnedGuidedDisplayStep();
-    recordStepCompleted("choose-target-repos");
     setUiState((current) => ({
       ...current,
       localReadinessReviewed: false,
@@ -587,8 +593,20 @@ export function ConfigureExperience({
         : false,
       localPreviewStale: false,
     }));
+  }, []);
+
+  const handleChooseTargetReposContinue = useCallback(() => {
+    clearPinnedGuidedDisplayStep();
+    setAwaitingContinueStep(null);
+    recordStepCompleted("choose-target-repos");
     setDisplayedGuidedStep(GUIDED_DISPLAY_STEP_AFTER_LOCAL_APPLY);
   }, [clearPinnedGuidedDisplayStep, recordStepCompleted]);
+
+  const handleTargetWorkflowContinue = useCallback(() => {
+    clearPinnedGuidedDisplayStep();
+    setAwaitingContinueStep(null);
+    setDisplayedGuidedStep(GUIDED_DISPLAY_STEP_AFTER_WORKFLOW_READY);
+  }, [clearPinnedGuidedDisplayStep]);
 
   const handleGuidedLocalStepChange = useCallback((step: GuidedLocalSetupStep) => {
     setDisplayedGuidedStep(step);
@@ -714,6 +732,12 @@ export function ConfigureExperience({
             readiness={readiness}
             initialSummary={linearSummary}
             linearApiKeyConfigured={summary.envKeyPresence.LINEAR_API_KEY}
+            availableRepos={formDefaults.config.repos
+              .filter((repo) => repo.id.trim() && repo.targetRepo.trim())
+              .map((repo) => ({
+                id: repo.id.trim(),
+                targetRepo: repo.targetRepo.trim(),
+              }))}
             onSummaryUpdated={setLinearSummary}
             onUiStateChange={handleLinearUiStateChange}
             onContinue={handleLinearWorkspaceContinue}
@@ -748,6 +772,10 @@ export function ConfigureExperience({
             }
             onUiStateChange={handleLocalUiStateChange}
             onGuidedLocalApplySuccess={handleGuidedLocalApplySuccess}
+            onContinue={handleChooseTargetReposContinue}
+            onStepCompleted={() =>
+              holdGuidedStepForContinue("choose-target-repos")
+            }
             localSetupFilesExist={localSetupFilesExist(summary)}
           />
         );
@@ -756,6 +784,7 @@ export function ConfigureExperience({
           <GuidedLocalReadinessCard
             readiness={readiness}
             onContinue={handleLocalReadinessReviewed}
+            onStepCompleted={() => holdGuidedStepForContinue("local-readiness")}
           />
         );
       case "cloud-secrets":
@@ -771,6 +800,7 @@ export function ConfigureExperience({
             onSummaryUpdated={setRemoteSummary}
             onUiStateChange={handleRemoteUiStateChange}
             onContinue={handleCloudSecretsReviewed}
+            onStepCompleted={() => holdGuidedStepForContinue("cloud-secrets")}
             blockedByUpstream={readiness.remoteSetupBlockedByUpstream}
             onGoToHarnessRepo={() => setDisplayedGuidedStep("choose-target-repos")}
             onGoToConnectServices={() =>
@@ -789,6 +819,8 @@ export function ConfigureExperience({
             finalizationByRepo={workflowFinalizationByRepo}
             onPendingInstallChange={setWorkflowInstallPendingByRepo}
             onFinalizationChange={setWorkflowFinalizationByRepo}
+            onStepCompleted={() => holdGuidedStepForContinue("target-workflow")}
+            onContinue={handleTargetWorkflowContinue}
             blockedByUpstream={readiness.remoteSetupBlockedByUpstream}
           />
         );
