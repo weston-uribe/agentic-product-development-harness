@@ -115,3 +115,33 @@ export function upsertHarnessMetadataInDescription(
   const rebuilt = [...before, block, ...after].join("\n").replace(/\n{3,}/g, "\n\n");
   return rebuilt.endsWith("\n") ? rebuilt : `${rebuilt}\n`;
 }
+
+export function removeHarnessMetadataFromDescription(
+  description: string | null | undefined,
+): string {
+  if (!description?.trim()) {
+    return "";
+  }
+
+  const lines = description.split("\n");
+  const headerIndex = lines.findIndex(
+    (line) => line.trim().toLowerCase() === HARNESS_METADATA_HEADER.toLowerCase(),
+  );
+  if (headerIndex === -1) {
+    return description.endsWith("\n") ? description : `${description}\n`;
+  }
+
+  let endIndex = headerIndex + 1;
+  while (endIndex < lines.length) {
+    const trimmed = lines[endIndex]!.trim();
+    if (!trimmed || trimmed.startsWith("#")) {
+      break;
+    }
+    endIndex += 1;
+  }
+
+  const before = lines.slice(0, headerIndex);
+  const after = lines.slice(endIndex);
+  const rebuilt = [...before, ...after].join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return rebuilt ? `${rebuilt}\n` : "";
+}

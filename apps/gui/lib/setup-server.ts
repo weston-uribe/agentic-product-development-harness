@@ -123,6 +123,18 @@ import {
 } from "@harness/setup/linear-setup-client";
 import { previewLinearSetup } from "@harness/setup/linear-setup-plan";
 import {
+  applyLinearWorkspace,
+  type LinearWorkspaceApplyResult,
+  type LinearWorkspacePlanInput,
+} from "@harness/setup/linear-workspace-apply";
+import {
+  previewLinearWorkspace,
+  type LinearWorkspacePreview,
+} from "@harness/setup/linear-workspace-plan";
+import { computeLinearAssociationsFingerprint } from "@harness/setup/linear-workspace-migration";
+import { resolveLinearAssociationsFromConfig } from "@harness/config/resolve-linear-workspace";
+import { loadHarnessConfig } from "@harness/config/load-config";
+import {
   applyVercelBridgeSetup,
   type VercelBridgeApplyResult,
   type VercelBridgePlanInput,
@@ -593,6 +605,78 @@ export async function applyLinearSetupRemote(options: {
   });
   const summary = await buildLinearSetupSummary(cwd);
   return { apply, summary };
+}
+
+export async function loadLinearWorkspaceEditorState(cwd = resolveCwd()) {
+  const summary = await buildLinearSetupSummary(cwd);
+  const loaded = await loadHarnessConfig({ baseDir: cwd });
+  const associations = resolveLinearAssociationsFromConfig(loaded.config);
+  const expectedCommittedFingerprint = computeLinearAssociationsFingerprint(
+    loaded.config,
+  );
+  const evidence = summary.controlPlane?.linearWorkspace;
+  return {
+    summary,
+    associations,
+    expectedCommittedFingerprint,
+    workspaceId:
+      loaded.config.linear?.workspaceId ?? evidence?.workspaceId ?? "",
+    workspaceName: evidence?.workspaceName ?? "Linear workspace",
+  };
+}
+
+export async function previewLinearWorkspaceRemote(
+  payload: Omit<
+    LinearWorkspacePlanInput,
+    "linearApiKey" | "expectedCommittedFingerprint"
+  > & {
+    linearApiKey?: string;
+    expectedCommittedFingerprint: string;
+  },
+): Promise<LinearWorkspacePreview> {
+  const cwd = resolveCwd();
+  const linearApiKey =
+    payload.linearApiKey ?? (await loadLinearApiKey(cwd)) ?? "";
+  return previewLinearWorkspace({
+    ...payload,
+    linearApiKey,
+    cwd,
+  });
+}
+
+export async function applyLinearWorkspaceRemote(options: {
+  plan: Omit<
+    LinearWorkspacePlanInput,
+    "linearApiKey" | "expectedCommittedFingerprint"
+  > & {
+    linearApiKey?: string;
+    expectedCommittedFingerprint: string;
+  };
+  confirmed: boolean;
+  fingerprint?: string;
+}): Promise<{
+  apply: LinearWorkspaceApplyResult;
+  summary: Awaited<ReturnType<typeof buildLinearSetupSummary>>;
+  expectedCommittedFingerprint: string;
+}> {
+  const cwd = resolveCwd();
+  const linearApiKey =
+    options.plan.linearApiKey ?? (await loadLinearApiKey(cwd)) ?? "";
+  const apply = await applyLinearWorkspace({
+    plan: { ...options.plan, linearApiKey, cwd },
+    confirmed: options.confirmed,
+    fingerprint: options.fingerprint,
+    cwd,
+  });
+  const summary = await buildLinearSetupSummary(cwd);
+  const loaded = await loadHarnessConfig({ baseDir: cwd });
+  return {
+    apply,
+    summary,
+    expectedCommittedFingerprint: computeLinearAssociationsFingerprint(
+      loaded.config,
+    ),
+  };
 }
 
 export async function loadVercelBridgeOptionsRemote(input?: {
