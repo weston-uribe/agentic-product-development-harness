@@ -6,8 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { loadHarnessConfig } from "../../src/config/load-config.js";
-import { buildConfigFingerprint } from "../../src/workflow-page/bootstrap.js";
+import { readWorkflowConfigSnapshot } from "../../src/setup/workflow-config-snapshot.js";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -242,11 +241,8 @@ async function seedCompletedWorkspace(workspaceDir: string): Promise<string> {
     `${JSON.stringify(COMPLETED_CONFIG, null, 2)}\n`,
     "utf8",
   );
-  const { config } = await loadHarnessConfig({
-    baseDir: workspaceDir,
-    configPath: ".harness/config.local.json",
-  });
-  const fingerprint = buildConfigFingerprint(config);
+  // Live Workflow bootstrap fingerprints the raw config.local.json bytes.
+  const { fingerprint } = await readWorkflowConfigSnapshot(workspaceDir);
   await writeFile(
     path.join(workspaceDir, ".harness", "control-plane-setup.json"),
     `${JSON.stringify(
