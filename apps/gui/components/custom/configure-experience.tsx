@@ -46,8 +46,6 @@ import type { TargetWorkflowFinalizationResult } from "@harness/setup/target-wor
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { StatusBadge } from "@/components/custom/status-badge";
-import { ReadinessBanner } from "@/components/custom/readiness-banner";
-import { SetupDashboard } from "@/components/custom/setup-dashboard";
 import { ConfigureWorkflow } from "@/components/custom/configure-workflow";
 import { GuidedLinearWorkspaceCard } from "@/components/custom/guided-linear-workspace-card";
 import { GuidedVercelBridgeCard } from "@/components/custom/guided-vercel-bridge-card";
@@ -64,8 +62,6 @@ import {
   isUnifiedDataSharingEnabled,
   type ObservabilityPreferencesSnapshot,
 } from "@/lib/observability-preferences";
-
-type ConfigureMode = "guided" | "advanced";
 
 interface ConfigureExperienceProps {
   initialSummary: SetupGuiViewModel;
@@ -114,7 +110,6 @@ export function ConfigureExperience({
   observabilityNonce,
   initialObservabilityPreferences,
 }: ConfigureExperienceProps) {
-  const [mode, setMode] = useState<ConfigureMode>("guided");
   const [observabilityPreferences, setObservabilityPreferences] =
     useState(initialObservabilityPreferences);
   const [setupDisclosureComplete, setSetupDisclosureComplete] = useState(
@@ -605,8 +600,7 @@ export function ConfigureExperience({
     readiness.currentStepId,
   ]);
 
-  const showGuidedBackButton =
-    mode === "guided" && shouldShowGuidedBackButton(displayedGuidedStep);
+  const showGuidedBackButton = shouldShowGuidedBackButton(displayedGuidedStep);
 
   const guidedProgressStages = useMemo(
     () =>
@@ -755,15 +749,6 @@ export function ConfigureExperience({
     }
   };
 
-  const configBadgeLabel = summary.overview.operatorConfigResolved
-    ? "Config resolved"
-    : summary.overview.configResolved
-      ? "Template config loaded"
-      : "Not configured yet";
-  const configBadgeVariant = summary.overview.operatorConfigResolved
-    ? "success"
-    : "secondary";
-
   const guidedStatusBadgeLabel = readiness.readyForFirstRun
     ? "Setup complete"
     : workflowAwaitingMerge
@@ -822,68 +807,26 @@ export function ConfigureExperience({
                 label={guidedStatusBadgeLabel}
                 variant={readiness.readyForFirstRun ? "success" : "warning"}
               />
-              {mode === "advanced" ? (
-                <StatusBadge
-                  label={configBadgeLabel}
-                  variant={configBadgeVariant}
-                />
-              ) : null}
             </div>
           </div>
-          {mode === "guided" ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setMode("advanced")}
-            >
-              Advanced checklist view
-            </Button>
-          ) : (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setMode("guided")}
-            >
-              Back to guided flow
-            </Button>
-          )}
         </div>
       </section>
 
-      {mode === "advanced" ? <ReadinessBanner readiness={readiness} /> : null}
+      <section className={SPACING.section}>
+        <GuidedSetupProgress stages={guidedProgressStages} />
+      </section>
 
-      {mode === "guided" ? (
-        <section className={SPACING.section}>
-          <GuidedSetupProgress stages={guidedProgressStages} />
-        </section>
-      ) : null}
-
-      {mode === "guided" ? (
-        <div className={SPACING.section}>
-          <div ref={actionPanelRef}>
-            <GuidedStepTransition
-              stepKey={displayedGuidedStep}
-              direction={guidedTransitionDirection}
-              panelRef={actionPanelRef}
-            >
-              {renderGuidedActionPanel()}
-            </GuidedStepTransition>
-          </div>
+      <div className={SPACING.section}>
+        <div ref={actionPanelRef}>
+          <GuidedStepTransition
+            stepKey={displayedGuidedStep}
+            direction={guidedTransitionDirection}
+            panelRef={actionPanelRef}
+          >
+            {renderGuidedActionPanel()}
+          </GuidedStepTransition>
         </div>
-      ) : (
-        <SetupDashboard
-          summary={summary}
-          remoteSummary={remoteSummary}
-          readiness={readiness}
-          formDefaults={formDefaults}
-          onSummaryUpdated={setSummary}
-          onRemoteSummaryUpdated={setRemoteSummary}
-          onLocalUiStateChange={handleLocalUiStateChange}
-          onRemoteUiStateChange={handleRemoteUiStateChange}
-        />
-      )}
+      </div>
     </div>
   );
 }

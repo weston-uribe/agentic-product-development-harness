@@ -21,8 +21,6 @@ const M6_GUI_COMPONENTS = [
   "apps/gui/components/custom/configure-experience.tsx",
   "apps/gui/components/custom/first-run-stepper.tsx",
   "apps/gui/components/custom/readiness-banner.tsx",
-  "apps/gui/components/custom/setup-dashboard.tsx",
-  "apps/gui/components/custom/setup-readonly-sections.tsx",
   "apps/gui/components/custom/configure-workflow.tsx",
   "apps/gui/components/custom/environment-config-form.tsx",
   "apps/gui/components/custom/github-token-help-disclosure.tsx",
@@ -73,7 +71,9 @@ describe("M6 configure GUI boundaries", () => {
     expect(source).toContain("Setup complete");
     expect(source).toContain('title="Setup complete"');
     expect(source).not.toContain("Blocked for first run");
-    expect(source).toContain('useState<ConfigureMode>("guided")');
+    expect(source).not.toContain("ConfigureMode");
+    expect(source).not.toContain("Advanced checklist view");
+    expect(source).not.toContain("SetupDashboard");
     expect(source).toContain("GuidedLocalReadinessCard");
     expect(source).toContain("GuidedCloudSecretsCard");
     expect(source).toContain("GuidedTargetWorkflowCard");
@@ -92,16 +92,10 @@ describe("M6 configure GUI boundaries", () => {
     expect(source).toContain("handleRemoteUiStateChange");
     expect(source).toContain("onUiStateChange={handleLocalUiStateChange}");
     expect(source).toContain("onUiStateChange={handleRemoteUiStateChange}");
-    expect(source).toContain("onLocalUiStateChange={handleLocalUiStateChange}");
-    expect(source).toContain("onRemoteUiStateChange={handleRemoteUiStateChange}");
+    expect(source).not.toContain("onLocalUiStateChange=");
+    expect(source).not.toContain("onRemoteUiStateChange=");
     expect(source).toContain("cloudSecretsApplyEvidence");
     expect(source).toContain("remoteSecretPreviewStale");
-    expect(source).not.toMatch(
-      /onLocalUiStateChange=\{\(state\) =>\s*\n?\s*setUiState/,
-    );
-    expect(source).not.toMatch(
-      /onRemoteUiStateChange=\{\(state\) =>\s*\n?\s*setUiState/,
-    );
     expect(source).not.toMatch(
       /onUiStateChange=\{\(state\) =>\s*\n?\s*setUiState/,
     );
@@ -134,14 +128,15 @@ describe("M6 configure GUI boundaries", () => {
       "utf8",
     );
 
-    expect(source).toContain('mode === "advanced" ? <ReadinessBanner');
+    expect(source).not.toContain("ReadinessBanner");
+    expect(source).not.toContain("Advanced checklist view");
+    expect(source).not.toContain("SetupDashboard");
     expect(source).toContain('mode="guided"');
     expect(source).toContain("switch (displayedGuidedStep)");
     expect(source).toContain('case "local-readiness":');
-    expect(source).toContain('mode === "advanced" ? (');
-    expect(source).toContain("justify-between");
+    expect(source).toContain("GuidedSetupProgress");
     expect(source).not.toContain("PrimarySetupTaskCard");
-    expect(source).toMatch(/mode === "advanced" \? \([\s\S]*configBadgeLabel/);
+    expect(source).not.toContain("configBadgeLabel");
   });
 
   it("guided workflow renders one active step with animated transitions", () => {
@@ -406,7 +401,7 @@ describe("M6 configure GUI boundaries", () => {
     expect(workflowSource).not.toContain("handleSaveConnectServices");
 
     const guidedPanelBlock = experienceSource.match(
-      /mode === "guided" \? \([\s\S]*?\) : \(/,
+      /<GuidedStepTransition[\s\S]*?\{renderGuidedActionPanel\(\)\}[\s\S]*?<\/GuidedStepTransition>/,
     )?.[0];
     expect(guidedPanelBlock).toBeDefined();
     expect(guidedPanelBlock).not.toContain("prohibitedActionsNote");
@@ -606,13 +601,17 @@ describe("M6 configure GUI boundaries", () => {
     );
   });
 
-  it("back to guided flow does not force local setup wizard state", () => {
+  it("guided flow has no advanced checklist mode toggle", () => {
     const experienceSource = readFileSync(
       path.join(repoRoot, "apps/gui/components/custom/configure-experience.tsx"),
       "utf8",
     );
 
-    expect(experienceSource).toContain('onClick={() => setMode("guided")}');
+    expect(experienceSource).not.toContain("Advanced checklist view");
+    expect(experienceSource).not.toContain("Back to guided flow");
+    expect(experienceSource).not.toContain("setMode");
+    expect(experienceSource).not.toContain("ConfigureMode");
+    expect(experienceSource).not.toContain("SetupDashboard");
     expect(experienceSource).not.toContain("setGuidedLocalSetupActive(true)");
     expect(experienceSource).not.toContain("guidedLocalSetupActive");
   });
@@ -828,7 +827,8 @@ describe("M6 configure GUI boundaries", () => {
     expect(experienceSource).toContain("showGuidedBackButton");
     expect(experienceSource).toContain("shouldShowGuidedBackButton(displayedGuidedStep)");
     expect(experienceSource).toContain('variant="ghost"');
-    expect(experienceSource).toContain("Advanced checklist view");
+    expect(experienceSource).not.toContain("Advanced checklist view");
+    expect(experienceSource).not.toContain("setMode");
     expect(experienceSource).toContain("defaultGuidedDisplayStep");
     expect(experienceSource).toContain("previousReadinessStepRef");
     expect(experienceSource).toContain("shouldReadinessAdvanceGuidedDisplay");
@@ -836,7 +836,6 @@ describe("M6 configure GUI boundaries", () => {
     expect(experienceSource).not.toContain("localPreviewStale: true");
     expect(experienceSource).not.toMatch(/history\.back|router\.back/);
     expect(experienceSource).not.toMatch(/localStorage|sessionStorage/);
-    expect(experienceSource).toContain('onClick={() => setMode("guided")}');
   });
 
   it("Step 1 verify-and-save does not call onConnectServicesComplete", () => {
@@ -928,7 +927,7 @@ describe("M6 configure GUI boundaries", () => {
 
     expect(experienceSource).toContain("GuidedSetupProgress");
     expect(experienceSource).toContain("deriveGuidedProgressStages");
-    expect(experienceSource).toContain('mode === "guided"');
+    expect(experienceSource).toContain("<GuidedSetupProgress stages={guidedProgressStages} />");
     expect(progressSource).toContain('aria-label="Guided setup progress"');
     expect(progressSource).toContain('aria-current={isCurrent ? "step" : undefined}');
     expect(progressSource).toContain("useReducedMotion");

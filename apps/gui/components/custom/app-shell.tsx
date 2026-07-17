@@ -7,6 +7,7 @@ type AppShellProps = {
   isSettingsActive?: boolean;
   isWorkflowActive?: boolean;
   showProductNavigation?: boolean;
+  enableHomeNavigation?: boolean;
 };
 
 export function AppShell({
@@ -15,6 +16,7 @@ export function AppShell({
   isSettingsActive,
   isWorkflowActive,
   showProductNavigation = true,
+  enableHomeNavigation = true,
 }: AppShellProps) {
   return (
     <div className={LAYOUT.shell}>
@@ -23,6 +25,7 @@ export function AppShell({
         isSettingsActive={isSettingsActive}
         isWorkflowActive={isWorkflowActive}
         showProductNavigation={showProductNavigation}
+        enableHomeNavigation={enableHomeNavigation}
       />
       <main className={APP_MAIN_CLASS}>{children}</main>
     </div>

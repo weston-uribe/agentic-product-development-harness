@@ -70,7 +70,7 @@ export default async function ConfigurePage() {
     process.env[P_DEV_OBSERVABILITY_NONCE_ENV]?.trim() ?? null;
 
   return (
-    <AppShell showProductNavigation={false}>
+    <AppShell showProductNavigation={false} enableHomeNavigation={false}>
       <ConfigurePageContent
         summary={summary}
         remoteSummary={remoteSummary}
