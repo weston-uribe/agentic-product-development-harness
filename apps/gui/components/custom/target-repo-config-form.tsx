@@ -67,6 +67,7 @@ interface TargetRepoConfigFormProps {
   onHarnessDispatchRepositoryChange?: (value: string) => void;
   onVerifyAndUseHarnessRepo?: (draftRepo: string) => void;
   harnessConnectedAutomatically?: boolean;
+  harnessRepoInheritedFromStep1?: boolean;
   githubTokenSourceHint?: string;
   activeGithubTokenFingerprint?: string | null;
 }
@@ -92,6 +93,7 @@ export function TargetRepoConfigForm({
   onHarnessDispatchRepositoryChange,
   onVerifyAndUseHarnessRepo,
   harnessConnectedAutomatically = false,
+  harnessRepoInheritedFromStep1 = false,
   githubTokenSourceHint,
   activeGithubTokenFingerprint = null,
 }: TargetRepoConfigFormProps) {
@@ -165,6 +167,11 @@ export function TargetRepoConfigForm({
                 <p className={FORM.secretHint}>
                   Connected automatically during Step 1.
                 </p>
+              ) : harnessRepoInheritedFromStep1 ? (
+                <p className={FORM.secretHint}>
+                  Connected during Step 1. You can use a different harness repo if
+                  needed.
+                </p>
               ) : (
                 <p className={FORM.secretHint}>{harnessRepoSource}</p>
               )}
@@ -187,7 +194,10 @@ export function TargetRepoConfigForm({
               {harnessRepoVerified && harnessRepoVerification.message ? (
                 <ConnectedStatusMessage message={harnessRepoVerification.message} />
               ) : null}
-              {!harnessConnectedAutomatically && !harnessRepoVerified && activeHarnessRepo ? (
+              {!harnessConnectedAutomatically &&
+              !harnessRepoInheritedFromStep1 &&
+              !harnessRepoVerified &&
+              activeHarnessRepo ? (
                 <p className={FORM.secretHint}>
                   Verify and use this harness repo before creating local setup
                   files.

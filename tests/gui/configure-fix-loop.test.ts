@@ -193,6 +193,8 @@ describe("configure GUI fix loop", () => {
 
     expect(guidedMinimalSource).toContain("Enter harness repo");
     expect(guidedMinimalSource).toContain("Verify and use harness repo");
+    expect(guidedMinimalSource).toContain("harnessRepoInheritedFromStep1");
+    expect(guidedMinimalSource).toContain("!harnessRepoInheritedFromStep1");
     expect(targetSource).toContain("Detected from git remote");
     expect(targetSource).toContain("Saved in .env.local");
     expect(guidedMinimalSource).toContain("{harnessRepoSource}");
@@ -206,6 +208,9 @@ describe("configure GUI fix loop", () => {
 
     expect(workflowSource).toContain("savedHarnessDispatchRepository");
     expect(workflowSource).toContain("suggestedHarnessDispatchRepo ||");
+    expect(workflowSource).toContain("step1TrustedHarnessRepo");
+    expect(workflowSource).toContain("harnessRepoInheritedFromStep1");
+    expect(workflowSource).toContain("isHarnessRepoReadyForGuidedStep4");
     expect(workflowSource).toContain("/api/setup/verify-harness-repo");
     expect(experienceSource).toMatch(
       /githubDispatchRepository:\s*shouldResetDispatch[\s\S]*formDefaults\.env\.githubDispatchRepository \|\| suggested \|\| ""/,

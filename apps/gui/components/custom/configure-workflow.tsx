@@ -4,6 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useReducedMotion } from "framer-motion";
 import type { LocalConfigFormInput } from "@harness/setup/config-local-editor";
 import { prepareGuidedConfigFormInput } from "@harness/setup/guided-config-form";
+import {
+  isHarnessRepoInheritedFromStep1,
+  isHarnessRepoReadyForGuidedStep4,
+} from "@harness/setup/harness-step-readiness";
 import type {
   LocalSetupFormPayload,
   LocalSetupPreviewResult,
@@ -147,6 +151,9 @@ export function ConfigureWorkflow({
     string | null
   >(null);
   const [serverValidatedHarnessRepo, setServerValidatedHarnessRepo] = useState<
+    string | null
+  >(null);
+  const [step1TrustedHarnessRepo, setStep1TrustedHarnessRepo] = useState<
     string | null
   >(null);
   const [provisioningHarnessRepo, setProvisioningHarnessRepo] = useState(false);
@@ -296,14 +303,18 @@ export function ConfigureWorkflow({
     initialEnv.savedHarnessDispatchRepository?.trim() ||
     "";
 
-  const harnessRepoReady =
-    effectiveHarnessDispatchRepo.length > 0 &&
-    (serverValidatedHarnessRepo === effectiveHarnessDispatchRepo ||
-      (harnessRepoVerification.state === "connected" &&
-        harnessRepoVerification.verifiedRepo === effectiveHarnessDispatchRepo &&
-        (!activeGithubToken?.fingerprint ||
-          harnessRepoVerification.verifiedGithubTokenFingerprint ===
-            activeGithubToken.fingerprint)));
+  const harnessRepoInheritedFromStep1 = isHarnessRepoInheritedFromStep1(
+    effectiveHarnessDispatchRepo,
+    step1TrustedHarnessRepo,
+  );
+
+  const harnessRepoReady = isHarnessRepoReadyForGuidedStep4({
+    effectiveRepo: effectiveHarnessDispatchRepo,
+    step1TrustedRepo: step1TrustedHarnessRepo,
+    serverValidatedRepo: serverValidatedHarnessRepo,
+    manualVerification: harnessRepoVerification,
+    activeGithubTokenFingerprint: activeGithubToken?.fingerprint ?? null,
+  });
 
   useEffect(() => {
     if (mode !== "guided" || guidedStep !== "choose-target-repos") {
@@ -320,6 +331,7 @@ export function ConfigureWorkflow({
         }
 
         if (data.verifiedSavedRepo && data.harnessDispatchRepo) {
+          setStep1TrustedHarnessRepo(data.harnessDispatchRepo);
           setServerValidatedHarnessRepo(data.harnessDispatchRepo);
           setEnvValues((current) => ({
             ...current,
@@ -335,10 +347,12 @@ export function ConfigureWorkflow({
           });
         } else {
           setServerValidatedHarnessRepo(null);
+          setStep1TrustedHarnessRepo(null);
         }
       } catch {
         if (!cancelled) {
           setServerValidatedHarnessRepo(null);
+          setStep1TrustedHarnessRepo(null);
         }
       }
     })();
@@ -349,7 +363,7 @@ export function ConfigureWorkflow({
   }, [guidedStep, mode]);
 
   useEffect(() => {
-    if (serverValidatedHarnessRepo || autoProvisionedHarnessRepo) {
+    if (serverValidatedHarnessRepo || autoProvisionedHarnessRepo || step1TrustedHarnessRepo) {
       return;
     }
     setHarnessRepoVerification({ state: "unchecked" });
@@ -357,6 +371,7 @@ export function ConfigureWorkflow({
     activeGithubToken?.fingerprint,
     autoProvisionedHarnessRepo,
     serverValidatedHarnessRepo,
+    step1TrustedHarnessRepo,
   ]);
 
   const continueWithHarnessProvisioning = useCallback(async () => {
@@ -379,6 +394,15 @@ export function ConfigureWorkflow({
       }
 
       if (previewData.state === "skipped-not-packaged") {
+        const trustedRepo =
+          envValues.githubDispatchRepository.trim() ||
+          initialEnv.savedHarnessDispatchRepository?.trim() ||
+          initialEnv.suggestedHarnessDispatchRepo?.trim() ||
+          "";
+        if (trustedRepo) {
+          setStep1TrustedHarnessRepo(trustedRepo);
+          setServerValidatedHarnessRepo(trustedRepo);
+        }
         onConnectServicesComplete?.();
         return;
       }
@@ -412,6 +436,7 @@ export function ConfigureWorkflow({
 
       const repoSlug = applyData.apply.harnessDispatchRepo as string | null;
       if (repoSlug) {
+        setStep1TrustedHarnessRepo(repoSlug);
         setAutoProvisionedHarnessRepo(repoSlug);
         setEnvValues((current) => ({
           ...current,
@@ -436,7 +461,7 @@ export function ConfigureWorkflow({
     } finally {
       setProvisioningHarnessRepo(false);
     }
-  }, [onConnectServicesComplete, onSummaryUpdated]);
+  }, [envValues.githubDispatchRepository, initialEnv.savedHarnessDispatchRepository, initialEnv.suggestedHarnessDispatchRepo, onConnectServicesComplete, onSummaryUpdated]);
 
   const resetApplyState = () => {
     setApplySuccess(null);
@@ -1064,6 +1089,7 @@ export function ConfigureWorkflow({
                   serverValidatedHarnessRepo === effectiveHarnessDispatchRepo &&
                   Boolean(effectiveHarnessDispatchRepo)
                 }
+                harnessRepoInheritedFromStep1={harnessRepoInheritedFromStep1}
                 guidedRepos={guidedRepoRows}
                 repoVerification={repoVerification}
                 verifyingRepoRowId={verifyingRepoRowId}
