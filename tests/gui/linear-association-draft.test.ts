@@ -47,7 +47,7 @@ describe("linear association draft helpers", () => {
     const next = addProjectsToDraft({
       draft: [baseAssociation],
       workspaceId: "ws-1",
-      team: { id: "team-1", key: "ENG" },
+      team: { id: "team-1", key: "ENG", name: "Engineering" },
       projects: [
         { id: "project-1", name: "Alpha" },
         { id: "project-2", name: "Beta" },

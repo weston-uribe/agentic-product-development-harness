@@ -151,6 +151,7 @@ describe("executeImplementationPhase", () => {
       status: "Ready for Build",
       projectName: "Example Target App",
       teamName: "WES",
+      teamKey: null,
       teamId: "team-1",
       url: "https://linear.app/example/issue/WES-12/test",
     });

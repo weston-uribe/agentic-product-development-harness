@@ -34,6 +34,8 @@ import {
   type GitHubTokenCapabilitySummary,
   type HarnessSecretWriteRequest,
   type HarnessSecretWriteResultEntry,
+  type HarnessVariableWriteRequest,
+  type HarnessVariableWriteResultEntry,
   type RepositoryFileWriteInput,
   type TargetWorkflowApplyInput,
   type TargetWorkflowApplyResult,
@@ -268,6 +270,24 @@ export class LiveGitHubRemoteSetupProvider implements GitHubRemoteSetupProvider 
         name: secret.name,
         status: existingNames.has(secret.name) ? "updated" : "created",
       });
+    }
+    return results;
+  }
+
+  async writeHarnessVariables(
+    harnessDispatchRepo: string,
+    variables: HarnessVariableWriteRequest[],
+  ): Promise<HarnessVariableWriteResultEntry[]> {
+    const { owner, repo } = parseRepoSlug(harnessDispatchRepo);
+    const results: HarnessVariableWriteResultEntry[] = [];
+    for (const variable of variables) {
+      const status = await this.client.upsertActionsVariable(
+        owner,
+        repo,
+        variable.name,
+        variable.value,
+      );
+      results.push({ name: variable.name, status });
     }
     return results;
   }

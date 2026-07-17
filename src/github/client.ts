@@ -527,6 +527,47 @@ export class GitHubClient {
     });
   }
 
+  async getActionsVariable(
+    owner: string,
+    repo: string,
+    name: string,
+  ): Promise<{ name: string; value: string } | null> {
+    try {
+      return await this.request<{ name: string; value: string }>(
+        `/repos/${owner}/${repo}/actions/variables/${encodeURIComponent(name)}`,
+      );
+    } catch (error) {
+      if (error instanceof GitHubApiError && error.status === 404) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  async upsertActionsVariable(
+    owner: string,
+    repo: string,
+    name: string,
+    value: string,
+  ): Promise<"created" | "updated"> {
+    const existing = await this.getActionsVariable(owner, repo, name);
+    if (existing) {
+      await this.request(
+        `/repos/${owner}/${repo}/actions/variables/${encodeURIComponent(name)}`,
+        {
+          method: "PATCH",
+          body: { name, value },
+        },
+      );
+      return "updated";
+    }
+    await this.request(`/repos/${owner}/${repo}/actions/variables`, {
+      method: "POST",
+      body: { name, value },
+    });
+    return "created";
+  }
+
   async getRepositoryContent(
     owner: string,
     repo: string,

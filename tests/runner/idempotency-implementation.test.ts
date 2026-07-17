@@ -32,6 +32,7 @@ const issue: LinearIssueSnapshot = {
   status: "Ready for Build",
   projectName: null,
   teamName: null,
+  teamKey: null,
   teamId: "team-1",
   url: null,
 };

@@ -175,6 +175,7 @@ describe("executeHandoffPhase", () => {
         status: "PR Open",
         projectName: "Example Target App",
         teamName: "WES",
+        teamKey: null,
         teamId: "team-1",
         url: "https://linear.app/example/issue/WES-13/test",
       })
@@ -186,6 +187,7 @@ describe("executeHandoffPhase", () => {
         status: "PM Review",
         projectName: "Example Target App",
         teamName: "WES",
+        teamKey: null,
         teamId: "team-1",
         url: "https://linear.app/example/issue/WES-13/test",
       });
@@ -271,6 +273,7 @@ describe("executeHandoffPhase", () => {
         status: "PR Open",
         projectName: "Example Target App",
         teamName: "WES",
+        teamKey: null,
         teamId: "team-1",
         url: "https://linear.app/example/issue/WES-13/test",
       })
@@ -282,6 +285,7 @@ describe("executeHandoffPhase", () => {
         status: "PM Review",
         projectName: "Example Target App",
         teamName: "WES",
+        teamKey: null,
         teamId: "team-1",
         url: "https://linear.app/example/issue/WES-13/test",
       });

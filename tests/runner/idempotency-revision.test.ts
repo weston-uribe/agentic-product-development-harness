@@ -33,6 +33,7 @@ const baseIssue: LinearIssueSnapshot = {
   status: "Needs Revision",
   projectName: null,
   teamName: null,
+  teamKey: null,
   teamId: "team-1",
   url: null,
 };

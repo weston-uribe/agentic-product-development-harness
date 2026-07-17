@@ -59,8 +59,14 @@ export interface LinearSetupApplyResult {
 
 async function updateHarnessConfigLinearMapping(input: {
   cwd?: string;
+  workspaceId?: string;
+  teamId: string;
   teamKey: string;
+  teamName: string;
+  projectId: string;
   projectName: string;
+  targetRepo?: string;
+  repoConfigId?: string;
 }): Promise<boolean> {
   const paths = resolveLocalFilePaths(input.cwd);
   try {
@@ -71,21 +77,39 @@ async function updateHarnessConfigLinearMapping(input: {
 
   const raw = await readFile(paths.configLocal, "utf8");
   const parsed = harnessConfigSchema.parse(JSON.parse(raw));
-  const next = harnessConfigSchema.parse({
-    ...parsed,
-    linear: {
-      ...parsed.linear,
-      teamKey: input.teamKey,
-    },
-    repos: parsed.repos.map((repo, index) =>
-      index === 0
-        ? {
-            ...repo,
-            linearProjects: [input.projectName],
-            linearTeams: [input.teamKey],
-          }
-        : repo,
-    ),
+  const targetRepo =
+    input.targetRepo ??
+    parsed.repos[0]?.targetRepo;
+  const repoConfigId =
+    input.repoConfigId ??
+    parsed.repos.find((repo) => repo.targetRepo === targetRepo)?.id ??
+    parsed.repos[0]?.id;
+
+  if (!targetRepo || !repoConfigId) {
+    return false;
+  }
+
+  const workspaceId =
+    input.workspaceId?.trim() ||
+    parsed.linear?.workspaceId?.trim() ||
+    "unknown-workspace";
+
+  const { buildRequestedHarnessConfig } = await import("./linear-workspace-plan.js");
+  const next = buildRequestedHarnessConfig({
+    current: parsed,
+    workspaceId,
+    requestedAssociations: [
+      {
+        workspaceId,
+        teamId: input.teamId,
+        teamKey: input.teamKey,
+        teamName: input.teamName,
+        projectId: input.projectId,
+        projectName: input.projectName,
+        targetRepo,
+        repoConfigId,
+      },
+    ],
   });
 
   const { writeConfigLocal } = await import("./config-writer.js");
@@ -300,7 +324,10 @@ export async function applyLinearSetup(input: {
   await updateControlPlaneSetupState({ linear: selection }, input.cwd);
   const configUpdated = await updateHarnessConfigLinearMapping({
     cwd: input.cwd,
+    teamId: team.id,
     teamKey: team.key,
+    teamName: team.name,
+    projectId: project.id,
     projectName: project.name,
   });
   await writeProgress("verify", true);

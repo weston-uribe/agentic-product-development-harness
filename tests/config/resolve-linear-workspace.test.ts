@@ -174,6 +174,111 @@ describe("resolve-linear-workspace", () => {
     ).toBe("ws-1:team-a:proj-1");
   });
 
+  it("falls back to teamKey + projectId when teamId is absent", () => {
+    const config = baseConfig({
+      repos: [
+        {
+          id: "primary",
+          targetRepo: "https://github.com/acme/app",
+          linearAssociations: [
+            {
+              workspaceId: "ws-1",
+              teamId: "team-a",
+              teamKey: "TEA",
+              teamName: "Team Alpha",
+              projectId: "proj-1",
+              projectName: "Alpha",
+            },
+          ],
+        },
+      ],
+    });
+
+    const match = resolveLinearAssociationForIssue(config, {
+      teamKey: "tea",
+      projectId: "proj-1",
+    });
+    expect(match?.teamId).toBe("team-a");
+  });
+
+  it("falls back to full teamName + projectId and never matches name against key", () => {
+    const config = baseConfig({
+      repos: [
+        {
+          id: "primary",
+          targetRepo: "https://github.com/acme/app",
+          linearAssociations: [
+            {
+              workspaceId: "ws-1",
+              teamId: "team-a",
+              teamKey: "TEA",
+              teamName: "fresh p-dev linear team",
+              projectId: "proj-1",
+              projectName: "harness",
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(
+      resolveLinearAssociationForIssue(config, {
+        teamName: "fresh p-dev linear team",
+        projectId: "proj-1",
+      })?.teamId,
+    ).toBe("team-a");
+
+    expect(
+      resolveLinearAssociationForIssue(config, {
+        teamName: "TEA",
+        projectId: "proj-1",
+      }),
+    ).toBeNull();
+  });
+
+  it("fails closed when project names collide across teams without team identity", () => {
+    const config = baseConfig({
+      repos: [
+        {
+          id: "primary",
+          targetRepo: "https://github.com/acme/app",
+          linearAssociations: [
+            {
+              workspaceId: "ws-1",
+              teamId: "team-a",
+              teamKey: "TEA",
+              teamName: "Team A",
+              projectId: "proj-a",
+              projectName: "harness",
+            },
+            {
+              workspaceId: "ws-1",
+              teamId: "team-b",
+              teamKey: "TEB",
+              teamName: "Team B",
+              projectId: "proj-b",
+              projectName: "harness",
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(
+      resolveLinearAssociationForIssue(config, {
+        projectId: "proj-a",
+      }),
+    ).toBeNull();
+  });
+
+  it("resolves teamId with a uniquely configured project", () => {
+    const config = baseConfig();
+    const match = resolveLinearAssociationForIssue(config, {
+      teamId: "team-a",
+    });
+    expect(match?.projectId).toBe("proj-1");
+  });
+
   it("detects drift between harness config and control-plane evidence", () => {
     const config = baseConfig();
     const findings = detectConfigControlPlaneDrift({

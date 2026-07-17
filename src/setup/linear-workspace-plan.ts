@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { access, readFile } from "node:fs/promises";
 import { harnessConfigSchema } from "../config/schema.js";
 import type { HarnessConfig, LinearAssociation } from "../config/types.js";
+import { deriveLegacyLinearTopLevel } from "../config/legacy-linear-top-level.js";
 import {
   assertSharedProjectTargetRepoConsistency,
   linearAssociationKey,
@@ -229,7 +230,7 @@ export async function previewLinearWorkspace(
         type: "add_team",
         teamId,
         teamKey: sample.teamKey,
-        teamName: sample.teamKey,
+        teamName: sample.teamName?.trim() || sample.teamKey,
       });
       basePreview.impactSummary.teamsToAdd.push(sample.teamKey);
     }
@@ -367,23 +368,34 @@ export function buildRequestedHarnessConfig(input: {
   const associationsByRepo = new Map<string, LinearAssociation[]>();
   for (const association of input.requestedAssociations) {
     const repoAssociations = associationsByRepo.get(association.repoConfigId) ?? [];
+    const teamName =
+      association.teamName?.trim() ||
+      // Drafts may carry teamName only on control-plane evidence; never invent from key.
+      undefined;
     repoAssociations.push({
       workspaceId: association.workspaceId,
       teamId: association.teamId,
       teamKey: association.teamKey,
+      ...(teamName ? { teamName } : {}),
       projectId: association.projectId,
       projectName: association.projectName,
     });
     associationsByRepo.set(association.repoConfigId, repoAssociations);
   }
 
+  const allAssociations = [...associationsByRepo.values()].flat();
+  const legacyTopLevel = deriveLegacyLinearTopLevel({
+    workspaceId: input.workspaceId,
+    associations: allAssociations,
+  });
+
   return harnessConfigSchema.parse({
     ...input.current,
     linear: {
       ...input.current.linear,
-      workspaceId: input.workspaceId,
-      teamKey: input.requestedAssociations[0]?.teamKey,
-      teamId: input.requestedAssociations[0]?.teamId,
+      workspaceId: legacyTopLevel.workspaceId,
+      teamKey: legacyTopLevel.teamKey,
+      teamId: legacyTopLevel.teamId,
     },
     repos: input.current.repos.map((repo) => ({
       ...repo,

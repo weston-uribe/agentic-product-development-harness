@@ -64,7 +64,10 @@ export type ErrorClassification =
   | "linear_team_identity_missing"
   | "canonical_workflow_load_failed"
   | "linear_team_project_not_configured"
+  | "cloud_config_stale"
   | "builder_lineage_integrity"
+  | "duplicate_delivery"
+  | "run_crash"
   | null;
 
 export interface RunManifest {
@@ -115,6 +118,9 @@ export interface RunManifest {
     | "agent_inaccessible"
     | null;
   cursorRequestId?: string | null;
+  deliveryId?: string | null;
+  runGeneration?: number | null;
+  runOwnedStatuses?: string[] | null;
 }
 
 export type RunEventName =

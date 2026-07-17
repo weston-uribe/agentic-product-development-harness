@@ -42,7 +42,7 @@ export function removeDraftTeam(
 export type AddProjectsToDraftInput = {
   draft: ResolvedLinearAssociation[];
   workspaceId: string;
-  team: { id: string; key: string };
+  team: { id: string; key: string; name: string };
   projects: Array<{ id: string; name: string }>;
   targetRepo: string;
   repoConfigId: string;
@@ -63,6 +63,7 @@ export function addProjectsToDraft(
       workspaceId: input.workspaceId,
       teamId: input.team.id,
       teamKey: input.team.key,
+      teamName: input.team.name,
       projectId: project.id,
       projectName: project.name,
       targetRepo: input.targetRepo,

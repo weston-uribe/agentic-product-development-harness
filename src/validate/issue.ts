@@ -150,6 +150,7 @@ export function computeIssueValidation(
   context: {
     projectName?: string;
     teamName?: string;
+    teamKey?: string;
     teamId?: string;
     projectId?: string;
   },
@@ -283,6 +284,7 @@ export async function validateIssueFromLinear(
     {
       projectName: issue.projectName ?? undefined,
       teamName: issue.teamName ?? undefined,
+      teamKey: issue.teamKey ?? undefined,
       teamId: issue.teamId ?? undefined,
       projectId: issue.projectId ?? undefined,
     },

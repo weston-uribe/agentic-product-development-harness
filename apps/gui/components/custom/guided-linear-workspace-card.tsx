@@ -13,7 +13,10 @@ import type {
 } from "@harness/setup/linear-setup-client";
 import type { FirstRunReadiness } from "@harness/setup/first-run-readiness";
 import type { ResolvedLinearAssociation } from "@harness/config/resolve-linear-workspace";
-import { linearAssociationKey } from "@harness/config/resolve-linear-workspace";
+import {
+  formatLinearTeamLabel,
+  linearAssociationKey,
+} from "@harness/config/resolve-linear-workspace";
 
 import { FORM, SPACING } from "@/lib/constants";
 import { GUIDED_SETUP_STEP_COUNT } from "@/lib/guided-setup";
@@ -119,8 +122,14 @@ function formatWorkspacePreviewSummary(preview: LinearWorkspacePreview): string 
 function describePendingCreate(entry: PendingLinearCreateEntry): string {
   const teamLabel =
     entry.teamMode === "create"
-      ? `${entry.teamName ?? "New team"} (${entry.teamKey ?? "key"})`
-      : entry.teamKey ?? entry.teamId ?? "Team";
+      ? formatLinearTeamLabel({
+          teamName: entry.teamName,
+          teamKey: entry.teamKey ?? "key",
+        })
+      : formatLinearTeamLabel({
+          teamName: entry.teamName,
+          teamKey: entry.teamKey ?? entry.teamId ?? "Team",
+        });
   const projectLabel =
     entry.projectMode === "create"
       ? entry.projectName ?? "New project"
@@ -495,7 +504,11 @@ export function GuidedLinearWorkspaceCard({
           addProjectsToDraft({
             draft: current,
             workspaceId: workspaceId || bootstrap?.workspaceId || "",
-            team: { id: selectedTeam.id, key: selectedTeam.key },
+            team: {
+              id: selectedTeam.id,
+              key: selectedTeam.key,
+              name: selectedTeam.name,
+            },
             projects: selectedProjects.map((project) => ({
               id: project.id,
               name: project.name,
@@ -593,6 +606,7 @@ export function GuidedLinearWorkspaceCard({
         workspaceId: entry.workspaceId || workspaceId || bootstrap?.workspaceId || "",
         teamId: response.apply.team.id,
         teamKey: response.apply.team.key,
+        teamName: response.apply.team.name,
         projectId: response.apply.project.id,
         projectName: response.apply.project.name,
         targetRepo: entry.targetRepo,
@@ -792,6 +806,7 @@ export function GuidedLinearWorkspaceCard({
           workspaceId: workspaceId || bootstrap?.workspaceId || "",
           teamId: response.apply.team.id,
           teamKey: response.apply.team.key,
+          teamName: response.apply.team.name,
           projectId: response.apply.project.id,
           projectName: response.apply.project.name,
           targetRepo,
@@ -1081,7 +1096,11 @@ export function GuidedLinearWorkspaceCard({
                     <div key={groupTeamId} className="rounded-md border border-border/70 p-3">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <p className="text-sm font-medium">
-                          {associations[0]?.teamKey} · {associations.length} project
+                          {formatLinearTeamLabel({
+                            teamName: associations[0]?.teamName,
+                            teamKey: associations[0]?.teamKey ?? groupTeamId,
+                          })}{" "}
+                          · {associations.length} project
                           {associations.length === 1 ? "" : "s"}
                         </p>
                         <Button
@@ -1171,7 +1190,12 @@ export function GuidedLinearWorkspaceCard({
             <div className="flex flex-wrap items-center gap-2">
               {summary.workspace.configured ? (
                 <StatusBadge
-                  label={`Team ${summary.workspace.teamKey} configured`}
+                  label={`Team ${formatLinearTeamLabel({
+                    teamName:
+                      summary.controlPlane?.linear?.teamName ??
+                      summary.controlPlane?.linearWorkspace?.teams[0]?.teamName,
+                    teamKey: summary.workspace.teamKey ?? "",
+                  })} configured`}
                   variant="success"
                 />
               ) : null}

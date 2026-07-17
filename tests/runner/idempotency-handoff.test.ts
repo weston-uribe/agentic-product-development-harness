@@ -39,6 +39,7 @@ const issue: LinearIssueSnapshot = {
   status: "PR Open",
   projectName: null,
   teamName: null,
+  teamKey: null,
   teamId: "team-1",
   url: null,
 };

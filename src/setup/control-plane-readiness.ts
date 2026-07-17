@@ -274,6 +274,15 @@ function normalizeCloudSecretsConfigState(input: {
   controlPlaneContext?: ControlPlaneReadinessContext;
 }) {
   const configSummary = input.setupSummary.configSummary;
+  const associationKeys = (configSummary?.repos ?? [])
+    .flatMap((repo) =>
+      (repo.linearAssociations ?? []).map(
+        (association) =>
+          `${repo.id}:${association.workspaceId}:${association.teamId}:${association.projectId}`,
+      ),
+    )
+    .sort((left, right) => left.localeCompare(right));
+
   return {
     configResolved: input.setupSummary.overview.configResolved,
     operatorConfigResolved: input.setupSummary.overview.operatorConfigResolved,
@@ -281,6 +290,7 @@ function normalizeCloudSecretsConfigState(input: {
       input.controlPlaneContext?.linearTeamKeyFromConfig ?? null,
     linearTeamKeyFromControlPlane:
       input.controlPlaneContext?.state?.linear?.teamKey ?? null,
+    associationKeys,
     repoIds: (configSummary?.repos ?? [])
       .map((repo) => repo.id)
       .sort((left, right) => left.localeCompare(right)),
@@ -309,6 +319,14 @@ export function isCloudSecretsStaleFromControlPlane(
   if (linearTeamKey && configTeamKey && linearTeamKey !== configTeamKey) {
     return true;
   }
+
+  // Workspace evidence fingerprint lags committed association apply.
+  const applied = context.state?.linearWorkspace?.appliedFingerprint?.trim();
+  const workspaceTeams = context.state?.linearWorkspace?.teams ?? [];
+  if (applied && workspaceTeams.length === 0) {
+    return true;
+  }
+
   return false;
 }
 

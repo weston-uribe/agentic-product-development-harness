@@ -1,6 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { parseFixtureMarkdown } from "../fixture/frontmatter.js";
-import type { LinearIssueSnapshot } from "../linear/client.js";
+import {
+  teamKeyFromIssueIdentifier,
+  type LinearIssueSnapshot,
+} from "../linear/client.js";
 
 export type { FixtureMetadata } from "../fixture/frontmatter.js";
 
@@ -20,6 +23,7 @@ export async function loadIssueFixture(
     projectId: null,
     projectName: metadata.projectName,
     teamName: metadata.teamName,
+    teamKey: teamKeyFromIssueIdentifier(issueKey),
     teamId: null,
     url: null,
   };

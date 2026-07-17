@@ -12,6 +12,7 @@ const issue: LinearIssueSnapshot = {
   status: "Ready for Planning",
   projectName: "Example Target App",
   teamName: "WES",
+  teamKey: null,
   teamId: "team-1",
   url: null,
 };

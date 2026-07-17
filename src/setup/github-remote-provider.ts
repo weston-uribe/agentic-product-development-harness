@@ -240,6 +240,16 @@ export interface HarnessSecretWriteResultEntry {
   status: "created" | "updated";
 }
 
+export interface HarnessVariableWriteRequest {
+  name: string;
+  value: string;
+}
+
+export interface HarnessVariableWriteResultEntry {
+  name: string;
+  status: "created" | "updated";
+}
+
 export interface TargetWorkflowApplyInput {
   targetRepoSlug: string;
   productionBranch: string;
@@ -282,6 +292,10 @@ export interface GitHubRemoteSetupProvider {
     harnessDispatchRepo: string,
     secrets: HarnessSecretWriteRequest[],
   ): Promise<HarnessSecretWriteResultEntry[]>;
+  writeHarnessVariables?(
+    harnessDispatchRepo: string,
+    variables: HarnessVariableWriteRequest[],
+  ): Promise<HarnessVariableWriteResultEntry[]>;
   applyTargetWorkflowPr(
     input: TargetWorkflowApplyInput,
   ): Promise<TargetWorkflowApplyResult>;
@@ -297,6 +311,7 @@ export interface MockGitHubRemoteSetupProviderState {
   productionBranchSha?: string;
   existingOpenPrUrl?: string;
   writeHarnessSecretsResult?: HarnessSecretWriteResultEntry[];
+  writeHarnessVariablesResult?: HarnessVariableWriteResultEntry[];
   applyTargetWorkflowResult?: TargetWorkflowApplyResult;
   finalizationScenario?: MockWorkflowFinalizationScenario;
   harnessDispatchRepo?: HarnessDispatchRepoResolution;
@@ -433,6 +448,24 @@ export class MockGitHubRemoteSetupProvider implements GitHubRemoteSetupProvider 
           this.state.harnessSecretStatuses?.[secret.name] === "present"
             ? "updated"
             : "created",
+      }))
+    );
+  }
+
+  async writeHarnessVariables(
+    harnessDispatchRepo: string,
+    variables: HarnessVariableWriteRequest[],
+  ): Promise<HarnessVariableWriteResultEntry[]> {
+    this.calls.push({
+      method: "writeHarnessVariables",
+      args: [harnessDispatchRepo, variables.map((entry) => entry.name)],
+    });
+
+    return (
+      this.state.writeHarnessVariablesResult ??
+      variables.map((variable) => ({
+        name: variable.name,
+        status: "created",
       }))
     );
   }

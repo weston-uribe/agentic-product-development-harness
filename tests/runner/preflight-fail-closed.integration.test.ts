@@ -195,6 +195,7 @@ describe("authoritative canonical workflow gate integration", () => {
       status: "Ready for Planning",
       projectName: "Example Target App",
       teamName: "WES",
+      teamKey: null,
       teamId: "team-configured",
       url: null,
     });
@@ -229,6 +230,7 @@ describe("authoritative canonical workflow gate integration", () => {
       status: "Ready for Planning",
       projectName: "Example Target App",
       teamName: "WES",
+      teamKey: null,
       teamId: undefined,
       url: null,
     });
@@ -268,6 +270,7 @@ describe("authoritative canonical workflow gate integration", () => {
       status: "Ready for Planning",
       projectName: "Example Target App",
       teamName: "WES",
+      teamKey: null,
       teamId: "team-other",
       url: null,
     });
@@ -320,6 +323,7 @@ describe("authoritative canonical workflow gate integration", () => {
       status: "Ready for Build",
       projectName: "Example Target App",
       teamName: "WES",
+      teamKey: null,
       teamId: "team-configured",
       url: null,
     });
@@ -349,6 +353,7 @@ describe("authoritative canonical workflow gate integration", () => {
       status: "Merged to Dev",
       projectName: "Example Target App",
       teamName: "WES",
+      teamKey: null,
       teamId: "team-configured",
       url: null,
     });

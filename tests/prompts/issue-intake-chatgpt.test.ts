@@ -40,6 +40,7 @@ const issue: LinearIssueSnapshot = {
   status: "Merged to Dev",
   projectName: "Example Target App",
   teamName: null,
+  teamKey: null,
   teamId: "team-1",
   url: null,
 };
