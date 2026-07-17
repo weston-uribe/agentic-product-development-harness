@@ -10,6 +10,7 @@ type SettingsMutationPanelProps = {
   phase: SettingsMutationPhase;
   error?: string | null;
   successMessage?: string | null;
+  previewPolicy?: "required" | "optional";
   confirmScope?:
     | "remote-secret-write"
     | "vercel-bridge-write"
@@ -38,10 +39,12 @@ export function SettingsMutationPanel({
   onApply,
   previewLabel = "Preview changes",
   applyLabel = "Apply changes",
+  previewPolicy = "required",
   disablePreview = false,
   disableApply = false,
 }: SettingsMutationPanelProps) {
   const busy = phase === "previewing" || phase === "applying";
+  const applyRequiresPreview = previewPolicy === "required";
 
   return (
     <div className="space-y-4 rounded-md border border-border p-4">
@@ -69,7 +72,12 @@ export function SettingsMutationPanel({
         {onApply ? (
           <Button
             type="button"
-            disabled={busy || disableApply || (confirmScope ? !confirmed : false)}
+            disabled={
+              busy ||
+              disableApply ||
+              (confirmScope ? !confirmed : false) ||
+              (applyRequiresPreview && !previewSummary)
+            }
             onClick={onApply}
           >
             {phase === "applying" ? "Applying…" : applyLabel}

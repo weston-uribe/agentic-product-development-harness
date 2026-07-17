@@ -100,12 +100,13 @@ const COPY: Record<
     advanced: {
       title: "Confirm Linear workspace writes",
       bullets: [
-        "May create or update Linear teams, projects, and workflow statuses.",
-        "Preview is read-only until you confirm this write.",
-        "No harness phases, GitHub dispatch, or target repo changes run from this step.",
+        "May create or repair required workflow statuses for the selected teams.",
+        "Saves team and project connections and updates required Linear project metadata.",
+        "Detaching a project may remove only the PDev-managed metadata block when no associations remain.",
+        "PDev will not delete Linear teams, projects, issues, or statuses.",
       ],
       label:
-        "I reviewed the Linear setup preview and want to apply workspace changes.",
+        "I understand PDev will create or repair the required workflow statuses for the selected teams, save these team and project connections, and update the Linear project metadata required by the harness. PDev will not delete Linear teams, projects, issues, or statuses.",
     },
     guided: {
       title: "Confirm Linear workspace setup",

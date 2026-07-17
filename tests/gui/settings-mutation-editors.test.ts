@@ -54,7 +54,7 @@ describe("settings mutation editors", () => {
     expect(repositoriesEditor).toContain('kind: "repos"');
   });
 
-  it("scopes Linear replacement to linear setup APIs", async () => {
+  it("scopes Linear workspace editor to collection setup APIs", async () => {
     const linearEditor = await readFile(
       path.join(
         process.cwd(),
@@ -62,11 +62,33 @@ describe("settings mutation editors", () => {
       ),
       "utf8",
     );
-    expect(linearEditor).toContain("previewLinearSetup");
-    expect(linearEditor).toContain("applyLinearSetup");
+    const mutationPanel = await readFile(
+      path.join(
+        process.cwd(),
+        "apps/gui/components/settings/settings-mutation-panel.tsx",
+      ),
+      "utf8",
+    );
+    const confirmation = await readFile(
+      path.join(
+        process.cwd(),
+        "apps/gui/components/custom/remote-action-confirmation.tsx",
+      ),
+      "utf8",
+    );
+    expect(linearEditor).toContain("previewLinearWorkspace");
+    expect(linearEditor).toContain("applyLinearWorkspace");
+    expect(linearEditor).toContain('previewPolicy="optional"');
     expect(linearEditor).toContain('confirmScope="linear-write"');
     expect(linearEditor).toContain("/api/setup/linear-options");
-    expect(linearEditor).toContain("useEffect");
-    expect(linearEditor).not.toContain("Load workspace options");
+    expect(linearEditor).toContain("Remove from PDev");
+    expect(linearEditor).not.toContain("previewLinearSetup");
+    expect(mutationPanel).toContain('previewPolicy = "required"');
+    expect(confirmation).toContain(
+      "I understand PDev will create or repair the required workflow statuses",
+    );
+    expect(confirmation).not.toContain(
+      "I reviewed the Linear setup preview and want to apply workspace changes.",
+    );
   });
 });

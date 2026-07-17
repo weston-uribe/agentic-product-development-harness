@@ -16,12 +16,12 @@ import {
 import {
   createLinearSetupClient,
   getLinearProject,
+  listTeamWorkflowStates,
   updateLinearProjectDescription,
 } from "./linear-setup-client.js";
 import { ensureWorkflowStatesForTeam } from "./linear-setup-apply.js";
 import { executeWorkflowStatusRepairs } from "./linear-workflow-status-repair.js";
 import {
-  listTeamWorkflowStates,
   matchWorkflowStates,
   isWorkflowStatusCoverageComplete,
 } from "./linear-setup-plan.js";

@@ -351,6 +351,16 @@ export async function deleteLinearWebhook(
   await client.deleteWebhook(webhookId);
 }
 
+export async function getLinearOrganizationSummary(
+  client: LinearClient,
+): Promise<{ id: string; name: string }> {
+  const organization = await client.organization;
+  return {
+    id: organization.id,
+    name: organization.name?.trim() || "Linear workspace",
+  };
+}
+
 export function getLinearSetupCapabilities(): LinearSetupCapabilities {
   return {
     teamCreate: true,

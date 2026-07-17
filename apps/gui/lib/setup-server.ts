@@ -118,6 +118,7 @@ import {
 import { buildLinearSetupSummary } from "@harness/setup/linear-setup-summary";
 import {
   createLinearSetupClient,
+  getLinearOrganizationSummary,
   listLinearProjects,
   listLinearTeams,
 } from "@harness/setup/linear-setup-client";
@@ -135,6 +136,12 @@ import { computeLinearAssociationsFingerprint } from "@harness/setup/linear-work
 import { resolveLinearAssociationsFromConfig } from "@harness/config/resolve-linear-workspace";
 import { loadHarnessConfig } from "@harness/config/load-config";
 import {
+  applyLinearWorkspaceMigration,
+  inspectLinearWorkspaceMigration,
+} from "@harness/setup/linear-workspace-migration";
+import { detectConfigControlPlaneDrift } from "@harness/setup/linear-workspace-drift";
+import { readControlPlaneSetupState } from "@harness/setup/control-plane-setup-state";
+import {
   applyVercelBridgeSetup,
   type VercelBridgeApplyResult,
   type VercelBridgePlanInput,
@@ -144,7 +151,6 @@ import { pollVercelBridgeRedeployVerification } from "@harness/setup/vercel-brid
 import { buildVercelSetupSummary } from "@harness/setup/vercel-setup-summary";
 import { previewVercelBridgeSetup } from "@harness/setup/vercel-setup-plan";
 import { loadSecretFromEnvLocal } from "@harness/setup/service-verification";
-import { readControlPlaneSetupState } from "@harness/setup/control-plane-setup-state";
 import { assessGitHubDispatchTokenEligibility } from "@harness/setup/github-dispatch-token";
 import {
   loadVercelBridgeOptions,
@@ -607,21 +613,67 @@ export async function applyLinearSetupRemote(options: {
   return { apply, summary };
 }
 
+export async function ensureLinearWorkspaceMigrated(cwd = resolveCwd()) {
+  const inspection = await inspectLinearWorkspaceMigration({ cwd });
+  if (inspection.status !== "nothing_to_migrate") {
+    return inspection;
+  }
+
+  const linearApiKey = (await loadLinearApiKey(cwd)) ?? "";
+  if (!linearApiKey) {
+    return inspection;
+  }
+
+  const controlPlane = await readControlPlaneSetupState(cwd);
+  if (!controlPlane?.linear?.teamId) {
+    return inspection;
+  }
+
+  const client = createLinearSetupClient(linearApiKey);
+  const organization = await getLinearOrganizationSummary(client);
+  const candidateInspection = await inspectLinearWorkspaceMigration({
+    cwd,
+    workspaceId: organization.id,
+    workspaceName: organization.name,
+  });
+  if (candidateInspection.status !== "candidate") {
+    return candidateInspection;
+  }
+
+  return applyLinearWorkspaceMigration({
+    cwd,
+    workspaceId: organization.id,
+    workspaceName: organization.name,
+    candidate: candidateInspection.candidate,
+  });
+}
+
 export async function loadLinearWorkspaceEditorState(cwd = resolveCwd()) {
+  await ensureLinearWorkspaceMigrated(cwd);
   const summary = await buildLinearSetupSummary(cwd);
   const loaded = await loadHarnessConfig({ baseDir: cwd });
+  const controlPlane = await readControlPlaneSetupState(cwd);
   const associations = resolveLinearAssociationsFromConfig(loaded.config);
   const expectedCommittedFingerprint = computeLinearAssociationsFingerprint(
     loaded.config,
   );
   const evidence = summary.controlPlane?.linearWorkspace;
+  const driftWarnings = detectConfigControlPlaneDrift({
+    config: loaded.config,
+    controlPlane,
+  });
   return {
     summary,
     associations,
+    repos: loaded.config.repos.map((repo) => ({
+      id: repo.id,
+      targetRepo: repo.targetRepo,
+    })),
     expectedCommittedFingerprint,
     workspaceId:
       loaded.config.linear?.workspaceId ?? evidence?.workspaceId ?? "",
     workspaceName: evidence?.workspaceName ?? "Linear workspace",
+    driftWarnings,
   };
 }
 

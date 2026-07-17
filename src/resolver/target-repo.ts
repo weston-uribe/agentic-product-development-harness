@@ -66,7 +66,10 @@ export function resolveTargetRepo(
       projectId: context.projectId,
     });
     if (!gate.ok) {
-      throw new ResolverError(gate.errorClassification, gate.message);
+      throw new ResolverError(
+        gate.errorClassification as import("./errors.js").ErrorClassification,
+        gate.message,
+      );
     }
 
     const association = resolveLinearAssociationForIssue(config, {

@@ -4,8 +4,11 @@ import type {
   AutomationSettingsPatch,
   SettingsConfigPatch,
 } from "@harness/setup/settings-config-patch";
-import type { LinearSetupPreview } from "@harness/setup/linear-setup-apply";
-import type { LinearSetupPlanInput } from "@harness/setup/linear-setup-apply";
+import type { LinearWorkspacePlanInput } from "@harness/setup/linear-workspace-apply";
+import type {
+  LinearSetupPlanInput,
+  LinearSetupPreview,
+} from "@harness/setup/linear-setup-apply";
 import type { VercelBridgePreview } from "@harness/setup/vercel-setup-apply";
 import type { LocalEnvFormInput } from "@harness/setup/local-apply-actions";
 
@@ -68,6 +71,44 @@ export async function previewLinearSetup(
   return readSetupJsonResponse<LinearSetupPreview>(
     response,
     "POST /api/setup/preview-linear-setup",
+  );
+}
+
+export async function applyLinearWorkspace(input: {
+  plan: Omit<LinearWorkspacePlanInput, "linearApiKey"> & {
+    linearApiKey?: string;
+  };
+  fingerprint?: string;
+}) {
+  const response = await fetch("/api/setup/apply-linear-workspace", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      plan: input.plan,
+      confirmed: true,
+      fingerprint: input.fingerprint,
+    }),
+  });
+  return readSetupJsonResponse<{
+    apply: { verified: boolean };
+    summary: unknown;
+    expectedCommittedFingerprint: string;
+  }>(response, "POST /api/setup/apply-linear-workspace");
+}
+
+export async function previewLinearWorkspace(
+  plan: Omit<LinearWorkspacePlanInput, "linearApiKey"> & {
+    linearApiKey?: string;
+  },
+) {
+  const response = await fetch("/api/setup/preview-linear-workspace", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(plan),
+  });
+  return readSetupJsonResponse<import("@harness/setup/linear-workspace-plan").LinearWorkspacePreview>(
+    response,
+    "POST /api/setup/preview-linear-workspace",
   );
 }
 

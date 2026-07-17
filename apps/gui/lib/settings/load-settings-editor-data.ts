@@ -3,7 +3,7 @@ import { loadHarnessConfig } from "@harness/config/load-config";
 import { configToFormInput } from "@harness/setup/config-local-editor";
 import { readSettingsConfigFingerprint } from "@harness/setup/settings-config-patch";
 import {
-  loadLinearSetupSummary,
+  loadLinearWorkspaceEditorState,
   loadSetupFormDefaults,
   loadSetupSummary,
   loadVercelSetupSummary,
@@ -19,8 +19,7 @@ export async function loadConnectionsEditorData() {
 }
 
 export async function loadLinearEditorData() {
-  const summary = await loadLinearSetupSummary();
-  return { summary };
+  return loadLinearWorkspaceEditorState();
 }
 
 export async function loadDeploymentsEditorData() {
