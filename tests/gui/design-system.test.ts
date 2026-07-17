@@ -126,12 +126,20 @@ describe("gui design-system boundaries", () => {
       path.join(guiRoot, "components/custom/data-sharing-preferences.tsx"),
       "utf8",
     );
+    const deploymentsEditor = await readFile(
+      path.join(
+        guiRoot,
+        "components/settings/editors/deployments-settings-editor.tsx",
+      ),
+      "utf8",
+    );
     const header = await readFile(
       path.join(guiRoot, "components/custom/application-header.tsx"),
       "utf8",
     );
 
     expect(guidedSelect).toContain("FORM.guidedSelect");
+    expect(deploymentsEditor).toContain("GuidedSelect");
     expect(dataSharing).toContain("cursor-pointer");
     expect(header).toContain("border border-foreground bg-transparent");
   });

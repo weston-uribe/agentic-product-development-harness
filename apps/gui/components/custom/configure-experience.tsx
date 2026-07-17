@@ -567,7 +567,7 @@ export function ConfigureExperience({
         }
         const payload = (await response.json()) as { completed?: boolean };
         if (payload.completed) {
-          window.location.assign("/settings");
+          window.location.assign("/workflow");
         }
       })
       .catch(() => undefined);
@@ -577,9 +577,6 @@ export function ConfigureExperience({
         observabilityNonce,
       );
     }
-    setWorkflowAwaitingMerge(false);
-    setWorkflowInstallPendingByRepo({});
-    setWorkflowFinalizationByRepo({});
   }, [observabilityNonce, recordStepCompleted]);
 
   const handleGuidedLocalApplySuccess = useCallback(() => {
@@ -605,6 +602,9 @@ export function ConfigureExperience({
   const handleTargetWorkflowContinue = useCallback(() => {
     clearPinnedGuidedDisplayStep();
     setAwaitingContinueStep(null);
+    setWorkflowAwaitingMerge(false);
+    setWorkflowInstallPendingByRepo({});
+    setWorkflowFinalizationByRepo({});
     setDisplayedGuidedStep(GUIDED_DISPLAY_STEP_AFTER_WORKFLOW_READY);
   }, [clearPinnedGuidedDisplayStep]);
 

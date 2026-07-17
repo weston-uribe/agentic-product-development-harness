@@ -8,7 +8,10 @@ import type {
   LinearProjectSummary,
   LinearTeamSummary,
 } from "@harness/setup/linear-setup-client";
-import { linearAssociationKey } from "@harness/config/resolve-linear-workspace";
+import {
+  formatLinearTeamLabel,
+  linearAssociationKey,
+} from "@harness/config/resolve-linear-workspace";
 import {
   addProjectsToDraft,
   buildConfiguredAssociationKeys,
@@ -18,6 +21,7 @@ import {
 } from "@/lib/linear-association-draft";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { GuidedSelect } from "@/components/ui/guided-select";
 import { SettingsMutationPanel } from "@/components/settings/settings-mutation-panel";
 import {
   initialSettingsMutationState,
@@ -42,9 +46,6 @@ type LinearEditorInitialData = {
 type LinearSettingsEditorProps = {
   initialData: LinearEditorInitialData;
 };
-
-const selectClassName =
-  "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
 
 export function LinearSettingsEditor({ initialData }: LinearSettingsEditorProps) {
   const [summary, setSummary] = useState(initialData.summary);
@@ -240,7 +241,11 @@ export function LinearSettingsEditor({ initialData }: LinearSettingsEditorProps)
       addProjectsToDraft({
         draft: current,
         workspaceId: initialData.workspaceId,
-        team: { id: selectedTeam.id, key: selectedTeam.key },
+        team: {
+          id: selectedTeam.id,
+          key: selectedTeam.key,
+          name: selectedTeam.name,
+        },
         projects: selectedProjects.map((project) => ({
           id: project.id,
           name: project.name,
@@ -327,7 +332,11 @@ export function LinearSettingsEditor({ initialData }: LinearSettingsEditorProps)
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <p className="text-sm font-medium">
-                        {associations[0]?.teamKey} · {associations.length} project
+                        {formatLinearTeamLabel({
+                          teamName: associations[0]?.teamName,
+                          teamKey: associations[0]?.teamKey ?? teamId,
+                        })}{" "}
+                        · {associations.length} project
                         {associations.length === 1 ? "" : "s"}
                       </p>
                       <p className="text-xs text-muted-foreground">
@@ -394,9 +403,8 @@ export function LinearSettingsEditor({ initialData }: LinearSettingsEditorProps)
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="settings-linear-add-team">Team</Label>
-            <select
+            <GuidedSelect
               id="settings-linear-add-team"
-              className={selectClassName}
               value={addTeamId}
               disabled={optionsLoading || !linearApiKeyConfigured}
               onChange={(event) => {
@@ -412,13 +420,12 @@ export function LinearSettingsEditor({ initialData }: LinearSettingsEditorProps)
                   {team.name} ({team.key})
                 </option>
               ))}
-            </select>
+            </GuidedSelect>
           </div>
           <div className="space-y-2">
             <Label htmlFor="settings-linear-target-repo">Target repository</Label>
-            <select
+            <GuidedSelect
               id="settings-linear-target-repo"
-              className={selectClassName}
               value={addRepoId}
               onChange={(event) => setAddRepoId(event.target.value)}
             >
@@ -427,7 +434,7 @@ export function LinearSettingsEditor({ initialData }: LinearSettingsEditorProps)
                   {repo.targetRepo}
                 </option>
               ))}
-            </select>
+            </GuidedSelect>
           </div>
         </div>
         {addTeamId ? (

@@ -6,6 +6,7 @@ import type { VercelSetupSummary } from "@harness/setup/vercel-setup-summary";
 import type { VercelBridgePreview } from "@harness/setup/vercel-setup-apply";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { GuidedSelect } from "@/components/ui/guided-select";
 import { SettingsMutationPanel } from "@/components/settings/settings-mutation-panel";
 import {
   initialSettingsMutationState,
@@ -23,9 +24,6 @@ type DeploymentsSettingsEditorProps = {
 
 type ScopeOption = { id: string; label: string };
 type ProjectOption = { id: string; name: string };
-
-const selectClassName =
-  "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
 
 export function DeploymentsSettingsEditor({
   initialSummary,
@@ -310,9 +308,8 @@ export function DeploymentsSettingsEditor({
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="settings-vercel-team">Team</Label>
-              <select
+              <GuidedSelect
                 id="settings-vercel-team"
-                className={selectClassName}
                 value={teamId}
                 disabled={teamsLoading && scopes.length === 0}
                 onChange={(event) => {
@@ -331,7 +328,7 @@ export function DeploymentsSettingsEditor({
                     {scope.label}
                   </option>
                 ))}
-              </select>
+              </GuidedSelect>
               {teamsLoading ? (
                 <p className="text-xs text-muted-foreground">
                   Loading Vercel teams…
@@ -340,9 +337,8 @@ export function DeploymentsSettingsEditor({
             </div>
             <div className="space-y-2">
               <Label htmlFor="settings-vercel-project">Project</Label>
-              <select
+              <GuidedSelect
                 id="settings-vercel-project"
-                className={selectClassName}
                 value={projectId}
                 disabled={projectsLoading && projects.length === 0}
                 onChange={(event) => {
@@ -361,7 +357,7 @@ export function DeploymentsSettingsEditor({
                     {project.name}
                   </option>
                 ))}
-              </select>
+              </GuidedSelect>
               {projectsLoading ? (
                 <p className="text-xs text-muted-foreground">
                   Loading Vercel projects…

@@ -22,7 +22,7 @@ import {
   migrateExistingCompletedWorkspace,
 } from "@harness/setup/initial-setup-lifecycle";
 import { readControlPlaneSetupState } from "@harness/setup/control-plane-setup-state";
-import { SETTINGS_ROUTE } from "@harness/setup/packaged-default-route";
+import { WORKFLOW_ROUTE } from "@harness/setup/packaged-default-route";
 
 export const dynamic = "force-dynamic";
 
@@ -74,7 +74,7 @@ export default async function ConfigurePage() {
     })) ?? (await readControlPlaneSetupState(workspaceDir));
 
   if (isInitialSetupComplete(controlPlane)) {
-    redirect(SETTINGS_ROUTE);
+    redirect(WORKFLOW_ROUTE);
   }
 
   markConfigureServerComplete("configure_page_ready", "configure_page_start");

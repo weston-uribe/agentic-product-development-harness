@@ -59,6 +59,8 @@ function allTargetWorkflowsReady(summary: RemoteSetupSummary): boolean {
   );
 }
 
+export { allTargetWorkflowsReady };
+
 function isPendingInstallResult(
   result: RemoteTargetWorkflowApplyResult,
 ): boolean {
@@ -460,6 +462,31 @@ export function GuidedTargetWorkflowCard({
         );
       }));
 
+  const handleContinueWhenAllComplete = useCallback(async () => {
+    if (!allComplete) {
+      return;
+    }
+
+    let authoritativeSummary: RemoteSetupSummary;
+    try {
+      authoritativeSummary = await refreshSummary();
+    } catch {
+      return;
+    }
+
+    if (!allTargetWorkflowsReady(authoritativeSummary)) {
+      return;
+    }
+
+    onWorkflowSetupComplete?.();
+    onContinue?.();
+  }, [
+    allComplete,
+    onContinue,
+    onWorkflowSetupComplete,
+    refreshSummary,
+  ]);
+
   return (
     <SectionCard
       title={`Step 7 of ${GUIDED_SETUP_STEP_COUNT} · Install target repo workflow`}
@@ -513,8 +540,7 @@ export function GuidedTargetWorkflowCard({
                       onContinue={
                         allComplete
                           ? () => {
-                              onWorkflowSetupComplete?.();
-                              onContinue?.();
+                              void handleContinueWhenAllComplete();
                             }
                           : undefined
                       }
@@ -525,10 +551,9 @@ export function GuidedTargetWorkflowCard({
                       finalization={finalization}
                       transientMessage={transientByRepo[repo.repoConfigId]}
                       onContinue={
-                        finalization.lifecycle === "complete"
+                        allComplete && finalization.lifecycle === "complete"
                           ? () => {
-                              onWorkflowSetupComplete?.();
-                              onContinue?.();
+                              void handleContinueWhenAllComplete();
                             }
                           : undefined
                       }

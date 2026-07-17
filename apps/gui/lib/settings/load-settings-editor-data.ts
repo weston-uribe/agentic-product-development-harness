@@ -8,6 +8,9 @@ import {
   loadSetupSummary,
   loadVercelSetupSummary,
 } from "@/lib/setup-server";
+import { loadDurableServiceConnectionSummaries } from "@/lib/verification-state";
+
+export { loadDurableServiceConnectionSummaries };
 
 export async function loadConnectionsEditorData() {
   const summary = await loadSetupSummary();
@@ -15,6 +18,9 @@ export async function loadConnectionsEditorData() {
   return {
     presence: summary.envKeyPresence,
     envDefaults: formDefaults.env,
+    serviceConnectionSummaries: loadDurableServiceConnectionSummaries(
+      summary.envKeyPresence,
+    ),
   };
 }
 

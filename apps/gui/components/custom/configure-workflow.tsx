@@ -154,39 +154,9 @@ const SERVICE_VALUE_KEY: Record<
   VERCEL_TOKEN: "vercelToken",
 };
 
-export function serviceVerificationFromSummaries(
-  summaries: ServiceConnectionSummaryMap,
-): ServiceVerificationMap {
-  return (Object.keys(SERVICE_VALUE_KEY) as ServiceKey[]).reduce(
-    (next, key) => {
-      const summary = summaries[key];
-      if (summary.status === "connected") {
-        next[key] = {
-          state: "connected",
-          message: summary.message,
-          limitation: summary.limitation,
-          label: summary.label,
-        };
-      } else if (summary.status === "failed") {
-        next[key] = {
-          state: "failed",
-          message: summary.message,
-          limitation: summary.limitation,
-          label: summary.label,
-        };
-      } else {
-        next[key] = {
-          state: "unchecked",
-          message: summary.message,
-          limitation: summary.limitation,
-          label: summary.label,
-        };
-      }
-      return next;
-    },
-    { ...INITIAL_SERVICE_VERIFICATION },
-  );
-}
+import { serviceVerificationFromSummaries } from "@/lib/verification-state";
+
+export { serviceVerificationFromSummaries };
 
 export function shouldAutoReverifySavedService(input: {
   key: ServiceKey;

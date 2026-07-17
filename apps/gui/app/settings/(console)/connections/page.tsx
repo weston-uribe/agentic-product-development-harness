@@ -16,6 +16,7 @@ export default async function SettingsConnectionsPage() {
       </div>
       <ConnectionsSettingsEditor
         initialPresence={data.presence}
+        initialServiceConnectionSummaries={data.serviceConnectionSummaries}
         envDefaults={{
           harnessConfigPath: data.envDefaults.harnessConfigPath,
           githubDispatchRepository: data.envDefaults.githubDispatchRepository,
