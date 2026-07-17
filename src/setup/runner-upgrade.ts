@@ -40,6 +40,10 @@ import {
   type FileHashMap,
 } from "./runner-upgrade-three-way.js";
 import {
+  CANARY_OPERATION_ID_INPUT,
+  locateCanaryRunByOperationId,
+} from "./runner-upgrade-canary-dispatch.js";
+import {
   asRemoteSetupProviderForRunnerUpgrade,
   type RunnerUpgradeGitHubProvider,
 } from "./runner-upgrade-provider.js";
@@ -1752,14 +1756,28 @@ async function applyRunnerUpgradeInternal(
   await writeRunnerUpgradePendingStateAtomic(pending, cwd);
   await writeProgress(cwd, pending, pending.phase);
 
-  const dispatch = await provider.dispatchWorkflow(
+  const canaryOperationId = randomUUID();
+  // GitHub workflow_dispatch returns 204 with no run id — locate by operation id.
+  await provider.dispatchWorkflow(
     context.owner,
     context.repo,
     RUNNER_UPGRADE_CANARY_WORKFLOW_PATH,
     context.defaultBranch,
+    { [CANARY_OPERATION_ID_INPUT]: canaryOperationId },
   );
-  if (!dispatch.runId) {
-    pending.lastError = "Workflow dispatch did not return a run id.";
+  const located = await locateCanaryRunByOperationId(provider, {
+    owner: context.owner,
+    repo: context.repo,
+    operationId: canaryOperationId,
+    ref: context.defaultBranch,
+    pollIntervalMs: options.canaryPollIntervalMs ?? DEFAULT_CANARY_POLL_INTERVAL_MS,
+    pollTimeoutMs: Math.min(
+      options.canaryPollTimeoutMs ?? DEFAULT_CANARY_POLL_TIMEOUT_MS,
+      60_000,
+    ),
+  });
+  if (!located) {
+    pending.lastError = `Could not locate canary workflow run for operation id ${canaryOperationId} after workflow_dispatch (204).`;
     pending.syncInProgress = false;
     await writeRunnerUpgradePendingStateAtomic(pending, cwd);
     await writeProgress(cwd, pending, pending.phase);
@@ -1775,11 +1793,11 @@ async function applyRunnerUpgradeInternal(
     };
   }
 
-  pending.canaryRunId = String(dispatch.runId);
+  pending.canaryRunId = String(located.id);
   const canaryPoll = await pollCanaryRun(provider, {
     owner: context.owner,
     repo: context.repo,
-    runId: dispatch.runId,
+    runId: located.id,
     pollIntervalMs: options.canaryPollIntervalMs ?? DEFAULT_CANARY_POLL_INTERVAL_MS,
     pollTimeoutMs: options.canaryPollTimeoutMs ?? DEFAULT_CANARY_POLL_TIMEOUT_MS,
     onHeartbeat: async () => {
@@ -1792,7 +1810,9 @@ async function applyRunnerUpgradeInternal(
   });
 
   if (!canaryPoll.ok) {
-    pending.canaryRunUrl = `https://github.com/${context.owner}/${context.repo}/actions/runs/${dispatch.runId}`;
+    pending.canaryRunUrl =
+      located.htmlUrl ??
+      `https://github.com/${context.owner}/${context.repo}/actions/runs/${located.id}`;
     pending.lastError = canaryPoll.message;
     pending.syncInProgress = false;
     await writeRunnerUpgradePendingStateAtomic(pending, cwd);

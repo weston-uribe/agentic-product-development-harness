@@ -1,6 +1,12 @@
 name: PDev runner config canary
+run-name: PDev runner config canary ${{ inputs.canary_operation_id }}
 on:
   workflow_dispatch:
+    inputs:
+      canary_operation_id:
+        description: Unique operation id used to locate this canary run after dispatch 204
+        required: true
+        type: string
 jobs:
   canary:
     runs-on: ubuntu-latest

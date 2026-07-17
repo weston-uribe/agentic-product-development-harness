@@ -39,6 +39,9 @@ export interface RunnerUpgradeWorkflowRun {
   conclusion: "success" | "failure" | "cancelled" | null;
   htmlUrl: string;
   createdAt: string;
+  /** Workflow run name / run-name (used to locate canary after 204 dispatch). */
+  name?: string;
+  displayTitle?: string;
 }
 
 export interface RunnerUpgradeProviderCallOptions {
@@ -703,15 +706,22 @@ export class MockRunnerUpgradeProvider implements RunnerUpgradeGitHubProvider {
     });
     const entry = this.requireRepo(owner, repo);
     const runId = entry.nextWorkflowRunId++;
+    const operationId = inputs?.canary_operation_id?.trim();
+    const runName = operationId
+      ? `PDev runner config canary ${operationId}`
+      : "PDev runner config canary";
     const run: RunnerUpgradeWorkflowRun = {
       id: runId,
       status: "completed",
       conclusion: this.canaryConclusion,
       htmlUrl: `https://github.com/${owner}/${repo}/actions/runs/${runId}`,
       createdAt: new Date().toISOString(),
+      name: runName,
+      displayTitle: runName,
     };
     entry.workflowRuns.push(run);
-    return { runId };
+    // Simulate GitHub workflow_dispatch 204: no run id in the response body.
+    return {};
   }
 
   async getWorkflowRun(

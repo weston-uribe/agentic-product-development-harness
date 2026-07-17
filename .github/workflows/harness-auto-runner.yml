@@ -307,6 +307,7 @@ jobs:
       CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
       GITHUB_TOKEN: ${{ secrets.HARNESS_GITHUB_TOKEN }}
       HARNESS_CONFIG_JSON_B64: ${{ secrets.HARNESS_CONFIG_JSON_B64 }}
+      HARNESS_CONFIG_FINGERPRINT: ${{ vars.HARNESS_CONFIG_FINGERPRINT }}
 
     steps:
       - name: Checkout harness repo
@@ -367,6 +368,7 @@ jobs:
           LINEAR_DELIVERY_ID: ${{ needs.gate.outputs.linear_delivery_id }}
           LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
           HARNESS_CONFIG_JSON_B64: ${{ secrets.HARNESS_CONFIG_JSON_B64 }}
+          HARNESS_CONFIG_FINGERPRINT: ${{ vars.HARNESS_CONFIG_FINGERPRINT }}
         run: |
           npx tsx src/workflow/finalize-harness-run.ts \
             --issue "$ISSUE_KEY" \
@@ -421,6 +423,7 @@ jobs:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
       GITHUB_TOKEN: ${{ secrets.HARNESS_GITHUB_TOKEN }}
       HARNESS_CONFIG_JSON_B64: ${{ secrets.HARNESS_CONFIG_JSON_B64 }}
+      HARNESS_CONFIG_FINGERPRINT: ${{ vars.HARNESS_CONFIG_FINGERPRINT }}
 
     steps:
       - name: Resolve sync inputs

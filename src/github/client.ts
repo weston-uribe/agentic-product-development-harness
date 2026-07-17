@@ -243,6 +243,8 @@ export interface GitHubWorkflowRun {
   html_url: string;
   created_at: string;
   event?: string;
+  name?: string;
+  display_title?: string;
 }
 
 export interface GitHubGitBlobContent {
@@ -928,9 +930,16 @@ export class GitHubClient {
     repo: string,
     runId: number,
   ): Promise<GitHubWorkflowRun> {
-    const response = await this.request<{ id: number; status: GitHubWorkflowRun["status"]; conclusion: GitHubWorkflowRun["conclusion"]; html_url: string; created_at: string; event?: string }>(
-      `/repos/${owner}/${repo}/actions/runs/${runId}`,
-    );
+    const response = await this.request<{
+      id: number;
+      status: GitHubWorkflowRun["status"];
+      conclusion: GitHubWorkflowRun["conclusion"];
+      html_url: string;
+      created_at: string;
+      event?: string;
+      name?: string;
+      display_title?: string;
+    }>(`/repos/${owner}/${repo}/actions/runs/${runId}`);
     return {
       id: response.id,
       status: response.status,
@@ -938,6 +947,8 @@ export class GitHubClient {
       html_url: response.html_url,
       created_at: response.created_at,
       event: response.event,
+      name: response.name,
+      display_title: response.display_title,
     };
   }
 

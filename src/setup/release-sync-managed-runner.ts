@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,6 +24,10 @@ import {
   applyRunnerUpgrade,
   type RunnerUpgradeApplyOptions,
 } from "./runner-upgrade.js";
+import {
+  CANARY_OPERATION_ID_INPUT,
+  locateCanaryRunByOperationId,
+} from "./runner-upgrade-canary-dispatch.js";
 import {
   asRemoteSetupProviderForRunnerUpgrade,
   type RunnerUpgradeGitHubProvider,
@@ -279,29 +284,42 @@ async function syncCloudAndCanary(input: {
     harnessRepository: input.repoSlug,
   });
 
-  const dispatch = await input.provider.dispatchWorkflow(
+  const canaryOperationId = randomUUID();
+  // GitHub workflow_dispatch returns 204 with no run id — do not require one.
+  await input.provider.dispatchWorkflow(
     input.owner,
     input.repo,
     RUNNER_UPGRADE_CANARY_WORKFLOW_PATH,
     "main",
+    { [CANARY_OPERATION_ID_INPUT]: canaryOperationId },
   );
-  if (!dispatch.runId) {
+
+  const located = await locateCanaryRunByOperationId(input.provider, {
+    owner: input.owner,
+    repo: input.repo,
+    operationId: canaryOperationId,
+    ref: "main",
+    pollIntervalMs: input.canaryPollIntervalMs,
+    pollTimeoutMs: Math.min(input.canaryPollTimeoutMs, 60_000),
+  });
+  if (!located) {
     throw new ReleaseSyncManagedRunnerError(
       "run_configuration_canary",
-      "Workflow dispatch did not return a run id.",
+      `Could not locate canary workflow run for operation id ${canaryOperationId} after workflow_dispatch (204).`,
     );
   }
 
   const canary = await pollCanary(input.provider, {
     owner: input.owner,
     repo: input.repo,
-    runId: dispatch.runId,
+    runId: located.id,
     pollIntervalMs: input.canaryPollIntervalMs,
     pollTimeoutMs: input.canaryPollTimeoutMs,
   });
   const canaryRunUrl =
     canary.htmlUrl ??
-    `https://github.com/${input.owner}/${input.repo}/actions/runs/${dispatch.runId}`;
+    located.htmlUrl ??
+    `https://github.com/${input.owner}/${input.repo}/actions/runs/${located.id}`;
   if (!canary.ok) {
     throw new ReleaseSyncManagedRunnerError(
       "run_configuration_canary",
@@ -311,7 +329,7 @@ async function syncCloudAndCanary(input: {
 
   return {
     fingerprint: syncResult.fingerprint,
-    canaryRunId: String(dispatch.runId),
+    canaryRunId: String(located.id),
     canaryRunUrl,
   };
 }

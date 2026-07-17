@@ -1,4 +1,9 @@
-import { HARNESS_CONFIG_FINGERPRINT_VARIABLE } from "../config/cloud-config-fingerprint.js";
+import {
+  fingerprintHarnessConfigBytes,
+  HARNESS_CONFIG_FINGERPRINT_VARIABLE,
+} from "../config/cloud-config-fingerprint.js";
+import { harnessConfigSchema } from "../config/schema.js";
+import { formatHarnessConfigJson } from "./config-builder.js";
 import {
   generateHarnessConfigJsonB64,
   readValidatedConfigLocalBytes,
@@ -6,6 +11,25 @@ import {
 import { formatHarnessDispatchRepo, resolveHarnessDispatchRepo } from "./harness-dispatch-repo.js";
 import { sanitizeGitHubSetupError } from "./github-remote-setup-live.js";
 import type { GitHubRemoteSetupProvider } from "./github-remote-provider.js";
+
+/**
+ * Canonical cloud pair: same serialization + fingerprint function the runner
+ * uses for cloud_config_stale (formatHarnessConfigJson + fingerprintHarnessConfigBytes).
+ */
+export async function buildCanonicalCloudConfigPair(cwd?: string): Promise<{
+  bytes: Buffer;
+  encodedValue: string;
+  fingerprint: string;
+}> {
+  const { bytes: rawBytes } = await readValidatedConfigLocalBytes(cwd);
+  const parsed = harnessConfigSchema.parse(
+    JSON.parse(rawBytes.toString("utf8")) as unknown,
+  );
+  const bytes = Buffer.from(formatHarnessConfigJson(parsed), "utf8");
+  const fingerprint = fingerprintHarnessConfigBytes(bytes);
+  const encodedValue = generateHarnessConfigJsonB64(bytes);
+  return { bytes, encodedValue, fingerprint };
+}
 
 const REMOTE_WRITE_MAX_ATTEMPTS = 3;
 const REMOTE_WRITE_RETRY_MS = 500;
@@ -61,8 +85,9 @@ export async function syncHarnessConfigCloudPair(input: {
   provider: GitHubRemoteSetupProvider;
   harnessRepository?: string;
 }): Promise<{ fingerprint: string; harnessRepository: string }> {
-  const { bytes, hash } = await readValidatedConfigLocalBytes(input.cwd);
-  const encodedValue = generateHarnessConfigJsonB64(bytes);
+  const { encodedValue, fingerprint } = await buildCanonicalCloudConfigPair(
+    input.cwd,
+  );
 
   let harnessRepository = input.harnessRepository;
   if (!harnessRepository) {
@@ -95,10 +120,10 @@ export async function syncHarnessConfigCloudPair(input: {
     harnessRepository,
     write: async () => {
       await writeHarnessVariables(harnessRepository, [
-        { name: HARNESS_CONFIG_FINGERPRINT_VARIABLE, value: hash },
+        { name: HARNESS_CONFIG_FINGERPRINT_VARIABLE, value: fingerprint },
       ]);
     },
   });
 
-  return { fingerprint: hash, harnessRepository };
+  return { fingerprint, harnessRepository };
 }

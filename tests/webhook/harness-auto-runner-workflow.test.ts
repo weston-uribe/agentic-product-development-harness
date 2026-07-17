@@ -129,6 +129,13 @@ function assertHarnessWorkflowContracts(workflow: string, label: string): void {
       expect(syncSection).toContain("HARNESS_CONFIG_JSON_B64");
     });
 
+    it("passes HARNESS_CONFIG_FINGERPRINT on run-merge so cloud_config_stale cannot trip on a missing var", () => {
+      const runMerge = extractJobSection(workflow, "run-merge");
+      expect(runMerge).toContain(
+        "HARNESS_CONFIG_FINGERPRINT: ${{ vars.HARNESS_CONFIG_FINGERPRINT }}",
+      );
+    });
+
     it("forwards dispatch metadata to sync-production CLI", () => {
       const syncSection = extractJobSection(workflow, "sync-production");
       expect(syncSection).toContain("--source-repo");

@@ -64,6 +64,8 @@ function mapWorkflowRun(run: GitHubWorkflowRun): RunnerUpgradeWorkflowRun {
     conclusion,
     htmlUrl: run.html_url,
     createdAt: run.created_at,
+    name: run.name,
+    displayTitle: run.display_title,
   };
 }
 
@@ -435,7 +437,7 @@ class LiveRunnerUpgradeProvider implements RunnerUpgradeGitHubProvider {
     inputs?: Record<string, string>,
   ): Promise<{ runId?: number }> {
     try {
-      const dispatchedAt = Date.now();
+      // GitHub returns 204 No Content — never rely on a run id in the body.
       await this.client.createWorkflowDispatch(
         owner,
         repo,
@@ -443,22 +445,7 @@ class LiveRunnerUpgradeProvider implements RunnerUpgradeGitHubProvider {
         ref,
         inputs,
       );
-      await new Promise((resolve) => setTimeout(resolve, 750));
-      const runs = await this.client.listWorkflowRuns(
-        owner,
-        repo,
-        workflowIdOrPath,
-        {
-          branch: ref,
-          event: "workflow_dispatch",
-          perPage: 5,
-        },
-      );
-      const candidate = runs.find((run) => {
-        const createdAtMs = Date.parse(run.created_at);
-        return Number.isFinite(createdAtMs) && createdAtMs >= dispatchedAt - 5_000;
-      });
-      return candidate ? { runId: candidate.id } : {};
+      return {};
     } catch (error) {
       throw preserveGitHubSetupError(error);
     }

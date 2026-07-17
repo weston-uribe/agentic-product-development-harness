@@ -265,6 +265,16 @@ describe("release sync managed runner", () => {
     expect(result.codeUpdateSkippedBecauseAlreadyCurrent).toBe(false);
     expect(result.canaryRunUrl).toBeTruthy();
     expect(provider.remoteWriteOrder).toEqual(["secret", "variable"]);
+    const dispatchCall = provider.calls.find(
+      (call) => call.method === "dispatchWorkflow",
+    );
+    expect(dispatchCall?.args[4]).toMatchObject({
+      canary_operation_id: expect.any(String),
+    });
+    // Mock simulates GitHub 204: dispatch itself returns no run id; locate by op id.
+    expect(
+      provider.calls.some((call) => call.method === "listWorkflowRuns"),
+    ).toBe(true);
 
     const forbidden = provider.calls.filter((call) => {
       const method = call.method.toLowerCase();
