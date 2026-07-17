@@ -19,7 +19,9 @@ import {
   GIT_ASKPASS_TEMP_PREFIX,
 } from "../../src/setup/git-askpass-credentials.js";
 import {
+  buildHarnessSnapshotPushArgs,
   HARNESS_PROVISION_GIT_TEMP_PREFIX,
+  HARNESS_SNAPSHOT_GIT_HTTP_POST_BUFFER_BYTES,
   pushHarnessSnapshotViaLocalBareGit,
 } from "../../src/setup/harness-snapshot-git-transport.js";
 import { HARNESS_MANAGED_REPO_MARKER_FILE } from "../../src/setup/harness-managed-repo-marker.js";
@@ -212,6 +214,18 @@ describe("harness snapshot bulk git transport", () => {
 
       const pushArgv = capture.argv.filter((args) => args.includes("push"));
       expect(pushArgv.length).toBe(1);
+      expect(pushArgv[0]).toEqual([
+        "git",
+        ...buildHarnessSnapshotPushArgs(
+          result.markerCommitSha,
+          remote.defaultBranch,
+        ),
+      ]);
+      expect(pushArgv[0]).toContain("-c");
+      expect(pushArgv[0]).toContain(
+        `http.postBuffer=${HARNESS_SNAPSHOT_GIT_HTTP_POST_BUFFER_BYTES}`,
+      );
+      expect(pushArgv[0]).toContain("--atomic");
       const blobMutations = capture.argv.filter(
         (args) => args.includes("hash-object") === false && args.join(" ").includes("createGitBlob"),
       );
@@ -240,6 +254,24 @@ describe("harness snapshot bulk git transport", () => {
     },
     240_000,
   );
+
+  it("builds push argv with http.postBuffer above the default 1 MiB for large snapshot packs", () => {
+    const args = buildHarnessSnapshotPushArgs(
+      "abc123def456",
+      "main",
+    );
+    expect(args).toEqual([
+      "-c",
+      `http.postBuffer=${HARNESS_SNAPSHOT_GIT_HTTP_POST_BUFFER_BYTES}`,
+      "push",
+      "--atomic",
+      "origin",
+      "abc123def456:refs/heads/main",
+    ]);
+    expect(HARNESS_SNAPSHOT_GIT_HTTP_POST_BUFFER_BYTES).toBeGreaterThan(1_048_576);
+    // No force, no token/userinfo in argv.
+    expect(args.join(" ")).not.toMatch(/--force|-f\b|x-access-token|@/);
+  });
 
   it("removes temp git data on failure and rejects unexpected remote HEAD without force", async () => {
     const fixture = await createRepresentativeBulkSnapshotFixture(48);

@@ -24,6 +24,14 @@ import type { GitCommitIdentity } from "./github-remote-provider.js";
 
 export const HARNESS_PROVISION_GIT_TEMP_PREFIX = "p-dev-harness-provision-git-";
 
+/**
+ * Git's default http.postBuffer is 1 MiB. Workspace snapshot packs exceed that
+ * (~1.3 MiB for the embedded 884-file snapshot), and GitHub smart-HTTP then
+ * fails with HTTP 400 / send-pack disconnect. Set on the individual push
+ * invocation only — not via global git config.
+ */
+export const HARNESS_SNAPSHOT_GIT_HTTP_POST_BUFFER_BYTES = 524_288_000;
+
 export interface HarnessGitPushAuth {
   /** HTTPS remote without credentials, e.g. https://github.com/owner/repo.git */
   remoteUrl: string;
@@ -80,6 +88,20 @@ function buildHttpsRemoteUrl(owner: string, repo: string): string {
 
 export function buildGitHubHttpsRemoteUrl(owner: string, repo: string): string {
   return buildHttpsRemoteUrl(owner, repo);
+}
+
+export function buildHarnessSnapshotPushArgs(
+  markerCommitSha: string,
+  defaultBranch: string,
+): string[] {
+  return [
+    "-c",
+    `http.postBuffer=${HARNESS_SNAPSHOT_GIT_HTTP_POST_BUFFER_BYTES}`,
+    "push",
+    "--atomic",
+    "origin",
+    `${markerCommitSha}:refs/heads/${defaultBranch}`,
+  ];
 }
 
 async function createProvisionGitWorktree(): Promise<GitPlumbingWorktree> {
@@ -410,12 +432,7 @@ export async function pushHarnessSnapshotViaGit(
     if (!result) {
       await runGitAsync(
         worktree,
-        [
-          "push",
-          "--atomic",
-          "origin",
-          `${markerCommitSha}:refs/heads/${input.defaultBranch}`,
-        ],
+        buildHarnessSnapshotPushArgs(markerCommitSha, input.defaultBranch),
         { env: authEnv, timeoutMs, capture: input.capture },
       );
       input.onProgress?.({ phase: "verifying" });
@@ -645,12 +662,7 @@ export async function pushHarnessSnapshotViaLocalBareGit(input: {
     } else {
       await runGitAsync(
         worktree,
-        [
-          "push",
-          "--atomic",
-          "origin",
-          `${markerCommitSha}:refs/heads/${input.defaultBranch}`,
-        ],
+        buildHarnessSnapshotPushArgs(markerCommitSha, input.defaultBranch),
         { env: worktree.env, timeoutMs, capture: input.capture },
       );
       input.onProgress?.({ phase: "verifying" });
