@@ -85,11 +85,69 @@ describe("settings mutation editors", () => {
     expect(linearEditor).toContain("Remove from PDev");
     expect(linearEditor).not.toContain("previewLinearSetup");
     expect(mutationPanel).toContain('previewPolicy = "required"');
+    expect(mutationPanel).toContain("Optional");
+    expect(mutationPanel).toContain("Review the planned changes before applying.");
     expect(confirmation).toContain(
       "I understand PDev will create or repair the required workflow statuses",
     );
     expect(confirmation).not.toContain(
       "I reviewed the Linear setup preview and want to apply workspace changes.",
+    );
+  });
+
+  it("standardizes optional preview Apply cards for Linear and Deployments", async () => {
+    const mutationPanel = await readFile(
+      path.join(
+        process.cwd(),
+        "apps/gui/components/settings/settings-mutation-panel.tsx",
+      ),
+      "utf8",
+    );
+    const deploymentsEditor = await readFile(
+      path.join(
+        process.cwd(),
+        "apps/gui/components/settings/editors/deployments-settings-editor.tsx",
+      ),
+      "utf8",
+    );
+    const connectionsEditor = await readFile(
+      path.join(
+        process.cwd(),
+        "apps/gui/components/settings/editors/connections-settings-editor.tsx",
+      ),
+      "utf8",
+    );
+    const confirmation = await readFile(
+      path.join(
+        process.cwd(),
+        "apps/gui/components/custom/remote-action-confirmation.tsx",
+      ),
+      "utf8",
+    );
+
+    expect(mutationPanel).toMatch(
+      /Optional[\s\S]*\{phase === "previewing" \? "Previewing…" : previewLabel\}/,
+    );
+    expect(mutationPanel).toMatch(
+      /RemoteActionConfirmation[\s\S]*\{phase === "applying" \? "Applying…" : applyLabel\}/,
+    );
+    expect(mutationPanel.indexOf("RemoteActionConfirmation")).toBeLessThan(
+      mutationPanel.lastIndexOf("onApply"),
+    );
+
+    expect(deploymentsEditor).toContain('previewPolicy="optional"');
+    expect(deploymentsEditor).toContain("previewVercelBridge(buildPlanPayload())");
+    expect(deploymentsEditor).toContain("disableApply={!formComplete || !confirmed}");
+    expect(deploymentsEditor).not.toContain("disableApply={!formComplete || !mutation.preview}");
+
+    expect(connectionsEditor).not.toContain('previewPolicy="optional"');
+    expect(mutationPanel).toContain('previewPolicy = "required"');
+
+    expect(confirmation).toContain(
+      "I understand PDev will save the selected Vercel team and project",
+    );
+    expect(confirmation).not.toContain(
+      "I reviewed the Vercel settings preview and want to apply these changes.",
     );
   });
 });

@@ -53,15 +53,15 @@ const COPY: Record<
   },
   "vercel-bridge-write": {
     advanced: {
-      title: "Confirm Vercel bridge setup writes",
+      title: "Confirm Vercel deployment settings",
       bullets: [
-        "May create or reuse Vercel team and project resources when selected.",
-        "Writes required Vercel production environment variables for the bridge.",
-        "May create or verify the Linear Issue webhook for automation.",
-        "Secret values are never returned in previews, results, or errors.",
+        "May save the selected Vercel account/team and project for this harness.",
+        "May configure required application-preview or deployment settings.",
+        "Verifies the resulting Vercel connection after apply.",
+        "PDev does not delete the Vercel project or production deployment unless that deletion is explicitly supported and separately confirmed.",
       ],
       label:
-        "I reviewed the Vercel settings preview and want to apply these changes.",
+        "I understand PDev will save the selected Vercel team and project, configure required deployment settings, and verify the connection. PDev will not delete the Vercel project or production deployment unless separately confirmed.",
     },
     guided: {
       title: "Confirm Vercel settings write",

@@ -89,14 +89,19 @@ export function DeploymentsSettingsEditor({
   }, [buildPlanPayload]);
 
   const runApply = useCallback(async () => {
-    if (!mutation.preview) {
+    if (!confirmed) {
       return;
     }
     setMutation((current) => ({ ...current, phase: "applying", error: null }));
     try {
+      // Fresh server-authoritative plan on every apply; do not reuse a stale viewed preview alone.
+      const freshPreview = await previewVercelBridge(buildPlanPayload());
+      if (freshPreview.validationError) {
+        throw new Error(freshPreview.validationError);
+      }
       const result = await applyVercelBridge({
         plan: buildPlanPayload(),
-        fingerprint: mutation.preview.fingerprint,
+        fingerprint: freshPreview.fingerprint,
       });
       setSummary(result.summary as VercelSetupSummary);
       setMutation({
@@ -116,7 +121,7 @@ export function DeploymentsSettingsEditor({
         successMessage: null,
       });
     }
-  }, [buildPlanPayload, mutation.preview]);
+  }, [buildPlanPayload, confirmed, mutation.preview]);
 
   const formComplete = Boolean(teamId && projectId);
 
@@ -187,9 +192,12 @@ export function DeploymentsSettingsEditor({
       </div>
 
       <SettingsMutationPanel
+        title="Apply deployment changes"
+        explanation="Save the selected Vercel team and project, then verify the resulting connection."
         phase={mutation.phase}
         error={mutation.error}
         successMessage={mutation.successMessage}
+        previewPolicy="optional"
         previewSummary={
           mutation.preview?.manualSteps?.length
             ? mutation.preview.manualSteps.join("\n")
@@ -203,7 +211,7 @@ export function DeploymentsSettingsEditor({
         onPreview={() => void runPreview()}
         onApply={() => void runApply()}
         disablePreview={!formComplete}
-        disableApply={!formComplete || !mutation.preview}
+        disableApply={!formComplete || !confirmed}
       />
     </div>
   );

@@ -6,6 +6,7 @@ import type { SettingsMutationPhase } from "@/lib/settings/settings-mutation";
 
 type SettingsMutationPanelProps = {
   title?: string;
+  explanation?: string | null;
   previewSummary?: string | null;
   phase: SettingsMutationPhase;
   error?: string | null;
@@ -28,6 +29,7 @@ type SettingsMutationPanelProps = {
 
 export function SettingsMutationPanel({
   title = "Apply changes",
+  explanation,
   previewSummary,
   phase,
   error,
@@ -45,10 +47,43 @@ export function SettingsMutationPanel({
 }: SettingsMutationPanelProps) {
   const busy = phase === "previewing" || phase === "applying";
   const applyRequiresPreview = previewPolicy === "required";
+  const previewIsOptional = previewPolicy === "optional";
 
   return (
     <div className="space-y-4 rounded-md border border-border p-4">
-      <h3 className="text-sm font-semibold">{title}</h3>
+      <div className="space-y-1">
+        <h3 className="text-sm font-semibold">{title}</h3>
+        {explanation ? (
+          <p className="text-sm text-muted-foreground">{explanation}</p>
+        ) : null}
+      </div>
+
+      {onPreview ? (
+        <div className="space-y-2 border-b border-border pb-4">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {previewIsOptional ? (
+              <span className="rounded-md border border-border px-2 py-0.5 text-xs text-muted-foreground">
+                Optional
+              </span>
+            ) : null}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={busy || disablePreview}
+              onClick={onPreview}
+            >
+              {phase === "previewing" ? "Previewing…" : previewLabel}
+            </Button>
+          </div>
+          {previewIsOptional ? (
+            <p className="text-right text-xs text-muted-foreground">
+              Review the planned changes before applying.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
       {previewSummary ? (
         <pre className="max-h-48 overflow-auto rounded-md bg-muted/40 p-3 text-xs whitespace-pre-wrap">
           {previewSummary}
@@ -58,18 +93,19 @@ export function SettingsMutationPanel({
       {successMessage ? (
         <p className="text-sm text-muted-foreground">{successMessage}</p>
       ) : null}
-      <div className="flex flex-wrap gap-2">
-        {onPreview ? (
-          <Button
-            type="button"
-            variant="outline"
-            disabled={busy || disablePreview}
-            onClick={onPreview}
-          >
-            {phase === "previewing" ? "Previewing…" : previewLabel}
-          </Button>
-        ) : null}
-        {onApply ? (
+
+      {confirmScope ? (
+        <RemoteActionConfirmation
+          scope={confirmScope}
+          variant="advanced"
+          confirmed={confirmed}
+          disabled={busy}
+          onConfirmedChange={onConfirmedChange}
+        />
+      ) : null}
+
+      {onApply ? (
+        <div className="flex justify-end">
           <Button
             type="button"
             disabled={
@@ -82,16 +118,7 @@ export function SettingsMutationPanel({
           >
             {phase === "applying" ? "Applying…" : applyLabel}
           </Button>
-        ) : null}
-      </div>
-      {confirmScope ? (
-        <RemoteActionConfirmation
-          scope={confirmScope}
-          variant="advanced"
-          confirmed={confirmed}
-          disabled={busy}
-          onConfirmedChange={onConfirmedChange}
-        />
+        </div>
       ) : null}
     </div>
   );
