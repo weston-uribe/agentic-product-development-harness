@@ -13,6 +13,7 @@ import { runRedactOutputCommand } from "./commands/redact-output.js";
 import { runDiagnoseVercelBridgeCommand } from "./commands/diagnose-vercel-bridge.js";
 import { runOperatorInit } from "./commands/operator-init.js";
 import { runCanaryRunnerConfigCommand } from "./commands/canary-runner-config.js";
+import { runSyncManagedRunnerCommand } from "./commands/sync-managed-runner.js";
 
 export function createProgram(): Command {
   const program = new Command();
@@ -166,6 +167,41 @@ export function createProgram(): Command {
     .description("Validate managed runner marker and cloud config fingerprint pairing")
     .action(async () => {
       const exitCode = await runCanaryRunnerConfigCommand();
+      process.exitCode = exitCode;
+    });
+
+  program
+    .command("sync-managed-runner")
+    .description(
+      "Release unblocker: sync one known managed harness runner, cloud config, and config canary",
+    )
+    .option(
+      "--p-dev-home <path>",
+      "Operator workspace (P_DEV_HOME) containing .env.local and .harness/",
+    )
+    .option(
+      "--apply",
+      "Perform remote sync (default is dry-run verification only)",
+      false,
+    )
+    .option(
+      "--keep-pending",
+      "Do not archive/clear an existing local runner-upgrade pending file",
+      false,
+    )
+    .option("--json", "Print JSON result to stdout", false)
+    .action(async (opts: {
+      pDevHome?: string;
+      apply?: boolean;
+      keepPending?: boolean;
+      json?: boolean;
+    }) => {
+      const exitCode = await runSyncManagedRunnerCommand({
+        pDevHome: opts.pDevHome,
+        apply: opts.apply === true,
+        cancelPending: opts.keepPending !== true,
+        json: opts.json === true,
+      });
       process.exitCode = exitCode;
     });
 

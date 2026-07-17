@@ -20,6 +20,7 @@
     "harness:resolve-route": "tsx src/index.ts resolve-route",
     "harness:sync-production": "tsx src/index.ts sync-production",
     "harness:canary-runner-config": "tsx src/index.ts canary-runner-config",
+    "release:sync-managed-runner": "tsx src/index.ts sync-managed-runner",
     "harness:redact-output": "tsx src/index.ts redact-output",
     "harness:operator:init": "tsx src/index.ts operator init",
     "generate:config-schema": "tsx scripts/generate-config-schema.ts",
