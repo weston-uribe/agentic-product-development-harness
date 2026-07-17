@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ensureWorkflowStatesForTeam } from "../../src/setup/linear-setup-apply.js";
+import { lookupRequiredStatus } from "../../src/setup/linear-status-contract.js";
 import type { LinearClient } from "@linear/sdk";
 
 function createMockClient(input?: {
@@ -19,33 +20,35 @@ function createMockClient(input?: {
       pageInfo: { hasNextPage: false },
       fetchNext: vi.fn(),
     })),
-    createWorkflowState: vi.fn(async (args: { name: string }) => {
+    createWorkflowState: vi.fn(async (args: { name: string; type?: string }) => {
       if (input?.duplicateOnCreate === args.name) {
+        const required = lookupRequiredStatus(args.name);
         workflowStates = [
           ...workflowStates,
           {
             id: "existing-after-race",
             name: args.name,
-            type: "unstarted",
+            type: required?.category ?? "unstarted",
           },
         ];
         throw new Error(
           "Failed, cannot create a duplicate workflow state. A workflow state with this name and type already exists for this team.",
         );
       }
+      const required = lookupRequiredStatus(args.name);
       workflowStates = [
         ...workflowStates,
         {
           id: `created-${args.name}`,
           name: args.name,
-          type: "started",
+          type: args.type ?? required?.category ?? "started",
         },
       ];
       return {
         workflowState: Promise.resolve({
           id: `created-${args.name}`,
           name: args.name,
-          type: "started",
+          type: args.type ?? required?.category ?? "started",
         }),
       };
     }),

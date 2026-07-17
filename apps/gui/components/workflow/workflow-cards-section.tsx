@@ -7,6 +7,7 @@ import type { WorkflowBootstrapPayload } from "@harness/workflow-page/types";
 import { AlertTriangle } from "lucide-react";
 import { WORKFLOW_OWNERSHIP_COLUMNS } from "@/lib/workflow/workflow-ownership";
 import { getViolationForStatus } from "@/lib/workflow/workflow-health";
+import { formatWorkflowViolationMessage } from "@/lib/workflow/workflow-violation-messages";
 import { resolveStatusContent } from "@/lib/workflow/workflow-status-content";
 import {
   resolveModelDisplayName,
@@ -97,6 +98,9 @@ export function WorkflowCardsSection({
                 bootstrap.canonicalWorkflow.violations,
                 statusKey,
               );
+              const violationMessage = violation
+                ? formatWorkflowViolationMessage(violation)
+                : null;
               const content = resolveStatusContent(
                 statusKey,
                 bootstrap.canonicalWorkflow.mergePathVariant,
@@ -130,8 +134,18 @@ export function WorkflowCardsSection({
                   </button>
                   {isExpanded ? (
                     <div className="space-y-2 border-t border-border px-3 py-3 text-sm">
-                      {violation ? (
-                        <p className="text-destructive">{violation.message}</p>
+                      {violationMessage ? (
+                        <div className="space-y-1 text-destructive">
+                          <p>{violationMessage.primary}</p>
+                          {violationMessage.body ? (
+                            <p>{violationMessage.body}</p>
+                          ) : null}
+                          {violationMessage.diagnostic?.map((line) => (
+                            <p key={line} className="text-xs text-muted-foreground">
+                              {line}
+                            </p>
+                          ))}
+                        </div>
                       ) : null}
                       <p className="text-muted-foreground">{content.description}</p>
                       {content.fields.map((field) => (

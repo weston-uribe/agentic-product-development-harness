@@ -48,7 +48,7 @@ describe("canonical workflow validation", () => {
     const result = validateCanonicalLinearWorkflow({
       workflowStates: [
         ...buildValidLinearStates(),
-        { id: "s-dup", name: "Duplicate", category: "canceled" },
+        { id: "s-dup", name: "Duplicate", category: "duplicate" },
       ],
     });
     expect(result.valid).toBe(true);

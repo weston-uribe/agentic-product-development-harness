@@ -19,7 +19,7 @@ const WORKFLOW_STATUSES = [
   ["status-merged-deployed", "Merged / Deployed", "completed"],
   ["status-blocked", "Blocked", "started"],
   ["status-canceled", "Canceled", "canceled"],
-  ["status-duplicate", "Duplicate", "canceled"],
+  ["status-duplicate", "Duplicate", "duplicate"],
 ] as const;
 
 export const basicCurrentWorkflowFixture: WorkflowFixtureDefinition = {

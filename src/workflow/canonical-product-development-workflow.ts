@@ -10,7 +10,8 @@ export type LinearWorkflowStateCategory =
   | "unstarted"
   | "started"
   | "completed"
-  | "canceled";
+  | "canceled"
+  | "duplicate";
 
 export type CanonicalStatusRole =
   | "dispatch-trigger"
@@ -341,7 +342,7 @@ export const CANONICAL_STATUSES: readonly CanonicalStatusDefinition[] = [
   {
     key: "duplicate",
     name: "Duplicate",
-    category: "canceled",
+    category: "duplicate",
     role: "system-managed",
     creatable: false,
     systemManaged: true,

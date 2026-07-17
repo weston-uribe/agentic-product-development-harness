@@ -198,6 +198,62 @@ export function isDuplicateWorkflowStateError(error: unknown): boolean {
   return /duplicate workflow state/i.test(message);
 }
 
+export async function updateLinearWorkflowState(
+  client: LinearClient,
+  input: {
+    id: string;
+    name?: string;
+    color?: string;
+    description?: string;
+    position?: number;
+  },
+): Promise<LinearWorkflowStateSummary> {
+  const payload = await client.updateWorkflowState(input.id, {
+    name: input.name,
+    color: input.color,
+    description: input.description,
+    position: input.position,
+  });
+  const state = await payload.workflowState;
+  if (!state) {
+    throw new Error("Linear workflow state update did not return a state");
+  }
+  return {
+    id: state.id,
+    name: state.name ?? input.name ?? "",
+    type: state.type ?? "",
+  };
+}
+
+export async function listIssueIdsForWorkflowState(input: {
+  client: LinearClient;
+  teamId: string;
+  stateId: string;
+}): Promise<string[]> {
+  const connection = await input.client.issues({
+    filter: {
+      team: { id: { eq: input.teamId } },
+      state: { id: { eq: input.stateId } },
+    },
+  });
+  const issues = await paginateConnection(connection);
+  return issues.map((issue) => issue.id);
+}
+
+export async function updateLinearIssueState(
+  client: LinearClient,
+  input: { issueId: string; stateId: string },
+): Promise<void> {
+  await client.updateIssue(input.issueId, { stateId: input.stateId });
+}
+
+export async function archiveLinearWorkflowState(
+  client: LinearClient,
+  stateId: string,
+): Promise<void> {
+  await client.archiveWorkflowState(stateId);
+}
+
 export async function createLinearIssueWebhook(
   client: LinearClient,
   input: { url: string; teamId?: string; label?: string; secret?: string },
