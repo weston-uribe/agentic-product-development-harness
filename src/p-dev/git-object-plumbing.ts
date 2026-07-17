@@ -1,8 +1,11 @@
 import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { WorkspaceSnapshotManifestFile } from "./workspace-snapshot-types.js";
+
+export const GIT_PLUMBING_TEMP_PREFIX = "p-dev-git-plumbing-";
 
 export function compareUtf8Paths(left: string, right: string): number {
   return Buffer.compare(Buffer.from(left, "utf8"), Buffer.from(right, "utf8"));
@@ -20,8 +23,26 @@ export function computeGitBlobSha1(content: Buffer): string {
   return result.stdout.toString("utf8").trim();
 }
 
+function buildGitPlumbingEnv(root: string): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    GIT_DIR: path.join(root, ".git"),
+    GIT_WORK_TREE: root,
+  };
+}
+
+function initGitPlumbingRoot(root: string): void {
+  const result = spawnSync("git", ["init"], { cwd: root });
+  if (result.status !== 0) {
+    throw new Error(
+      `git init failed: ${result.stderr?.toString("utf8") || "unknown error"}`,
+    );
+  }
+}
+
 function gitMktreeFromEntries(
   entries: Array<{ mode: string; type: "blob" | "tree"; sha: string; name: string }>,
+  worktree: GitPlumbingWorktree,
 ): string {
   const sorted = [...entries].sort((left, right) =>
     compareUtf8Paths(left.name, right.name),
@@ -34,6 +55,8 @@ function gitMktreeFromEntries(
   }
   const result = spawnSync("git", ["mktree", "-z", "--missing"], {
     input: Buffer.concat(chunks),
+    cwd: worktree.root,
+    env: worktree.env,
   });
   if (result.status !== 0) {
     throw new Error(
@@ -43,8 +66,9 @@ function gitMktreeFromEntries(
   return result.stdout.toString("utf8").trim();
 }
 
-export function computeSnapshotRootTreeSha1(
+function computeSnapshotRootTreeSha1WithWorktree(
   files: WorkspaceSnapshotManifestFile[],
+  worktree: GitPlumbingWorktree,
 ): string {
   const childrenByDir = new Map<
     string,
@@ -121,7 +145,7 @@ export function computeSnapshotRootTreeSha1(
       }
     }
 
-    treeShaByDir.set(dir, gitMktreeFromEntries(entries));
+    treeShaByDir.set(dir, gitMktreeFromEntries(entries, worktree));
   }
 
   const rootSha = treeShaByDir.get("");
@@ -131,27 +155,58 @@ export function computeSnapshotRootTreeSha1(
   return rootSha;
 }
 
+/**
+ * Computes the Git root-tree SHA for a snapshot file list.
+ * Uses a disposable isolated Git object database so packaged installs
+ * work when process.cwd() is not a Git repository.
+ */
+export function computeSnapshotRootTreeSha1(
+  files: WorkspaceSnapshotManifestFile[],
+): string {
+  const worktree = createGitPlumbingWorktreeSync();
+  try {
+    return computeSnapshotRootTreeSha1WithWorktree(files, worktree);
+  } finally {
+    destroyGitPlumbingWorktreeSync(worktree);
+  }
+}
+
 export interface GitPlumbingWorktree {
   root: string;
   env: NodeJS.ProcessEnv;
 }
 
-export async function createGitPlumbingWorktree(): Promise<GitPlumbingWorktree> {
-  const root = await mkdtemp(path.join(tmpdir(), "p-dev-git-plumbing-"));
-  const result = spawnSync("git", ["init"], { cwd: root });
-  if (result.status !== 0) {
-    await rm(root, { recursive: true, force: true });
-    throw new Error(
-      `git init failed: ${result.stderr?.toString("utf8") || "unknown error"}`,
-    );
+export function createGitPlumbingWorktreeSync(): GitPlumbingWorktree {
+  const root = mkdtempSync(path.join(tmpdir(), GIT_PLUMBING_TEMP_PREFIX));
+  try {
+    initGitPlumbingRoot(root);
+  } catch (error) {
+    rmSync(root, { recursive: true, force: true });
+    throw error;
   }
   return {
     root,
-    env: {
-      ...process.env,
-      GIT_DIR: path.join(root, ".git"),
-      GIT_WORK_TREE: root,
-    },
+    env: buildGitPlumbingEnv(root),
+  };
+}
+
+export function destroyGitPlumbingWorktreeSync(
+  worktree: GitPlumbingWorktree,
+): void {
+  rmSync(worktree.root, { recursive: true, force: true });
+}
+
+export async function createGitPlumbingWorktree(): Promise<GitPlumbingWorktree> {
+  const root = await mkdtemp(path.join(tmpdir(), GIT_PLUMBING_TEMP_PREFIX));
+  try {
+    initGitPlumbingRoot(root);
+  } catch (error) {
+    await rm(root, { recursive: true, force: true });
+    throw error;
+  }
+  return {
+    root,
+    env: buildGitPlumbingEnv(root),
   };
 }
 
@@ -232,7 +287,7 @@ export function buildGitTreeFromManifestFiles(
     writeGitBlobToWorktree(worktree, content);
     void sha;
   }
-  return computeSnapshotRootTreeSha1(files);
+  return computeSnapshotRootTreeSha1WithWorktree(files, worktree);
 }
 
 export function readGitTreeFileContent(

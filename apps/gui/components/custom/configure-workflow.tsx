@@ -12,7 +12,11 @@ import type {
   LocalSetupFormPayload,
   LocalSetupPreviewResult,
 } from "@harness/setup/local-apply-actions";
-import type { SetupGuiViewModel } from "@/lib/setup-server";
+import type {
+  HarnessRepoProvisioningSummary,
+  ServiceConnectionSummaryMap,
+  SetupGuiViewModel,
+} from "@/lib/setup-server";
 import { FORM, SPACING } from "@/lib/constants";
 import { GUIDED_SETUP_STEP_COUNT } from "@/lib/guided-setup";
 import { Button } from "@/components/ui/button";
@@ -64,11 +68,16 @@ interface ConfigureWorkflowProps {
     savedHarnessDispatchRepository?: string;
     suggestedHarnessDispatchRepo?: string;
     secretPresence: EnvironmentFormPresence;
+    serviceConnectionSummaries: ServiceConnectionSummaryMap;
   };
   initialConfig: LocalConfigFormInput;
+  initialHarnessProvisioningSummary: HarnessRepoProvisioningSummary;
   highlightStaleDispatch?: boolean;
   highlightStaleTarget?: boolean;
   onSummaryUpdated?: (summary: SetupGuiViewModel) => void;
+  onHarnessProvisioningSummaryUpdated?: (
+    summary: HarnessRepoProvisioningSummary,
+  ) => void;
   onUiStateChange?: (state: { localPreviewStale: boolean }) => void;
   onGuidedLocalApplySuccess?: () => void;
   onConnectServicesComplete?: () => void;
@@ -95,15 +104,90 @@ const SERVICE_VALUE_KEY: Record<
   VERCEL_TOKEN: "vercelToken",
 };
 
+export function serviceVerificationFromSummaries(
+  summaries: ServiceConnectionSummaryMap,
+): ServiceVerificationMap {
+  return (Object.keys(SERVICE_VALUE_KEY) as ServiceKey[]).reduce(
+    (next, key) => {
+      const summary = summaries[key];
+      if (summary.status === "connected") {
+        next[key] = {
+          state: "connected",
+          message: summary.message,
+          limitation: summary.limitation,
+          label: summary.label,
+        };
+      } else if (summary.status === "failed") {
+        next[key] = {
+          state: "failed",
+          message: summary.message,
+          limitation: summary.limitation,
+          label: summary.label,
+        };
+      } else {
+        next[key] = {
+          state: "unchecked",
+          message: summary.message,
+          limitation: summary.limitation,
+          label: summary.label,
+        };
+      }
+      return next;
+    },
+    { ...INITIAL_SERVICE_VERIFICATION },
+  );
+}
+
+export function shouldAutoReverifySavedService(input: {
+  key: ServiceKey;
+  presence: EnvironmentFormPresence;
+  envValues: EnvironmentFormValues;
+  summaries: ServiceConnectionSummaryMap;
+  verification: ServiceVerificationMap;
+}): boolean {
+  if (!input.presence[input.key]) {
+    return false;
+  }
+  if (input.envValues[SERVICE_VALUE_KEY[input.key]].trim()) {
+    return false;
+  }
+  if (input.verification[input.key].state !== "unchecked") {
+    return false;
+  }
+  const status = input.summaries[input.key]?.status;
+  return status === undefined || status === "missing" || status === "unknown" || status === "stale";
+}
+
+export function isServiceConnectionReady(input: {
+  key: ServiceKey;
+  presence: EnvironmentFormPresence;
+  verification: ServiceVerificationMap;
+  envValues: EnvironmentFormValues;
+}): boolean {
+  if (!input.presence[input.key]) {
+    return false;
+  }
+  if (input.verification[input.key].state !== "connected") {
+    return false;
+  }
+  const typedValue = input.envValues[SERVICE_VALUE_KEY[input.key]].trim();
+  if (typedValue) {
+    return isServiceVerifiedForValue(input.verification[input.key], typedValue);
+  }
+  return true;
+}
+
 export function ConfigureWorkflow({
   mode = "advanced",
   guidedStep: guidedStepProp,
   onGuidedStepChange,
   initialEnv,
   initialConfig,
+  initialHarnessProvisioningSummary,
   highlightStaleDispatch = false,
   highlightStaleTarget = false,
   onSummaryUpdated,
+  onHarnessProvisioningSummaryUpdated,
   onUiStateChange,
   onGuidedLocalApplySuccess,
   onConnectServicesComplete,
@@ -112,6 +196,25 @@ export function ConfigureWorkflow({
   const prefersReducedMotion = useReducedMotion();
   const guidedTopRef = useRef<HTMLDivElement | null>(null);
   const guidedRepoRowCounter = useRef(1);
+  const serviceCheckIds = useRef<Record<ServiceKey, number>>({
+    LINEAR_API_KEY: 0,
+    CURSOR_API_KEY: 0,
+    GITHUB_TOKEN: 0,
+    VERCEL_TOKEN: 0,
+  });
+  const inFlightServiceChecks = useRef<
+    Partial<
+      Record<
+        ServiceKey,
+        {
+          requestKey: string;
+          id: number;
+          controller: AbortController;
+          promise: Promise<void>;
+        }
+      >
+    >
+  >({});
 
   const [internalGuidedStep, setInternalGuidedStep] =
     useState<GuidedLocalStep>("connect-services");
@@ -136,7 +239,9 @@ export function ConfigureWorkflow({
     initialEnv.secretPresence,
   );
   const [serviceVerification, setServiceVerification] =
-    useState<ServiceVerificationMap>(INITIAL_SERVICE_VERIFICATION);
+    useState<ServiceVerificationMap>(() =>
+      serviceVerificationFromSummaries(initialEnv.serviceConnectionSummaries),
+    );
   const [verifyingServiceKey, setVerifyingServiceKey] =
     useState<ServiceKey | null>(null);
   const [repoVerification, setRepoVerification] = useState<
@@ -223,6 +328,14 @@ export function ConfigureWorkflow({
   }, [guidedStepProp, mode]);
 
   useEffect(() => {
+    return () => {
+      for (const check of Object.values(inFlightServiceChecks.current)) {
+        check?.controller.abort();
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     onUiStateChange?.({
       localPreviewStale: preview !== null && !previewIsCurrent,
     });
@@ -253,17 +366,12 @@ export function ConfigureWorkflow({
   );
 
   const serviceConnectionReady = (key: ServiceKey) => {
-    if (!presence[key]) {
-      return false;
-    }
-    if (serviceVerification[key].state !== "connected") {
-      return false;
-    }
-    const typedValue = envValues[SERVICE_VALUE_KEY[key]].trim();
-    if (typedValue) {
-      return isServiceVerifiedForValue(serviceVerification[key], typedValue);
-    }
-    return true;
+    return isServiceConnectionReady({
+      key,
+      presence,
+      verification: serviceVerification,
+      envValues,
+    });
   };
 
   const connectServicesReady =
@@ -427,6 +535,25 @@ export function ConfigureWorkflow({
   ]);
 
   const continueWithHarnessProvisioning = useCallback(async () => {
+    if (
+      initialHarnessProvisioningSummary.state === "verified-and-persisted" ||
+      initialHarnessProvisioningSummary.state === "skipped-source-mode" ||
+      initialHarnessProvisioningSummary.state === "skipped-not-packaged"
+    ) {
+      const repoSlug = initialHarnessProvisioningSummary.harnessDispatchRepo;
+      if (repoSlug) {
+        setStep1TrustedHarnessRepo(repoSlug);
+        setServerValidatedHarnessRepo(repoSlug);
+        setHarnessRepoVerification({
+          state: "connected",
+          verifiedRepo: repoSlug,
+          message: initialHarnessProvisioningSummary.message,
+        });
+      }
+      onConnectServicesComplete?.();
+      return;
+    }
+
     setProvisioningHarnessRepo(true);
     setProvisioningError(null);
     setProvisioningMessage("Setting up workspace…");
@@ -455,6 +582,13 @@ export function ConfigureWorkflow({
           setStep1TrustedHarnessRepo(trustedRepo);
           setServerValidatedHarnessRepo(trustedRepo);
         }
+        onHarnessProvisioningSummaryUpdated?.({
+          ...initialHarnessProvisioningSummary,
+          state: "skipped-not-packaged",
+          harnessDispatchRepo: trustedRepo || null,
+          message: previewData.message,
+          recoverable: false,
+        });
         onConnectServicesComplete?.();
         return;
       }
@@ -501,7 +635,29 @@ export function ConfigureWorkflow({
         });
       }
 
+      onHarnessProvisioningSummaryUpdated?.({
+        ...initialHarnessProvisioningSummary,
+        state: applyData.apply.state,
+        harnessDispatchRepo: repoSlug,
+        message: applyData.apply.message,
+        recoverable: applyData.apply.recoverable,
+        verifiedSavedRepo: applyData.apply.state === "verified-and-persisted",
+        connectedAutomatically: Boolean(repoSlug),
+      });
       onSummaryUpdated?.(applyData.summary as SetupGuiViewModel);
+      try {
+        const summaryResponse = await fetch(
+          "/api/setup/harness-provisioning-summary",
+        );
+        const summaryData = await summaryResponse.json();
+        if (summaryResponse.ok) {
+          onHarnessProvisioningSummaryUpdated?.(
+            summaryData as HarnessRepoProvisioningSummary,
+          );
+        }
+      } catch {
+        // The apply result already advanced the UI; a refresh will reload summary.
+      }
       setProvisioningMessage(applyData.apply.message);
       onConnectServicesComplete?.();
     } catch (provisionError) {
@@ -513,7 +669,15 @@ export function ConfigureWorkflow({
     } finally {
       setProvisioningHarnessRepo(false);
     }
-  }, [envValues.githubDispatchRepository, initialEnv.savedHarnessDispatchRepository, initialEnv.suggestedHarnessDispatchRepo, onConnectServicesComplete, onSummaryUpdated]);
+  }, [
+    envValues.githubDispatchRepository,
+    initialEnv.savedHarnessDispatchRepository,
+    initialEnv.suggestedHarnessDispatchRepo,
+    initialHarnessProvisioningSummary,
+    onConnectServicesComplete,
+    onHarnessProvisioningSummaryUpdated,
+    onSummaryUpdated,
+  ]);
 
   const resetApplyState = () => {
     setApplySuccess(null);
@@ -609,10 +773,23 @@ export function ConfigureWorkflow({
     [envValues, onSummaryUpdated],
   );
 
-  const verifyAndSaveService = useCallback(
-    async (key: ServiceKey) => {
+  const runServiceVerification = useCallback(
+    async (
+      key: ServiceKey,
+      options: { saveOnConnected: boolean },
+    ) => {
       const token = envValues[SERVICE_VALUE_KEY[key]].trim();
       const fingerprint = token ? valueFingerprint(token) : undefined;
+      const requestKey = token ? `typed:${fingerprint}` : "saved";
+      const existing = inFlightServiceChecks.current[key];
+      if (existing?.requestKey === requestKey) {
+        return existing.promise;
+      }
+
+      existing?.controller.abort();
+      const controller = new AbortController();
+      const requestId = serviceCheckIds.current[key] + 1;
+      serviceCheckIds.current[key] = requestId;
 
       setVerifyingServiceKey(key);
       setServiceVerification((current) => ({
@@ -620,10 +797,11 @@ export function ConfigureWorkflow({
         [key]: { state: "checking" },
       }));
 
-      try {
+      const promise = (async () => {
         const response = await fetch("/api/setup/verify-service", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
           body: JSON.stringify({
             service: SERVICE_API_MAP[key],
             ...(token ? { token } : {}),
@@ -632,6 +810,10 @@ export function ConfigureWorkflow({
         const data = await response.json();
         if (!response.ok) {
           throw new Error(data.error ?? "Verification failed");
+        }
+
+        if (serviceCheckIds.current[key] !== requestId) {
+          return;
         }
 
         if (data.status !== "connected") {
@@ -648,8 +830,12 @@ export function ConfigureWorkflow({
           return;
         }
 
-        if (token) {
+        if (token && options.saveOnConnected) {
           await saveConnectServiceKey(key);
+        }
+
+        if (serviceCheckIds.current[key] !== requestId) {
+          return;
         }
 
         setServiceVerification((current) => ({
@@ -662,7 +848,24 @@ export function ConfigureWorkflow({
             label: data.label,
           },
         }));
+      })();
+
+      inFlightServiceChecks.current[key] = {
+        requestKey,
+        id: requestId,
+        controller,
+        promise,
+      };
+
+      try {
+        await promise;
       } catch (verifyError) {
+        if (
+          controller.signal.aborted ||
+          serviceCheckIds.current[key] !== requestId
+        ) {
+          return;
+        }
         setServiceVerification((current) => ({
           ...current,
           [key]: {
@@ -675,11 +878,55 @@ export function ConfigureWorkflow({
           },
         }));
       } finally {
-        setVerifyingServiceKey(null);
+        if (inFlightServiceChecks.current[key]?.id === requestId) {
+          delete inFlightServiceChecks.current[key];
+        }
+        if (serviceCheckIds.current[key] === requestId) {
+          setVerifyingServiceKey(null);
+        }
       }
     },
     [envValues, saveConnectServiceKey],
   );
+
+  const verifyAndSaveService = useCallback(
+    async (key: ServiceKey) => {
+      await runServiceVerification(key, {
+        saveOnConnected: true,
+      });
+    },
+    [runServiceVerification],
+  );
+
+  useEffect(() => {
+    if (mode !== "guided" || guidedStep !== "connect-services") {
+      return;
+    }
+
+    for (const key of Object.keys(SERVICE_VALUE_KEY) as ServiceKey[]) {
+      if (
+        shouldAutoReverifySavedService({
+          key,
+          presence,
+          envValues,
+          summaries: initialEnv.serviceConnectionSummaries,
+          verification: serviceVerification,
+        })
+      ) {
+        void runServiceVerification(key, {
+          saveOnConnected: false,
+        });
+      }
+    }
+  }, [
+    envValues,
+    guidedStep,
+    initialEnv.serviceConnectionSummaries,
+    mode,
+    presence,
+    runServiceVerification,
+    serviceVerification,
+  ]);
 
   const verifyAndUseHarnessRepo = useCallback(
     async (draftRepo: string) => {

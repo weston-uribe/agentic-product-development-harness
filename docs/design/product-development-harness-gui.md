@@ -885,7 +885,6 @@ Deliverables:
 
 - ordered guided stepper as the default first-run experience
 - shared readiness / blocker / next-action model over existing setup summaries
-- advanced checklist dashboard escape hatch with the same readiness model
 - final ready/blocked state without live harness run trigger
 
 Non-goals for M6:

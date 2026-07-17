@@ -645,11 +645,14 @@ process.exit(0);
       env.P_DEV_PACKAGE_ROOT = packageRoot;
       env.P_DEV_HOME = home;
 
-      // Manifest tree verification uses `git mktree`, which requires a git
-      // repository cwd on this platform. Use the source checkout cwd while the
-      // installed package root comes exclusively from P_DEV_PACKAGE_ROOT.
+      const nonGitCwd = await mkdtemp(
+        path.join(os.tmpdir(), "p-dev-non-git-snapshot-cwd-"),
+      );
+      tempDirs.push(nonGitCwd);
+
+      // Packaged installs must verify snapshot trees without a Git worktree cwd.
       const { stdout } = await execFileAsync(process.execPath, [scriptPath], {
-        cwd: repoRoot,
+        cwd: nonGitCwd,
         env,
         timeout: 60_000,
         maxBuffer: 1024 * 1024,
@@ -678,7 +681,7 @@ process.exit(0);
         process.execPath,
         [scriptPath],
         {
-          cwd: repoRoot,
+          cwd: nonGitCwd,
           env,
           timeout: 60_000,
           maxBuffer: 1024 * 1024,

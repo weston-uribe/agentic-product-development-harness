@@ -3,6 +3,7 @@ import { AppShell } from "@/components/custom/app-shell";
 import { ConfigurePageContent } from "@/components/custom/configure-page-content";
 import {
   loadLinearSetupSummary,
+  loadHarnessRepoProvisioningSummaryRemote,
   loadRemoteSetupSummary,
   loadSetupFormDefaults,
   loadSetupSummary,
@@ -41,13 +42,25 @@ export default async function ConfigurePage() {
   markConfigureServerStart("configure_page_start");
   const workspaceDir = resolveHarnessWorkspaceDir();
 
-  const [summary, formDefaults, remoteSummary, linearSummary, vercelSummary, observabilityState] =
+  const [
+    summary,
+    formDefaults,
+    remoteSummary,
+    linearSummary,
+    vercelSummary,
+    harnessProvisioningSummary,
+    observabilityState,
+  ] =
     await Promise.all([
       loadWithTiming("configure_loader_setup_summary", loadSetupSummary),
       loadWithTiming("configure_loader_form_defaults", loadSetupFormDefaults),
       loadWithTiming("configure_loader_remote_summary", loadRemoteSetupSummary),
       loadWithTiming("configure_loader_linear_summary", loadLinearSetupSummary),
       loadWithTiming("configure_loader_vercel_summary", loadVercelSetupSummary),
+      loadWithTiming(
+        "configure_loader_harness_provisioning",
+        loadHarnessRepoProvisioningSummaryRemote,
+      ),
       loadWithTiming("configure_loader_observability", () =>
         readObservabilityPreferences(workspaceDir),
       ),
@@ -70,12 +83,13 @@ export default async function ConfigurePage() {
     process.env[P_DEV_OBSERVABILITY_NONCE_ENV]?.trim() ?? null;
 
   return (
-    <AppShell showProductNavigation={false}>
+    <AppShell showProductNavigation={false} enableHomeNavigation={false}>
       <ConfigurePageContent
         summary={summary}
         remoteSummary={remoteSummary}
         linearSummary={linearSummary}
         vercelSummary={vercelSummary}
+        harnessProvisioningSummary={harnessProvisioningSummary}
         formDefaults={formDefaults}
         observabilityNonce={observabilityNonce}
         observabilityPreferences={{

@@ -9,6 +9,7 @@ type ConfigureTimingMark =
   | "configure_loader_remote_summary"
   | "configure_loader_linear_summary"
   | "configure_loader_vercel_summary"
+  | "configure_loader_harness_provisioning"
   | "configure_loader_observability"
   | "configure_page_ready"
   | "configure_nav_start"

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { GitHubApiError } from "../../src/github/client.js";
 
 vi.mock("../../src/setup/harness-dispatch-repo.js", () => ({
@@ -23,7 +23,11 @@ import { inspectGitHubTokenMetadata } from "../../src/setup/service-verification
 import { assessGitHubDispatchTokenEligibility } from "../../src/setup/github-dispatch-token.js";
 
 describe("github-dispatch-token", () => {
+  const originalRuntimeMode = process.env.P_DEV_RUNTIME_MODE;
+
   beforeEach(() => {
+    delete process.env.P_DEV_RUNTIME_MODE;
+    vi.clearAllMocks();
     vi.mocked(resolveHarnessDispatchRepo).mockResolvedValue({
       repo: "owner/harness",
       source: "git-remote-origin",
@@ -43,6 +47,14 @@ describe("github-dispatch-token", () => {
           }),
         }) as unknown as InstanceType<typeof GitHubClient>,
     );
+  });
+
+  afterEach(() => {
+    if (originalRuntimeMode === undefined) {
+      delete process.env.P_DEV_RUNTIME_MODE;
+    } else {
+      process.env.P_DEV_RUNTIME_MODE = originalRuntimeMode;
+    }
   });
 
   it("requires a saved GitHub token before dispatch reuse", async () => {
@@ -107,5 +119,41 @@ describe("github-dispatch-token", () => {
 
     expect(result.eligible).toBe(false);
     expect(result.message).toMatch(/rejected dispatch token eligibility/i);
+  });
+
+  it("requires verified Step 1 provisioning for packaged Step 3 entry", async () => {
+    process.env.P_DEV_RUNTIME_MODE = "packaged";
+
+    const result = await assessGitHubDispatchTokenEligibility({
+      githubToken: "ghp_saved-token",
+      requireVerifiedPackagedDispatchRepo: true,
+    });
+
+    expect(result.eligible).toBe(false);
+    expect(result.message).toMatch(/Complete Step 1/i);
+    expect(resolveHarnessDispatchRepo).not.toHaveBeenCalled();
+  });
+
+  it("uses verified Step 1 dispatch repo in packaged Step 3 entry", async () => {
+    process.env.P_DEV_RUNTIME_MODE = "packaged";
+    vi.mocked(resolveHarnessDispatchRepo).mockResolvedValueOnce({
+      repo: "verified-owner/verified-harness",
+      source: "provisioning-summary",
+      resolved: true,
+      detail: "Resolved from verified Step 1 harness workspace.",
+    });
+
+    const result = await assessGitHubDispatchTokenEligibility({
+      githubToken: "ghp_saved-token",
+      verifiedDispatchRepo: "verified-owner/verified-harness",
+      requireVerifiedPackagedDispatchRepo: true,
+    });
+
+    expect(result.eligible).toBe(true);
+    expect(result.repository).toBe("verified-owner/verified-harness");
+    expect(resolveHarnessDispatchRepo).toHaveBeenCalledWith({
+      cwd: undefined,
+      verifiedProvisioningRepo: "verified-owner/verified-harness",
+    });
   });
 });

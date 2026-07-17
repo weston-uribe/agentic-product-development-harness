@@ -21,6 +21,7 @@ describe("app shell settings menu", () => {
     expect(appShell).not.toContain("Local operator GUI");
     expect(appShell).not.toContain("ThemeToggle");
     expect(applicationHeader).toContain("PDev Harness");
+    expect(applicationHeader).toContain("enableHomeNavigation");
     expect(applicationHeader).toContain('href={workflowHref}');
     expect(applicationHeader).toContain("SettingsMenu");
   });
@@ -94,10 +95,15 @@ describe("app shell settings menu", () => {
     expect(appShell).toContain(
       "showProductNavigation={showProductNavigation}",
     );
+    expect(appShell).toContain("enableHomeNavigation = true");
+    expect(appShell).toContain(
+      "enableHomeNavigation={enableHomeNavigation}",
+    );
     expect(applicationHeader).toContain("showProductNavigation = true");
     expect(applicationHeader).toContain(
       "showProductNavigation={showProductNavigation}",
     );
+    expect(applicationHeader).toContain("enableHomeNavigation = true");
     expect(settingsMenu).toContain("showProductNavigation = true");
     expect(settingsMenu).toContain("!showProductNavigation");
     expect(settingsMenu).toContain("{showProductNavigation ? (");

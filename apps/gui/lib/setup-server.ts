@@ -80,6 +80,7 @@ import {
   type GitHubHarnessProvisioningProvider,
 } from "@harness/setup/github-remote-provider";
 import { GitHubClient } from "@harness/github/client";
+import { isPackagedPDevRuntime } from "@harness/p-dev/runtime-mode";
 import type { HarnessSecretOperatorInput } from "@harness/setup/harness-secret-setup";
 import {
   buildManualHarnessSecretCopyValues,
@@ -150,7 +151,11 @@ import {
 import { pollVercelBridgeRedeployVerification } from "@harness/setup/vercel-bridge-redeploy-poll";
 import { buildVercelSetupSummary } from "@harness/setup/vercel-setup-summary";
 import { previewVercelBridgeSetup } from "@harness/setup/vercel-setup-plan";
-import { loadSecretFromEnvLocal } from "@harness/setup/service-verification";
+import {
+  loadSecretFromEnvLocal,
+  verifySetupService,
+  type SetupServiceName,
+} from "@harness/setup/service-verification";
 import { assessGitHubDispatchTokenEligibility } from "@harness/setup/github-dispatch-token";
 import {
   loadVercelBridgeOptions,
@@ -177,6 +182,26 @@ export interface RemoteTargetWorkflowFormPayload {
   productionBranch: string;
   manualHarnessDispatchRepo?: string;
 }
+
+export type ServiceConnectionSummaryStatus =
+  | "missing"
+  | "connected"
+  | "failed"
+  | "unknown"
+  | "stale";
+
+export type ServiceConnectionSummary = {
+  status: ServiceConnectionSummaryStatus;
+  message?: string;
+  label?: string;
+  limitation?: string;
+  checkedAt?: string;
+};
+
+export type ServiceConnectionSummaryMap = Record<
+  "LINEAR_API_KEY" | "CURSOR_API_KEY" | "GITHUB_TOKEN" | "VERCEL_TOKEN",
+  ServiceConnectionSummary
+>;
 
 function resolveCwd(): string {
   return resolveHarnessWorkspaceDir();
@@ -252,9 +277,10 @@ export async function loadRemoteSetupSummary(): Promise<RemoteSetupSummary> {
 }
 
 export async function loadFirstRunReadiness(): Promise<FirstRunReadiness> {
-  const [summary, remoteSummary] = await Promise.all([
+  const [summary, remoteSummary, harnessProvisioningSummary] = await Promise.all([
     loadSetupSummary(),
     loadRemoteSetupSummary(),
+    loadHarnessRepoProvisioningSummaryRemote(),
   ]);
   const controlPlaneContext = await loadControlPlaneReadinessContext(
     resolveCwd(),
@@ -265,6 +291,7 @@ export async function loadFirstRunReadiness(): Promise<FirstRunReadiness> {
     remoteSummary,
     staleSmokeDiagnostics: remoteSummary.staleSmokeDiagnostics,
     controlPlaneContext,
+    harnessProvisioningSummary,
   });
 }
 
@@ -279,6 +306,7 @@ export async function loadSetupFormDefaults(): Promise<{
       GITHUB_TOKEN: boolean;
       VERCEL_TOKEN: boolean;
     };
+    serviceConnectionSummaries: ServiceConnectionSummaryMap;
   };
   config: Awaited<ReturnType<typeof loadConfigFormDefaults>>;
 }> {
@@ -286,10 +314,19 @@ export async function loadSetupFormDefaults(): Promise<{
   const paths = resolveLocalFilePaths(cwd);
   const existingEnv = await readExistingEnvFile(paths);
   const config = await loadConfigFormDefaults({ cwd });
-  const gitRemoteOriginUrl = await readGitRemoteOrigin(cwd);
+  const gitRemoteOriginUrl = isPackagedPDevRuntime()
+    ? null
+    : await readGitRemoteOrigin(cwd);
   const suggestedHarnessDispatchRepo = gitRemoteOriginUrl
     ? parseGitHubRepoSlug(gitRemoteOriginUrl) ?? undefined
     : undefined;
+
+  const secretPresence = {
+    LINEAR_API_KEY: existingEnv?.presence.LINEAR_API_KEY ?? false,
+    CURSOR_API_KEY: existingEnv?.presence.CURSOR_API_KEY ?? false,
+    GITHUB_TOKEN: existingEnv?.presence.GITHUB_TOKEN ?? false,
+    VERCEL_TOKEN: existingEnv?.presence.VERCEL_TOKEN ?? false,
+  };
 
   return {
     env: {
@@ -298,15 +335,70 @@ export async function loadSetupFormDefaults(): Promise<{
       githubDispatchRepository:
         existingEnv?.values.GITHUB_DISPATCH_REPOSITORY ?? "",
       suggestedHarnessDispatchRepo,
-      secretPresence: {
-        LINEAR_API_KEY: existingEnv?.presence.LINEAR_API_KEY ?? false,
-        CURSOR_API_KEY: existingEnv?.presence.CURSOR_API_KEY ?? false,
-        GITHUB_TOKEN: existingEnv?.presence.GITHUB_TOKEN ?? false,
-        VERCEL_TOKEN: existingEnv?.presence.VERCEL_TOKEN ?? false,
-      },
+      secretPresence,
+      serviceConnectionSummaries: await loadServiceConnectionSummaries(
+        cwd,
+        secretPresence,
+      ),
     },
     config,
   };
+}
+
+const SERVICE_SUMMARY_MAP: Record<
+  keyof ServiceConnectionSummaryMap,
+  SetupServiceName
+> = {
+  LINEAR_API_KEY: "linear",
+  CURSOR_API_KEY: "cursor",
+  GITHUB_TOKEN: "github",
+  VERCEL_TOKEN: "vercel",
+};
+
+async function loadServiceConnectionSummaries(
+  cwd: string,
+  presence: Record<keyof ServiceConnectionSummaryMap, boolean>,
+): Promise<ServiceConnectionSummaryMap> {
+  const entries = await Promise.all(
+    (Object.keys(SERVICE_SUMMARY_MAP) as Array<keyof ServiceConnectionSummaryMap>).map(
+      async (key) => {
+        if (!presence[key]) {
+          return [key, { status: "missing" as const }] as const;
+        }
+
+        try {
+          const result = await verifySetupService({
+            cwd,
+            service: SERVICE_SUMMARY_MAP[key],
+          });
+          return [
+            key,
+            {
+              status: result.status,
+              message: result.message,
+              label: result.label,
+              limitation: result.limitation,
+              checkedAt: new Date().toISOString(),
+            },
+          ] as const;
+        } catch (error) {
+          return [
+            key,
+            {
+              status: "unknown" as const,
+              message:
+                error instanceof Error
+                  ? error.message
+                  : "Saved credential could not be verified.",
+              checkedAt: new Date().toISOString(),
+            },
+          ] as const;
+        }
+      },
+    ),
+  );
+
+  return Object.fromEntries(entries) as ServiceConnectionSummaryMap;
 }
 
 export async function previewLocalFiles(
@@ -519,9 +611,12 @@ async function enrichVercelBridgePlan(
   const linearApiKey = plan.linearApiKey ?? (await loadLinearApiKey(cwd));
   const githubToken = await loadSecretFromEnvLocal({ cwd, key: "GITHUB_TOKEN" });
   const controlPlane = await readControlPlaneSetupState(cwd);
+  const harnessProvisioningSummary = await loadHarnessRepoProvisioningSummaryRemote();
   const dispatchEligibility = await assessGitHubDispatchTokenEligibility({
     githubToken,
     cwd,
+    harnessProvisioningSummary,
+    requireVerifiedPackagedDispatchRepo: true,
   });
   const savedWebhookSecret = await loadSecretFromEnvLocal({
     cwd,
@@ -543,6 +638,9 @@ async function enrichVercelBridgePlan(
       plan.envInput?.GITHUB_DISPATCH_TOKEN?.trim() || !dispatchEligibility.eligible
         ? undefined
         : githubToken,
+    derivedGithubDispatchRepository: dispatchEligibility.eligible
+      ? dispatchEligibility.repository
+      : undefined,
     willGenerateLinearWebhookSecret: reuseSavedLocalWebhookSecret
       ? true
       : (plan.willGenerateLinearWebhookSecret ?? !hasOperatorWebhookSecret),
@@ -737,11 +835,13 @@ export async function loadVercelBridgeOptionsRemote(input?: {
   const cwd = resolveCwd();
   const vercelToken = (await loadVercelToken(cwd)) ?? "";
   const githubToken = await loadSecretFromEnvLocal({ cwd, key: "GITHUB_TOKEN" });
+  const harnessProvisioningSummary = await loadHarnessRepoProvisioningSummaryRemote();
   return loadVercelBridgeOptions({
     vercelToken,
     githubToken,
     cwd,
     teamId: input?.teamId,
+    harnessProvisioningSummary,
   });
 }
 
@@ -1139,5 +1239,6 @@ export type {
   TargetRepoProvisioningApplyResult,
   TargetRepoProvisioningRequest,
   TargetRepoProvisioningApplyInput,
+  HarnessRepoProvisioningSummary,
 };
 

@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SetupGuiViewModel } from "@/lib/setup-server";
 import type { RemoteSetupSummary } from "@/lib/setup-server";
+import type {
+  HarnessRepoProvisioningSummary,
+  ServiceConnectionSummaryMap,
+} from "@/lib/setup-server";
 import type { LocalConfigFormInput } from "@harness/setup/config-local-editor";
 import type { LinearSetupSummary } from "@harness/setup/linear-setup-summary";
 import type { VercelSetupSummary } from "@harness/setup/vercel-setup-summary";
@@ -46,8 +50,6 @@ import type { TargetWorkflowFinalizationResult } from "@harness/setup/target-wor
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { StatusBadge } from "@/components/custom/status-badge";
-import { ReadinessBanner } from "@/components/custom/readiness-banner";
-import { SetupDashboard } from "@/components/custom/setup-dashboard";
 import { ConfigureWorkflow } from "@/components/custom/configure-workflow";
 import { GuidedLinearWorkspaceCard } from "@/components/custom/guided-linear-workspace-card";
 import { GuidedVercelBridgeCard } from "@/components/custom/guided-vercel-bridge-card";
@@ -65,13 +67,12 @@ import {
   type ObservabilityPreferencesSnapshot,
 } from "@/lib/observability-preferences";
 
-type ConfigureMode = "guided" | "advanced";
-
 interface ConfigureExperienceProps {
   initialSummary: SetupGuiViewModel;
   initialRemoteSummary: RemoteSetupSummary;
   initialLinearSummary: LinearSetupSummary;
   initialVercelSummary: VercelSetupSummary;
+  initialHarnessProvisioningSummary: HarnessRepoProvisioningSummary;
   formDefaults: {
     env: {
       harnessConfigPath: string;
@@ -83,6 +84,7 @@ interface ConfigureExperienceProps {
         GITHUB_TOKEN: boolean;
         VERCEL_TOKEN: boolean;
       };
+      serviceConnectionSummaries: ServiceConnectionSummaryMap;
     };
     config: LocalConfigFormInput;
   };
@@ -110,11 +112,11 @@ export function ConfigureExperience({
   initialRemoteSummary,
   initialLinearSummary,
   initialVercelSummary,
+  initialHarnessProvisioningSummary,
   formDefaults,
   observabilityNonce,
   initialObservabilityPreferences,
 }: ConfigureExperienceProps) {
-  const [mode, setMode] = useState<ConfigureMode>("guided");
   const [observabilityPreferences, setObservabilityPreferences] =
     useState(initialObservabilityPreferences);
   const [setupDisclosureComplete, setSetupDisclosureComplete] = useState(
@@ -124,6 +126,9 @@ export function ConfigureExperience({
   const [remoteSummary, setRemoteSummary] = useState(initialRemoteSummary);
   const [linearSummary, setLinearSummary] = useState(initialLinearSummary);
   const [vercelSummary, setVercelSummary] = useState(initialVercelSummary);
+  const [harnessProvisioningSummary, setHarnessProvisioningSummary] = useState(
+    initialHarnessProvisioningSummary,
+  );
   const [uiState, setUiState] = useState<FirstRunReadinessUiState>({});
 
   useEffect(() => {
@@ -148,6 +153,7 @@ export function ConfigureExperience({
           remoteSummary: initialRemoteSummary,
           uiState: {},
           staleSmokeDiagnostics: initialRemoteSummary.staleSmokeDiagnostics,
+          harnessProvisioningSummary: initialHarnessProvisioningSummary,
           controlPlaneContext: buildControlPlaneContext({
             linearSummary: initialLinearSummary,
             vercelSummary: initialVercelSummary,
@@ -243,9 +249,10 @@ export function ConfigureExperience({
         remoteSummary,
         uiState,
         staleSmokeDiagnostics: remoteSummary.staleSmokeDiagnostics,
+        harnessProvisioningSummary,
         controlPlaneContext,
       }),
-    [summary, remoteSummary, uiState, controlPlaneContext],
+    [summary, remoteSummary, uiState, harnessProvisioningSummary, controlPlaneContext],
   );
 
   useEffect(() => {
@@ -267,6 +274,17 @@ export function ConfigureExperience({
     }
     previousReadinessStepRef.current = nextStepId;
   }, [readiness.currentStepId, summary]);
+
+  useEffect(() => {
+    const clamped = clampGuidedDisplayStep({
+      target: displayedGuidedStep,
+      currentStepId: readiness.currentStepId,
+    });
+    if (clamped !== displayedGuidedStep) {
+      setDisplayedGuidedStep(clamped);
+      pinnedGuidedDisplayStepRef.current = clamped;
+    }
+  }, [displayedGuidedStep, readiness.currentStepId]);
 
   useEffect(() => {
     if (readiness.readyForFirstRun) {
@@ -317,6 +335,7 @@ export function ConfigureExperience({
         GITHUB_TOKEN: summary.envKeyPresence.GITHUB_TOKEN,
         VERCEL_TOKEN: summary.envKeyPresence.VERCEL_TOKEN,
       },
+      serviceConnectionSummaries: formDefaults.env.serviceConnectionSummaries,
     };
   }, [
     formDefaults.env,
@@ -429,6 +448,13 @@ export function ConfigureExperience({
       // Fall back to env presence synced via handleSummaryUpdated after Step 1 save.
     }
   }, [clearPinnedGuidedDisplayStep, recordStepCompleted]);
+
+  const handleHarnessProvisioningSummaryUpdated = useCallback(
+    (nextSummary: HarnessRepoProvisioningSummary) => {
+      setHarnessProvisioningSummary(nextSummary);
+    },
+    [],
+  );
 
   const handleLinearWorkspaceContinue = useCallback(() => {
     clearPinnedGuidedDisplayStep();
@@ -605,8 +631,7 @@ export function ConfigureExperience({
     readiness.currentStepId,
   ]);
 
-  const showGuidedBackButton =
-    mode === "guided" && shouldShowGuidedBackButton(displayedGuidedStep);
+  const showGuidedBackButton = shouldShowGuidedBackButton(displayedGuidedStep);
 
   const guidedProgressStages = useMemo(
     () =>
@@ -649,7 +674,11 @@ export function ConfigureExperience({
             guidedStep="connect-services"
             initialEnv={initialEnvForWorkflow}
             initialConfig={formDefaults.config}
+            initialHarnessProvisioningSummary={harnessProvisioningSummary}
             onSummaryUpdated={handleSummaryUpdated}
+            onHarnessProvisioningSummaryUpdated={
+              handleHarnessProvisioningSummaryUpdated
+            }
             onConnectServicesComplete={handleConnectServicesComplete}
           />
         );
@@ -682,9 +711,13 @@ export function ConfigureExperience({
             guidedStep="choose-target-repos"
             initialEnv={initialEnvForWorkflow}
             initialConfig={formDefaults.config}
+            initialHarnessProvisioningSummary={harnessProvisioningSummary}
             highlightStaleDispatch={staleDispatchRepoNeedsAttention}
             highlightStaleTarget={staleTargetRepoNeedsAttention}
             onSummaryUpdated={handleSummaryUpdated}
+            onHarnessProvisioningSummaryUpdated={
+              handleHarnessProvisioningSummaryUpdated
+            }
             onUiStateChange={handleLocalUiStateChange}
             onGuidedLocalApplySuccess={handleGuidedLocalApplySuccess}
             localSetupFilesExist={localSetupFilesExist(summary)}
@@ -755,15 +788,6 @@ export function ConfigureExperience({
     }
   };
 
-  const configBadgeLabel = summary.overview.operatorConfigResolved
-    ? "Config resolved"
-    : summary.overview.configResolved
-      ? "Template config loaded"
-      : "Not configured yet";
-  const configBadgeVariant = summary.overview.operatorConfigResolved
-    ? "success"
-    : "secondary";
-
   const guidedStatusBadgeLabel = readiness.readyForFirstRun
     ? "Setup complete"
     : workflowAwaitingMerge
@@ -822,68 +846,26 @@ export function ConfigureExperience({
                 label={guidedStatusBadgeLabel}
                 variant={readiness.readyForFirstRun ? "success" : "warning"}
               />
-              {mode === "advanced" ? (
-                <StatusBadge
-                  label={configBadgeLabel}
-                  variant={configBadgeVariant}
-                />
-              ) : null}
             </div>
           </div>
-          {mode === "guided" ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setMode("advanced")}
-            >
-              Advanced checklist view
-            </Button>
-          ) : (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setMode("guided")}
-            >
-              Back to guided flow
-            </Button>
-          )}
         </div>
       </section>
 
-      {mode === "advanced" ? <ReadinessBanner readiness={readiness} /> : null}
+      <section className={SPACING.section}>
+        <GuidedSetupProgress stages={guidedProgressStages} />
+      </section>
 
-      {mode === "guided" ? (
-        <section className={SPACING.section}>
-          <GuidedSetupProgress stages={guidedProgressStages} />
-        </section>
-      ) : null}
-
-      {mode === "guided" ? (
-        <div className={SPACING.section}>
-          <div ref={actionPanelRef}>
-            <GuidedStepTransition
-              stepKey={displayedGuidedStep}
-              direction={guidedTransitionDirection}
-              panelRef={actionPanelRef}
-            >
-              {renderGuidedActionPanel()}
-            </GuidedStepTransition>
-          </div>
+      <div className={SPACING.section}>
+        <div ref={actionPanelRef}>
+          <GuidedStepTransition
+            stepKey={displayedGuidedStep}
+            direction={guidedTransitionDirection}
+            panelRef={actionPanelRef}
+          >
+            {renderGuidedActionPanel()}
+          </GuidedStepTransition>
         </div>
-      ) : (
-        <SetupDashboard
-          summary={summary}
-          remoteSummary={remoteSummary}
-          readiness={readiness}
-          formDefaults={formDefaults}
-          onSummaryUpdated={setSummary}
-          onRemoteSummaryUpdated={setRemoteSummary}
-          onLocalUiStateChange={handleLocalUiStateChange}
-          onRemoteUiStateChange={handleRemoteUiStateChange}
-        />
-      )}
+      </div>
     </div>
   );
 }
