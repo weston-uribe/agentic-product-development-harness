@@ -144,6 +144,8 @@ export type RunEventName =
   | "validation_completed"
   | "github_pr_inspected"
   | "preview_poll_started"
+  | "preview_poll_skipped"
+  | "application_preview_not_configured"
   | "preview_captured"
   | "preview_not_found"
   | "handoff_comment_posted"

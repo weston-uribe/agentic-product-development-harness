@@ -31,7 +31,7 @@ describe("configure GUI fix loop", () => {
     expect(source).toMatch(/invalidatePreview\(\)/);
   });
 
-  it("Step 3 uses accurate Vercel settings copy and optional direct apply", () => {
+  it("Step 3 uses accurate PDev automation bridge copy and optional direct apply", () => {
     const source = readFileSync(
       path.join(
         repoRoot,
@@ -40,13 +40,13 @@ describe("configure GUI fix loop", () => {
       "utf8",
     );
 
-    expect(source).toContain("Configure Vercel settings");
+    expect(source).toContain("Configure PDev automation bridge");
     expect(source).not.toContain("Set up Vercel webhook bridge");
     expect(source).not.toContain("Select the harness control-plane");
     expect(source).not.toContain("Vercel scope");
     expect(source).toContain("Vercel team name");
     expect(source).toContain(
-      "Choose the Vercel team and project this setup should use for automation and issue previews before merging code.",
+      "Choose the Vercel team and project that host the PDev automation bridge.",
     );
     expect(source).not.toContain("Env var presence alone is not enough");
     expect(source).not.toContain(
@@ -63,7 +63,7 @@ describe("configure GUI fix loop", () => {
     expect(source).not.toContain("GitHub dispatch token:");
     expect(source).not.toContain("LINEAR_WEBHOOK_SECRET:");
     expect(source).not.toContain("Bridge not ready");
-    expect(source).toContain("Preview Vercel settings");
+    expect(source).toContain("Preview PDev automation bridge");
     expect(source).not.toMatch(
       /RemoteActionConfirmation[\s\S]*disabled=\{!previewIsCurrent/,
     );
@@ -73,7 +73,7 @@ describe("configure GUI fix loop", () => {
     expect(source).not.toContain(
       "I completed any manual webhook steps and accept bridge readiness.",
     );
-    expect(source).toContain("Apply Vercel Settings");
+    expect(source).toContain("Apply PDev automation bridge");
     expect(source).not.toContain("Apply Vercel bridge setup");
     expect(source).toMatch(
       /previewIsCurrent && preview \? preview : await runPreview\(\)/,
@@ -82,7 +82,7 @@ describe("configure GUI fix loop", () => {
     expect(source).toContain("Create new project");
     expect(source).toContain("deployment-required");
     expect(source).toContain("Deployment status:");
-    expect(source).toContain("Applying Vercel settings…");
+    expect(source).toContain("Applying PDev automation bridge…");
     expect(source).not.toContain("Retry verification");
     expect(source).not.toContain("GITHUB_DISPATCH_TOKEN override");
     expect(source).toContain("VercelBridgeOrchestrationStatus");
@@ -124,7 +124,7 @@ describe("configure GUI fix loop", () => {
     );
   });
 
-  it("Step 3 confirmation uses Vercel bridge copy", () => {
+  it("Step 3 confirmation uses PDev automation bridge copy", () => {
     const source = readFileSync(
       path.join(
         repoRoot,
@@ -345,7 +345,7 @@ describe("configure GUI fix loop", () => {
     // after: handler advances guided display to Step 6
     expect(experienceSource).toContain("GUIDED_DISPLAY_STEP_AFTER_LOCAL_READINESS");
     const continueHandler = experienceSource.match(
-      /const handleLocalReadinessReviewed = useCallback\([\s\S]*?\n  \);/,
+      /const handleLocalReadinessReviewed = useCallback\(\(\) => \{[\s\S]*?\n  \}, \[clearPinnedGuidedDisplayStep, recordStepCompleted\]\);/,
     )?.[0];
     expect(continueHandler).toBeDefined();
     expect(continueHandler).toContain("localReadinessReviewed: true");
@@ -407,7 +407,7 @@ describe("configure GUI fix loop", () => {
     // after: handler advances guided display to Step 7
     expect(experienceSource).toContain("GUIDED_DISPLAY_STEP_AFTER_CLOUD_SECRETS");
     const continueHandler = experienceSource.match(
-      /const handleCloudSecretsReviewed = useCallback\([\s\S]*?\n  \);/,
+      /const handleCloudSecretsReviewed = useCallback\(\(\) => \{[\s\S]*?\n  \}, \[clearPinnedGuidedDisplayStep, recordStepCompleted\]\);/,
     )?.[0];
     expect(continueHandler).toBeDefined();
     expect(continueHandler).toContain("cloudSecretsReviewed: true");

@@ -74,8 +74,8 @@ export const GUIDED_PROGRESS_STAGES: readonly GuidedProgressStageMetadata[] = [
   },
   {
     id: "vercel-bridge",
-    shortLabel: "Vercel",
-    accessibleLabel: "Set up Vercel bridge",
+    shortLabel: "Bridge",
+    accessibleLabel: "Set up PDev automation bridge",
   },
   {
     id: "choose-target-repos",

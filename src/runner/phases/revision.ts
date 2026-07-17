@@ -46,6 +46,7 @@ import {
 } from "../../github/pr-inspector.js";
 import { parsePrUrl } from "../../github/pr-url.js";
 import { pollForVercelPreview } from "../../preview/vercel-from-pr.js";
+import { shouldCaptureApplicationPreview } from "../../preview/preview-capability.js";
 import {
   acquireBuilderAgent,
   disposeAgent,
@@ -665,40 +666,48 @@ export async function executeRevisionPhase(
     const pollInterval =
       config.preview?.pollIntervalSeconds ?? DEFAULT_PREVIEW_POLL_INTERVAL_SECONDS;
 
-    const previewResult = await pollForVercelPreview(
-      async () => {
-        const latest = await inspectPullRequest(github, parsedPr, markerTargetRepo);
-        return latest.comments;
-      },
-      {
-        pollTimeoutSeconds: pollTimeout,
-        pollIntervalSeconds: pollInterval,
-      },
-    );
-
-    const updatedPreviewUrl = previewResult.previewUrl;
     let previewWarning: string | null = null;
-    if (updatedPreviewUrl) {
-      previewUrl = updatedPreviewUrl;
-      await events.log("preview_captured", "info", {
-        previewUrl,
-        source: previewResult.source,
-      });
+
+    if (shouldCaptureApplicationPreview(resolved.previewProvider)) {
+      const previewResult = await pollForVercelPreview(
+        async () => {
+          const latest = await inspectPullRequest(github, parsedPr, markerTargetRepo);
+          return latest.comments;
+        },
+        {
+          pollTimeoutSeconds: pollTimeout,
+          pollIntervalSeconds: pollInterval,
+        },
+      );
+
+      const updatedPreviewUrl = previewResult.previewUrl;
+      if (updatedPreviewUrl) {
+        previewUrl = updatedPreviewUrl;
+        await events.log("preview_captured", "info", {
+          previewUrl,
+          source: previewResult.source,
+        });
+      } else {
+        previewWarning =
+          previewResult.warnings.join("; ") ||
+          "Preview URL not updated yet after revision; prior preview may be stale";
+        await events.log("preview_not_found", "warn", {
+          warnings: previewResult.warnings,
+        });
+      }
+
+      await mkdir(`${runDirectory}/vercel`, { recursive: true });
+      await writeFile(
+        getVercelDeploymentPath(runDirectory),
+        `${JSON.stringify(previewResult, null, 2)}\n`,
+        "utf8",
+      );
     } else {
-      previewWarning =
-        previewResult.warnings.join("; ") ||
-        "Preview URL not updated yet after revision; prior preview may be stale";
-      await events.log("preview_not_found", "warn", {
-        warnings: previewResult.warnings,
+      await events.log("application_preview_not_configured", "info", {
+        previewProvider: resolved.previewProvider,
+        phase: "revision",
       });
     }
-
-    await mkdir(`${runDirectory}/vercel`, { recursive: true });
-    await writeFile(
-      getVercelDeploymentPath(runDirectory),
-      `${JSON.stringify(previewResult, null, 2)}\n`,
-      "utf8",
-    );
 
     const revisionBody = buildRevisionCommentBody({
       summary: validationSummary ?? observed.assistantText,

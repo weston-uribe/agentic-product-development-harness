@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   collectLinearWorkspaceBlockers,
   collectVercelBridgeBlockers,
+  allReposSkipApplicationPreview,
+  isApplicationPreviewDeploymentHealthy,
 } from "../../src/setup/control-plane-readiness.js";
 import { deriveVercelBridgeReadiness } from "../../src/setup/vercel-bridge-readiness.js";
 import { getDispatchTriggerStatuses } from "../../src/setup/linear-status-contract.js";
@@ -23,6 +25,24 @@ function completeBridgeInput() {
     deploymentRedeployRequired: false,
   };
 }
+
+describe("application preview deployment health", () => {
+  it("treats previewProvider none as healthy for application deployment capture", () => {
+    expect(isApplicationPreviewDeploymentHealthy([{ previewProvider: "none" }])).toBe(
+      true,
+    );
+    expect(allReposSkipApplicationPreview([{ previewProvider: "none" }])).toBe(true);
+  });
+
+  it("requires capture when any repo uses a preview provider", () => {
+    expect(
+      isApplicationPreviewDeploymentHealthy([
+        { previewProvider: "none" },
+        { previewProvider: "vercel" },
+      ]),
+    ).toBe(false);
+  });
+});
 
 describe("control plane preview stale blockers", () => {
   it("does not block applied Linear workspace when preview is stale", () => {

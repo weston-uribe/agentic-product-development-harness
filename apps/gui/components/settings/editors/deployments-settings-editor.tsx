@@ -103,7 +103,7 @@ export function DeploymentsSettingsEditor({
         phase: "success",
         preview: null,
         error: null,
-        successMessage: "Vercel bridge updated. Redeploy verification may continue in Vercel.",
+        successMessage: "PDev automation bridge updated. Redeploy verification may continue in Vercel.",
       });
       setConfirmed(false);
     } catch (error) {
@@ -140,7 +140,7 @@ export function DeploymentsSettingsEditor({
       <div className="space-y-4">
         <div className="flex items-center justify-between gap-3">
           <p className="text-sm text-muted-foreground">
-            Replace the active Vercel team and project. Endpoint and webhook verification run during apply.
+            Replace the active Vercel team and project for the PDev automation bridge. Endpoint and webhook verification run during apply.
           </p>
           <Button type="button" variant="outline" size="sm" onClick={() => void loadOptions(teamId)}>
             Load Vercel options
@@ -194,7 +194,7 @@ export function DeploymentsSettingsEditor({
           mutation.preview?.manualSteps?.length
             ? mutation.preview.manualSteps.join("\n")
             : mutation.preview
-              ? "Vercel bridge preview is ready."
+              ? "PDev automation bridge preview is ready."
               : null
         }
         confirmScope="vercel-bridge-write"

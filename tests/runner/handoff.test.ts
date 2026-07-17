@@ -43,6 +43,14 @@ vi.mock("../../src/preview/vercel-from-pr.js", () => ({
   pollForVercelPreview: mocks.pollForVercelPreview,
 }));
 
+vi.mock("../../src/product/read-product-marker.js", () => ({
+  readProductMarker: vi.fn().mockResolvedValue({
+    content: null,
+    markerPath: ".p-dev/product.json",
+    developmentBranch: "dev",
+  }),
+}));
+
 vi.mock("../../src/github/pr-discovery.js", () => ({
   findImplementationPullRequest: vi.fn().mockResolvedValue({
     prUrl: "https://github.com/owner/example-target-app/pull/4",
@@ -91,6 +99,7 @@ describe("executeHandoffPhase", () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    mocks.fetchLinearIssue.mockReset();
     tempRoot = await mkdtemp(path.join(tmpdir(), "harness-handoff-"));
     const config: HarnessConfig = {
       version: 1,
@@ -308,5 +317,58 @@ describe("executeHandoffPhase", () => {
     expect(result.manifest.finalOutcome).toBe("duplicate");
     expect(mocks.postHandoffComment).not.toHaveBeenCalled();
     expect(mocks.transitionIssueStatus).not.toHaveBeenCalled();
+  });
+
+  it("skips preview polling when previewProvider is none", async () => {
+    const config: HarnessConfig = {
+      version: 1,
+      orchestratorMarker: "harness-orchestrator-v1",
+      logDirectory: tempRoot,
+      defaultModel: { id: "composer-2.5" },
+      linear: {
+        teamKey: "WES",
+        eligibleStatuses: {
+          handoff: ["PR Open"],
+        },
+        transitionalStatuses: {
+          prOpen: "PR Open",
+          pmReview: "PM Review",
+          blocked: "Blocked",
+        },
+      },
+      handoff: { allowPmReviewWithoutPreview: false },
+      repos: [
+        {
+          id: "target-app",
+          linearProjects: ["Example Target App"],
+          targetRepo: "https://github.com/owner/example-target-app",
+          baseBranch: "main",
+          previewProvider: "none",
+          validation: { commands: ["npm run lint", "npm run build"] },
+        },
+      ],
+      allowedTargetRepos: [
+        "https://github.com/owner/example-target-app",
+      ],
+    };
+    const noneConfigPath = path.join(tempRoot, "harness.none.config.json");
+    await import("node:fs/promises").then((fs) =>
+      fs.writeFile(noneConfigPath, JSON.stringify(config), "utf8"),
+    );
+
+    const result = await executeHandoffPhase({
+      issueKey: "WES-13",
+      configPath: noneConfigPath,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.manifest.finalOutcome).toBe("success");
+    expect(result.manifest.previewUrl).toBeNull();
+    expect(mocks.pollForVercelPreview).not.toHaveBeenCalled();
+    expect(mocks.transitionIssueStatus).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      "PM Review",
+    );
   });
 });

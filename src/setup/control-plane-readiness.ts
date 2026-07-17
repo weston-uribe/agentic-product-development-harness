@@ -1,5 +1,6 @@
 import type { SetupGuiViewModel } from "./gui-view-model.js";
 import type { ControlPlaneReadinessContext } from "./control-plane-types.js";
+import { allReposSkipApplicationPreview } from "../preview/preview-capability.js";
 import { requiredStatusNames } from "./linear-status-contract.js";
 import { isVercelBridgeStale } from "./vercel-bridge-readiness.js";
 import type { ReadinessBlocker } from "./first-run-readiness.js";
@@ -17,6 +18,8 @@ function pushBlocker(
     ...blocker,
   });
 }
+
+export { allReposSkipApplicationPreview } from "../preview/preview-capability.js";
 
 export function collectConnectServicesBlockers(
   summary: SetupGuiViewModel,
@@ -107,6 +110,12 @@ export function collectLinearWorkspaceBlockers(
   return blockers.sort((left, right) => left.priority - right.priority);
 }
 
+export function isApplicationPreviewDeploymentHealthy(
+  repos: Array<{ previewProvider?: string }> | undefined,
+): boolean {
+  return allReposSkipApplicationPreview(repos);
+}
+
 export function collectVercelBridgeBlockers(
   context: ControlPlaneReadinessContext,
   uiState?: { vercelPreviewStale?: boolean },
@@ -119,9 +128,9 @@ export function collectVercelBridgeBlockers(
     pushBlocker(blockers, {
       id: "vercel-bridge-not-applied",
       stepId: "vercel-bridge",
-      message: "Setup needed: Vercel webhook bridge setup is not complete yet.",
+      message: "Setup needed: PDev automation bridge setup is not complete yet.",
       action:
-        "Next: Preview and apply Vercel bridge env vars and webhook readiness.",
+        "Next: Preview and apply PDev automation bridge env vars and webhook readiness.",
       priority: 160,
     });
   } else {
@@ -156,7 +165,7 @@ export function collectVercelBridgeBlockers(
         id: "linear-webhook-unverified",
         stepId: "vercel-bridge",
         message:
-          "Blocked: Linear Issue webhook is not verified for the Vercel bridge URL.",
+          "Blocked: Linear Issue webhook is not verified for the PDev automation bridge URL.",
         action:
           "Next: Create or verify the Linear webhook, then refresh bridge readiness.",
         priority: 163,
@@ -171,7 +180,7 @@ export function collectVercelBridgeBlockers(
         message:
           "Blocked: Signed webhook delivery verification has not passed against production.",
         action:
-          "Next: Apply Vercel bridge settings and wait for signed probe verification to pass.",
+          "Next: Apply PDev automation bridge settings and wait for signed probe verification to pass.",
         priority: 164,
         tone: "error",
       });
@@ -183,7 +192,7 @@ export function collectVercelBridgeBlockers(
         stepId: "vercel-bridge",
         message:
           "Blocked: Vercel production must be redeployed after env var changes before signed verification can pass.",
-        action: "Next: Redeploy production, then retry Vercel bridge apply.",
+        action: "Next: Redeploy production, then retry PDev automation bridge apply.",
         priority: 165,
         tone: "error",
       });
@@ -203,7 +212,7 @@ export function collectVercelBridgeBlockers(
         stepId: "vercel-bridge",
         message:
           "Blocked: Vercel HARNESS_TEAM_KEY may be stale after Linear team changes.",
-        action: "Next: Re-apply Vercel bridge setup with the current team key.",
+        action: "Next: Re-apply PDev automation bridge setup with the current team key.",
         priority: 166,
         tone: "error",
       });
@@ -214,9 +223,9 @@ export function collectVercelBridgeBlockers(
     pushBlocker(blockers, {
       id: "vercel-preview-stale",
       stepId: "vercel-bridge",
-      message: "Blocked: Vercel bridge preview is out of date.",
+      message: "Blocked: PDev automation bridge preview is out of date.",
       action:
-        "Next: Regenerate the Vercel bridge preview, then confirm and apply.",
+        "Next: Regenerate the PDev automation bridge preview, then confirm and apply.",
       priority: 167,
       tone: "error",
     });
