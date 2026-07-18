@@ -3,7 +3,13 @@ import { loadConnectionsEditorData } from "@/lib/settings/load-settings-editor-d
 
 export const dynamic = "force-dynamic";
 
-export default async function SettingsConnectionsPage() {
+export default async function SettingsConnectionsPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ repair?: string }>;
+}) {
+  const params = (await searchParams) ?? {};
+  const repairVercel = params.repair === "vercel";
   const data = await loadConnectionsEditorData();
 
   return (
@@ -11,7 +17,8 @@ export default async function SettingsConnectionsPage() {
       <div>
         <h2 className="text-xl font-semibold tracking-tight">Connections</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Replace credentials with verify-before-commit. Values are never shown after save.
+          Replace credentials with verify-before-commit. Values are never shown
+          after save.
         </p>
       </div>
       <ConnectionsSettingsEditor
@@ -21,6 +28,8 @@ export default async function SettingsConnectionsPage() {
           harnessConfigPath: data.envDefaults.harnessConfigPath,
           githubDispatchRepository: data.envDefaults.githubDispatchRepository,
         }}
+        repairVercel={repairVercel}
+        envContentFingerprint={data.envContentFingerprint}
       />
     </div>
   );

@@ -6,6 +6,8 @@ import {
 } from "@/components/custom/environment-config-form";
 import type { RepoVerificationUi } from "@/components/custom/target-repo-config-form";
 import type { ServiceConnectionSummaryMap } from "@/lib/setup-server";
+import type { SavedCredentialHealthMap } from "@harness/setup/credential-health";
+import type { CredentialHealthStatus } from "@harness/setup/workspace-health";
 
 const SERVICE_KEYS: ServiceKey[] = [
   "LINEAR_API_KEY",
@@ -27,9 +29,37 @@ export function serviceVerificationFromSummaries(
           limitation: summary.limitation,
           label: summary.label,
         };
+      } else if (summary.status === "unauthorized") {
+        next[key] = {
+          state: "unauthorized",
+          message: summary.message,
+          limitation: summary.limitation,
+          label: summary.label,
+        };
+      } else if (summary.status === "unknown") {
+        next[key] = {
+          state: "unknown",
+          message: summary.message,
+          limitation: summary.limitation,
+          label: summary.label,
+        };
       } else if (summary.status === "failed") {
         next[key] = {
           state: "failed",
+          message: summary.message,
+          limitation: summary.limitation,
+          label: summary.label,
+        };
+      } else if (summary.status === "checking") {
+        next[key] = {
+          state: "checking",
+          message: summary.message,
+          limitation: summary.limitation,
+          label: summary.label,
+        };
+      } else if (summary.status === "missing") {
+        next[key] = {
+          state: "missing",
           message: summary.message,
           limitation: summary.limitation,
           label: summary.label,
@@ -48,7 +78,10 @@ export function serviceVerificationFromSummaries(
   );
 }
 
-/** Presence-only summaries for Settings — no live remote verify on mount. */
+/**
+ * Initial Settings summaries: Missing when absent, Checking when present.
+ * Never Connected from presence alone — live verify updates after mount.
+ */
 export function loadDurableServiceConnectionSummaries(
   presence: Record<ServiceKey, boolean>,
 ): ServiceConnectionSummaryMap {
@@ -57,12 +90,50 @@ export function loadDurableServiceConnectionSummaries(
       key,
       presence[key]
         ? {
-            status: "connected" as const,
-            message: "Saved credential configured.",
+            status: "checking" as const,
+            message: "Checking saved credential…",
           }
-        : { status: "missing" as const },
+        : {
+            status: "missing" as const,
+            message: "Missing.",
+          },
     ]),
   ) as ServiceConnectionSummaryMap;
+}
+
+export function serviceVerificationFromCredentialHealth(
+  health: SavedCredentialHealthMap,
+): ServiceVerificationMap {
+  return SERVICE_KEYS.reduce(
+    (next, key) => {
+      const entry = health[key];
+      next[key] = {
+        state: credentialHealthToUiState(entry.status),
+        message: entry.message,
+        limitation: entry.limitation,
+        label: entry.label,
+      };
+      return next;
+    },
+    { ...INITIAL_SERVICE_VERIFICATION },
+  );
+}
+
+function credentialHealthToUiState(
+  status: CredentialHealthStatus,
+): ServiceVerificationUi["state"] {
+  switch (status) {
+    case "missing":
+      return "missing";
+    case "checking":
+      return "checking";
+    case "connected":
+      return "connected";
+    case "unauthorized":
+      return "unauthorized";
+    case "unknown":
+      return "unknown";
+  }
 }
 
 /** Non-secret in-memory fingerprint for comparing typed secret values. */
@@ -93,7 +164,11 @@ export function isServiceFailedForValue(
   verification: ServiceVerificationUi,
   value: string,
 ): boolean {
-  if (verification.state !== "failed") {
+  if (
+    verification.state !== "failed" &&
+    verification.state !== "unauthorized" &&
+    verification.state !== "unknown"
+  ) {
     return false;
   }
   if (!value.trim()) {
@@ -119,16 +194,27 @@ export function resolveServiceConnectionBadgeState(
         ? "connected"
         : "unchecked";
     }
-    return present ? "connected" : "unchecked";
+    // Saved credential verified — Connected. Presence alone is not enough;
+    // only return connected when verification.state is already connected.
+    return "connected";
   }
 
-  if (verification.state === "failed") {
+  if (
+    verification.state === "unauthorized" ||
+    verification.state === "unknown" ||
+    verification.state === "missing" ||
+    verification.state === "failed"
+  ) {
     if (trimmedValue) {
       return isServiceFailedForValue(verification, trimmedValue)
-        ? "failed"
+        ? verification.state
         : "unchecked";
     }
-    return present ? "failed" : "unchecked";
+    return verification.state;
+  }
+
+  if (!present && !trimmedValue) {
+    return "missing";
   }
 
   return "unchecked";

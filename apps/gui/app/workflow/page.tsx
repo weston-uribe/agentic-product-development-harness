@@ -1,4 +1,5 @@
 import { AppShell } from "@/components/custom/app-shell";
+import { VercelConnectionWarning } from "@/components/workflow/vercel-connection-warning";
 import { WorkflowPageClient } from "@/components/workflow/workflow-page-client";
 import { loadWorkflowBootstrap } from "@/lib/workflow-server";
 
@@ -18,6 +19,7 @@ export default async function WorkflowPage({
 
   return (
     <AppShell isWorkflowActive>
+      <VercelConnectionWarning />
       <WorkflowPageClient initialBootstrap={bootstrap} />
     </AppShell>
   );

@@ -26,6 +26,10 @@ import {
   type VercelBridgePlanInput,
 } from "./vercel-setup-plan.js";
 import { applyVercelBridgeSetup } from "./vercel-setup-apply.js";
+import {
+  isExcludedBridgeProjectName,
+  loadExcludedBridgeProjectNames,
+} from "./vercel-bridge-identity.js";
 
 export type VercelBridgeReconcileStatus =
   | "already_configured"
@@ -233,7 +237,7 @@ export async function reconcileVercelControlPlaneFromRemote(input: {
     };
   }
 
-  const candidates = await collectBridgeCandidates({
+  const rawCandidates = await collectBridgeCandidates({
     vercelToken,
     deps: {
       listTeams,
@@ -242,29 +246,31 @@ export async function reconcileVercelControlPlaneFromRemote(input: {
       resolveProductionTarget,
     },
   });
-
-  const linked = await readLinkedProject(cwd);
-  const preferred = linked
-    ? candidates.filter((candidate) => candidate.projectId === linked.projectId)
-    : [];
-  const markerCandidates = candidates.filter((candidate) => candidate.hasPDevMarker);
-  const requiredEnvCandidates = candidates.filter(
-    (candidate) => candidate.requiredEnvPresent,
+  const excludedNames = await loadExcludedBridgeProjectNames(cwd);
+  const candidates = rawCandidates.filter(
+    (candidate) => !isExcludedBridgeProjectName(candidate.projectName, excludedNames),
   );
 
+  // Reuse only when authoritative PDev bridge markers match.
+  // Never treat an unmarked sole project (e.g. portfolio target app) as the bridge.
+  const linked = await readLinkedProject(cwd);
+  const linkedMarked = linked
+    ? candidates.filter(
+        (candidate) =>
+          candidate.projectId === linked.projectId && candidate.hasPDevMarker,
+      )
+    : [];
+  const markerCandidates = candidates.filter((candidate) => candidate.hasPDevMarker);
+
   const shortlist =
-    preferred.length > 0
-      ? preferred
-      : markerCandidates.length > 0
-        ? markerCandidates
-        : requiredEnvCandidates;
+    linkedMarked.length > 0 ? linkedMarked : markerCandidates;
 
   if (shortlist.length === 0) {
     return {
       status: "not_found",
       state,
       message:
-        "No Vercel project with PDev bridge marker or required bridge env vars was found.",
+        "No Vercel project with an authoritative PDev bridge marker was found.",
       candidates,
       reconciledFromExistingDeployment: false,
     };

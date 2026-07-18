@@ -85,14 +85,14 @@ describe("Connections settings seeded verification", () => {
         seeded.LINEAR_API_KEY,
         "",
       ),
-    ).toBe("connected");
+    ).toBe("checking");
     expect(
       resolveServiceConnectionBadgeState(
         false,
         seeded.GITHUB_TOKEN,
         "",
       ),
-    ).toBe("unchecked");
+    ).toBe("missing");
   });
 });
 

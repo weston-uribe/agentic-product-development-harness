@@ -235,6 +235,44 @@ describe("vercel-bridge-reconcile", () => {
     expect(state?.vercel?.reconciledFromExistingDeployment).toBe(true);
   });
 
+  it("returns not_found for unmarked required-env-only projects (never sole portfolio)", async () => {
+    const apply = vi.fn();
+    const result = await reconcileVercelControlPlaneFromRemote({
+      cwd: tempRoot,
+      deps: {
+        loadVercelToken: async () => "token",
+        loadLinearApiKey: async () => "linear",
+        listTeams: async () => [{ id: "team-1", name: "Team", slug: "team" }],
+        listProjects: async (_token, teamId) =>
+          teamId
+            ? [
+                {
+                  id: "prj_portfolio",
+                  name: "weston-uribe-portfolio",
+                  accountId: "team-1",
+                },
+              ]
+            : [],
+        listEnvVars: async () => [
+          { key: "LINEAR_WEBHOOK_SECRET", type: "encrypted", target: ["production"] },
+          { key: "GITHUB_DISPATCH_TOKEN", type: "encrypted", target: ["production"] },
+          { key: "HARNESS_TEAM_KEY", type: "plain", target: ["production"] },
+        ],
+        resolveProductionTarget: async () => ({
+          productionUrl: "https://portfolio.example",
+          webhookUrl: "https://portfolio.example/api/linear-webhook",
+          deploymentId: "dpl",
+          deploymentUrl: "portfolio.example",
+          source: "production-alias",
+        }),
+        apply,
+      },
+    });
+
+    expect(result.status).toBe("not_found");
+    expect(apply).not.toHaveBeenCalled();
+  });
+
   it("returns unhealthy without writing when readiness is not ready", async () => {
     const apply = vi.fn();
     const result = await reconcileVercelControlPlaneFromRemote({

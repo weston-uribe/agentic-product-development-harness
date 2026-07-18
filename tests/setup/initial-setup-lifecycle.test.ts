@@ -185,16 +185,26 @@ describe("initial-setup-lifecycle", () => {
     expect(isInitialSetupComplete(migrated)).toBe(true);
   });
 
-  it("routes packaged default from durable marker only", async () => {
+  it("routes packaged default from durable workspace evidence", async () => {
     const incomplete = await resolvePackagedDefaultRoute(tempRoot);
     expect(incomplete.route).toBe(CONFIGURE_ROUTE);
-    expect(incomplete.evidence).toBe("initial-setup-incomplete");
+    expect(incomplete.evidence).toBe("first-run");
 
     await writeFile(
       path.join(tempRoot, ".harness", "control-plane-setup.json"),
       JSON.stringify(
         {
           version: 1,
+          vercel: {
+            projectId: "prj_bridge",
+            projectName: "p-dev-bridge",
+            productionUrl: "https://bridge.example",
+            webhookUrl: "https://bridge.example/api/linear-webhook",
+            endpointReachable: true,
+            envVarPresence: {},
+            linearWebhookVerified: true,
+            signedProbeVerified: true,
+          },
           initialSetup: {
             status: "complete",
             completedAt: new Date().toISOString(),
@@ -215,7 +225,7 @@ describe("initial-setup-lifecycle", () => {
 
     const complete = await resolvePackagedDefaultRoute(tempRoot);
     expect(complete.route).toBe(WORKFLOW_ROUTE);
-    expect(complete.evidence).toBe("initial-setup-complete");
+    expect(complete.evidence).toBe("established-ready");
 
     const routing = await readInitialSetupRoutingState(tempRoot);
     expect(routing.complete).toBe(true);

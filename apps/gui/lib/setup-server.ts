@@ -220,7 +220,9 @@ export interface RemoteTargetWorkflowFormPayload {
 
 export type ServiceConnectionSummaryStatus =
   | "missing"
+  | "checking"
   | "connected"
+  | "unauthorized"
   | "failed"
   | "unknown"
   | "stale";

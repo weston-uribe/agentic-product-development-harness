@@ -61,7 +61,7 @@ describe("root route workspace separation", () => {
   it("routes incomplete operator workspace to Configure when source root has no setup state", async () => {
     const decision = await resolvePackagedDefaultRoute(resolveHarnessWorkspaceDir());
     expect(decision.route).toBe(CONFIGURE_ROUTE);
-    expect(decision.evidence).toBe("initial-setup-incomplete");
+    expect(decision.evidence).toBe("first-run");
   });
 
   it("routes complete operator workspace to Workflow when source root has no setup state", async () => {
@@ -70,6 +70,16 @@ describe("root route workspace separation", () => {
       JSON.stringify(
         {
           version: 1,
+          vercel: {
+            projectId: "prj_bridge",
+            projectName: "p-dev-bridge",
+            productionUrl: "https://bridge.example",
+            webhookUrl: "https://bridge.example/api/linear-webhook",
+            endpointReachable: true,
+            envVarPresence: {},
+            linearWebhookVerified: true,
+            signedProbeVerified: true,
+          },
           initialSetup: {
             status: "complete",
             completedAt: new Date().toISOString(),
@@ -90,7 +100,7 @@ describe("root route workspace separation", () => {
 
     const decision = await resolvePackagedDefaultRoute(resolveHarnessWorkspaceDir());
     expect(decision.route).toBe(WORKFLOW_ROUTE);
-    expect(decision.evidence).toBe("initial-setup-complete");
+    expect(decision.evidence).toBe("established-ready");
   });
 
   it("does not route from setup state that exists only in the source root", async () => {

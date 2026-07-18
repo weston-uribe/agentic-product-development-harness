@@ -39,8 +39,11 @@ export type ServiceKey = keyof EnvironmentFormPresence;
 
 export type VerificationUiState =
   | "unchecked"
+  | "missing"
   | "checking"
   | "connected"
+  | "unauthorized"
+  | "unknown"
   | "failed";
 
 export interface ServiceVerificationUi {
@@ -68,6 +71,9 @@ interface EnvironmentConfigFormProps {
   variant?: "guided-services" | "advanced";
   verification?: ServiceVerificationMap;
   verifyingKey?: ServiceKey | null;
+  emphasizeKey?: ServiceKey | null;
+  verifyButtonLabel?: (key: ServiceKey) => string;
+  helperTextOverride?: Partial<Record<ServiceKey, string>>;
   onChange: (values: EnvironmentFormValues) => void;
   onVerifyService?: (key: ServiceKey) => void;
   onServiceBlur?: (key: ServiceKey) => void;
@@ -126,25 +132,19 @@ function verificationBadge(state: VerificationUiState) {
       return { label: "Checking", variant: "secondary" as const };
     case "connected":
       return { label: "Connected", variant: "success" as const };
+    case "unauthorized":
+      return { label: "Unauthorized", variant: "destructive" as const };
+    case "unknown":
+      return { label: "Unable to verify", variant: "secondary" as const };
+    case "missing":
+      return { label: "Missing", variant: "secondary" as const };
     case "failed":
       return { label: "Failed", variant: "destructive" as const };
     default:
-      return { label: "Not connected yet", variant: "secondary" as const };
+      return { label: "Missing", variant: "secondary" as const };
   }
 }
 
-function savedConnectionBadge(input: {
-  present: boolean;
-  state: VerificationUiState;
-}) {
-  if (input.present && input.state === "connected") {
-    return { label: "Saved locally and connected", variant: "success" as const };
-  }
-  if (input.present) {
-    return { label: "Saved locally", variant: "secondary" as const };
-  }
-  return null;
-}
 
 export function EnvironmentConfigForm({
   values,
@@ -153,6 +153,9 @@ export function EnvironmentConfigForm({
   variant = "advanced",
   verification = INITIAL_SERVICE_VERIFICATION,
   verifyingKey = null,
+  emphasizeKey = null,
+  verifyButtonLabel,
+  helperTextOverride,
   onChange,
   onVerifyService,
   onServiceBlur,
@@ -162,20 +165,31 @@ export function EnvironmentConfigForm({
   };
 
   if (variant === "guided-services") {
+    const ordered = emphasizeKey
+      ? [
+          ...SERVICE_DEFINITIONS.filter((service) => service.key === emphasizeKey),
+          ...SERVICE_DEFINITIONS.filter((service) => service.key !== emphasizeKey),
+        ]
+      : SERVICE_DEFINITIONS;
     return (
       <div className="space-y-4">
-        {SERVICE_DEFINITIONS.map((service) => (
+        {ordered.map((service) => (
           <ServiceConnectionCard
             key={service.key}
             id={service.id}
             serviceKey={service.key}
             displayName={service.displayName}
-            helperText={service.helperText}
+            helperText={
+              helperTextOverride?.[service.key] ?? service.helperText
+            }
             inputLabel={service.inputLabel}
             present={presence[service.key]}
             value={values[service.valueKey]}
             verification={verification[service.key]}
             verifying={verifyingKey === service.key}
+            emphasized={emphasizeKey === service.key}
+            verifyLabel={verifyButtonLabel?.(service.key)}
+            autoFocus={emphasizeKey === service.key}
             onChange={(value) => update({ [service.valueKey]: value })}
             onVerify={
               onVerifyService ? () => onVerifyService(service.key) : undefined
@@ -251,6 +265,9 @@ function ServiceConnectionCard({
   value,
   verification,
   verifying,
+  emphasized = false,
+  verifyLabel,
+  autoFocus = false,
   onChange,
   onVerify,
   onBlur,
@@ -264,6 +281,9 @@ function ServiceConnectionCard({
   value: string;
   verification: ServiceVerificationUi;
   verifying: boolean;
+  emphasized?: boolean;
+  verifyLabel?: string;
+  autoFocus?: boolean;
   onChange: (value: string) => void;
   onVerify?: () => void;
   onBlur?: () => void;
@@ -274,7 +294,6 @@ function ServiceConnectionCard({
     value,
   );
   const badge = verificationBadge(badgeState);
-  const savedBadge = savedConnectionBadge({ present, state: badgeState });
   const trimmedValue = value.trim();
   const verifiedForCurrentValue =
     verification.state === "connected" &&
@@ -282,19 +301,22 @@ function ServiceConnectionCard({
       ? isServiceVerifiedForValue(verification, trimmedValue)
       : present);
   const failedForCurrentValue =
-    verification.state === "failed" &&
+    (verification.state === "failed" ||
+      verification.state === "unauthorized" ||
+      verification.state === "unknown") &&
     (trimmedValue
-      ? isServiceFailedForValue(verification, trimmedValue)
+      ? isServiceFailedForValue(verification, trimmedValue) ||
+        verification.attemptedValueFingerprint === undefined
       : present);
   const showConnectedMessage =
     verifiedForCurrentValue && Boolean(verification.message);
   const showFailedMessage = failedForCurrentValue && Boolean(verification.message);
 
-  const verifyButtonLabel = verifying
+  const resolveVerifyButtonLabel = verifying
     ? "Verifying and saving…"
     : verifiedForCurrentValue
       ? "Verified"
-      : "Verify and save";
+      : (verifyLabel ?? "Verify and save");
 
   const verifyButtonDisabled =
     verifying ||
@@ -302,7 +324,14 @@ function ServiceConnectionCard({
     (!trimmedValue && !present);
 
   return (
-    <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+    <div
+      className={
+        emphasized
+          ? "rounded-lg border-2 border-amber-500/70 bg-card p-4 space-y-3 ring-2 ring-amber-500/20"
+          : "rounded-lg border border-border bg-card p-4 space-y-3"
+      }
+      data-emphasized={emphasized ? "true" : undefined}
+    >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="space-y-1">
           <p className="inline-flex items-center gap-2 text-sm font-medium">
@@ -311,12 +340,7 @@ function ServiceConnectionCard({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {savedBadge ? (
-            <StatusBadge label={savedBadge.label} variant={savedBadge.variant} />
-          ) : null}
-          {!savedBadge || badgeState !== "connected" ? (
-            <StatusBadge label={badge.label} variant={badge.variant} />
-          ) : null}
+          <StatusBadge label={badge.label} variant={badge.variant} />
         </div>
       </div>
 
@@ -334,6 +358,7 @@ function ServiceConnectionCard({
             present ? "Leave blank to keep existing value" : "Enter value"
           }
           autoComplete="off"
+          autoFocus={autoFocus}
         />
       </div>
 
@@ -344,10 +369,12 @@ function ServiceConnectionCard({
           <ConnectedStatusMessage message={verification.message!} />
         ) : showFailedMessage ? (
           <ConnectedStatusMessage message={verification.message!} failed />
-        ) : present && verification.state === "unchecked" && !trimmedValue ? (
+        ) : present &&
+          (verification.state === "unchecked" ||
+            verification.state === "checking") &&
+          !trimmedValue ? (
           <p className="text-sm text-muted-foreground">
-            A key is already saved in `.env.local`. Verify it if you want to
-            confirm it still works.
+            A credential is already saved. Checking whether it still works…
           </p>
         ) : null}
 
@@ -366,7 +393,7 @@ function ServiceConnectionCard({
             onClick={onVerify}
             disabled={verifyButtonDisabled}
           >
-            {verifyButtonLabel}
+            {resolveVerifyButtonLabel}
           </Button>
         ) : null}
       </div>

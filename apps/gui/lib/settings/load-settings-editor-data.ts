@@ -1,6 +1,7 @@
 import { resolveHarnessWorkspaceDir } from "@harness/gui/repo-root";
 import { loadHarnessConfig } from "@harness/config/load-config";
 import { configToFormInput } from "@harness/setup/config-local-editor";
+import { readEnvLocalContentFingerprint } from "@harness/setup/credential-patch";
 import { readSettingsConfigFingerprint } from "@harness/setup/settings-config-patch";
 import {
   loadLinearWorkspaceEditorState,
@@ -15,14 +16,19 @@ export { loadDurableServiceConnectionSummaries };
 export { createRunnerUpgradeCheckingSkeleton } from "@/lib/settings/runner-upgrade-ssr";
 
 export async function loadConnectionsEditorData() {
-  const summary = await loadSetupSummary();
-  const formDefaults = await loadSetupFormDefaults();
+  const cwd = resolveHarnessWorkspaceDir();
+  const [summary, formDefaults, envFingerprint] = await Promise.all([
+    loadSetupSummary(),
+    loadSetupFormDefaults(),
+    readEnvLocalContentFingerprint(cwd),
+  ]);
   return {
     presence: summary.envKeyPresence,
     envDefaults: formDefaults.env,
     serviceConnectionSummaries: loadDurableServiceConnectionSummaries(
       summary.envKeyPresence,
     ),
+    envContentFingerprint: envFingerprint.fingerprint,
   };
 }
 
