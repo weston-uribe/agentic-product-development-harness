@@ -32,15 +32,42 @@ Brief summary of the problem and constraints the agent must respect.
 
 | Risk | Mitigation |
 |------|------------|
-| Example: breaks existing route | Run dev server; check affected pages |
+| Example: breaks existing route | Run app; exercise affected pages; fix regressions before handoff |
 
-## Validation plan
+## Acceptance Verification Plan
 
-How the agent (and human) will verify the work:
+How the implementation agent will prove the work — not a claim that verification already passed.
 
-- [ ] Manual check: ...
-- [ ] Lint / typecheck: ...
-- [ ] Preview URL review: ... (when applicable)
+### Automated verification
+
+- [ ] Focused tests: ...
+- [ ] Build / typecheck / lint: ...
+- [ ] Broader regression suite (only when justified): ...
+
+### Behavioral acceptance verification
+
+For each acceptance criterion:
+
+| Acceptance criterion | Behavior to exercise | Environment | Setup | Interaction / request | Expected result | Evidence |
+|----------------------|----------------------|-------------|-------|----------------------|-----------------|----------|
+| ... | ... | ... | ... | ... | ... | ... |
+
+### Failure and repair expectations
+
+- Reproduce the original defect first when feasible
+- Run the implemented behavior; diagnose and fix in-scope failures
+- Rerun from the failing step until required verification passes
+- Do not paper over failures or weaken assertions
+- Loop: implement → validate → run → exercise → observe → diagnose → fix → rerun
+
+### Environment strategy
+
+- Selected environment (smallest representative safe surface; Docker only if already appropriate):
+- Limitations vs production:
+
+### Evidence requirements
+
+- Test/command output, exit codes, HTTP summaries, browser results, screenshots when visual, preview URL, before/after reproduction, logs without secrets
 
 ## Rollback
 

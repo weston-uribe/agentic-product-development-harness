@@ -39,12 +39,12 @@ Issue descriptions use **level-2 markdown headers** (`##`). Section names are ca
 |---------|---------|
 | `## Target repo` | GitHub repository where work happens (see formats below) |
 | `## Task` | Single clear objective in one or two sentences |
-| `## Acceptance criteria` | At least one hyphen bullet; observable, testable outcomes |
+| `## Acceptance criteria` | At least one hyphen bullet; observable product outcomes |
 | `## Out of scope` | At least one hyphen bullet; explicitly excluded work |
+| `## Validation expectations` | Required for new intake; Automated checks, Behavioral acceptance verification (or planner placeholder), Regression checks, Required evidence |
 
 ### Optional sections
 
-- `## Validation expectations` — commands or checks to run (e.g. lint, build, manual preview)
 - `## Context and links` — related issues, designs, research links
 - `## User / job story` — persona, capability, outcome
 - `## Eval hints` — evaluation priorities for reviewers
@@ -192,9 +192,23 @@ Show a success toast when the customer completes checkout.
 
 ## Validation expectations
 
-- `npm run lint`
-- `npm run build`
-- Manual test on staging checkout flow
+### Automated checks
+
+- Lint and build pass when known for this repo
+
+### Behavioral acceptance verification
+
+- Complete a successful checkout on staging and confirm the toast appears within 2 seconds
+- Confirm the toast shows the order confirmation number
+- Confirm the toast auto-dismisses after about 5 seconds
+
+### Regression checks
+
+- Failed payment still shows the existing error path without a success toast
+
+### Required evidence
+
+- Staging checkout steps and observed toast behavior
 ```
 
 ---
@@ -248,9 +262,21 @@ Redesign checkout navigation and information architecture so customers can compl
 
 ## Validation expectations
 
-- `npm run lint`
-- `npm run build`
-- Manual preview review on staging
+### Automated checks
+
+- Lint and build pass
+
+### Behavioral acceptance verification
+
+- Planner must determine the representative runtime verification method.
+
+### Regression checks
+
+- Existing checkout payment completion path still works
+
+### Required evidence
+
+- Preview or staging navigation walkthrough results
 ```
 
 ---

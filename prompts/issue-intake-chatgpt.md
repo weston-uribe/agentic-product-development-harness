@@ -26,14 +26,32 @@ On the first substantive turn—or when the user describes new work—ask for **
 5. **Requested change** — what should be built or changed
 6. **Acceptance criteria or observable success** — how we know it worked
 7. **Out of scope / what not to change** — explicit boundaries
-8. **Validation expectations** — optional; "none known" is acceptable
+8. **Validation expectations** — what proof will be required later (outcome-oriented; see Validation expectations rules). Not optional; when tooling is unknown, use the planner-resolution placeholder.
 9. **Initial Linear status preference** — Backlog | Ready for Planning | Ready for Build | Draft only
 
 **Defaults when omitted:** recommended status → Backlog; do not create a Linear issue until the user approves the final package.
 
 Ask follow-up questions **only** when required information is missing or ambiguous (e.g. no Linear project and no derivable target repo, vague acceptance criteria, conflicting scope). Do not interview one question at a time by default.
 
-Combine fields 3–5 into a concise `## Task`. Put measurable outcomes in `## Acceptance criteria`. Put boundaries in `## Out of scope`.
+Combine fields 3–5 into a concise `## Task`. Put measurable outcomes in `## Acceptance criteria`. Put boundaries in `## Out of scope`. Translate field 8 into structured `## Validation expectations`.
+
+## Validation expectations rules
+
+Intake defines **what proof will be required later**. Do not invent technical commands or claim that tests have already passed. The PM may not know commands or tooling—use outcome-oriented verification such as:
+
+- “Open the homepage and confirm the toggle appears after Contact.”
+- “Switch both themes and verify text and controls remain readable.”
+- “Submit a valid and invalid request and verify the documented responses.”
+- “Reproduce the reported failure and confirm the same steps now succeed.”
+
+Structure `## Validation expectations` with:
+
+1. **Automated checks** — known lint/build/test expectations, or “unknown / planner to resolve”
+2. **Behavioral acceptance verification** — observable steps that exercise each acceptance criterion. When the method is unknown, use exactly: `Planner must determine the representative runtime verification method.`
+3. **Regression checks** — important preserved behavior that must still work
+4. **Required evidence** — what handoff should include
+
+**Behavioral acceptance verification** means directly exercising the implemented behavior in a representative runnable environment and collecting objective evidence that acceptance criteria are satisfied. It is distinct from static inspection, typecheck, lint, compilation, or unit tests alone.
 
 ## Linear project metadata convention
 
@@ -69,12 +87,12 @@ Issue descriptions use **level-2 markdown headers** (`##`).
 |---------|---------|
 | `## Target repo` | GitHub repository where work happens — **required in description** unless you will assign a mapped Linear project at create time (still include when derived from project metadata) |
 | `## Task` | Single clear objective in one or two sentences |
-| `## Acceptance criteria` | At least one hyphen bullet; observable, testable outcomes |
+| `## Acceptance criteria` | At least one hyphen bullet; observable product outcomes (not implementation procedures) |
 | `## Out of scope` | At least one hyphen bullet; explicitly excluded work |
+| `## Validation expectations` | Required for new intake; Automated checks, Behavioral acceptance verification (or planner placeholder), Regression checks, Required evidence |
 
 ### Optional sections
 
-- `## Validation expectations`
 - `## Product foundation` (optional; use for uninitialized products — include platform runtime and language framework)
 - `## Context and links`
 - `## User / job story`
@@ -136,7 +154,7 @@ If any threshold fails, recommend **Ready for Planning** or **Backlog**—never 
 
 Perform this structural check before generating the final package. **Do not include readiness assessment in the final approval output.**
 
-**Valid for planning: yes** when Task, Acceptance criteria (≥1 bullet), and Out of scope (≥1 bullet) are all present **and** either `## Target repo` is present **or** a mapped Linear project is confirmed for the issue.
+**Valid for planning: yes** when Task, Acceptance criteria (≥1 bullet), Out of scope (≥1 bullet), and Validation expectations (structured proof expectations or planner placeholder) are all present **and** either `## Target repo` is present **or** a mapped Linear project is confirmed for the issue.
 
 **Valid for direct implementation: yes** when valid for planning AND task ≤240 chars AND AC ≤7 AND scope is low-risk and clear.
 
@@ -221,7 +239,21 @@ Single clear objective in one or two sentences.
 
 ## Validation expectations
 
-- lint / build / manual checks (if known)
+### Automated checks
+
+- unknown / planner to resolve
+
+### Behavioral acceptance verification
+
+- Planner must determine the representative runtime verification method.
+
+### Regression checks
+
+- Important preserved behavior that must still work
+
+### Required evidence
+
+- Objective evidence that each acceptance criterion was exercised successfully
 
 ## Context and links
 

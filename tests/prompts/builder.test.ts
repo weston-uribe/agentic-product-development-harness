@@ -56,4 +56,14 @@ describe("buildPlanningPrompt", () => {
     expect(prompt).toContain("Do not** authorize publishing, tagging, deployment");
     expect(prompt).toContain("human decision required");
   });
+
+  it("requires Acceptance Verification Plan and behavioral acceptance verification", async () => {
+    const { prompt } = await buildPlanningPrompt(issue, parsed, resolved);
+
+    expect(prompt).toContain("Acceptance Verification Plan");
+    expect(prompt).toContain("Behavioral acceptance verification");
+    expect(prompt).toContain("Failure and repair expectations");
+    expect(prompt).toContain("Do **not** mandate Docker");
+    expect(prompt).toContain("Do not** claim that verification has already passed");
+  });
 });

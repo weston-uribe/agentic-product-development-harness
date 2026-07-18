@@ -103,4 +103,19 @@ describe("intake prompt contract", () => {
     expect(prompt).not.toContain("## Linear issue package");
     expect(prompt).not.toContain("Optional labels");
   });
+
+  it("requires structured behavioral verification expectations", async () => {
+    const promptPath = path.join(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "../../prompts/issue-intake-chatgpt.md",
+    );
+    const prompt = await readFile(promptPath, "utf8");
+
+    expect(prompt).toContain("Behavioral acceptance verification");
+    expect(prompt).toContain(
+      "Planner must determine the representative runtime verification method.",
+    );
+    expect(prompt).toContain("### Required evidence");
+    expect(prompt).not.toMatch(/"none known" is acceptable/i);
+  });
 });

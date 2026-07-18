@@ -152,7 +152,7 @@ Some cross-cutting concerns are embedded in skill boundaries rather than promote
 |---------|--------|
 | **PR slicing** | Implemented as a shared planner capability — not a standalone skill |
 | **Scope control** | Embedded in planner and implementation skill boundaries |
-| **Validation expectations** | Embedded by role — audit and planner skills are read-only; implementation performs validation and reports results |
+| **Validation expectations / behavioral acceptance verification** | Embedded by role — **intake** defines observable success and expected proof; **planner** designs the Acceptance Verification Plan (automated + behavioral + repair loop + environment + evidence); **implementation** (initial-build, revision, integration-repair) executes the strategy and repairs until `verified_complete`; **handoff** independently inspects PR/evidence. Audit skills remain read-only. Docker is not universally required. |
 | **UI/design standards** | Planned future implementation reference — not a standalone skill and not implemented in this PR |
 
 ## Relationship to runner prompts
@@ -165,7 +165,7 @@ SDK runner prompts in [`src/prompts/`](../src/prompts/) are **implementation det
 | Runner prompts | `src/prompts/*.md` | Implemented for SDK phases |
 | Client adapters | `.cursor/skills`, etc. | Manual install/export only |
 
-Runner prompt contracts may be absorbed or referenced by canonical skills over time, but that migration is not part of this architecture artifact.
+Canonical delivery skills define the durable contract. Runner prompts in `src/prompts/planning.md`, `implementation.md`, `revision.md`, and `integration-repair.md` must stay aligned with those skills on Acceptance Verification Plans, behavioral acceptance verification, the repair loop, and result states (`verified_complete` only advances toward handoff or merge).
 
 ## Current implemented state
 

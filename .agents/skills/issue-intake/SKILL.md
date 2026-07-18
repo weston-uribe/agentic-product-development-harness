@@ -31,7 +31,7 @@ Ask for **all fields in one message**:
 5. Requested change
 6. Acceptance criteria or observable success
 7. Out of scope / what not to change
-8. Validation expectations (optional — "none known" OK)
+8. Validation expectations — what proof will be required later (outcome-oriented; see below)
 9. Initial Linear status preference: Backlog | Ready for Planning | Ready for Build | Draft only
 
 **Defaults:** status → Backlog; do not finalize for Linear paste until the operator approves the package.
@@ -42,7 +42,29 @@ Ask follow-ups **only** when required information is missing or ambiguous. Do no
 
 ### Synthesis
 
-Combine fields 2–4 into `## Task`. Put measurable outcomes in `## Acceptance criteria`. Put boundaries in `## Out of scope`.
+Combine fields 3–5 into `## Task`. Put measurable outcomes in `## Acceptance criteria`. Put boundaries in `## Out of scope`. Translate field 8 into structured `## Validation expectations` (proof required later — not a claim that tests already passed).
+
+### Validation expectations (required for new intake packages)
+
+Intake defines **what proof will be required later**. Do not invent technical commands or claim verification has already passed.
+
+Use product-language outcomes such as:
+
+- “Open the homepage and confirm the toggle appears after Contact.”
+- “Switch both themes and verify text and controls remain readable.”
+- “Submit a valid and invalid request and verify the documented responses.”
+- “Reproduce the reported failure and confirm the same steps now succeed.”
+
+Structure `## Validation expectations` with these subsections (bullets under each):
+
+1. **Automated checks** — known lint/build/test expectations, or “unknown / planner to resolve”
+2. **Behavioral acceptance verification** — observable steps that exercise each acceptance criterion in a representative runnable environment. When the method is unknown, use exactly: `Planner must determine the representative runtime verification method.`
+3. **Regression checks** — important preserved behavior that must still work
+4. **Required evidence** — what handoff should include (e.g. command output, request/response summary, browser result, screenshot when visual state matters, before/after reproduction)
+
+**Behavioral acceptance verification** means directly exercising the implemented behavior in a representative runnable environment and collecting objective evidence that acceptance criteria are satisfied. It is distinct from static inspection, typecheck, lint, compilation, or unit tests alone.
+
+Do not invent technical implementation commands during intake. The PM may not know tooling; keep expectations outcome-oriented.
 
 ### Push back
 
@@ -124,10 +146,13 @@ Required sections (level-2 headers, case-insensitive):
 
 - `## Target repo` — include when known; may be derived from Linear project metadata
 - `## Task` (preferred; `## Problem` is a parser fallback)
-- `## Acceptance criteria` — at least one `-` bullet
+- `## Acceptance criteria` — at least one `-` bullet; product outcomes, not implementation procedures
 - `## Out of scope` — at least one `-` bullet
+- `## Validation expectations` — required for new intake packages; structured as Automated checks, Behavioral acceptance verification (or planner-resolution placeholder), Regression checks, and Required evidence
 
-Optional: `## Validation expectations`, `## Context and links`, `## Product foundation`, `## User / job story`, `## Eval hints`, `## Definition of ready`
+Optional: `## Context and links`, `## Product foundation`, `## User / job story`, `## Eval hints`, `## Definition of ready`
+
+Note: the Linear description parser still treats `## Validation expectations` as optional for legacy issues. New intake must always include it.
 
 Authoritative copy: [`prompts/issue-intake-chatgpt.md`](../../../prompts/issue-intake-chatgpt.md)
 

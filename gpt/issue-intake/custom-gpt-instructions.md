@@ -26,7 +26,7 @@ On the first substantive turn—or when the user describes new work—ask for **
 4. **Requested change** — what should be built or changed
 5. **Acceptance criteria or observable success** — how we know it worked
 6. **Out of scope / what not to change** — explicit boundaries
-7. **Validation expectations** — optional; "none known" is acceptable
+7. **Validation expectations** — required; outcome-oriented proof expectations (Automated checks, Behavioral acceptance verification or `Planner must determine the representative runtime verification method.`, Regression checks, Required evidence). Do not invent technical commands.
 8. **Initial Linear status preference** — Backlog | Ready for Planning | Ready for Build | Draft only
 
 **Defaults when omitted:** status → Backlog; do not create a Linear issue until the user approves the final package.

@@ -25,7 +25,7 @@ Product managers draft issues in a **normal ChatGPT thread**—no Custom GPT req
 ### Cursor skill + CLI (operator path)
 
 1. Invoke the **issue-intake** skill in Cursor ([`.agents/skills/issue-intake/SKILL.md`](../.agents/skills/issue-intake/SKILL.md))
-2. Answer the upfront intake form (same eight fields as the ChatGPT prompt)
+2. Answer the upfront intake form (same fields as the ChatGPT prompt, including structured validation expectations)
 3. Save the description to a draft markdown file
 4. Validate with route-specific flags:
 
@@ -115,12 +115,15 @@ For PDev-created products, Linear project metadata is written during workspace s
 
 Neither path should assume application deployment is configured from `.p-dev/product.json`. Runtime preview/deployment capability comes from harness `repos[].previewProvider` only.
 
-Required description sections:
+Required description sections (intake authoring contract):
 
 - `## Target repo` (include when known — derived from project metadata or PM override)
 - `## Task`
-- `## Acceptance criteria` (≥1 `-` bullet)
+- `## Acceptance criteria` (≥1 `-` bullet; product outcomes)
 - `## Out of scope` (≥1 `-` bullet)
+- `## Validation expectations` — required for new intake packages; structure as Automated checks, Behavioral acceptance verification (or `Planner must determine the representative runtime verification method.`), Regression checks, and Required evidence
+
+The Linear description parser still treats `## Validation expectations` as optional for legacy issues. New intake must always include structured proof expectations. Intake defines what proof will be required later; it does not claim tests already passed. Do not invent technical commands during intake.
 
 ## Skill installation
 

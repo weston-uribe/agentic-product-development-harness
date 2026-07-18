@@ -46,9 +46,24 @@ Show a success toast when the customer completes checkout.
 
 ## Validation expectations
 
-- `npm run lint`
-- `npm run build`
-- Manual test on staging checkout flow
+### Automated checks
+
+- Lint and build pass when known for this repo
+
+### Behavioral acceptance verification
+
+- Complete a successful checkout on staging and confirm the toast appears within 2 seconds
+- Confirm the toast shows the order confirmation number
+- Confirm the toast auto-dismisses after about 5 seconds
+
+### Regression checks
+
+- Failed payment still shows the existing error path without a success toast
+
+### Required evidence
+
+- Staging checkout steps and observed toast behavior
+- Lint/build command results when run
 ```
 
 **Validate (operator, with allowlisted repo fixture):** `npm run harness:validate-issue -- --file draft.md --intended-phase implementation`
@@ -104,9 +119,22 @@ Redesign checkout navigation and information architecture so customers can compl
 
 ## Validation expectations
 
-- `npm run lint`
-- `npm run build`
-- Manual preview review on staging
+### Automated checks
+
+- Lint and build pass
+
+### Behavioral acceptance verification
+
+- Planner must determine the representative runtime verification method.
+
+### Regression checks
+
+- Existing checkout payment completion path still works
+
+### Required evidence
+
+- Preview or staging navigation walkthrough results
+- Screenshot or browser interaction notes for mobile and desktop when visual layout matters
 ```
 
 **Validate:** `npm run harness:validate-issue -- --file draft.md --intended-phase planning` (passes) and `--intended-phase implementation` (fails — too broad for build-direct)

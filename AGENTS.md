@@ -48,7 +48,7 @@ When working on or simulating harness automations:
 - **Do not advance Linear status** unless the required durable artifact exists (plan comment, PR link, revision summary, etc.).
 - **Preserve state in Linear/GitHub artifacts** — comments, PRs, commits, preview URLs — not hidden session memory.
 - **Do not rely on hidden session memory** as source of truth; a fresh agent must reconstruct context from durable artifacts.
-- **Integration repair is merge-owned** — keep the issue in **Merging**, repair only the PR branch, preserve issue acceptance criteria plus already-merged base behavior, and return directly to merge only after validation/checks pass.
+- **Integration repair is merge-owned** — keep the issue in **Merging**, repair only the PR branch, preserve issue acceptance criteria plus already-merged base behavior, and return directly to merge only after required verification passes (`verified_complete`), including behavioral acceptance verification when acceptance criteria describe observable behavior.
 - **Planning is optional** — respect `requires-plan` and `skip-plan` labels per [`docs/architecture/linear-automation-state-machine.md`](docs/architecture/linear-automation-state-machine.md).
 - **Plan Review is deprecated** in the default workflow — do not route work to it.
 
@@ -56,12 +56,23 @@ When working on or simulating harness automations:
 
 Cursor agents working in or through this harness should report **concise, factual** status—not strategic recommendations.
 
+### Completion principle (implementation-agent modes)
+
+Implementation is not complete when code has been written. It is complete when every in-scope acceptance criterion has objective passing evidence in the most representative safe environment available.
+
+**Behavioral acceptance verification** means directly exercising the implemented behavior in a representative runnable environment and collecting objective evidence that acceptance criteria are satisfied. Static checks remain necessary where applicable; they do not replace behavioral acceptance verification when observable runtime behavior changes.
+
+Implementation-agent modes (`initial-build`, `revision`, `integration-repair`) must end in one of: `verified_complete` | `blocked_external` | `requires_product_judgment` | `verification_failed`. Only `verified_complete` may be described as complete / handoff-ready, or advance toward handoff or merge. Completion does not imply PR approval, merge authorization, production deployment, release readiness, npm publishing, or tag creation.
+
 **Include in every run report:**
 
-- **Objective evidence** — links, command output, screenshots, diff summaries, preview URLs
+- **Objective evidence** — links, command output, screenshots, diff summaries, preview URLs, request/response summaries, before/after reproduction evidence
 - **Completed actions** — what was actually done (files edited, commands run, PR opened)
-- **Validation results** — pass / fail / not run per check, with evidence
-- **Blockers** — anything that stopped or limited progress
+- **Validation results** — pass / fail / not run per automated check, with evidence
+- **Acceptance evidence** — for implementation-agent modes: each acceptance criterion mapped to method, environment, result, and evidence
+- **Repair loop** — failures discovered, root causes, fixes applied, verification rerun, final result (when applicable)
+- **Result state** — for implementation-agent modes: one of the four states above
+- **Blockers** — anything that stopped or limited progress (never describe blocked work as complete)
 - **Changed files** — explicit list of paths touched
 - **Repair evidence** — for integration repair, include deterministic update result or agent conflict-resolution summary, touched-file rationale, validation, and final PR branch SHA
 - **Model setting** — state the actual configured model when relevant (currently **Composer 2.5** for automations)
