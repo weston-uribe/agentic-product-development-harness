@@ -7,9 +7,9 @@ import {
 } from "../../src/evaluation/langfuse-projection-canary/run.js";
 
 describe("langfuse projection canary", () => {
-  it("builds SYN issue keys", () => {
-    expect(buildSyntheticIssueKey(new Date("2026-07-18T12:00:00Z"))).toMatch(
-      /^SYN-20260718120000-[0-9a-f]{4}$/,
+  it("builds Linear-shaped SYN issue keys", () => {
+    expect(buildSyntheticIssueKey(new Date("2026-07-18T12:00:00Z"))).toBe(
+      "SYN-20260718120000",
     );
   });
 

@@ -101,6 +101,7 @@ jobs:
           LANGFUSE_BASE_URL: ${{ vars.LANGFUSE_BASE_URL }}
           LANGFUSE_TRACING_ENVIRONMENT: ${{ vars.LANGFUSE_TRACING_ENVIRONMENT }}
         run: |
+          set -euo pipefail
           mkdir -p runs/evaluation-reports
           npm run evaluation:reproject-langfuse -- \
             --issue "${{ inputs.issue_key }}" \

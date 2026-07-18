@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { deriveSessionId } from "../identifiers.js";
@@ -96,10 +96,10 @@ export function runPrivacyGateForContentProfile(params: {
   };
 }
 
+/** Linear-shaped key (`TEAM-123`) so inspect display-name parsing accepts it. */
 export function buildSyntheticIssueKey(now = new Date()): string {
   const stamp = now.toISOString().replace(/[-:TZ.]/g, "").slice(0, 14);
-  const suffix = randomBytes(2).toString("hex");
-  return `SYN-${stamp}-${suffix}`;
+  return `SYN-${stamp}`;
 }
 
 export async function runSyntheticProjectionCanary(options: {
@@ -275,8 +275,8 @@ export async function runSyntheticProjectionCanary(options: {
       await runtime.flushAndShutdown();
     }
 
-    // Brief ingest wait for read API
-    await new Promise((r) => setTimeout(r, 5_000));
+    // Langfuse read API is eventually consistent after OTEL flush
+    await new Promise((r) => setTimeout(r, 20_000));
     const client = await createLangfuseApiClient(resolved.config);
     const bundle = await fetchSessionBundle(client, sessionId);
     const inspect = buildInspectReport({
