@@ -78,6 +78,30 @@ export function ConnectionsSettingsEditor({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
     });
+    if (!response.ok) {
+      const contentType = response.headers.get("content-type") ?? "";
+      const localRuntime =
+        response.status >= 500 || contentType.includes("text/html");
+      const runtimeHealth = {
+        status: localRuntime ? ("local_runtime_error" as const) : ("unknown" as const),
+        message: localRuntime
+          ? "Local GUI runtime error while verifying saved connections."
+          : "Unable to verify saved connections.",
+      };
+      const health = {
+        LINEAR_API_KEY: runtimeHealth,
+        CURSOR_API_KEY: runtimeHealth,
+        GITHUB_TOKEN: runtimeHealth,
+        VERCEL_TOKEN: runtimeHealth,
+      } satisfies SavedCredentialHealthMap;
+      setVerification(serviceVerificationFromCredentialHealth(health));
+      setError(
+        localRuntime
+          ? "Local GUI runtime error — connection status does not mean credentials are invalid. Restart with p-dev or npm start."
+          : "Unable to verify saved connections.",
+      );
+      return health;
+    }
     const result = await readSetupJsonResponse<{
       health: SavedCredentialHealthMap;
     }>(response, "POST /api/setup/verify-saved-connections");

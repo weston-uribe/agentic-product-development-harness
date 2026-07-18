@@ -29,12 +29,12 @@ export default defineConfig({
     command: [
       `P_DEV_HOME=${workspaceDir}`,
       "P_DEV_OBSERVABILITY_DISABLED=1",
-      "npx tsx src/gui/start-gui.ts --port 3101 --route /settings/configure",
+      "node bin/p-dev-dev.js --port 3101 --no-open",
     ].join(" "),
     cwd: repoRoot,
-    url: "http://localhost:3101/settings/configure",
+    url: "http://localhost:3101/",
     reuseExistingServer: false,
-    timeout: 180_000,
+    timeout: 300_000,
   },
   outputDir: "/tmp/configure-validation/playwright-results",
 });

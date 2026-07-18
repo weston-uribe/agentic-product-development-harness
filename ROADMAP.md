@@ -7,6 +7,7 @@ For shipped history, see [CHANGELOG.md](CHANGELOG.md).
 ## Now
 
 - Harden post-v0.3.0 operator experience from real `p-dev` installs
+- Local GUI operator runtime reliability (immutable `next start`, atomic publication; see ADR 0005)
 - Validate a full issue lifecycle from an isolated npm-installed workspace
 - Improve cross-platform packaged launch policy beyond macOS browser auto-open
 - Continue validating the Linear → GitHub → Cursor workflow on real but private target repos

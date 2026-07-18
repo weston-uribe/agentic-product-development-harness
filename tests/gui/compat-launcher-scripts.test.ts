@@ -21,5 +21,12 @@ describe("compatibility launcher scripts", () => {
     expect(manifest.scripts["harness:configure:stable"]).toBe(
       "node bin/p-dev-dev.js --deprecation-notice=configure",
     );
+    // Conventional command meaning: start/p-dev = operator; dev = hot reload.
+    expect(manifest.scripts.start).toBe("node bin/p-dev-dev.js");
+    expect(manifest.scripts.dev).toBe("node bin/gui-dev.js");
+    expect(manifest.scripts["gui:dev"]).toBe("node bin/gui-dev.js");
+    expect(manifest.scripts["harness:gui:doctor"]).toBe(
+      "tsx src/gui/gui-doctor.ts",
+    );
   });
 });

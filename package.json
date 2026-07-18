@@ -8,7 +8,9 @@
   },
   "description": "Cursor-first Linear/GitHub/GitHub Actions orchestration harness (SDK runners planning–merge, event-driven auto-run).",
   "scripts": {
-    "dev": "node bin/p-dev-dev.js",
+    "dev": "node bin/gui-dev.js",
+    "gui:dev": "node bin/gui-dev.js",
+    "start": "node bin/p-dev-dev.js",
     "p-dev:install": "tsx scripts/install-p-dev-local.ts",
     "build": "tsc && npm run copy:eval-assets && npm run build:gui",
     "build:tsc": "tsc && npm run copy:eval-assets",
@@ -36,6 +38,7 @@
     "harness:gui": "node bin/p-dev-dev.js",
     "harness:configure": "node bin/p-dev-dev.js --deprecation-notice=configure",
     "harness:configure:stable": "node bin/p-dev-dev.js --deprecation-notice=configure",
+    "harness:gui:doctor": "tsx src/gui/gui-doctor.ts",
     "harness:doctor": "tsx src/index.ts doctor",
     "harness:diagnose:vercel-bridge": "tsx src/index.ts diagnose-vercel-bridge",
     "harness:run": "tsx src/index.ts run",
@@ -54,7 +57,8 @@
     "package:p-dev:pack": "npm run package:p-dev:prepare && sh -c 'cd packages/p-dev && npm pack --pack-destination .'",
     "package:p-dev:inspect": "sh -c 'cd packages/p-dev && npm pack --dry-run --json'",
     "test:workflow:browser": "playwright test --config scripts/workflow-browser-matrix.config.ts",
-    "test:configure:browser": "playwright test --config scripts/configure-browser-matrix.config.ts"
+    "test:configure:browser": "playwright test --config scripts/configure-browser-matrix.config.ts",
+    "test:operator:browser": "playwright test --config scripts/operator-gui-smoke.config.ts"
   },
   "dependencies": {
     "@cursor/sdk": "^1.0.23",

@@ -37,17 +37,72 @@ const KEY_TO_SERVICE: Record<(typeof SERVICE_KEYS)[number], SetupServiceName> = 
 /**
  * Map a verifySetupService failure into typed credential health.
  * Unauthorized must not be collapsed into a generic failed badge.
+ * Local runtime / module errors must not be reported as invalid credentials.
  */
 export function classifyVerificationFailure(
   result: ServiceVerificationResult,
-): Exclude<CredentialHealthStatus, "missing" | "checking" | "connected"> {
+): Exclude<CredentialHealthStatus, "missing" | "checking" | "connected" | "verification_pending"> {
   const message = result.message ?? "";
   if (
-    /unauthorized|rejected this token|rejected this api key|401|403|forbidden/i.test(
+    /cannot find module|webpack-runtime|ENOENT.*\.next|module-loading|local runtime/i.test(
       message,
     )
   ) {
-    return "unauthorized";
+    return "local_runtime_error";
+  }
+  if (/permission|scope|insufficient|403 forbidden/i.test(message) &&
+      !/unauthorized|rejected this token|rejected this api key/i.test(message)) {
+    // Keep permission_missing distinct when message clearly indicates scope, not bad token.
+    if (/missing.*(scope|permission)|insufficient.*(scope|permission)/i.test(message)) {
+      return "permission_missing";
+    }
+  }
+  if (
+    /unauthorized|rejected this token|rejected this api key|401|invalid.*token|invalid.*api key/i.test(
+      message,
+    )
+  ) {
+    return "credential_invalid";
+  }
+  if (/403|forbidden/i.test(message)) {
+    return "permission_missing";
+  }
+  if (
+    /ECONNREFUSED|ENOTFOUND|ETIMEDOUT|network|temporarily unavailable|unreachable/i.test(
+      message,
+    )
+  ) {
+    return "provider_unavailable";
+  }
+  if (/bridge/i.test(message) && /unreachable|unavailable/i.test(message)) {
+    return "bridge_unreachable";
+  }
+  return "unknown";
+}
+
+/**
+ * Classify a failed HTTP response from the verify API itself (launcher/UI side).
+ * A 500 HTML Next error page is local_runtime_error, not credential_invalid.
+ */
+export function classifyVerifyHttpFailure(input: {
+  status: number;
+  contentType?: string | null;
+  body?: string;
+}): CredentialHealthStatus {
+  const body = input.body ?? "";
+  const contentType = input.contentType ?? "";
+  if (
+    input.status >= 500 ||
+    contentType.includes("text/html") ||
+    /cannot find module|webpack-runtime/i.test(body)
+  ) {
+    return "local_runtime_error";
+  }
+  if (input.status === 401) {
+    return "credential_invalid";
+  }
+  if (input.status === 403) {
+    return "permission_missing";
   }
   return "unknown";
 }
@@ -62,7 +117,7 @@ export function initialCredentialHealthFromPresence(
     };
   }
   return {
-    status: "checking",
+    status: "verification_pending",
     message: "Checking saved credential…",
   };
 }
@@ -107,12 +162,20 @@ export async function verifySavedCredentialHealth(options: {
       checkedAt: new Date().toISOString(),
     };
   } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Unable to verify saved credential.";
+    if (/cannot find module|webpack-runtime|ENOENT/i.test(message)) {
+      return {
+        status: "local_runtime_error",
+        message,
+        checkedAt: new Date().toISOString(),
+      };
+    }
     return {
       status: "unknown",
-      message:
-        error instanceof Error
-          ? error.message
-          : "Unable to verify saved credential.",
+      message,
       checkedAt: new Date().toISOString(),
     };
   }

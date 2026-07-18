@@ -13,10 +13,8 @@ import {
 } from "./package-paths.js";
 import { createShutdownController } from "./shutdown.js";
 import { resolveNextBin } from "./next-bin.js";
-import {
-  checkGuiPageHealth,
-  waitForConfigureServer,
-} from "../gui/configure-health.js";
+import { waitForConfigureServer } from "../gui/configure-health.js";
+import { checkRuntimeIntegrity } from "../gui/runtime-integrity.js";
 import { resolveAvailableGuiPort } from "../gui/port.js";
 import {
   P_DEV_PACKAGE_VERSION_ENV,
@@ -198,7 +196,16 @@ export async function launchPDev(
 
   const baseUrl = `http://${host}:${port}`;
   await waitForConfigureServer(baseUrl, STARTUP_TIMEOUT_MS);
-  const health = await checkGuiPageHealth(url);
+  const health = await checkRuntimeIntegrity({
+    baseUrl,
+    verifyConnectionsApi: true,
+    expected: {
+      snapshotId: "packaged",
+      sourceRoot: packageRoot,
+      workspaceDir: workspace.workspaceDir,
+      runtimeMode: "packaged",
+    },
+  });
   if (!health.ok) {
     captureProductError({
       lifecyclePhase: "gui_startup",

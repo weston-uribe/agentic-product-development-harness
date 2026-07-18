@@ -239,7 +239,8 @@ export async function applyCredentialPatch(options: {
     const health = classifyVerificationFailure(verification);
     return {
       ok: false,
-      unauthorized: health === "unauthorized",
+      unauthorized:
+        health === "unauthorized" || health === "credential_invalid",
       key,
       message: verification.message,
       credentialHealth: health,

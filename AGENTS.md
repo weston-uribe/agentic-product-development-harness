@@ -146,7 +146,7 @@ Standard dev commands are documented in [`README.md`](README.md) and [`docs/gett
 
 - **Node 22+ ESM/TypeScript project.** The CLI runs TS directly via `tsx`. `npm run build` runs `tsc` plus the Configure GUI build.
 - **No repo-level lint tooling.** There is no ESLint/Prettier/Biome config at the root and no `npm run lint` script for this repo (the `lint` command in `harness.config.json` runs against *target* repos, not here). The effective static check for this repo is the TypeScript typecheck run as part of `npm run build`.
-- **Configure GUI:** `npm run dev` (or global `p-dev` after `npm run p-dev:install`) starts the GUI, opens the browser, and routes to Configure or Workflow automatically. Stale `apps/gui/.next` styling is recovered once when needed.
+- **Configure GUI:** Operator mode is `p-dev` or `npm start` (immutable `next build`/`next start` under `apps/gui/.p-dev-runtime/`). Developer hot reload is `npm run dev` / `npm run gui:dev` (`next dev`, `apps/gui/.next`). Do not use `dev` as the operator runtime. See [`docs/gui-local.md`](docs/gui-local.md) and ADR 0005.
 - **Tests and the GUI run fully offline.** The vitest suite uses fixtures/mocks and needs no credentials. `LINEAR_API_KEY`, `CURSOR_API_KEY`, and `GITHUB_TOKEN` are only needed for *live* harness runs; `npm run harness:doctor` reporting them as missing is expected offline.
 - **Exercise the orchestrator offline** with a dry run: `npm run harness:run -- --issue WES-FIXTURE --dry-run --fixture tests/fixtures/issues/valid-target-app.md` (writes to the gitignored `runs/` dir).
 - **Slow tests:** `tests/p-dev/installed-tarball-loopback.test.ts` and `tests/p-dev/package-packed-artifact.test.ts` pack and install the `p-dev` package, so a full `npm test` can take about a minute.

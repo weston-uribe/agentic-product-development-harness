@@ -1,9 +1,7 @@
 import net from "node:net";
 import path from "node:path";
-import {
-  checkGuiPageHealth,
-  waitForConfigureServer,
-} from "./configure-health.js";
+import { waitForConfigureServer } from "./configure-health.js";
+import { checkRuntimeIntegrity } from "./runtime-integrity.js";
 import {
   cleanupStaleRegistryRecords,
   computeRegistryIdentityHash,
@@ -97,8 +95,22 @@ async function verifyRegistryRecordHealth(
   const baseUrl = `http://${record.host}:${record.port}`;
   try {
     await waitForConfigureServer(baseUrl, 5_000);
-    const health = await checkGuiPageHealth(buildUrl(record.host, record.port, "/"));
-    return health.ok;
+    const integrity = await checkRuntimeIntegrity({
+      baseUrl,
+      expectedPid: record.pid,
+      portOwnerPid: record.pid,
+      expected: record.snapshotId
+        ? {
+            snapshotId: record.snapshotId,
+            sourceRoot: record.sourceRoot,
+            workspaceDir: record.workspaceDir,
+            buildId: record.buildId,
+            runtimeMode: record.runtimeMode ?? "operator",
+          }
+        : undefined,
+      verifyConnectionsApi: record.runtimeMode !== "developer",
+    });
+    return integrity.ok;
   } catch {
     return false;
   }
@@ -110,6 +122,9 @@ export async function findReusableRegisteredServer(input: {
   host?: string;
   port?: number;
   registryRoot?: string;
+  snapshotId?: string;
+  contentFingerprint?: string;
+  runtimeMode?: "operator" | "developer" | "packaged";
 }): Promise<ExistingServerMatch | undefined> {
   await cleanupStaleRegistryRecords({ registryRoot: input.registryRoot });
   const identityHash = computeRegistryIdentityHash({
@@ -125,6 +140,25 @@ export async function findReusableRegisteredServer(input: {
       workspaceDir: record.workspaceDir,
     });
     if (recordHash !== identityHash) {
+      continue;
+    }
+    if (
+      input.runtimeMode &&
+      record.runtimeMode &&
+      record.runtimeMode !== input.runtimeMode
+    ) {
+      continue;
+    }
+    if (input.snapshotId) {
+      if (!record.snapshotId || record.snapshotId !== input.snapshotId) {
+        continue;
+      }
+    }
+    if (
+      input.contentFingerprint &&
+      record.contentFingerprint &&
+      record.contentFingerprint !== input.contentFingerprint
+    ) {
       continue;
     }
     if (

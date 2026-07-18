@@ -20,7 +20,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={inter.variable} suppressHydrationWarning>
-      <body>
+      <body data-p-dev-runtime-smoke="1">
         <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>

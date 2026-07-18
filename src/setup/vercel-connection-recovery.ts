@@ -709,7 +709,7 @@ export async function advanceVercelConnectionRecovery(input: {
           failOperation(operation, {
             humanProblem: verified.message,
             nextAction:
-              health === "unauthorized"
+              health === "unauthorized" || health === "credential_invalid"
                 ? "enter_different_token"
                 : "retry_recovery",
             retrySafe: true,

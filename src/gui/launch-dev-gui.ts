@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 /**
- * Operator-mode source launcher (`p-dev`, `npm start`).
- * Serves an atomically published production Next.js build via `next start`.
- * Developer hot-reload uses `launch-dev-gui.ts` (`npm run dev` / `gui:dev`).
+ * Developer-mode launcher (`npm run dev`, `npm run gui:dev`).
+ * Uses mutable `next dev` and apps/gui/.next. Not for operator use.
  */
 import { randomUUID } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
@@ -12,13 +11,12 @@ import {
   createBestEffortBrowserOpener,
   type BrowserOpener,
 } from "./browser-opener.js";
-import { waitForConfigureServer } from "./configure-health.js";
-import { stopChildProcess } from "./dev-server-process.js";
 import {
-  findReusableRegisteredServer,
-  listPortListeners,
-  resolveSourceGuiPort,
-} from "./existing-server.js";
+  checkGuiPageHealth,
+  waitForConfigureServer,
+} from "./configure-health.js";
+import { cleanGuiNextCache, stopChildProcess } from "./dev-server-process.js";
+import { findReusableRegisteredServer, resolveSourceGuiPort } from "./existing-server.js";
 import { P_DEV_OBSERVABILITY_NONCE_ENV } from "../observability/constants.js";
 import { resolveSourceGuiObservabilityNonce } from "../observability/session-handoff.js";
 import {
@@ -27,28 +25,14 @@ import {
   writeRegistryRecord,
 } from "./runtime-registry.js";
 import { parseSourceGuiCliOptions } from "./source-cli.js";
-import {
-  P_DEV_BUILD_ID_ENV,
-  P_DEV_DIST_DIR_ENV,
-  P_DEV_RUNTIME_MODE_ENV,
-  P_DEV_SNAPSHOT_ID_ENV,
-  resolveGuiAppDir,
-} from "./runtime-paths.js";
-import { computeRuntimeSnapshotIdentity } from "./runtime-snapshot.js";
-import {
-  cleanupAbandonedStagingDirs,
-  deleteOperatorRuntimeDir,
-  ensureOperatorRuntime,
-} from "./runtime-publish.js";
-import { checkRuntimeIntegrity } from "./runtime-integrity.js";
-import { formatRuntimeDiagnostic } from "./runtime-diagnostics.js";
+import { P_DEV_RUNTIME_MODE_ENV } from "./runtime-paths.js";
 
 export const STARTUP_TIMEOUT_MS = 90_000;
 export const DEFAULT_ROUTE = "/";
 const P_DEV_HOME_ENV = "P_DEV_HOME";
 const HARNESS_REPO_ROOT_ENV = "HARNESS_REPO_ROOT";
 
-export interface LaunchSourceGuiOptions {
+export interface LaunchDevGuiOptions {
   argv?: string[];
   browserOpener?: BrowserOpener;
   spawnImpl?: typeof spawn;
@@ -65,12 +49,12 @@ function validateLauncherEnv(): { sourceRoot: string; workspaceDir: string } {
   const workspaceDir = process.env[P_DEV_HOME_ENV]?.trim();
   if (!sourceRoot) {
     throw new Error(
-      `${HARNESS_REPO_ROOT_ENV} is required. Launch p-dev through bin/p-dev-dev.js.`,
+      `${HARNESS_REPO_ROOT_ENV} is required. Launch via npm run dev / gui:dev bootstrap.`,
     );
   }
   if (!workspaceDir) {
     throw new Error(
-      `${P_DEV_HOME_ENV} is required. Launch p-dev through bin/p-dev-dev.js.`,
+      `${P_DEV_HOME_ENV} is required. Launch via npm run dev / gui:dev bootstrap.`,
     );
   }
   return {
@@ -79,17 +63,14 @@ function validateLauncherEnv(): { sourceRoot: string; workspaceDir: string } {
   };
 }
 
-function spawnNextStart(input: {
+function spawnNextDev(input: {
   sourceRoot: string;
   workspaceDir: string;
   host: string;
   port: number;
-  relativeDistDir: string;
-  snapshotId: string;
-  buildId: string;
   spawnImpl: typeof spawn;
 }): ChildProcess {
-  const guiDir = resolveGuiAppDir(input.sourceRoot);
+  const guiDir = path.join(input.sourceRoot, "apps", "gui");
   const nextBin = path.join(
     input.sourceRoot,
     "node_modules",
@@ -100,7 +81,7 @@ function spawnNextStart(input: {
 
   return input.spawnImpl(
     nextBin,
-    ["start", "--hostname", input.host, "--port", String(input.port)],
+    ["dev", "--hostname", input.host, "--port", String(input.port)],
     {
       cwd: guiDir,
       stdio: "inherit",
@@ -111,10 +92,7 @@ function spawnNextStart(input: {
         HARNESS_GUI_HOST: input.host,
         HARNESS_GUI_PORT: String(input.port),
         [P_DEV_OBSERVABILITY_NONCE_ENV]: observabilityNonce,
-        [P_DEV_DIST_DIR_ENV]: input.relativeDistDir,
-        [P_DEV_RUNTIME_MODE_ENV]: "operator",
-        [P_DEV_SNAPSHOT_ID_ENV]: input.snapshotId,
-        [P_DEV_BUILD_ID_ENV]: input.buildId,
+        [P_DEV_RUNTIME_MODE_ENV]: "developer",
       },
       shell: false,
     },
@@ -126,11 +104,6 @@ async function runServerAttempt(input: {
   workspaceDir: string;
   host: string;
   port: number;
-  relativeDistDir: string;
-  snapshotId: string;
-  buildId: string;
-  contentFingerprint: string;
-  runtimeDir: string;
   spawnImpl: typeof spawn;
   instanceId: string;
   registryRoot?: string;
@@ -138,14 +111,11 @@ async function runServerAttempt(input: {
   browserOpener: BrowserOpener;
 }): Promise<number | null> {
   const url = buildGuiUrl(input.host, input.port, DEFAULT_ROUTE);
-  const child = spawnNextStart({
+  const child = spawnNextDev({
     sourceRoot: input.sourceRoot,
     workspaceDir: input.workspaceDir,
     host: input.host,
     port: input.port,
-    relativeDistDir: input.relativeDistDir,
-    snapshotId: input.snapshotId,
-    buildId: input.buildId,
     spawnImpl: input.spawnImpl,
   });
 
@@ -175,36 +145,14 @@ async function runServerAttempt(input: {
   try {
     const baseUrl = `http://${input.host}:${input.port}`;
     await waitForConfigureServer(baseUrl, STARTUP_TIMEOUT_MS);
-
-    const listeners = await listPortListeners(input.port);
-    const portOwnerPid = listeners[0] ?? child.pid ?? null;
-
-    const integrity = await checkRuntimeIntegrity({
-      baseUrl,
-      expectedPid: child.pid ?? undefined,
-      portOwnerPid,
-      expected: {
-        snapshotId: input.snapshotId,
-        sourceRoot: input.sourceRoot,
-        workspaceDir: input.workspaceDir,
-        buildId: input.buildId,
-        runtimeMode: "operator",
-      },
-      verifyConnectionsApi: true,
-    });
-
-    if (!integrity.ok) {
+    const health = await checkGuiPageHealth(`${baseUrl}/`);
+    if (!health.ok) {
       await cleanup();
       process.removeListener("SIGINT", onSignal);
       process.removeListener("SIGTERM", onSignal);
-      const error = new Error(
-        integrity.reason ?? "Harness GUI runtime integrity check failed.",
-      ) as Error & {
-        recoverableByRuntimeReset?: boolean;
-        integrity?: typeof integrity;
-      };
-      error.recoverableByRuntimeReset = integrity.recoverableByRuntimeReset;
-      error.integrity = integrity;
+      const error = new Error(health.reason ?? "Developer GUI health check failed.");
+      (error as Error & { recoverableByCacheReset?: boolean }).recoverableByCacheReset =
+        health.recoverableByCacheReset;
       throw error;
     }
 
@@ -215,18 +163,12 @@ async function runServerAttempt(input: {
       port: input.port,
       pid: child.pid ?? process.pid,
       instanceId: input.instanceId,
-      snapshotId: input.snapshotId,
-      buildId: input.buildId,
-      runtimeMode: "operator",
-      runtimeDir: input.runtimeDir,
-      contentFingerprint: input.contentFingerprint,
+      runtimeMode: "developer",
     });
     await writeRegistryRecord(record, { registryRoot: input.registryRoot });
 
-    console.log(`Harness GUI is ready at ${url}`);
-    console.log(
-      `Operator runtime: snapshot=${input.snapshotId} buildId=${input.buildId} mode=operator`,
-    );
+    console.log(`Developer GUI is ready at ${url}`);
+    console.log("Runtime mode: developer (next dev / hot reload)");
     if (input.openBrowser) {
       await input.browserOpener.open(url);
     }
@@ -248,8 +190,8 @@ async function runServerAttempt(input: {
   }
 }
 
-export async function launchSourceGui(
-  options: LaunchSourceGuiOptions = {},
+export async function launchDevGui(
+  options: LaunchDevGuiOptions = {},
 ): Promise<void> {
   const cli = parseSourceGuiCliOptions(options.argv ?? process.argv.slice(2));
   const { sourceRoot, workspaceDir } = validateLauncherEnv();
@@ -257,25 +199,16 @@ export async function launchSourceGui(
   const browserOpener = options.browserOpener ?? createBestEffortBrowserOpener();
   const instanceId = randomUUID();
 
-  const snapshot = await computeRuntimeSnapshotIdentity(sourceRoot);
-  await cleanupAbandonedStagingDirs({ sourceRoot });
-
   const reusable = await findReusableRegisteredServer({
     sourceRoot,
     workspaceDir,
     host: cli.host,
     port: cli.port,
     registryRoot: options.registryRoot,
-    snapshotId: snapshot.snapshotId,
-    contentFingerprint: snapshot.contentFingerprint,
-    runtimeMode: "operator",
+    runtimeMode: "developer",
   });
   if (reusable) {
-    console.log(`Reusing existing PDev GUI at ${reusable.url}`);
-    console.log(`Operator workspace: ${workspaceDir}`);
-    console.log(
-      `Operator runtime: snapshot=${snapshot.snapshotId} mode=operator (reuse)`,
-    );
+    console.log(`Reusing existing developer GUI at ${reusable.url}`);
     if (cli.openBrowser) {
       await browserOpener.open(reusable.url);
     }
@@ -288,32 +221,19 @@ export async function launchSourceGui(
   });
   const url = buildGuiUrl(host, port, DEFAULT_ROUTE);
 
-  console.log(`Starting Product Development Harness GUI at ${url}`);
-  console.log(`Operator workspace: ${workspaceDir}`);
-  console.log(`Runtime mode: operator (next start)`);
+  console.log(`Starting developer GUI (next dev) at ${url}`);
+  console.log(`Workspace: ${workspaceDir}`);
   if (port !== requestedPort) {
     console.warn(`Requested port ${requestedPort}; using ${port}.`);
   }
 
-  let recoveredOnce = false;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const ensured = await ensureOperatorRuntime({
-        sourceRoot,
-        snapshot,
-        spawnImpl,
-      });
-
       const exitCode = await runServerAttempt({
         sourceRoot,
         workspaceDir,
         host,
         port,
-        relativeDistDir: ensured.relativeDistDir,
-        snapshotId: snapshot.snapshotId,
-        buildId: ensured.manifest.buildId,
-        contentFingerprint: snapshot.contentFingerprint,
-        runtimeDir: ensured.runtimeDir,
         spawnImpl,
         instanceId,
         registryRoot: options.registryRoot,
@@ -328,67 +248,31 @@ export async function launchSourceGui(
       const recoverable =
         typeof error === "object" &&
         error !== null &&
-        "recoverableByRuntimeReset" in error &&
-        (error as { recoverableByRuntimeReset?: boolean })
-          .recoverableByRuntimeReset === true;
-
+        "recoverableByCacheReset" in error &&
+        (error as { recoverableByCacheReset?: boolean }).recoverableByCacheReset ===
+          true;
       if (recoverable && attempt === 0) {
-        const runtimeDir = path.join(
-          resolveGuiAppDir(sourceRoot),
-          ".p-dev-runtime",
-          snapshot.snapshotId,
-        );
-        await deleteOperatorRuntimeDir({ sourceRoot, runtimeDir });
-        recoveredOnce = true;
-        console.log(`Cleaned operator runtime: ${runtimeDir}`);
-        console.log("Rebuilding operator GUI once after runtime reset…");
+        const nextDir = await cleanGuiNextCache(sourceRoot);
+        console.log(`Cleaned developer .next cache: ${nextDir}`);
+        console.log("Restarting developer GUI once after cache cleanup…");
         continue;
       }
-
-      const integrity =
-        typeof error === "object" &&
-        error !== null &&
-        "integrity" in error
-          ? (error as { integrity?: Parameters<typeof formatRuntimeDiagnostic>[0]["integrity"] })
-              .integrity
-          : undefined;
-
-      console.error(
-        formatRuntimeDiagnostic({
-          failedCheck: integrity?.category ?? "startup",
-          reason:
-            error instanceof Error ? error.message : String(error),
-          url,
-          integrity,
-          snapshotId: snapshot.snapshotId,
-          sourceRoot,
-          workspaceDir,
-          host,
-          port,
-          nextAction:
-            "Run `npm run harness:gui:doctor` for safe diagnostics, then retry `p-dev` or `npm start`. Use `npm run dev` only for hot-reload development.",
-        }),
-      );
       throw error;
     }
   }
 
-  throw new Error(
-    recoveredOnce
-      ? "PDev GUI still failed integrity checks after one bounded operator runtime rebuild."
-      : "PDev GUI failed runtime integrity checks.",
-  );
+  throw new Error("Developer GUI failed the styling health check.");
 }
 
 async function main(): Promise<void> {
-  await launchSourceGui();
+  await launchDevGui();
 }
 
 const entryPath = fileURLToPath(import.meta.url);
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(entryPath)) {
   main().catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
-    console.error(`p-dev source launcher failed: ${message}`);
+    console.error(`developer GUI launcher failed: ${message}`);
     process.exit(1);
   });
 }

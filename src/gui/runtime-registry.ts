@@ -17,6 +17,12 @@ export interface RuntimeRegistryRecord {
   pid: number;
   startedAt: string;
   sourceCommit?: string;
+  /** Operator snapshot identity; required for operator-mode reuse. */
+  snapshotId?: string;
+  buildId?: string;
+  runtimeMode?: "operator" | "developer" | "packaged";
+  runtimeDir?: string;
+  contentFingerprint?: string;
 }
 
 export interface RuntimeRegistryOptions {
@@ -176,6 +182,11 @@ export function createRegistryRecord(input: {
   pid: number;
   sourceCommit?: string;
   instanceId?: string;
+  snapshotId?: string;
+  buildId?: string;
+  runtimeMode?: "operator" | "developer" | "packaged";
+  runtimeDir?: string;
+  contentFingerprint?: string;
 }): RuntimeRegistryRecord {
   return {
     schemaVersion: REGISTRY_SCHEMA_VERSION,
@@ -187,6 +198,13 @@ export function createRegistryRecord(input: {
     pid: input.pid,
     startedAt: new Date().toISOString(),
     sourceCommit: input.sourceCommit,
+    snapshotId: input.snapshotId,
+    buildId: input.buildId,
+    runtimeMode: input.runtimeMode,
+    runtimeDir: input.runtimeDir
+      ? normalizePath(input.runtimeDir)
+      : undefined,
+    contentFingerprint: input.contentFingerprint,
   };
 }
 

@@ -187,8 +187,13 @@ export async function waitForConfigureServer(
 
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(healthUrl, { redirect: "follow" });
-      if (response.status < 500) {
+      // Accept root redirects (307/302) as reachability. Destination health is
+      // validated separately by checkRuntimeIntegrity / checkGuiPageHealth.
+      const response = await fetch(healthUrl, { redirect: "manual" });
+      if (
+        response.status < 500 ||
+        (response.status >= 300 && response.status < 400)
+      ) {
         return;
       }
     } catch {

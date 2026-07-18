@@ -126,11 +126,18 @@ function credentialHealthToUiState(
     case "missing":
       return "missing";
     case "checking":
+    case "verification_pending":
       return "checking";
     case "connected":
       return "connected";
     case "unauthorized":
+    case "credential_invalid":
+    case "permission_missing":
       return "unauthorized";
+    case "local_runtime_error":
+      return "failed";
+    case "provider_unavailable":
+    case "bridge_unreachable":
     case "unknown":
       return "unknown";
   }
