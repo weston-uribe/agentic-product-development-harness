@@ -160,6 +160,55 @@
           },
           "additionalProperties": false
         },
+        "workflow": {
+          "type": "object",
+          "properties": {
+            "schemaVersion": {
+              "type": "string",
+              "minLength": 1,
+              "default": "product-development-v2"
+            },
+            "optionalPhases": {
+              "type": "object",
+              "properties": {
+                "planReview": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "codeReview": {
+                  "type": "boolean",
+                  "default": false
+                }
+              },
+              "additionalProperties": false,
+              "default": {
+                "planReview": false,
+                "codeReview": false
+              }
+            },
+            "cycleLimits": {
+              "type": "object",
+              "properties": {
+                "planReview": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "default": 3
+                },
+                "codeReview": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "default": 3
+                }
+              },
+              "additionalProperties": false,
+              "default": {
+                "planReview": 3,
+                "codeReview": 3
+              }
+            }
+          },
+          "additionalProperties": false
+        },
         "linear": {
           "type": "object",
           "properties": {

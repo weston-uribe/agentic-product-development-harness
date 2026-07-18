@@ -18,6 +18,9 @@ import { evaluateRevisionReconcile } from "./revision-reconcile.js";
 import { evaluateMergeReconcile } from "./merge-reconcile.js";
 import { parsePrUrl } from "../github/pr-url.js";
 import { findLatestMergeSourceComment } from "../linear/merge-source-comment.js";
+import { evaluateWorkflowEligibility } from "./workflow-eligibility.js";
+import { FileWorkflowStateStore } from "../workflow/state/store.js";
+import path from "node:path";
 
 export { CloudConfigStaleError } from "../config/assert-cloud-config-fingerprint.js";
 
@@ -35,6 +38,9 @@ export interface ResolveRouteResult {
   reconcileReason?: string | null;
   pmFeedbackCommentId?: string | null;
   mergePrUrl?: string | null;
+  workflowSchemaVersion?: string | null;
+  workflowStateRevision?: number | null;
+  workflowPhaseId?: string | null;
 }
 
 export function buildMergeConcurrencyGroup(
@@ -304,6 +310,18 @@ export async function resolveRoute(
   const phaseArg = options.phase ?? "auto";
   const phase = resolvePhase(phaseArg, inferred.phase);
 
+  const stateStore = new FileWorkflowStateStore(
+    path.resolve(config.logDirectory),
+  );
+  const authoritativeState = await stateStore.load(issueKey);
+  const eligibility = evaluateWorkflowEligibility({
+    config,
+    linearStatusName: issue.status,
+    authoritativeState,
+    baseBranch: resolved.baseBranch,
+    productionBranch: resolved.productionBranch,
+  });
+
   const recovery = await applyBuildingRecoveryRouting(
     issue,
     config,
@@ -332,6 +350,8 @@ export async function resolveRoute(
     options.force,
   );
 
+  // Live Linear + specialized reconcile remain authoritative for shouldRun
+  // (backward-compatible). Workflow eligibility supplies correlation metadata.
   return {
     issueKey,
     phase: mergeRouting.phase,
@@ -348,5 +368,8 @@ export async function resolveRoute(
       mergeRouting.reconcileReason ?? revisionRouting.reconcileReason,
     pmFeedbackCommentId: revisionRouting.pmFeedbackCommentId,
     mergePrUrl: mergeRouting.mergePrUrl,
+    workflowSchemaVersion: eligibility.workflowSchemaVersion,
+    workflowStateRevision: eligibility.stateRevision,
+    workflowPhaseId: eligibility.phaseId,
   };
 }

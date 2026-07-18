@@ -3,7 +3,7 @@ import {
   DEFAULT_PLANNING_TIMEOUT_SECONDS,
   MILESTONE,
 } from "../../config/defaults.js";
-import { getTransitionalStatus } from "../../config/status-names.js";
+import { resolveNextStatusName } from "../workflow-transition.js";
 import { emptyMergeManifestFields } from "../../artifacts/manifest-fields.js";
 import { writeManifest } from "../../artifacts/manifest.js";
 import { writeRunSummary } from "../../artifacts/summary.js";
@@ -341,7 +341,17 @@ export async function executePlanningPhase(
       );
     }
 
-    const planningStatus = getTransitionalStatus(config, "planningInProgress");
+    const planningClaim = resolveNextStatusName({
+      config,
+      currentPhaseId: "planning_dispatch",
+      outcome: {
+        kind: "claim",
+        phaseId: "planning_dispatch",
+        attemptIdentity: runId,
+      },
+      evidence: { linearStatusName: issue.status ?? linearStatusBefore ?? "" },
+    });
+    const planningStatus = planningClaim.statusName;
     await transitionIssueStatus(client, issue, planningStatus);
     enteredPlanning = true;
     linearStatusAfter = planningStatus;
@@ -606,12 +616,24 @@ export async function executePlanningPhase(
       commentId: planningComment,
     });
 
-    const readyForBuild = getTransitionalStatus(config, "readyForBuild");
+    const planningSuccess = resolveNextStatusName({
+      config,
+      currentPhaseId: "planning",
+      outcome: {
+        kind: "success",
+        phaseId: "planning",
+        attemptIdentity: runId,
+      },
+      evidence: { linearStatusName: planningStatus },
+    });
+    const readyForBuild = planningSuccess.statusName;
     await transitionIssueStatus(client, issue, readyForBuild);
     linearStatusAfter = readyForBuild;
     await events.log("linear_status_changed", "info", {
       from: planningStatus,
       to: readyForBuild,
+      transitionReason: planningSuccess.result.reason,
+      bypass: planningSuccess.bypass?.event ?? null,
     });
 
     const afterIssue = await fetchLinearIssue(options.issueKey, linearApiKey);
@@ -659,7 +681,16 @@ export async function executePlanningPhase(
           cursorAgentId: cursorAgentId ?? undefined,
           cursorRunId: cursorRunId ?? undefined,
         });
-        const blocked = getTransitionalStatus(config, "blocked");
+        const blocked = resolveNextStatusName({
+          config,
+          currentPhaseId: "planning",
+          outcome: {
+            kind: "failure",
+            phaseId: "planning",
+            attemptIdentity: `${runId}:failure`,
+          },
+          evidence: { linearStatusName: linearStatusAfter ?? "Planning" },
+        }).statusName;
         await transitionIssueStatus(client, issue, blocked);
         linearStatusAfter = blocked;
         await events.log("linear_status_changed", "info", {

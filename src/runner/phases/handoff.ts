@@ -6,7 +6,7 @@ import {
   HANDOFF_PROMPT_VERSION,
   MILESTONE,
 } from "../../config/defaults.js";
-import { getTransitionalStatus } from "../../config/status-names.js";
+import { resolveNextStatusName } from "../workflow-transition.js";
 import { emptyMergeManifestFields } from "../../artifacts/manifest-fields.js";
 import { writeManifest } from "../../artifacts/manifest.js";
 import { writeRunSummary } from "../../artifacts/summary.js";
@@ -648,12 +648,24 @@ export async function executeHandoffPhase(
       checkResultCategory: categorizeCheckResult(checkSummary),
     });
 
-    const pmReviewStatus = getTransitionalStatus(config, "pmReview");
+    const handoffSuccess = resolveNextStatusName({
+      config,
+      currentPhaseId: "handoff",
+      outcome: {
+        kind: "success",
+        phaseId: "handoff",
+        attemptIdentity: runId,
+      },
+      evidence: { linearStatusName: linearStatusBefore ?? "" },
+    });
+    const pmReviewStatus = handoffSuccess.statusName;
     await transitionIssueStatus(client, issue, pmReviewStatus);
     linearStatusAfter = pmReviewStatus;
     await events.log("linear_status_changed", "info", {
       from: linearStatusBefore,
       to: pmReviewStatus,
+      transitionReason: handoffSuccess.result.reason,
+      bypass: handoffSuccess.bypass?.event ?? null,
     });
     phaseTrace
       ?.startChild("p-dev.linear.status-transition", "event")
@@ -710,7 +722,16 @@ export async function executeHandoffPhase(
           },
           "handoff",
         );
-        const blocked = getTransitionalStatus(config, "blocked");
+        const blocked = resolveNextStatusName({
+          config,
+          currentPhaseId: "handoff",
+          outcome: {
+            kind: "failure",
+            phaseId: "handoff",
+            attemptIdentity: `${runId}:failure`,
+          },
+          evidence: { linearStatusName: linearStatusBefore ?? "PR Open" },
+        }).statusName;
         await transitionIssueStatus(client, issue, blocked);
         linearStatusAfter = blocked;
         await events.log("linear_status_changed", "info", {

@@ -16,6 +16,28 @@ export const ANALYTICS_EVENT_NAMES = [
   "p_dev_prompt_fallback_used",
   "p_dev_skill_mode_selected",
   "p_dev_native_skill_unavailable",
+  "p_dev_workflow_transition",
+  "p_dev_phase_bypassed",
+  "p_dev_review_cycle_incremented",
+  "p_dev_cycle_limit_reached",
+  "p_dev_reconciliation_recovery",
+] as const;
+
+/** Bounded workflow transition keys (no issue bodies, prompts, or code). */
+export const ALLOWED_WORKFLOW_ANALYTICS_PROPERTY_KEYS = [
+  "workflow_schema_version",
+  "workflow_phase_id",
+  "status_before",
+  "status_after",
+  "transition_reason",
+  "optional_phase_enabled",
+  "bypass_reason",
+  "cycle_name",
+  "cycle_count",
+  "cycle_limit",
+  "decision_type",
+  "reconciliation_source",
+  "workflow_state_revision",
 ] as const;
 
 /** Bounded prompt/skill keys allowed despite the /prompt/i forbid pattern. */
@@ -105,6 +127,13 @@ export const ALLOWED_SENTRY_TAG_KEYS = [
   "skill_invocation_mode",
   "native_capability_state",
   "capability_source_version",
+  "workflow_schema_version",
+  "workflow_phase_id",
+  "transition_reason",
+  "decision_type",
+  "reconciliation_source",
+  "cycle_count",
+  "workflow_state_revision",
 ] as const;
 
 export function bucketDurationMs(durationMs: number): DurationBucket {
@@ -182,13 +211,15 @@ export function assertAllowedPropertyKeys(
 ): void {
   const allowed = new Set<string>(allowedKeys);
   const promptCarveOut = new Set<string>(ALLOWED_PROMPT_ANALYTICS_PROPERTY_KEYS);
+  const workflowCarveOut = new Set<string>(ALLOWED_WORKFLOW_ANALYTICS_PROPERTY_KEYS);
   for (const key of Object.keys(properties)) {
     if (!allowed.has(key)) {
       throw new Error(`Observability property "${key}" is not allowlisted.`);
     }
     if (
       FORBIDDEN_PROPERTY_KEY_PATTERNS.some((pattern) => pattern.test(key)) &&
-      !promptCarveOut.has(key)
+      !promptCarveOut.has(key) &&
+      !workflowCarveOut.has(key)
     ) {
       throw new Error(`Observability property "${key}" is forbidden.`);
     }

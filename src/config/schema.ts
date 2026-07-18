@@ -5,6 +5,11 @@ import {
   DEFAULT_ORCHESTRATOR_MARKER,
 } from "./defaults.js";
 import { roleModelsSchema } from "./role-models.js";
+import {
+  DEFAULT_CYCLE_LIMITS,
+  DEFAULT_OPTIONAL_PHASES,
+  WORKFLOW_SCHEMA_VERSION,
+} from "../workflow/definition/product-development.v2.js";
 
 const githubRepoUrl = z
   .string()
@@ -135,6 +140,40 @@ const promptProviderConfigSchema = z
     { message: 'promptProvider.label must not be "latest"' },
   );
 
+const workflowConfigSchema = z
+  .object({
+    schemaVersion: z.string().min(1).default(WORKFLOW_SCHEMA_VERSION),
+    optionalPhases: z
+      .object({
+        planReview: z.boolean().default(DEFAULT_OPTIONAL_PHASES.planReview),
+        codeReview: z.boolean().default(DEFAULT_OPTIONAL_PHASES.codeReview),
+      })
+      .strict()
+      .default({
+        planReview: DEFAULT_OPTIONAL_PHASES.planReview,
+        codeReview: DEFAULT_OPTIONAL_PHASES.codeReview,
+      }),
+    cycleLimits: z
+      .object({
+        planReview: z
+          .number()
+          .int()
+          .positive()
+          .default(DEFAULT_CYCLE_LIMITS.plan_review_cycles),
+        codeReview: z
+          .number()
+          .int()
+          .positive()
+          .default(DEFAULT_CYCLE_LIMITS.code_review_cycles),
+      })
+      .strict()
+      .default({
+        planReview: DEFAULT_CYCLE_LIMITS.plan_review_cycles,
+        codeReview: DEFAULT_CYCLE_LIMITS.code_review_cycles,
+      }),
+  })
+  .strict();
+
 export const harnessConfigSchema = z
   .object({
     version: z.literal(1),
@@ -144,6 +183,8 @@ export const harnessConfigSchema = z
     defaultModel: z.object({ id: z.string() }).optional(),
     roleModels: roleModelsSchema.optional(),
     promptProvider: promptProviderConfigSchema.optional(),
+    /** Versioned workflow definition knobs. Optional reviewers default off. */
+    workflow: workflowConfigSchema.optional(),
     linear: linearConfigSchema.optional(),
     planning: planningConfigSchema.optional(),
     implementation: implementationConfigSchema.optional(),
@@ -169,3 +210,4 @@ export const harnessConfigSchema = z
 
 export type HarnessConfig = z.infer<typeof harnessConfigSchema>;
 export type RepoMapping = z.infer<typeof repoMappingSchema>;
+export type WorkflowConfig = z.infer<typeof workflowConfigSchema>;

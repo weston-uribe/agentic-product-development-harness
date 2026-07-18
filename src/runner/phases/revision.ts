@@ -6,7 +6,7 @@ import {
   MILESTONE,
   REVISION_PROMPT_VERSION,
 } from "../../config/defaults.js";
-import { getTransitionalStatus } from "../../config/status-names.js";
+import { resolveNextStatusName } from "../workflow-transition.js";
 import { emptyMergeManifestFields } from "../../artifacts/manifest-fields.js";
 import { writeManifest } from "../../artifacts/manifest.js";
 import { writeRunSummary } from "../../artifacts/summary.js";
@@ -736,7 +736,16 @@ export async function executeRevisionPhase(
     );
     const agent = acquired.agent;
 
-    const revisingStatus = getTransitionalStatus(config, "revisingInProgress");
+    const revisingStatus = resolveNextStatusName({
+      config,
+      currentPhaseId: "revision_dispatch",
+      outcome: {
+        kind: "claim",
+        phaseId: "revision_dispatch",
+        attemptIdentity: runId,
+      },
+      evidence: { linearStatusName: issue.status ?? linearStatusBefore ?? "" },
+    }).statusName;
     await transitionIssueStatus(client, issue, revisingStatus);
     enteredRevising = true;
     linearStatusAfter = revisingStatus;
@@ -1119,12 +1128,24 @@ export async function executeRevisionPhase(
       finalOutcome: "success",
     });
 
-    const pmReviewStatus = getTransitionalStatus(config, "pmReview");
+    const revisionSuccess = resolveNextStatusName({
+      config,
+      currentPhaseId: "revision",
+      outcome: {
+        kind: "success",
+        phaseId: "revision",
+        attemptIdentity: runId,
+      },
+      evidence: { linearStatusName: revisingStatus },
+    });
+    const pmReviewStatus = revisionSuccess.statusName;
     await transitionIssueStatus(client, issue, pmReviewStatus);
     linearStatusAfter = pmReviewStatus;
     await events.log("linear_status_changed", "info", {
       from: revisingStatus,
       to: pmReviewStatus,
+      transitionReason: revisionSuccess.result.reason,
+      bypass: revisionSuccess.bypass?.event ?? null,
     });
     phaseTrace?.startChild("p-dev.linear.status-transition", "event")?.end({
       linearStatusBefore: revisingStatus,
@@ -1180,7 +1201,16 @@ export async function executeRevisionPhase(
           },
           "revision",
         );
-        const blocked = getTransitionalStatus(config, "blocked");
+        const blocked = resolveNextStatusName({
+          config,
+          currentPhaseId: "revision",
+          outcome: {
+            kind: "failure",
+            phaseId: "revision",
+            attemptIdentity: `${runId}:failure`,
+          },
+          evidence: { linearStatusName: linearStatusAfter ?? "Revising" },
+        }).statusName;
         await transitionIssueStatus(client, issue, blocked);
         linearStatusAfter = blocked;
         await events.log("linear_status_changed", "info", {

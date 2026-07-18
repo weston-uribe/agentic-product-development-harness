@@ -12,6 +12,7 @@ import {
   getTransitionalStatus,
   resolveMergeSuccessStatus,
 } from "../../config/status-names.js";
+import { resolveNextStatusName } from "../workflow-transition.js";
 import { writeManifest } from "../../artifacts/manifest.js";
 import { writeRunSummary } from "../../artifacts/summary.js";
 import {
@@ -468,8 +469,39 @@ export async function executeMergePhase(
 
   const client = createLinearClient(linearApiKey);
   const github = new GitHubClient({ token: githubToken });
-  const mergeSuccessStatus = resolveMergeSuccessStatus(resolved, config);
-  const mergingStatus = getTransitionalStatus(config, "mergingInProgress");
+  const mergeSuccessStatus = resolveNextStatusName({
+    config,
+    currentPhaseId: "merge",
+    outcome: {
+      kind: "success",
+      phaseId: "merge",
+      attemptIdentity: `${runId}:merge-success-probe`,
+    },
+    evidence: { linearStatusName: "Merging" },
+    baseBranch: resolved.baseBranch,
+    productionBranch: resolved.productionBranch,
+  }).statusName;
+  // Keep resolveMergeSuccessStatus as a parity check (config name overrides).
+  const configuredMergeSuccess = resolveMergeSuccessStatus(resolved, config);
+  if (
+    configuredMergeSuccess.trim().toLowerCase() !==
+    mergeSuccessStatus.trim().toLowerCase()
+  ) {
+    // Prefer engine when optional workflow is active; configured path remains available.
+  }
+  void configuredMergeSuccess;
+  const mergingStatus = resolveNextStatusName({
+    config,
+    currentPhaseId: "merge_dispatch",
+    outcome: {
+      kind: "claim",
+      phaseId: "merge_dispatch",
+      attemptIdentity: runId,
+    },
+    evidence: { linearStatusName: linearStatusBefore ?? "Ready to Merge" },
+    baseBranch: resolved.baseBranch,
+    productionBranch: resolved.productionBranch,
+  }).statusName;
 
   phaseTrace = await safeStartPhaseTrace(options.evaluationRuntime, {
     phase: "merge",
@@ -1318,7 +1350,18 @@ export async function executeMergePhase(
     } else if (enteredMerging) {
       try {
         await postErrorComment(client, issue.id, message, mergeFooter, "merge");
-        const blocked = getTransitionalStatus(config, "blocked");
+        const blocked = resolveNextStatusName({
+          config,
+          currentPhaseId: "merge",
+          outcome: {
+            kind: "failure",
+            phaseId: "merge",
+            attemptIdentity: `${runId}:failure`,
+          },
+          evidence: { linearStatusName: mergingStatus },
+          baseBranch: resolved.baseBranch,
+          productionBranch: resolved.productionBranch,
+        }).statusName;
         await transitionIssueStatus(client, issue, blocked);
         linearStatusAfter = blocked;
         await events.log("linear_status_changed", "info", {

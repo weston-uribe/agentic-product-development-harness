@@ -6,7 +6,7 @@ import {
   IMPLEMENTATION_PROMPT_VERSION,
   MILESTONE,
 } from "../../config/defaults.js";
-import { getTransitionalStatus } from "../../config/status-names.js";
+import { resolveNextStatusName } from "../workflow-transition.js";
 import { emptyMergeManifestFields } from "../../artifacts/manifest-fields.js";
 import { writeManifest } from "../../artifacts/manifest.js";
 import { writeRunSummary } from "../../artifacts/summary.js";
@@ -512,7 +512,16 @@ export async function executeImplementationPhase(
       });
     }
 
-    const buildingStatus = getTransitionalStatus(config, "buildingInProgress");
+    const buildingStatus = resolveNextStatusName({
+      config,
+      currentPhaseId: "implementation_dispatch",
+      outcome: {
+        kind: "claim",
+        phaseId: "implementation_dispatch",
+        attemptIdentity: runId,
+      },
+      evidence: { linearStatusName: issue.status ?? linearStatusBefore ?? "" },
+    }).statusName;
     await transitionIssueStatus(client, issue, buildingStatus);
     enteredBuilding = true;
     linearStatusAfter = buildingStatus;
@@ -971,7 +980,16 @@ export async function executeImplementationPhase(
 
     await events.log("validation_completed", "info", { validationSummary });
 
-    const prOpenStatus = getTransitionalStatus(config, "prOpen");
+    const prOpenStatus = resolveNextStatusName({
+      config,
+      currentPhaseId: "implementation",
+      outcome: {
+        kind: "success",
+        phaseId: "implementation",
+        attemptIdentity: runId,
+      },
+      evidence: { linearStatusName: buildingStatus },
+    }).statusName;
     await transitionIssueStatus(client, issue, prOpenStatus);
     linearStatusAfter = prOpenStatus;
     await events.log("linear_status_changed", "info", {
@@ -1032,7 +1050,16 @@ export async function executeImplementationPhase(
           branch: branch ?? undefined,
           prUrl: prUrl ?? undefined,
         }, "implementation");
-        const blocked = getTransitionalStatus(config, "blocked");
+        const blocked = resolveNextStatusName({
+          config,
+          currentPhaseId: "implementation",
+          outcome: {
+            kind: "failure",
+            phaseId: "implementation",
+            attemptIdentity: `${runId}:failure`,
+          },
+          evidence: { linearStatusName: linearStatusAfter ?? "Building" },
+        }).statusName;
         await transitionIssueStatus(client, issue, blocked);
         linearStatusAfter = blocked;
         await events.log("linear_status_changed", "info", {

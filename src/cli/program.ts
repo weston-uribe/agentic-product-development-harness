@@ -11,6 +11,7 @@ import { runSyncProductionCommand } from "./commands/sync-production.js";
 import { runResolveRouteCommand } from "./commands/resolve-route.js";
 import { runReconcileRevisionCommand } from "./commands/reconcile-revision.js";
 import { runReconcileMergeCommand } from "./commands/reconcile-merge.js";
+import { runWorkflowStatusReportCommand } from "./commands/workflow-status-report.js";
 import { runRedactOutputCommand } from "./commands/redact-output.js";
 import { runDiagnoseVercelBridgeCommand } from "./commands/diagnose-vercel-bridge.js";
 import { runOperatorInit } from "./commands/operator-init.js";
@@ -303,6 +304,28 @@ export function createProgram(): Command {
         dryRun: opts.dryRun,
         dispatch: opts.dispatch,
         force: opts.force,
+      });
+      process.exitCode = exitCode;
+    });
+
+  program
+    .command("workflow-status-report")
+    .description(
+      "Dry-run Linear workflow status requirement report (no status mutations)",
+    )
+    .option("--team-id <id>", "Linear team id to inspect")
+    .option(
+      "--output <path>",
+      "Write JSON report path (default: runs/workflow-status-requirement-report.json)",
+    )
+    .option("--json", "Print report JSON to stdout", false)
+    .action(async (opts) => {
+      const configPath = program.opts<{ config: string }>().config;
+      const exitCode = await runWorkflowStatusReportCommand({
+        configPath,
+        teamId: opts.teamId,
+        outputPath: opts.output,
+        json: opts.json,
       });
       process.exitCode = exitCode;
     });

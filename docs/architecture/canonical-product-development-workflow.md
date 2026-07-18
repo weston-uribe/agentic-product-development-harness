@@ -4,6 +4,8 @@
 
 The harness uses one canonical Linear workflow descriptor for product-development work. The descriptor lives in `src/workflow/canonical-product-development-workflow.ts` and contains product semantics only (status names, categories, roles, transitions, merge-path variants, and agent-phase keys).
 
+Chunk 4 adds a modular workflow definition (`src/workflow/definition/product-development.v2.ts`), transition engine, and authoritative issue-scoped `WorkflowStateRecord`. See [ADR 0007](../decisions/0007-modular-workflow-state-machine.md). Optional Plan Review / Code Review phases are defined but **disabled by default** and are not live product controls yet.
+
 ## Dispatch triggers
 
 Exactly five Linear statuses trigger repository dispatch:
