@@ -165,7 +165,7 @@ describe.skipIf(!isCleanEnoughForPackagePack())("p-dev packed artifact", () => {
     expect(parsed.files.length).toBe(parsed.fileCount);
   });
 
-  it("ships npm README describing embedded snapshot provisioning for 0.3.1", () => {
+  it("ships npm README describing embedded snapshot provisioning for 0.4.0", () => {
     const raw = execFileSync("tar", ["-xOf", tarballPath, "package/README.md"], {
       encoding: "utf8",
     });

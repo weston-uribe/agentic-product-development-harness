@@ -21,7 +21,7 @@ const PRIVACY_FIXTURE = [
 
 const BASE_CONTEXT = {
   observability_schema_version: 1,
-  package_version: "0.3.1",
+  package_version: "0.4.0",
   release_sha: "abc123",
   session_id: "session-123",
   runtime_mode: "packaged",

@@ -43,7 +43,7 @@ async function makeWorkspace(): Promise<string> {
 
 const packagedEnv = {
   P_DEV_RUNTIME_MODE: "packaged",
-  P_DEV_PACKAGE_VERSION: "0.3.1",
+  P_DEV_PACKAGE_VERSION: "0.4.0",
 };
 
 describe("observability session handoff primitives", () => {
@@ -330,7 +330,7 @@ describe("observability transport lifecycle", () => {
       },
       {
         observability_schema_version: 1,
-        package_version: "0.3.1",
+        package_version: "0.4.0",
         release_sha: "abc",
         session_id: "session",
         runtime_mode: "packaged",

@@ -117,6 +117,9 @@ describe("saveWorkflowRoleModel", () => {
     expect(secretNames).toEqual(["HARNESS_CONFIG_JSON_B64", "HARNESS_CONFIG_JSON_B64"]);
     expect(secretNames).not.toContain("LINEAR_API_KEY");
     expect(secretNames).not.toContain("GITHUB_TOKEN");
+    expect(
+      provider.calls.filter((call) => call.method === "writeHarnessVariables"),
+    ).toHaveLength(2);
 
     const setupState = await readControlPlaneSetupState(tempRoot);
     expect(setupState?.workflowModels?.configFingerprint).toBe(
@@ -124,9 +127,13 @@ describe("saveWorkflowRoleModel", () => {
     );
     expect(setupState?.workflowModels?.harnessRepository).toBe("owner/harness-repo");
 
-    expect(provider.calls.every((call) => call.method === "writeHarnessSecrets")).toBe(
-      true,
-    );
+    expect(
+      provider.calls.every(
+        (call) =>
+          call.method === "writeHarnessSecrets" ||
+          call.method === "writeHarnessVariables",
+      ),
+    ).toBe(true);
     expect(provider.calls.some((call) => call.method === "applyTargetWorkflowPr")).toBe(
       false,
     );

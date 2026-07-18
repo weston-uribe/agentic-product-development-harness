@@ -10,7 +10,7 @@ import type { ErrorEvent } from "@sentry/node";
 
 const COMPLIANT_TAGS = {
   observability_schema_version: "1",
-  package_version: "0.3.1",
+  package_version: "0.4.0",
   release_sha: "abc",
   session_id: "session",
   runtime_mode: "packaged",

@@ -9,19 +9,19 @@ Published on npm as **`p-dev-harness`** (registry rejected bare `p-dev` as too s
 **Node.js 22+** required. **macOS** is the validated packaged platform.
 
 ```bash
-npx --yes p-dev-harness@0.3.1
+npx --yes p-dev-harness@0.4.0
 ```
 
 Without browser auto-open:
 
 ```bash
-npx --yes p-dev-harness@0.3.1 --no-open
+npx --yes p-dev-harness@0.4.0 --no-open
 ```
 
 Custom workspace:
 
 ```bash
-npx --yes p-dev-harness@0.3.1 --workspace ~/.p-dev
+npx --yes p-dev-harness@0.4.0 --workspace ~/.p-dev
 ```
 
 ## What it does

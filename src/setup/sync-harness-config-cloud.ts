@@ -103,7 +103,6 @@ export async function syncHarnessConfigCloudPair(input: {
       "GitHub provider must support repository variable writes for HARNESS_CONFIG_FINGERPRINT",
     );
   }
-  const writeHarnessVariables = input.provider.writeHarnessVariables;
 
   await writeRemoteWithRetry({
     provider: input.provider,
@@ -119,7 +118,7 @@ export async function syncHarnessConfigCloudPair(input: {
     provider: input.provider,
     harnessRepository,
     write: async () => {
-      await writeHarnessVariables(harnessRepository, [
+      await input.provider.writeHarnessVariables!(harnessRepository, [
         { name: HARNESS_CONFIG_FINGERPRINT_VARIABLE, value: fingerprint },
       ]);
     },
