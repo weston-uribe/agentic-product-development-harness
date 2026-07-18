@@ -2,6 +2,13 @@
 
 Status: **live dogfood complete** (config repair + green canary; Scenario A and B executed on managed runner).
 
+## Commit lineage
+
+| Role | Reference |
+|------|-----------|
+| Managed-runner dogfood source | `cae214351684ee0fe0e79c766b8d9e5abc765cdd` |
+| Final public PR head | PR #85 merge-time head; recorded in the PR body and final operator report |
+
 ## Preflight CI evidence
 
 | Item | Detail |
@@ -42,7 +49,7 @@ Status: **live dogfood complete** (config repair + green canary; Scenario A and 
 | Config canary (post-repair) | https://github.com/weston-uribe/p-dev-harness/actions/runs/29630951476 — **success** |
 | Prior red canary | https://github.com/weston-uribe/p-dev-harness/actions/runs/29630424435 — `associationResolutionSucceeded: false` |
 
-Repair scripts (operator tooling, not packaged): `scripts/m2-config-repair.ts`, `scripts/m2-provision-tt-workflow.ts`.
+Config repair used operator-local tooling (not packaged); associations were upserted and validated before cloud sync.
 
 ## Scenario A — approved without revision (FRE-2)
 
@@ -105,14 +112,23 @@ Terminal session scores (`evaluation/outcomes.json` from merge artifact `harness
 - [x] No forbidden content observed in exported metadata payloads (issue keys, phases, booleans/categories only)
 - [x] Duplicate merge dispatch (`29631738274`) exited `duplicate_phase_completed` without emitting `merge_completed=false`
 
-## Defects / operator notes (report only)
+## Operational conditions (not product defects)
 
-1. **Revoked operator `LINEAR_API_KEY`** — local `.env.local` key failed auth; replaced with working pdevtest workspace key before repair.
-2. **Missing TT team/project** — `Test Team` / `Test Project` did not exist; created via `M2_PROVISION_TT=1` upsert path.
-3. **TT default workflow** — new team lacked harness statuses; provisioned via `scripts/m2-provision-tt-workflow.ts`.
-4. **TT webhook coverage** — status transitions on TT did not reliably auto-dispatch; operator used `workflow_dispatch` for revision/merge (and one race produced a duplicate merge run).
-5. **Prior red canary** — `29630424435` correctly blocked on empty `linearAssociations` before repair.
+- Operator `LINEAR_API_KEY` had been revoked and was replaced before config repair.
+- Test Team / Test Project did not previously exist in the Linear workspace.
+- Newly created TT team started with Linear’s default workflow and required harness workflow setup before dogfood.
+- Prior red canary (`29630424435`) correctly blocked on empty `linearAssociations` before repair.
+
+## Expected successful behavior
+
+- Duplicate merge dispatch run `29631738274` short-circuited as `duplicate_phase_completed` without emitting `merge_completed=false`.
+
+## Follow-up defect (out of PR #85 scope)
+
+- TT team Linear status transitions did not reliably trigger managed-runner `repository_dispatch` for revision and merge.
+- Operator used manual `workflow_dispatch` for revision ([`29631402026`](https://github.com/weston-uribe/p-dev-harness/actions/runs/29631402026)) and merge ([`29631627682`](https://github.com/weston-uribe/p-dev-harness/actions/runs/29631627682)).
+- Not fixed in PR #85.
 
 ## PR status
 
-Public draft PR https://github.com/weston-uribe/agentic-product-development-harness/pull/85 — **not merged** (awaiting operator review of live evidence).
+Public PR https://github.com/weston-uribe/agentic-product-development-harness/pull/85 — pending final cleanup merge to `main`.
