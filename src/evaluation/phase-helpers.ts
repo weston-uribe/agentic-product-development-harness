@@ -2,10 +2,14 @@ import type { RunManifest } from "../types/run.js";
 import type {
   EvaluationCorrelation,
   EvaluationRuntime,
+  EvaluationScoreInput,
   PhaseFinishSummary,
   PhaseTraceHandle,
 } from "./types.js";
+import type { EvaluationPhase } from "./phases.js";
 import { buildMetadataV1 } from "./capture-policy.js";
+import { buildPhaseSuccessScore } from "./outcomes.js";
+import { writeEvaluationOutcomeArtifact } from "./outcome-artifact.js";
 
 export function phaseFinishFromManifest(
   manifest: Pick<
@@ -76,7 +80,7 @@ export function commonEnvMetadata(): Record<string, unknown> {
 export async function safeStartPhaseTrace(
   runtime: EvaluationRuntime | null | undefined,
   input: {
-    phase: "implementation" | "handoff";
+    phase: EvaluationPhase;
     issueKey: string;
     runId: string;
     metadata?: Record<string, unknown>;
@@ -94,4 +98,75 @@ export async function safeStartPhaseTrace(
   } catch {
     return null;
   }
+}
+
+export function safeRecordScore(
+  runtime: EvaluationRuntime | null | undefined,
+  score: EvaluationScoreInput,
+): void {
+  if (!runtime) return;
+  try {
+    runtime.recordScore(score);
+  } catch {
+    // Non-authoritative
+  }
+}
+
+export function recordPhaseSuccess(
+  runtime: EvaluationRuntime | null | undefined,
+  correlation: EvaluationCorrelation | null,
+  manifest: Pick<RunManifest, "finalOutcome" | "startedAt">,
+): EvaluationScoreInput | null {
+  if (!runtime || !correlation) return null;
+  const score = buildPhaseSuccessScore({
+    namespace: runtime.namespace,
+    traceId: correlation.traceId,
+    sessionId: correlation.sessionId,
+    startedAt: manifest.startedAt,
+    finalOutcome: manifest.finalOutcome,
+  });
+  safeRecordScore(runtime, score);
+  return score;
+}
+
+export async function finalizePhaseEvaluation(params: {
+  runtime: EvaluationRuntime | null | undefined;
+  phaseTrace: PhaseTraceHandle | null;
+  manifest: RunManifest;
+  runDirectory: string;
+  extraMetadata?: Record<string, unknown>;
+  sessionScores?: EvaluationScoreInput[];
+}): Promise<RunManifest> {
+  const correlation = finishPhaseTrace(
+    params.phaseTrace,
+    params.manifest,
+    params.extraMetadata,
+  );
+  const scores: EvaluationScoreInput[] = [];
+  const phaseSuccess = recordPhaseSuccess(
+    params.runtime,
+    correlation,
+    params.manifest,
+  );
+  if (phaseSuccess) {
+    scores.push(phaseSuccess);
+  }
+  if (params.sessionScores) {
+    for (const score of params.sessionScores) {
+      safeRecordScore(params.runtime, score);
+      scores.push(score);
+    }
+  }
+  if (correlation && scores.length > 0) {
+    try {
+      await writeEvaluationOutcomeArtifact(params.runDirectory, {
+        sessionId: correlation.sessionId,
+        traceId: correlation.traceId,
+        scores,
+      });
+    } catch {
+      // Non-authoritative
+    }
+  }
+  return withEvaluationCorrelation(params.manifest, correlation);
 }

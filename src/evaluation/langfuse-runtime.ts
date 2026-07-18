@@ -1,6 +1,7 @@
 import type {
   EvaluationRuntime,
   EvaluationRuntimeConfig,
+  EvaluationScoreInput,
   NestedObservationHandle,
   ObservationKind,
   PhaseFinishSummary,
@@ -12,6 +13,7 @@ import {
   EVALUATION_SCHEMA_VERSION,
 } from "./types.js";
 import { deriveSessionId, buildTraceSeed } from "./identifiers.js";
+import { getPhaseTraceName } from "./phases.js";
 import { buildMetadataV1, metadataToStringMap } from "./capture-policy.js";
 import { warnOnce, withFlushTimeout } from "./warn.js";
 import { CREDENTIAL_SECRET_PATTERNS } from "../artifacts/redact.js";
@@ -77,6 +79,52 @@ export function applyTraceCorrelationAttributes(
     [LANGFUSE_TRACE_SESSION_ID]: params.sessionId,
     [LANGFUSE_TRACE_NAME]: params.traceName,
   });
+}
+
+type LangfuseScoreClient = {
+  score: {
+    create: (data: Record<string, unknown>) => void;
+    flush: () => Promise<void>;
+  };
+};
+
+async function loadLangfuseScoreClient(
+  config: EvaluationRuntimeConfig,
+): Promise<LangfuseScoreClient | null> {
+  try {
+    const mod = await import("@langfuse/client");
+    const LangfuseClient = mod.LangfuseClient as unknown as new (params: {
+      publicKey: string;
+      secretKey: string;
+      baseUrl?: string;
+    }) => LangfuseScoreClient;
+    return new LangfuseClient({
+      publicKey: config.publicKey,
+      secretKey: config.secretKey,
+      baseUrl: config.baseUrl,
+    });
+  } catch (error) {
+    warnOnce(
+      "langfuse-score-client",
+      `Failed to load Langfuse score client: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    return null;
+  }
+}
+
+function mapScoreValueForLangfuse(
+  dataType: EvaluationScoreInput["dataType"],
+  value: boolean | number | string,
+): number | string {
+  if (dataType === "BOOLEAN") {
+    return value === true ? 1 : 0;
+  }
+  if (typeof value === "boolean") {
+    return value ? 1 : 0;
+  }
+  return value;
 }
 
 async function loadLangfuseModules(): Promise<LangfuseModules> {
@@ -184,6 +232,7 @@ export async function createLangfuseRuntime(
   config: EvaluationRuntimeConfig,
 ): Promise<EvaluationRuntime> {
   const mods = await loadLangfuseModules();
+  const scoreClient = await loadLangfuseScoreClient(config);
 
   const processor = new mods.LangfuseSpanProcessor({
     publicKey: config.publicKey,
@@ -212,6 +261,34 @@ export async function createLangfuseRuntime(
 
   return {
     enabled: true,
+    namespace: config.namespace,
+
+    recordScore(input: EvaluationScoreInput): void {
+      if (demoted || !scoreClient) return;
+      try {
+        const payload: Record<string, unknown> = {
+          id: input.id,
+          name: input.name,
+          dataType: input.dataType,
+          value: mapScoreValueForLangfuse(input.dataType, input.value),
+          timestamp: input.timestamp,
+        };
+        if (input.target === "trace" && input.traceId) {
+          payload.traceId = input.traceId;
+        }
+        if (input.target === "session" && input.sessionId) {
+          payload.sessionId = input.sessionId;
+        }
+        scoreClient.score.create(payload);
+      } catch (error) {
+        warnOnce(
+          "score-create",
+          `Failed to record evaluation score: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    },
 
     async startPhaseTrace(
       input: StartPhaseTraceInput,
@@ -223,10 +300,7 @@ export async function createLangfuseRuntime(
         const traceId = await mods.createTraceId(
           buildTraceSeed(config.namespace, input.runId),
         );
-        const traceName =
-          input.phase === "implementation"
-            ? "p-dev.implementation"
-            : "p-dev.handoff";
+        const traceName = getPhaseTraceName(input.phase);
 
         const baseMetadata = buildMetadataV1({
           evaluationSchemaVersion: EVALUATION_SCHEMA_VERSION,
@@ -340,6 +414,18 @@ export async function createLangfuseRuntime(
               error instanceof Error ? error.message : String(error)
             }`,
           );
+        }
+        if (scoreClient) {
+          try {
+            await scoreClient.score.flush();
+          } catch (error) {
+            warnOnce(
+              "score-flush",
+              `Langfuse score flush failed: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            );
+          }
         }
         try {
           await processor.shutdown();

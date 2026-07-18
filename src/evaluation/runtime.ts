@@ -18,11 +18,13 @@ export {
 export function createNoopRuntime(): EvaluationRuntime {
   return {
     enabled: false,
+    namespace: "default",
     async startPhaseTrace(
       _input: StartPhaseTraceInput,
     ): Promise<PhaseTraceHandle | null> {
       return null;
     },
+    recordScore(_input): void {},
     async flushAndShutdown(): Promise<void> {},
   };
 }

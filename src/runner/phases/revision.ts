@@ -77,11 +77,26 @@ import type {
 } from "../../types/run.js";
 import type { ParsedIssue } from "../../types/parsed-issue.js";
 import type { ResolvedTarget } from "../../resolver/target-repo.js";
+import type {
+  EvaluationRuntime,
+  NestedObservationHandle,
+  PhaseTraceHandle,
+} from "../../evaluation/types.js";
+import {
+  categorizeCheckResult,
+  extractAllowlistedCursorUsage,
+} from "../../evaluation/capture-policy.js";
+import { deriveRevisionCycleIndex } from "../../evaluation/outcomes.js";
+import {
+  finalizePhaseEvaluation,
+  safeStartPhaseTrace,
+} from "../../evaluation/phase-helpers.js";
 
 export interface RevisionPhaseOptions {
   issueKey: string;
   configPath: string;
   force?: boolean;
+  evaluationRuntime?: EvaluationRuntime;
 }
 
 export interface RevisionPhaseResult {
@@ -137,10 +152,21 @@ async function writeFinalManifest(
   finalOutcome: FinalOutcome,
   errorClassification: ErrorClassification,
   cursorCleanup: CursorCancelOutcome | null = null,
+  phaseTrace: PhaseTraceHandle | null = null,
+  evaluationRuntime: EvaluationRuntime | null = null,
+  extraEvalMetadata?: Record<string, unknown>,
 ): Promise<RevisionPhaseResult> {
+  const finalManifest = await finalizePhaseEvaluation({
+    runtime: evaluationRuntime,
+    phaseTrace,
+    manifest,
+    runDirectory,
+    extraMetadata: extraEvalMetadata,
+  });
+
   if (runDirectory) {
-    await writeManifest(runDirectory, manifest);
-    await writeRunSummary(runDirectory, manifest, parsed, resolved, {
+    await writeManifest(runDirectory, finalManifest);
+    await writeRunSummary(runDirectory, finalManifest, parsed, resolved, {
       cursorCleanup,
     });
     await events?.log("run_finished", finalOutcome === "success" ? "info" : "error", {
@@ -171,7 +197,7 @@ async function writeFinalManifest(
         ? 2
         : 3;
 
-  return { manifest, runDirectory, exitCode };
+  return { manifest: finalManifest, runDirectory, exitCode };
 }
 
 export async function executeRevisionPhase(
@@ -282,6 +308,10 @@ export async function executeRevisionPhase(
     startedAt,
   } = preflight.context;
 
+  let phaseTrace: PhaseTraceHandle | null = null;
+  let revisionCycleIndex: number | null = null;
+  let builderObs: NestedObservationHandle | null = null;
+
   const linearStatusBefore = issue.status;
   let linearStatusAfter = issue.status;
   let finalOutcome: FinalOutcome = "failed";
@@ -317,6 +347,19 @@ export async function executeRevisionPhase(
 
   const client = createLinearClient(linearApiKey);
   const github = new GitHubClient({ token: githubToken });
+
+  phaseTrace = await safeStartPhaseTrace(options.evaluationRuntime, {
+    phase: "revision",
+    issueKey: options.issueKey,
+    runId,
+    metadata: {
+      resolutionSource: resolved.resolutionSource,
+      baseBranch: resolved.baseBranch,
+      repositoryConfigurationId: resolved.repoConfigId,
+      linearStatusBefore,
+    },
+  });
+  phaseTrace?.startChild("p-dev.preflight", "span")?.end({ finalOutcome: "success" });
 
   try {
     const comments = await listIssueComments(client, issue.id);
@@ -441,6 +484,15 @@ export async function executeRevisionPhase(
     await events.log("pm_feedback_loaded", "info", {
       commentId: pmFeedbackComment.id,
     });
+    phaseTrace?.startChild("p-dev.review-feedback-loaded", "event")?.end({
+      pmFeedbackCommentId,
+    });
+
+    revisionCycleIndex = deriveRevisionCycleIndex(
+      comments,
+      config.orchestratorMarker,
+      prUrl,
+    );
 
     const parsedPr = parsePrUrl(prUrl);
     if (!parsedPr) {
@@ -499,6 +551,11 @@ export async function executeRevisionPhase(
     await events.log("github_pr_inspected", "info", {
       prUrl: inspection.url,
       changedFileCount: changedFiles.length,
+    });
+    phaseTrace?.startChild("p-dev.github.pr-inspection-before", "span")?.end({
+      changedFileCount: changedFiles.length,
+      checkResultCategory: categorizeCheckResult(checkSummary),
+      prCreated: true,
     });
 
     const revisionIdempotencyKey = buildRevisionIdempotencyKey({
@@ -571,6 +628,7 @@ export async function executeRevisionPhase(
 
     let observed;
     try {
+      builderObs = phaseTrace?.startChild("p-dev.cursor.builder-revision", "agent") ?? null;
       observed = await sendAndObserve(agent, prompt, runDirectory, events, {
         phase: "revision",
         targetRepo: markerTargetRepo,
@@ -635,6 +693,19 @@ export async function executeRevisionPhase(
     cursorAgentId = observed.agentId;
     cursorRunId = observed.runId;
     cursorRequestId = observed.requestId ?? null;
+    builderObs?.end({
+      modelId: model,
+      modelRole: "builder",
+      cursorAgentId,
+      cursorRunId,
+      cursorRequestId,
+      builderThreadAction: builderEvidence.builderThreadAction,
+      builderThreadGeneration: builderEvidence.builderThreadGeneration,
+      builderReplacementReason: builderEvidence.builderThreadReplacementReason,
+      cursorStatus: observed.status ?? null,
+      cursorDurationMs: observed.durationMs ?? null,
+      ...extractAllowlistedCursorUsage(observed.usage),
+    });
     branch = observed.gitResult?.branch ?? branch;
     prUrl = observed.gitResult?.prUrl ?? prUrl;
     validationSummary = observed.assistantText;
@@ -660,6 +731,11 @@ export async function executeRevisionPhase(
       `${JSON.stringify(postInspection, null, 2)}\n`,
       "utf8",
     );
+    phaseTrace?.startChild("p-dev.github.pr-inspection-after", "span")?.end({
+      changedFileCount: changedFiles.length,
+      checkResultCategory: categorizeCheckResult(checkSummary),
+      prCreated: true,
+    });
 
     const pollTimeout =
       config.preview?.pollTimeoutSeconds ?? DEFAULT_PREVIEW_POLL_TIMEOUT_SECONDS;
@@ -669,6 +745,7 @@ export async function executeRevisionPhase(
     let previewWarning: string | null = null;
 
     if (shouldCaptureApplicationPreview(resolved.previewProvider)) {
+      const previewObs = phaseTrace?.startChild("p-dev.preview", "span");
       const previewResult = await pollForVercelPreview(
         async () => {
           const latest = await inspectPullRequest(github, parsedPr, markerTargetRepo);
@@ -683,11 +760,13 @@ export async function executeRevisionPhase(
       const updatedPreviewUrl = previewResult.previewUrl;
       if (updatedPreviewUrl) {
         previewUrl = updatedPreviewUrl;
+        previewObs?.end({ previewConfigured: true, previewAvailable: true });
         await events.log("preview_captured", "info", {
           previewUrl,
           source: previewResult.source,
         });
       } else {
+        previewObs?.end({ previewConfigured: true, previewAvailable: false });
         previewWarning =
           previewResult.warnings.join("; ") ||
           "Preview URL not updated yet after revision; prior preview may be stale";
@@ -752,6 +831,9 @@ export async function executeRevisionPhase(
       phase: "revision",
       commentId: revisionCommentId,
     });
+    phaseTrace?.startChild("p-dev.revision.publish", "span")?.end({
+      finalOutcome: "success",
+    });
 
     const pmReviewStatus = getTransitionalStatus(config, "pmReview");
     await transitionIssueStatus(client, issue, pmReviewStatus);
@@ -759,6 +841,10 @@ export async function executeRevisionPhase(
     await events.log("linear_status_changed", "info", {
       from: revisingStatus,
       to: pmReviewStatus,
+    });
+    phaseTrace?.startChild("p-dev.linear.status-transition", "event")?.end({
+      linearStatusBefore: revisingStatus,
+      linearStatusAfter: pmReviewStatus,
     });
 
     const afterIssue = await fetchLinearIssue(options.issueKey, linearApiKey);
@@ -877,5 +963,15 @@ export async function executeRevisionPhase(
     finalOutcome,
     errorClassification,
     cursorCleanup,
+    phaseTrace,
+    options.evaluationRuntime ?? null,
+    {
+      revisionCycleIndex,
+      modelId: model,
+      modelRole: "builder",
+      modelParams: builderModel.modelParams,
+      totalPhaseDurationMs: Date.now() - startedAt.getTime(),
+      previewConfigured: shouldCaptureApplicationPreview(resolved.previewProvider),
+    },
   );
 }

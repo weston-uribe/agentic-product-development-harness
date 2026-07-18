@@ -136,6 +136,23 @@ function assertHarnessWorkflowContracts(workflow: string, label: string): void {
       );
     });
 
+    it("wires evaluation environment on run-merge but not gate or sync-production", () => {
+      const gate = extractJobSection(workflow, "gate");
+      const runHarness = extractJobSection(workflow, "run-harness");
+      const runMerge = extractJobSection(workflow, "run-merge");
+      const syncSection = extractJobSection(workflow, "sync-production");
+
+      expect(runHarness).toContain("P_DEV_EVALUATION_PROVIDER");
+      expect(runHarness).toContain("LANGFUSE_SECRET_KEY");
+      expect(runMerge).toContain("P_DEV_EVALUATION_PROVIDER");
+      expect(runMerge).toContain("LANGFUSE_SECRET_KEY");
+      expect(runMerge).toContain("LANGFUSE_RELEASE");
+
+      expect(gate).not.toContain("LANGFUSE_SECRET_KEY");
+      expect(syncSection).not.toContain("LANGFUSE_SECRET_KEY");
+      expect(syncSection).not.toContain("P_DEV_EVALUATION_PROVIDER");
+    });
+
     it("forwards dispatch metadata to sync-production CLI", () => {
       const syncSection = extractJobSection(workflow, "sync-production");
       expect(syncSection).toContain("--source-repo");

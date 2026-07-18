@@ -216,6 +216,10 @@ describe("cursorAgentProvider", () => {
         prUrl: `${TARGET_REPO}/pull/1`,
       },
       cancelOutcome: "cancelled",
+      status: "completed",
+      durationMs: null,
+      usage: null,
+      requestId: undefined,
     });
   });
 

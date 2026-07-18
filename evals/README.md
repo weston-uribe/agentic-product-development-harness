@@ -24,7 +24,8 @@ Automated evals are only useful when the criteria are stable. v0.1 runs against 
 |---|---|
 | Manual rubrics in markdown | Implemented |
 | Online Langfuse traces (implementation/handoff, metadata-v1) | Milestone 1 (maintainer-only) |
-| Scores / score configs | Deferred |
+| Revision/merge traces + deterministic outcome scores | Milestone 2 (maintainer-only) |
+| Scores / score configs | M2 scores implemented; Langfuse score configs deferred |
 | LLM judges / human annotation queues | Deferred |
 | Datasets / offline experiments / benchmark runners | Deferred |
 | Release gates tied to eval scores | Deferred |

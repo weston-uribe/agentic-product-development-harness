@@ -32,6 +32,7 @@
   },
   "dependencies": {
     "@cursor/sdk": "^1.0.23",
+    "@langfuse/client": "^5.9.1",
     "@langfuse/otel": "^5.9.1",
     "@langfuse/tracing": "^5.9.1",
     "@linear/sdk": "^40.0.0",

@@ -41,6 +41,18 @@ export const METADATA_V1_ALLOWED_KEYS = [
   "cursorUsageOutputTokens",
   "cursorUsageTotalTokens",
   "cursorDurationMs",
+  "revisionCycleIndex",
+  "revisionCycleCount",
+  "reviewOutcome",
+  "mergeSource",
+  "mergeMethod",
+  "mergeCompleted",
+  "mergeDestination",
+  "deliveryOutcome",
+  "deploymentRequired",
+  "integrationRepairAttempted",
+  "integrationRepairMode",
+  "integrationRepairOutcome",
 ] as const;
 
 export type MetadataV1Key = (typeof METADATA_V1_ALLOWED_KEYS)[number];
@@ -83,7 +95,39 @@ const FORBIDDEN_SOURCE_KEYS = [
   "token",
   "authorization",
   "secret",
+  "prTitle",
+  "mergeCommitSha",
+  "revisionPrompt",
+  "repairOutput",
 ] as const;
+
+const REVIEW_OUTCOME_VALUES = new Set([
+  "approved_without_revision",
+  "approved_after_revision",
+]);
+
+const DELIVERY_OUTCOME_VALUES = new Set([
+  "merged_to_integration",
+  "merged_to_production_deployed",
+  "merged_to_production_without_deployment",
+]);
+
+const MERGE_SOURCE_VALUES = new Set(["handoff", "revision"]);
+
+const MERGE_DESTINATION_VALUES = new Set(["integration", "production"]);
+
+const INTEGRATION_REPAIR_MODE_VALUES = new Set([
+  "github_update_branch",
+  "cursor_agent",
+  "none",
+]);
+
+const INTEGRATION_REPAIR_OUTCOME_VALUES = new Set([
+  "success",
+  "failed",
+  "skipped",
+  "not_attempted",
+]);
 
 export interface ModelParamInput {
   id: string;
@@ -165,6 +209,8 @@ export function buildMetadataV1(
       case "builderThreadGeneration":
       case "totalPhaseDurationMs":
       case "changedFileCount":
+      case "revisionCycleIndex":
+      case "revisionCycleCount":
       case "cursorUsageInputTokens":
       case "cursorUsageOutputTokens":
       case "cursorUsageTotalTokens":
@@ -174,7 +220,40 @@ export function buildMetadataV1(
       case "prCreated":
       case "previewConfigured":
       case "previewAvailable":
+      case "mergeCompleted":
+      case "deploymentRequired":
+      case "integrationRepairAttempted":
         raw[key] = boundBoolean(value);
+        break;
+      case "reviewOutcome":
+        raw[key] = REVIEW_OUTCOME_VALUES.has(String(value))
+          ? String(value)
+          : null;
+        break;
+      case "deliveryOutcome":
+        raw[key] = DELIVERY_OUTCOME_VALUES.has(String(value))
+          ? String(value)
+          : null;
+        break;
+      case "mergeSource":
+        raw[key] = MERGE_SOURCE_VALUES.has(String(value))
+          ? String(value)
+          : null;
+        break;
+      case "mergeDestination":
+        raw[key] = MERGE_DESTINATION_VALUES.has(String(value))
+          ? String(value)
+          : null;
+        break;
+      case "integrationRepairMode":
+        raw[key] = INTEGRATION_REPAIR_MODE_VALUES.has(String(value))
+          ? String(value)
+          : null;
+        break;
+      case "integrationRepairOutcome":
+        raw[key] = INTEGRATION_REPAIR_OUTCOME_VALUES.has(String(value))
+          ? String(value)
+          : null;
         break;
       default:
         if (typeof value === "boolean" || typeof value === "number") {

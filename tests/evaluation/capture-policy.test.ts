@@ -85,4 +85,36 @@ describe("capture-policy privacy", () => {
     });
     expect(violations.some((v) => v.includes("https://"))).toBe(true);
   });
+
+  it("rejects unknown categorical outcome values", () => {
+    const payload = buildMetadataV1({
+      reviewOutcome: "approved_maybe",
+      deliveryOutcome: "merged_to_nowhere",
+      mergeSource: "planning",
+    });
+    expect(payload.reviewOutcome).toBeUndefined();
+    expect(payload.deliveryOutcome).toBeUndefined();
+    expect(payload.mergeSource).toBeUndefined();
+  });
+
+  it("accepts bounded M2 categorical metadata", () => {
+    const payload = buildMetadataV1({
+      revisionCycleIndex: 1,
+      revisionCycleCount: 1,
+      reviewOutcome: "approved_after_revision",
+      mergeSource: "revision",
+      mergeDestination: "integration",
+      deliveryOutcome: "merged_to_integration",
+      integrationRepairMode: "github_update_branch",
+      integrationRepairOutcome: "success",
+      integrationRepairAttempted: true,
+    });
+    expect(payload).toMatchObject({
+      revisionCycleIndex: 1,
+      revisionCycleCount: 1,
+      reviewOutcome: "approved_after_revision",
+      mergeSource: "revision",
+      deliveryOutcome: "merged_to_integration",
+    });
+  });
 });

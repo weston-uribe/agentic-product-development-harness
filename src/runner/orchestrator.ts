@@ -162,6 +162,7 @@ export async function runOrchestrator(
       issueKey: options.issueKey,
       configPath: options.configPath,
       force: options.force,
+      evaluationRuntime: options.evaluationRuntime,
     });
     return {
       exitCode: result.exitCode,
@@ -175,6 +176,7 @@ export async function runOrchestrator(
       issueKey: options.issueKey,
       configPath: options.configPath,
       force: options.force,
+      evaluationRuntime: options.evaluationRuntime,
     });
     return {
       exitCode: result.exitCode,

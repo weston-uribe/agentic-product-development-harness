@@ -64,6 +64,9 @@ export interface IntegrationRepairResult {
   inspection: PrInspectionResult;
   validationSummary: string | null;
   agentEvidence?: IntegrationRepairAgentEvidence;
+  integrationRepairAttempted: boolean;
+  integrationRepairMode: "github_update_branch" | "cursor_agent" | "none";
+  integrationRepairOutcome: "success" | "failed" | "skipped" | "not_attempted";
 }
 
 export interface IntegrationRepairOptions {
@@ -94,6 +97,22 @@ interface RepairReport {
   merge_commit_sha?: string;
   validation_summary?: string;
   touched_files?: RepairReportTouchedFile[];
+}
+
+function withRepairEvidence(
+  result: Pick<
+    IntegrationRepairResult,
+    "inspection" | "validationSummary" | "agentEvidence"
+  >,
+  mode: IntegrationRepairResult["integrationRepairMode"],
+  outcome: IntegrationRepairResult["integrationRepairOutcome"],
+): IntegrationRepairResult {
+  return {
+    ...result,
+    integrationRepairAttempted: mode !== "none",
+    integrationRepairMode: mode,
+    integrationRepairOutcome: outcome,
+  };
 }
 
 function repairTriggerReason(inspection: PrInspectionResult): "behind" | "dirty" {
@@ -176,7 +195,7 @@ async function postRepairComment(
 async function waitForRepairChecks(
   options: IntegrationRepairOptions,
   inspection: PrInspectionResult,
-): Promise<{ inspection: PrInspectionResult; validationSummary: string | null }> {
+): Promise<IntegrationRepairResult> {
   const checkPollTimeout =
     options.config.merge?.checkPollTimeoutSeconds ??
     DEFAULT_MERGE_CHECK_POLL_TIMEOUT_SECONDS;
@@ -207,11 +226,15 @@ async function waitForRepairChecks(
       checkPolicy.classification === "checks_unknown") &&
     inferVercelReadyFromComments(latest.comments)
   ) {
-    return {
-      inspection: latest,
-      validationSummary:
-        "GitHub checks inconclusive; proceeding because Vercel deployment comment reports Ready",
-    };
+      return withRepairEvidence(
+        {
+          inspection: latest,
+          validationSummary:
+            "GitHub checks inconclusive; proceeding because Vercel deployment comment reports Ready",
+        },
+        "github_update_branch",
+        "success",
+      );
   }
 
   if (checkPolicy.decision === "block") {
@@ -221,11 +244,15 @@ async function waitForRepairChecks(
     );
   }
 
-  return {
-    inspection: latest,
-    validationSummary:
-      checkPolicy.warnings.length > 0 ? checkPolicy.warnings.join("; ") : null,
-  };
+  return withRepairEvidence(
+    {
+      inspection: latest,
+      validationSummary:
+        checkPolicy.warnings.length > 0 ? checkPolicy.warnings.join("; ") : null,
+    },
+    "github_update_branch",
+    "success",
+  );
 }
 
 function extractJsonReport(text: string): RepairReport {
@@ -605,30 +632,34 @@ async function attemptAgentRepair(
       previousBuilderAgentId: builderEvidence.previousBuilderAgentId,
       builderThreadReplacementReason: builderEvidence.builderThreadReplacementReason,
     });
-    return {
-      inspection: checked.inspection,
-      validationSummary:
-        report.validation_summary ?? checked.validationSummary ?? observed.assistantText,
-      ...(repairAgentId && repairRunId
-        ? {
-            agentEvidence: {
-              model: builderModelEvidence.model,
-              modelRole: "builder" as const,
-              modelParams: builderModelEvidence.modelParams,
-              cursorAgentId: repairAgentId,
-              cursorRunId: repairRunId,
-              builderAgentId: acquired.continuity.reference.agentId,
-              builderThreadAction: acquired.continuity.action,
-              builderThreadGeneration: acquired.continuity.reference.generation,
-              builderOriginRunId: acquired.continuity.reference.originHarnessRunId,
-              previousBuilderAgentId: acquired.continuity.previousAgentId ?? null,
-              builderThreadReplacementReason:
-                acquired.continuity.replacementReason ?? null,
-              cursorRequestId: repairRequestId,
-            },
-          }
-        : {}),
-    };
+    return withRepairEvidence(
+      {
+        inspection: checked.inspection,
+        validationSummary:
+          report.validation_summary ?? checked.validationSummary ?? observed.assistantText,
+        ...(repairAgentId && repairRunId
+          ? {
+              agentEvidence: {
+                model: builderModelEvidence.model,
+                modelRole: "builder" as const,
+                modelParams: builderModelEvidence.modelParams,
+                cursorAgentId: repairAgentId,
+                cursorRunId: repairRunId,
+                builderAgentId: acquired.continuity.reference.agentId,
+                builderThreadAction: acquired.continuity.action,
+                builderThreadGeneration: acquired.continuity.reference.generation,
+                builderOriginRunId: acquired.continuity.reference.originHarnessRunId,
+                previousBuilderAgentId: acquired.continuity.previousAgentId ?? null,
+                builderThreadReplacementReason:
+                  acquired.continuity.replacementReason ?? null,
+                cursorRequestId: repairRequestId,
+              },
+            }
+          : {}),
+      },
+      "cursor_agent",
+      "success",
+    );
   } catch (error) {
     await options.events.log("repair_failed", "error", {
       message: error instanceof Error ? error.message : String(error),
@@ -692,7 +723,7 @@ export async function attemptIntegrationRepair(
         repairCycleId,
         prUrl: deterministic.inspection.url,
       });
-      return deterministic;
+      return withRepairEvidence(deterministic, "github_update_branch", "success");
     }
 
     const agentResult = await attemptAgentRepair(options, repairCycleId, conflictFiles);
@@ -704,7 +735,7 @@ export async function attemptIntegrationRepair(
       repairCycleId,
       prUrl: agentResult.inspection.url,
     });
-    return agentResult;
+    return withRepairEvidence(agentResult, "cursor_agent", "success");
   } catch (error) {
     await options.events.log("repair_failed", "error", {
       repairCycleId,

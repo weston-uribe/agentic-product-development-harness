@@ -140,6 +140,10 @@ export function getMergeRecoveryPath(runDirectory: string): string {
   return path.join(runDirectory, "outputs", "merge-recovery.json");
 }
 
+export function getEvaluationOutcomesPath(runDirectory: string): string {
+  return path.join(runDirectory, "evaluation", "outcomes.json");
+}
+
 export function getErrorPath(runDirectory: string): string {
   return path.join(runDirectory, "errors", "error.json");
 }
