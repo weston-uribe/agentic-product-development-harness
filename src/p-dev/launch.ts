@@ -1,8 +1,7 @@
 import { access } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import path from "node:path";
-import type { BrowserOpener } from "./browser.js";
-import { defaultBrowserOpener } from "./browser.js";
+import { defaultBrowserOpener, type BrowserOpener } from "../gui/browser-opener.js";
 import type { PDevCliOptions } from "./cli.js";
 import { parsePDevCliOptions } from "./cli.js";
 import { assertNodeVersion } from "./node-version.js";
@@ -15,7 +14,7 @@ import {
 import { createShutdownController } from "./shutdown.js";
 import { resolveNextBin } from "./next-bin.js";
 import {
-  checkConfigurePageHealth,
+  checkGuiPageHealth,
   waitForConfigureServer,
 } from "../gui/configure-health.js";
 import { resolveAvailableGuiPort } from "../gui/port.js";
@@ -199,7 +198,7 @@ export async function launchPDev(
 
   const baseUrl = `http://${host}:${port}`;
   await waitForConfigureServer(baseUrl, STARTUP_TIMEOUT_MS);
-  const health = await checkConfigurePageHealth(url);
+  const health = await checkGuiPageHealth(url);
   if (!health.ok) {
     captureProductError({
       lifecyclePhase: "gui_startup",

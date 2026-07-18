@@ -9,8 +9,16 @@ Operator guide for the Product Development Harness.
 ### Product managers — use p-dev (recommended)
 
 ```bash
+p-dev
+```
+
+Or the current published npm command:
+
+```bash
 npx --yes p-dev-harness@0.4.0
 ```
+
+PDev automatically opens Initial Harness Configuration until setup is complete, then opens the Workflow page.
 
 - Node.js **22+** required
 - Starts the guided Configure GUI
@@ -25,10 +33,10 @@ Full guide: [`docs/p-dev.md`](p-dev.md)
 git clone https://github.com/weston-uribe/agentic-product-development-harness.git
 cd agentic-product-development-harness
 npm ci
-npm run build
-npm test
-npm run harness:configure
+npm run dev
 ```
+
+To link a global `p-dev` command to this checkout: `npm run p-dev:install`
 
 GitHub Codespaces is supported for source-based development. See [`docs/gui-local.md`](gui-local.md) and [`docs/gui-remote-setup.md`](gui-remote-setup.md).
 

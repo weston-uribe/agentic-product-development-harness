@@ -2,15 +2,17 @@
 
 Launch the **Product Development Harness** guided Configure GUI without cloning the source repository.
 
-Published on npm as **`p-dev-harness`** (registry rejected bare `p-dev` as too similar to `pdev`).
+Published on npm as **`p-dev-harness`** today. The package manifest also declares a **`p-dev`** bin alias for a future release; `p-dev-harness@0.4.0` does not expose `p-dev` on npm yet.
 
 ## Quick start
 
-**Node.js 22+** required. **macOS** is the validated packaged platform.
+**Node.js 22+** required.
 
 ```bash
 npx --yes p-dev-harness@0.4.0
 ```
+
+PDev automatically opens Initial Harness Configuration until setup is complete, then opens the Workflow page.
 
 Without browser auto-open:
 

@@ -3,8 +3,13 @@
   "version": "0.4.0",
   "private": true,
   "type": "module",
+  "bin": {
+    "p-dev": "./bin/p-dev-dev.js"
+  },
   "description": "Cursor-first Linear/GitHub/GitHub Actions orchestration harness (SDK runners planning–merge, event-driven auto-run).",
   "scripts": {
+    "dev": "node bin/p-dev-dev.js",
+    "p-dev:install": "tsx scripts/install-p-dev-local.ts",
     "build": "tsc && npm run copy:eval-assets && npm run build:gui",
     "build:tsc": "tsc && npm run copy:eval-assets",
     "copy:eval-assets": "node scripts/copy-evaluation-assets.mjs",
@@ -25,9 +30,9 @@
     "harness:eval:evaluator-summary": "tsx src/index.ts eval evaluator-summary",
     "generate:evaluator-manifest": "node scripts/generate-evaluator-manifest.mjs",
     "test:webhook": "vitest run tests/webhook",
-    "harness:gui": "tsx src/gui/start-gui.ts",
-    "harness:configure": "tsx src/gui/start-gui.ts --route /settings/configure",
-    "harness:configure:stable": "tsx src/gui/start-configure-stable.ts",
+    "harness:gui": "node bin/p-dev-dev.js",
+    "harness:configure": "node bin/p-dev-dev.js --deprecation-notice=configure",
+    "harness:configure:stable": "node bin/p-dev-dev.js --deprecation-notice=configure",
     "harness:doctor": "tsx src/index.ts doctor",
     "harness:diagnose:vercel-bridge": "tsx src/index.ts diagnose-vercel-bridge",
     "harness:run": "tsx src/index.ts run",
