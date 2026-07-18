@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, afterEach } from "vitest";
 import {
   assertNoProductionCursorSkillsMirror,
   CANONICAL_SKILLS_DIR,
@@ -6,9 +6,12 @@ import {
 } from "../../src/skills/package.js";
 import {
   getNativeSkillCapability,
+  isCursorCliAvailableInEnvironment,
   mayAttemptNativeSkillInProduction,
   NATIVE_SKILL_CANARY_CANDIDATE_LAYOUTS,
+  NATIVE_SKILL_CAPABILITY_REGISTRY_VERSION,
   productionNativeSkillCapability,
+  setCursorCliAvailabilityProbeForTests,
 } from "../../src/skills/capability.js";
 import {
   assertNoDuplicateSkillInjection,
@@ -45,13 +48,48 @@ describe("canonical skill packages", () => {
   });
 });
 
-describe("native skill capability", () => {
+describe("native skill capability taxonomy", () => {
+  afterEach(() => {
+    setCursorCliAvailabilityProbeForTests(null);
+  });
+
   it("marks sdk_cloud_agent as unproven and forbids production native attempts", () => {
     expect(productionNativeSkillCapability()).toBe("unproven");
     expect(mayAttemptNativeSkillInProduction()).toBe(false);
     expect(getNativeSkillCapability("sdk_cloud_agent").state).toBe("unproven");
-    expect(getNativeSkillCapability("sdk_local_agent").state).toBe(
+    expect(NATIVE_SKILL_CAPABILITY_REGISTRY_VERSION).toMatch(/v2$/);
+  });
+
+  it("marks editor and background_agent as unproven", () => {
+    expect(getNativeSkillCapability("cursor_editor").state).toBe("unproven");
+    expect(getNativeSkillCapability("background_agent").state).toBe("unproven");
+    expect(getNativeSkillCapability("sdk_local_agent").state).toBe("unproven");
+  });
+
+  it("does not mark CLI unsupported merely because the binary is absent", () => {
+    setCursorCliAvailabilityProbeForTests(() => false);
+
+    expect(isCursorCliAvailableInEnvironment()).toBe(false);
+    expect(getNativeSkillCapability("cursor_cli_interactive").state).toBe(
+      "unavailable_in_environment",
+    );
+    expect(getNativeSkillCapability("cursor_cli_non_interactive").state).toBe(
+      "unavailable_in_environment",
+    );
+    expect(getNativeSkillCapability("cursor_cli_interactive").state).not.toBe(
       "unsupported",
+    );
+  });
+
+  it("marks CLI unproven when the binary is present but skills are untested", () => {
+    setCursorCliAvailabilityProbeForTests(() => true);
+
+    expect(isCursorCliAvailableInEnvironment()).toBe(true);
+    expect(getNativeSkillCapability("cursor_cli_interactive").state).toBe(
+      "unproven",
+    );
+    expect(getNativeSkillCapability("cursor_cli_non_interactive").state).toBe(
+      "unproven",
     );
   });
 });

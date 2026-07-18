@@ -7,7 +7,7 @@
 
 1. **Canonical skills** remain version-controlled `SKILL.md` packages under **`.agents/skills/<skillId>/SKILL.md`**. That directory is the sole production skill layout until Cloud Agent discovery evidence proves a required secondary layout.
 
-2. **Production skill inclusion** for SDK-created Cloud Agents is **`rendered_into_prompt`**: harness appends skill bodies into phase prompts. Native Cursor skill invocation is preferred only when the provider capability is **`supported`** and invocation can be proven with provider evidence. Today, SDK Cloud Agent native skill support is **`unproven`** (explicit invoke API **`unsupported`** in `@cursor/sdk@1.0.23`).
+2. **Production skill inclusion** for SDK-created Cloud Agents is **`rendered_into_prompt`**: harness appends skill bodies into phase prompts. Native Cursor skill invocation is preferred only when the provider capability is **`supported`** and invocation can be proven with provider evidence. Today, SDK Cloud Agent native skill support is **`unproven`**. Capability taxonomy: `supported` | `unsupported` | `unproven` | `unavailable_in_environment` — do not mark a surface `unsupported` merely because an executable is absent from the environment.
 
 3. **Native and rendered modes must never both inject the same skill body.** Provenance must truthfully distinguish requested, discovered, invoked, and fallback. Discovered/invoked must not be claimed from prompt wording or model self-report alone.
 

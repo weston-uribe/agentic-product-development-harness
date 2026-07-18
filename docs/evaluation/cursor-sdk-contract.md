@@ -90,9 +90,10 @@ No SDK field named `correlationId`.
 
 | Concern | Status |
 |---------|--------|
-| Explicit skill fields on `Agent.create` / `SendOptions` / `V1CreateAgentRequest` | **Absent** → explicit invoke **unsupported** |
+| Explicit skill fields on `Agent.create` / `SendOptions` / `V1CreateAgentRequest` | **Absent** (does not by itself prove ambient discovery impossible) |
 | Skill load / invoke on `SDKMessage` | **Absent** |
 | Ambient Cloud Agent discovery from target-repo `.agents/skills` or `.cursor/skills` | **Unproven** — requires final remote canary |
+| Cursor CLI skill behavior | **unavailable_in_environment** when `cursor` binary absent; otherwise **unproven** |
 | Harness production path | `rendered_into_prompt` from `.agents/skills` only |
 
 See [native-skill-canary.md](native-skill-canary.md) and [instruction-architecture.md](../skills/instruction-architecture.md).

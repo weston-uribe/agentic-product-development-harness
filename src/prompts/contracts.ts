@@ -29,10 +29,19 @@ export type SkillEvidenceSource =
   | "local_render"
   | "none";
 
+/**
+ * Native Agent Skill capability for a Cursor execution surface.
+ *
+ * - supported — direct contract or provider evidence
+ * - unsupported — explicit provider/API evidence that the capability is unavailable
+ * - unproven — no sufficient evidence either way
+ * - unavailable_in_environment — required executable/environment absent; could not be tested
+ */
 export type NativeSkillCapabilityState =
   | "supported"
   | "unsupported"
-  | "unproven";
+  | "unproven"
+  | "unavailable_in_environment";
 
 export type CursorExecutionSurface =
   | "cursor_editor"

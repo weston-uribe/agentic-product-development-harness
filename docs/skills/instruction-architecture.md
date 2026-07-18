@@ -22,18 +22,27 @@ Canonical decisions: [ADR 0006](../decisions/0006-agent-instruction-and-prompt-a
 
 ## Cursor execution-surface capability matrix
 
-Classifications from installed `@cursor/sdk@1.0.23` types and harness usage. Values: `supported` | `unsupported` | `unproven`.
+Classifications from installed `@cursor/sdk@1.0.23` types, harness usage, and environment probes. Values:
+
+| State | Meaning |
+|-------|---------|
+| `supported` | Direct contract or provider evidence |
+| `unsupported` | Explicit provider/API evidence that the capability is unavailable |
+| `unproven` | No sufficient evidence either way |
+| `unavailable_in_environment` | Required executable/environment absent; could not be tested |
+
+Do **not** mark a surface `unsupported` merely because a binary is missing from this machine.
 
 | Surface | Native skill support | Evidence summary |
 |---------|----------------------|------------------|
-| Cursor editor | **unproven** (API) | No editor types in SDK; operator SKILL.md convention documented |
-| Cursor CLI interactive | **unsupported** | No skill fields; harness does not invoke CLI |
-| Cursor CLI non-interactive | **unsupported** | No skill fields; harness does not invoke CLI |
-| SDK local agent | **unsupported** | No skill fields; `settingSources` / `customSubagents` are not skills |
+| Cursor editor | **unproven** | No editor types in SDK for harness integration; operator SKILL.md convention is not automation proof |
+| Cursor CLI interactive | **unavailable_in_environment** (when `cursor` absent) or **unproven** (when present) | CLI binary probe; missing binary ≠ unsupported |
+| Cursor CLI non-interactive | **unavailable_in_environment** (when `cursor` absent) or **unproven** (when present) | Same as interactive |
+| SDK local agent | **unproven** | No explicit skill fields; ambient discovery via settings layers not ruled out |
 | SDK Cloud Agent | **unproven** | No skill create/send fields; ambient project settings ≠ proven skill discovery; no skill events on `SDKMessage` |
-| Background Agent | **unsupported** | No BackgroundAgent skill API; task `isBackground` is not skills |
+| Background Agent | **unproven** | No dedicated BackgroundAgent skill contract; task `isBackground` is not an explicit ruling-out |
 
-Registry code: [`src/skills/capability.ts`](../../src/skills/capability.ts).
+Registry code: [`src/skills/capability.ts`](../../src/skills/capability.ts) (`NATIVE_SKILL_CAPABILITY_REGISTRY_VERSION`).
 
 ### Proof still required (final remote canary)
 
