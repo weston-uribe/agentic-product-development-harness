@@ -31,6 +31,7 @@ import {
   runEvalSubjects,
   runEvalSubjectsList,
 } from "./commands/eval.js";
+import { runEvaluationCanaryLangfuseProjection } from "./commands/evaluation-canary-langfuse-projection.js";
 import { runEvaluationInspectLangfuse } from "./commands/evaluation-inspect-langfuse.js";
 import { runEvaluationReprojectLangfuse } from "./commands/evaluation-reproject-langfuse.js";
 
@@ -767,6 +768,39 @@ export function createProgram(): Command {
           logDirectory: opts.logDirectory,
           artifactCache: opts.artifactCache,
           dryRun: opts.apply === true ? false : opts.dryRun !== false,
+          apply: opts.apply === true,
+          out: opts.out,
+          json: opts.json === true,
+        });
+      },
+    );
+
+  evalCmd
+    .command("canary-langfuse-projection")
+    .description(
+      "Maintainer-only: emit a disposable synthetic Langfuse Complete Session projection",
+    )
+    .option("--issue <key>", "Synthetic issue key (default: auto-generated SYN-*)")
+    .option("--namespace <namespace>", "Evaluation namespace")
+    .option("--log-directory <path>", "Override harness logDirectory")
+    .option("--apply", "Write the synthetic session to Langfuse", false)
+    .option("--out <path>", "Write canary report JSON")
+    .option("--json", "Print report JSON to stdout", false)
+    .action(
+      async (opts: {
+        issue?: string;
+        namespace?: string;
+        logDirectory?: string;
+        apply?: boolean;
+        out?: string;
+        json?: boolean;
+      }) => {
+        const configPath = program.opts<{ config: string }>().config;
+        process.exitCode = await runEvaluationCanaryLangfuseProjection({
+          issueKey: opts.issue,
+          configPath,
+          namespace: opts.namespace,
+          logDirectory: opts.logDirectory,
           apply: opts.apply === true,
           out: opts.out,
           json: opts.json === true,

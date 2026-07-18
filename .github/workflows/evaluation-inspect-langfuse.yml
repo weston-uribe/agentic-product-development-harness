@@ -90,7 +90,7 @@ jobs:
             --artifact-cache runs/.fre3-artifact-cache \
             --out "runs/evaluation-reports/${{ inputs.issue_key }}-langfuse-reproject.json" \
             --json
-      - name: Run Langfuse reproject apply
+      - name: Run Langfuse reproject apply + post inspect
         if: ${{ inputs.mode == 'reproject-apply' }}
         env:
           P_DEV_EVALUATION_PROVIDER: langfuse
@@ -108,13 +108,15 @@ jobs:
             --artifact-cache runs/.fre3-artifact-cache \
             --apply \
             --out "runs/evaluation-reports/${{ inputs.issue_key }}-langfuse-reproject-apply.json" \
-            --json
+            --json || true
+          # Langfuse read API is eventually consistent after OTEL flush
+          sleep 20
           npm run evaluation:inspect-langfuse -- \
             --issue "${{ inputs.issue_key }}" \
             --namespace "${{ inputs.namespace }}" \
             --out "runs/evaluation-reports/${{ inputs.issue_key }}-langfuse-inspect-post.json" \
             --safe-content \
-            --json > "runs/evaluation-reports/${{ inputs.issue_key }}-langfuse-inspect-post.stdout.json" || true
+            --json | tee "runs/evaluation-reports/${{ inputs.issue_key }}-langfuse-inspect-post.stdout.json" || true
       - name: Upload redacted report
         if: always()
         uses: actions/upload-artifact@v4

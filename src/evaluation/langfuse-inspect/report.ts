@@ -164,6 +164,16 @@ function generationCostComplete(obs: LangfuseInspectObservation): boolean {
   return false;
 }
 
+function observationClaimsSkillUsage(obs: LangfuseInspectObservation): boolean {
+  if (obs.skillIds.length > 0) return true;
+  if (obs.skillProvenanceStatus === "present") return true;
+  const inclusion = obs.metadata.inclusionMethod;
+  if (inclusion === "rendered_into_prompt") return true;
+  const skillsUsed = obs.metadata.skillsUsed;
+  if (Array.isArray(skillsUsed) && skillsUsed.length > 0) return true;
+  return false;
+}
+
 export function buildInspectReport(params: {
   issueKey: string;
   namespace: string;
@@ -177,6 +187,8 @@ export function buildInspectReport(params: {
     phase: string | null;
     sessionId: string | null;
     traceId: string | null;
+    skillIds?: string[];
+    skillProvenanceStatus?: "present" | "none" | null;
   }>;
   includeSafeContent?: boolean;
 }): LangfuseInspectReport {
@@ -278,6 +290,39 @@ export function buildInspectReport(params: {
           traceId: id || undefined,
           observationId: obs.id,
         });
+      }
+
+      if (observationClaimsSkillUsage(obs)) {
+        const isReprojected = obs.metadata.reprojected === true;
+        const matchingArtifact = (params.artifactRuns ?? []).find(
+          (r) => r.runId && r.runId === obs.harnessRunId,
+        );
+        const artifactHasSkills =
+          Boolean(
+            matchingArtifact &&
+              ((matchingArtifact.skillIds?.length ?? 0) > 0 ||
+                matchingArtifact.skillProvenanceStatus === "present"),
+          ) ||
+          (params.artifactRuns ?? []).some(
+            (r) =>
+              (r.skillIds?.length ?? 0) > 0 ||
+              r.skillProvenanceStatus === "present",
+          );
+        // Historical reprojection must not invent skill usage. Fail when a
+        // reprojected (or artifact-correlated) observation claims skills without
+        // matching local artifact evidence.
+        if (
+          (isReprojected || matchingArtifact) &&
+          !artifactHasSkills
+        ) {
+          gaps.push({
+            code: "false_skill_provenance",
+            severity: "error",
+            message: `Observation ${obs.name ?? obs.id} claims skill usage without matching artifact evidence`,
+            traceId: id || undefined,
+            observationId: obs.id,
+          });
+        }
       }
     }
 

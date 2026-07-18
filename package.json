@@ -30,6 +30,7 @@
     "harness:eval:evaluator-summary": "tsx src/index.ts eval evaluator-summary",
     "evaluation:inspect-langfuse": "tsx src/index.ts eval inspect-langfuse",
     "evaluation:reproject-langfuse": "tsx src/index.ts eval reproject-langfuse",
+    "evaluation:canary-langfuse-projection": "tsx src/index.ts eval canary-langfuse-projection",
     "generate:evaluator-manifest": "node scripts/generate-evaluator-manifest.mjs",
     "test:webhook": "vitest run tests/webhook",
     "harness:gui": "node bin/p-dev-dev.js",

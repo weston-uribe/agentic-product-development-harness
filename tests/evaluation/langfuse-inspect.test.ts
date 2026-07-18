@@ -131,4 +131,135 @@ describe("langfuse inspect report", () => {
       true,
     );
   });
+
+  it("fails when reprojected observation claims skills without artifact evidence", () => {
+    const sessionId = deriveSessionId("weston-dogfood", "FRE-3");
+    const report = buildInspectReport({
+      issueKey: "FRE-3",
+      namespace: "weston-dogfood",
+      sessionId,
+      session: { id: sessionId, name: "FRE-3" },
+      traces: [
+        {
+          id: "plan",
+          name: "FRE-3 · planning",
+          metadata: {
+            linearIssueKey: "FRE-3",
+            phase: "planning",
+            harnessRunId: "run-plan",
+          },
+          observations: [
+            {
+              id: "planner",
+              name: "FRE-3 · planner",
+              type: "AGENT",
+              metadata: {
+                linearIssueKey: "FRE-3",
+                reprojected: true,
+                harnessRunId: "run-plan",
+                skillsUsed: [{ skillId: "planner" }],
+                skillProvenanceStatus: "present",
+                inclusionMethod: "rendered_into_prompt",
+              },
+            },
+            {
+              id: "gen",
+              name: "FRE-3 · planner · Cursor run",
+              type: "GENERATION",
+              metadata: {
+                linearIssueKey: "FRE-3",
+                reprojected: true,
+                harnessRunId: "run-plan",
+                costSource: "unavailable",
+                costUnavailableReason: "missing_pricing_entry",
+                skillsUsed: [],
+                skillProvenanceStatus: "none",
+              },
+            },
+          ],
+        },
+      ],
+      observations: [],
+      scores: [],
+      artifactRuns: [
+        {
+          runId: "run-plan",
+          phase: "planning",
+          sessionId,
+          traceId: null,
+          skillIds: [],
+          skillProvenanceStatus: "none",
+        },
+      ],
+    });
+    expect(
+      report.gaps.some((g) => g.code === "false_skill_provenance"),
+    ).toBe(true);
+    expect(report.acceptance.complete).toBe(false);
+  });
+
+  it("accepts honest historical skillProvenanceStatus=none on reprojected observations", () => {
+    const sessionId = deriveSessionId("weston-dogfood", "FRE-3");
+    const report = buildInspectReport({
+      issueKey: "FRE-3",
+      namespace: "weston-dogfood",
+      sessionId,
+      session: { id: sessionId, name: "FRE-3" },
+      traces: [
+        {
+          id: "plan",
+          name: "FRE-3 · planning",
+          metadata: {
+            linearIssueKey: "FRE-3",
+            phase: "planning",
+            harnessRunId: "run-plan",
+          },
+          observations: [
+            {
+              id: "planner",
+              name: "FRE-3 · planner",
+              type: "AGENT",
+              metadata: {
+                linearIssueKey: "FRE-3",
+                reprojected: true,
+                harnessRunId: "run-plan",
+                skillsUsed: [],
+                skillProvenanceStatus: "none",
+              },
+            },
+            {
+              id: "gen",
+              name: "FRE-3 · planner · Cursor run",
+              type: "GENERATION",
+              metadata: {
+                linearIssueKey: "FRE-3",
+                reprojected: true,
+                harnessRunId: "run-plan",
+                costSource: "unavailable",
+                costUnavailableReason: "missing_pricing_entry",
+                skillsUsed: [],
+                skillProvenanceStatus: "none",
+              },
+            },
+          ],
+        },
+      ],
+      observations: [],
+      scores: [],
+      artifactRuns: [
+        {
+          runId: "run-plan",
+          phase: "planning",
+          sessionId,
+          traceId: null,
+          skillIds: [],
+          skillProvenanceStatus: "none",
+        },
+      ],
+    });
+    expect(
+      report.gaps.some((g) => g.code === "false_skill_provenance"),
+    ).toBe(false);
+    expect(report.acceptance.complete).toBe(true);
+  });
 });

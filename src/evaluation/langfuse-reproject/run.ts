@@ -15,6 +15,14 @@ import {
 import { REPROJECTION_SCHEMA_VERSION, type ReprojectChange, type ReprojectReport } from "./types.js";
 import { resolveCostRecord } from "../telemetry/cost.js";
 
+interface HistoricalSkillEntry {
+  skillId: string;
+  sourcePath?: string;
+  role?: string;
+  contentSha256?: string;
+  inclusionMethod?: string;
+}
+
 interface ArtifactRun {
   runDirectory: string;
   runId: string;
@@ -40,6 +48,78 @@ interface ArtifactRun {
     totalTokens?: number;
   } | null;
   outcomes: Array<{ name: string; value: unknown }>;
+  /** Honest historical skill provenance from artifacts; never invents live inject. */
+  skillsUsed: HistoricalSkillEntry[];
+  skillProvenanceStatus: "present" | "none";
+}
+
+/** Exported for unit tests — reads artifact telemetry; never invents live inject. */
+export async function loadHistoricalSkills(
+  runDirectory: string,
+): Promise<{
+  skillsUsed: HistoricalSkillEntry[];
+  skillProvenanceStatus: "present" | "none";
+}> {
+  const telemetryPath = path.join(
+    runDirectory,
+    "evaluation",
+    "agent-telemetry.jsonl",
+  );
+  try {
+    const raw = await readFile(telemetryPath, "utf8");
+    const skillsUsed: HistoricalSkillEntry[] = [];
+    const seen = new Set<string>();
+    for (const line of raw.split("\n")) {
+      if (!line.trim()) continue;
+      let event: Record<string, unknown>;
+      try {
+        event = JSON.parse(line) as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+      const payload =
+        event.payload && typeof event.payload === "object"
+          ? (event.payload as Record<string, unknown>)
+          : event;
+      const list = payload.skillsUsed ?? payload.declaredSkills;
+      if (!Array.isArray(list)) continue;
+      for (const item of list) {
+        if (typeof item === "string") {
+          if (!seen.has(item)) {
+            seen.add(item);
+            skillsUsed.push({ skillId: item });
+          }
+          continue;
+        }
+        if (!item || typeof item !== "object") continue;
+        const rec = item as Record<string, unknown>;
+        const skillId =
+          typeof rec.skillId === "string" ? rec.skillId : null;
+        if (!skillId || seen.has(skillId)) continue;
+        seen.add(skillId);
+        skillsUsed.push({
+          skillId,
+          ...(typeof rec.sourcePath === "string"
+            ? { sourcePath: rec.sourcePath }
+            : {}),
+          ...(typeof rec.role === "string" ? { role: rec.role } : {}),
+          ...(typeof rec.contentSha256 === "string"
+            ? { contentSha256: rec.contentSha256 }
+            : {}),
+          ...(typeof rec.inclusionMethod === "string"
+            ? { inclusionMethod: rec.inclusionMethod }
+            : {}),
+        });
+      }
+    }
+    return {
+      skillsUsed,
+      skillProvenanceStatus: skillsUsed.length > 0 ? "present" : "none",
+    };
+  } catch {
+    // Historical FRE-3 runs predate skill inject — honest none, never invent.
+    return { skillsUsed: [], skillProvenanceStatus: "none" };
+  }
 }
 
 function sha256Text(text: string): string {
@@ -159,6 +239,8 @@ async function loadArtifactRuns(
           // optional
         }
 
+        const historicalSkills = await loadHistoricalSkills(runDirectory);
+
         runs.push({
           runDirectory,
           runId,
@@ -201,6 +283,8 @@ async function loadArtifactRuns(
                 : null,
           usage,
           outcomes,
+          skillsUsed: historicalSkills.skillsUsed,
+          skillProvenanceStatus: historicalSkills.skillProvenanceStatus,
         });
       } catch {
         // skip invalid
@@ -462,6 +546,8 @@ export async function runLangfuseReproject(options: {
               cursorRunId: run.cursorRunId,
               renderedPromptSha256: run.promptSha256,
               agentOutputSha256: run.outputSha256,
+              skillsUsed: run.skillsUsed,
+              skillProvenanceStatus: run.skillProvenanceStatus,
             },
             ...(allowContent && run.promptText
               ? { input: run.promptText.slice(0, 8000) }
@@ -477,6 +563,8 @@ export async function runLangfuseReproject(options: {
               agentRole: role,
               cursorAgentId: run.cursorAgentId,
               cursorRunId: run.cursorRunId,
+              skillsUsed: run.skillsUsed,
+              skillProvenanceStatus: run.skillProvenanceStatus,
             },
           });
         }
@@ -540,6 +628,8 @@ export async function runLangfuseReproject(options: {
         phase: r.phase,
         sessionId,
         traceId: null,
+        skillIds: r.skillsUsed.map((s) => s.skillId),
+        skillProvenanceStatus: r.skillProvenanceStatus,
       })),
     });
     acceptanceComplete = inspect.acceptance.complete;

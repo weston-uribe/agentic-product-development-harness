@@ -41,4 +41,14 @@ describe("workspace snapshot policy", () => {
       isForbiddenSnapshotPath(".harness/operations-workflow-draft.local.json"),
     ).toBe(true);
   });
+
+  it("includes Langfuse diagnostic and projection-canary workflows under .github/", () => {
+    for (const workflow of [
+      ".github/workflows/evaluation-inspect-langfuse.yml",
+      ".github/workflows/evaluation-canary-langfuse-projection.yml",
+    ]) {
+      expect(isIncludedSnapshotPath(workflow)).toBe(true);
+      expect(isForbiddenSnapshotPath(workflow)).toBe(false);
+    }
+  });
 });
