@@ -75,6 +75,20 @@ Absorbed into source workflow: non-hidden report path, reproject-apply `|| true`
 
 Also packaged: `.github/workflows/evaluation-canary-langfuse-projection.yml` + `npm run evaluation:canary-langfuse-projection`.
 
+### Sync identity (post live-proof)
+
+| Field | Value |
+|-------|-------|
+| Source commit | `e79463b9b283f4bc9d2f7ee978f911bbd7cbad18` |
+| Snapshot content ID | `38792b6d4cb7138f8582ff695d92de385bbe45d2e97521081135f7d3089ba202` |
+| Managed `main` SHA | `b08fffc5c3cbe03950463cbf79a3fb0babdf214f` |
+| Config fingerprint | `1a122832ec7ab7b4f57508f8b039c1502d699f7d5c1815aae33ee1468e61aecb` |
+| Config canary | [29661309912](https://github.com/weston-uribe/p-dev-harness/actions/runs/29661309912) |
+| Synthetic projection canary | [29661392481](https://github.com/weston-uribe/p-dev-harness/actions/runs/29661392481) (`acceptanceComplete: true`) |
+| FRE-3 inspect (post-sync) | [29660948969](https://github.com/weston-uribe/p-dev-harness/actions/runs/29660948969) (`acceptance.complete: true`, no `false_skill_provenance`) |
+
+Private cleanup: full-commit reverts of `807721f` / `ced24c9` / `7af4094` (each file list was only the diagnostic workflow); full marker-path compare clean before sync.
+
 ### Managed eval cloud config (names only)
 
 Verified present on `weston-uribe/p-dev-harness`:
