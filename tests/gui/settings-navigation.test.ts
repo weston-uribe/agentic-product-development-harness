@@ -34,7 +34,7 @@ describe("settings navigation and routing", () => {
     );
 
     expect(configurePage).toContain("migrateExistingCompletedWorkspace");
-    expect(configurePage).toContain("redirect(SETTINGS_ROUTE)");
+    expect(configurePage).toContain("redirect(WORKFLOW_ROUTE)");
   });
 
   it("moves data-sharing into the console route group", async () => {

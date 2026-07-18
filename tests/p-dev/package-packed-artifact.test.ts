@@ -169,7 +169,7 @@ describe.skipIf(!isCleanEnoughForPackagePack())("p-dev packed artifact", () => {
     const raw = execFileSync("tar", ["-xOf", tarballPath, "package/README.md"], {
       encoding: "utf8",
     });
-    expect(raw).toContain("p-dev-harness@0.3.1");
+    expect(raw).toContain("p-dev-harness@0.4.0");
     expect(raw).toContain("immutable embedded workspace snapshot");
     expect(raw).not.toMatch(/public template.*provisioning source/i);
     expect(raw).not.toMatch(/template must remain/i);

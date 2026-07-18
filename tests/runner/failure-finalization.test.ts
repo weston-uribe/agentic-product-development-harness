@@ -65,7 +65,14 @@ const baseManifest: RunManifest = {
 };
 
 vi.mock("../../src/config/load-config.js", () => ({
-  loadHarnessConfig: vi.fn(async () => ({ config })),
+  loadHarnessConfig: vi.fn(async () => ({
+    config,
+    source: {
+      kind: "cli-config" as const,
+      label: "harness.config.json",
+      raw: "",
+    },
+  })),
 }));
 
 vi.mock("../../src/linear/client.js", () => ({

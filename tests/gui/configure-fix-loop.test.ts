@@ -22,11 +22,12 @@ describe("configure GUI fix loop", () => {
     expect(source).not.toMatch(
       /RemoteActionConfirmation[\s\S]*disabled=\{!previewIsCurrent/,
     );
+    expect(source).toContain("runPreview");
     expect(source).toMatch(
-      /previewIsCurrent && preview \? preview : await runPreview\(\)/,
+      /previewIsCurrent && previewMode === "workspace" && workspacePreview/,
     );
-    expect(source).toMatch(/if \(!apply\.verified\)/);
-    expect(source).toMatch(/\{!verifiedSuccess \?/);
+    expect(source).toMatch(/if \(!response\.apply\.verified\)/);
+    expect(source).toMatch(/\{loading !== "apply" && !verifiedSuccess \?/);
     expect(source).toMatch(/\{verifiedSuccess && applyResult \?/);
     expect(source).toMatch(/invalidatePreview\(\)/);
   });
@@ -82,13 +83,13 @@ describe("configure GUI fix loop", () => {
     expect(source).toContain("Create new project");
     expect(source).toContain("deployment-required");
     expect(source).toContain("Deployment status:");
-    expect(source).toContain("Applying PDev automation bridge…");
+    expect(source).toContain('loading === "apply"');
+    expect(source).toContain("Apply PDev automation bridge");
     expect(source).not.toContain("Retry verification");
     expect(source).not.toContain("GITHUB_DISPATCH_TOKEN override");
     expect(source).toContain("VercelBridgeOrchestrationStatus");
     expect(source).toContain("resolveOrchestrationStatusMessage");
     expect(source).toContain("shouldHideApplyButton");
-    expect(source).toContain("continueGuardRef");
     expect(source).toContain("resumeOrchestrationFromSummary");
     expect(source).toContain("githubDispatchEligible");
     expect(source).toContain("buildVercelApplyResultMessage");
@@ -329,16 +330,14 @@ describe("configure GUI fix loop", () => {
       "utf8",
     );
 
-    // before: local readiness passed shows Continue
-    expect(localReadinessSource).toContain("canContinue");
+    // before: local readiness passed shows Continue via GuidedStepSuccessPanel
     expect(localReadinessSource).toContain("allPassed");
-    expect(localReadinessSource).toMatch(
-      /\{canContinue \?[\s\S]*Continue to cloud secrets/,
-    );
+    expect(localReadinessSource).toContain("GuidedStepSuccessPanel");
+    expect(localReadinessSource).toContain("Continue to cloud secrets");
     expect(localReadinessSource).toContain("!readiness.localReadinessReviewed");
 
     // action: clicking Continue calls the parent handler
-    expect(localReadinessSource).toContain("onClick={onContinue}");
+    expect(localReadinessSource).toContain("onContinue={onContinue}");
     expect(experienceSource).toContain("handleLocalReadinessReviewed");
     expect(experienceSource).toContain(
       "onContinue={handleLocalReadinessReviewed}",
@@ -390,17 +389,16 @@ describe("configure GUI fix loop", () => {
       "utf8",
     );
 
-    // before: verified success shows Continue
+    // before: verified success shows Continue via GuidedStepSuccessPanel
     expect(cloudSecretsSource).toContain("canContinue");
     expect(cloudSecretsSource).toContain("verifiedAutomaticSuccess");
     expect(cloudSecretsSource).toContain("verifiedManualSuccess");
-    expect(cloudSecretsSource).toMatch(
-      /\{canContinue \?[\s\S]*Continue to target workflow/,
-    );
+    expect(cloudSecretsSource).toContain("GuidedStepSuccessPanel");
+    expect(cloudSecretsSource).toContain("Continue to target workflow");
     expect(cloudSecretsSource).toContain("!readiness.cloudSecretsReviewed");
 
     // action: clicking Continue calls the parent handler
-    expect(cloudSecretsSource).toContain("onClick={onContinue}");
+    expect(cloudSecretsSource).toMatch(/onContinue=\{onContinue\}/);
     expect(experienceSource).toContain("handleCloudSecretsReviewed");
     expect(experienceSource).toContain(
       "onContinue={handleCloudSecretsReviewed}",
@@ -451,10 +449,16 @@ describe("configure GUI fix loop", () => {
 
     expect(experienceSource).toContain("handleGuidedWorkflowSetupComplete");
     const workflowCompleteHandler = experienceSource.match(
-      /const handleGuidedWorkflowSetupComplete = useCallback\([\s\S]*?\n  \);/,
+      /const handleGuidedWorkflowSetupComplete = useCallback\(\(\) => \{[\s\S]*?\n  \}, \[observabilityNonce, recordStepCompleted\]\);/,
     )?.[0];
     expect(workflowCompleteHandler).toBeDefined();
     expect(workflowCompleteHandler).not.toContain(
+      "setDisplayedGuidedStep(GUIDED_DISPLAY_STEP_AFTER_WORKFLOW_READY)",
+    );
+    expect(workflowCompleteHandler).toContain('window.location.assign("/workflow")');
+    // Display advance after Step 7 success is owned by Continue, not setup-complete.
+    expect(experienceSource).toContain("handleTargetWorkflowContinue");
+    expect(experienceSource).toContain(
       "setDisplayedGuidedStep(GUIDED_DISPLAY_STEP_AFTER_WORKFLOW_READY)",
     );
 

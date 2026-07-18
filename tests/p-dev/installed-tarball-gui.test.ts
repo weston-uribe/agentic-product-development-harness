@@ -405,8 +405,10 @@ describe.skipIf(!isCleanEnoughForPackagePack())(
         );
         expect(deploymentsResponse.status).toBe(200);
         const deploymentsHtml = await deploymentsResponse.text();
-        expect(deploymentsHtml).toContain("PDev runner");
-        expect(deploymentsHtml).toMatch(/Update runner|Up to date|Update available|GITHUB_TOKEN/i);
+        // Runner upgrade card is disabled by default for 0.4.
+        expect(deploymentsHtml).toContain("Deployments");
+        expect(deploymentsHtml).not.toContain("Update PDev runner");
+        expect(deploymentsHtml).toMatch(/Vercel|deployment bridge|Deployments/i);
       } finally {
         if (child) {
           await stopChild(child);

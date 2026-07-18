@@ -84,7 +84,7 @@ describe("configure navigation contracts", () => {
 
     expect(pageSource).toContain("showProductNavigation={false}");
     expect(pageSource).toContain("isInitialSetupComplete");
-    expect(pageSource).toContain("redirect(SETTINGS_ROUTE)");
+    expect(pageSource).toContain("redirect(WORKFLOW_ROUTE)");
     expect(menuSource).toContain("!showProductNavigation");
     expect(menuSource).toContain("{showProductNavigation ? (");
   });
