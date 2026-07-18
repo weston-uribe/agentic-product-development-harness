@@ -49,6 +49,11 @@ import {
 } from "../builder-thread-evidence.js";
 import type { BuilderThreadResolution } from "../builder-thread-types.js";
 import { ImplementationError } from "../errors.js";
+import {
+  classifyUnexpectedPhaseError,
+  extractErrorMessage,
+  isStaleEligibilitySkip,
+} from "../classify-phase-error.js";
 import { blocksDirectImplementationForInitialization } from "../../product/initialization-state.js";
 import { runPreflight } from "../preflight.js";
 import { rerouteUninitializedProductToPlanning } from "../uninitialized-product-routing.js";
@@ -159,7 +164,9 @@ async function writeFinalManifest(
   }
 
   const exitCode =
-    finalOutcome === "success" || finalOutcome === "duplicate"
+    finalOutcome === "success" ||
+    finalOutcome === "duplicate" ||
+    finalOutcome === "skipped"
       ? 0
       : errorClassification &&
           [
@@ -925,19 +932,28 @@ export async function executeImplementationPhase(
       await disposeAgent(agent);
     }
   } catch (error) {
+    const message = extractErrorMessage(error);
     if (error instanceof ImplementationError) {
       errorClassification = error.classification;
       cursorCleanup = error.cancelOutcome;
-    } else if (error instanceof Error) {
-      errorClassification = "linear_write_failure";
     } else {
-      errorClassification = "linear_write_failure";
+      errorClassification = classifyUnexpectedPhaseError(error);
     }
-
-    const message = error instanceof Error ? error.message : String(error);
+    validationSummary = validationSummary ?? message;
+    await events.log("phase_error", "error", {
+      message,
+      errorClassification,
+      enteredBuilding,
+    });
     await writeErrorArtifact(runDirectory, message, errorClassification);
 
-    if (enteredBuilding) {
+    if (isStaleEligibilitySkip(error, enteredBuilding)) {
+      finalOutcome = "skipped";
+      await events.log("stale_eligibility_skip", "info", {
+        reason: message,
+        status: linearStatusAfter,
+      });
+    } else if (enteredBuilding) {
       try {
         await postErrorComment(client, issue.id, message, {
           ...footerBase,

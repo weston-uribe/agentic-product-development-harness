@@ -2,6 +2,7 @@ import { loadHarnessConfig } from "../config/load-config.js";
 import { isCloudConfigStaleTemporarilyAllowed } from "../config/runner-upgrade-sync-gate.js";
 import { resolveHarnessWorkspaceRootFromConfigSource } from "../config/workspace-root.js";
 import { getTransitionalStatus } from "../config/status-names.js";
+import type { HarnessConfig } from "../config/types.js";
 import {
   buildFallbackRunManifest,
   ensureJsonOutManifest,
@@ -43,30 +44,46 @@ function normalizeStatus(value: string | null | undefined): string | null {
   return value.trim().toLowerCase();
 }
 
+/** Transitional statuses the harness claims while a phase is in progress. */
+export function resolveClaimedInProgressStatuses(config: HarnessConfig): string[] {
+  return [
+    getTransitionalStatus(config, "planningInProgress"),
+    getTransitionalStatus(config, "buildingInProgress"),
+    getTransitionalStatus(config, "revisingInProgress"),
+    getTransitionalStatus(config, "mergingInProgress"),
+  ];
+}
+
+/**
+ * Resolve statuses that justify a Blocked transition on failure.
+ * Only claimed in-progress transitional statuses count — eligible trigger
+ * statuses like "Ready for Planning" must not cause over-blocking before claim.
+ */
 export function resolveRunOwnedStatuses(
   manifest: RunManifest,
   blockedStatus: string,
-  planningInProgressStatus: string,
+  claimedInProgressStatuses: string[],
 ): string[] {
+  const claimed = new Set(
+    claimedInProgressStatuses
+      .map((status) => normalizeStatus(status))
+      .filter((status): status is string => Boolean(status)),
+  );
+
   const owned = new Set<string>();
-  for (const status of manifest.runOwnedStatuses ?? []) {
+  const consider = (status: string | null | undefined): void => {
     const normalized = normalizeStatus(status);
-    if (normalized) {
+    if (normalized && claimed.has(normalized)) {
       owned.add(normalized);
     }
-  }
+  };
 
-  const before = normalizeStatus(manifest.linearStatusBefore);
-  if (before) {
-    owned.add(before);
+  for (const status of manifest.runOwnedStatuses ?? []) {
+    consider(status);
   }
+  consider(manifest.linearStatusBefore);
+  consider(manifest.linearStatusAfter);
 
-  const after = normalizeStatus(manifest.linearStatusAfter);
-  if (after) {
-    owned.add(after);
-  }
-
-  owned.add(normalizeStatus(planningInProgressStatus) ?? planningInProgressStatus.toLowerCase());
   const blocked = normalizeStatus(blockedStatus);
   if (blocked) {
     owned.delete(blocked);
@@ -75,9 +92,20 @@ export function resolveRunOwnedStatuses(
   return [...owned];
 }
 
+function hasOwnershipEvidence(manifest: RunManifest): boolean {
+  if ((manifest.runOwnedStatuses?.length ?? 0) > 0) {
+    return true;
+  }
+  return Boolean(
+    normalizeStatus(manifest.linearStatusBefore) ||
+      normalizeStatus(manifest.linearStatusAfter),
+  );
+}
+
 export function shouldTransitionIssueToBlocked(input: {
   currentStatus: string | null | undefined;
   ownedStatuses: string[];
+  claimedInProgressStatuses: string[];
   manifest: RunManifest;
   generation: number;
 }): { shouldTransition: boolean; reason?: string } {
@@ -85,8 +113,11 @@ export function shouldTransitionIssueToBlocked(input: {
     return { shouldTransition: false, reason: "run succeeded" };
   }
 
-  if (input.manifest.finalOutcome === "duplicate") {
-    return { shouldTransition: false, reason: "duplicate run" };
+  if (
+    input.manifest.finalOutcome === "duplicate" ||
+    input.manifest.finalOutcome === "skipped"
+  ) {
+    return { shouldTransition: false, reason: "non-failure outcome" };
   }
 
   if (
@@ -102,11 +133,22 @@ export function shouldTransitionIssueToBlocked(input: {
     return { shouldTransition: false, reason: "issue status unavailable" };
   }
 
-  if (!input.ownedStatuses.some((status) => status === current)) {
-    return { shouldTransition: false, reason: "issue status changed away from run-owned set" };
+  if (input.ownedStatuses.some((status) => status === current)) {
+    return { shouldTransition: true };
   }
 
-  return { shouldTransition: true };
+  // Crash before manifest ownership was recorded: live mid-phase status is enough.
+  const claimed = input.claimedInProgressStatuses
+    .map((status) => normalizeStatus(status))
+    .filter((status): status is string => Boolean(status));
+  if (!hasOwnershipEvidence(input.manifest) && claimed.includes(current)) {
+    return { shouldTransition: true };
+  }
+
+  return {
+    shouldTransition: false,
+    reason: "issue status is not a claimed in-progress run-owned status",
+  };
 }
 
 export async function finalizeFailedHarnessRun(
@@ -171,11 +213,11 @@ export async function finalizeFailedHarnessRun(
   const issue = await fetchLinearIssue(input.issueKey, linearApiKey);
   const client = createLinearClient(linearApiKey);
   const blockedStatus = getTransitionalStatus(config, "blocked");
-  const planningInProgressStatus = getTransitionalStatus(config, "planningInProgress");
+  const claimedInProgressStatuses = resolveClaimedInProgressStatuses(config);
   const ownedStatuses = resolveRunOwnedStatuses(
     manifest,
     blockedStatus,
-    planningInProgressStatus,
+    claimedInProgressStatuses,
   );
 
   const failureMessage =
@@ -194,6 +236,7 @@ export async function finalizeFailedHarnessRun(
   const transitionDecision = shouldTransitionIssueToBlocked({
     currentStatus: issue.status,
     ownedStatuses,
+    claimedInProgressStatuses,
     manifest,
     generation,
   });

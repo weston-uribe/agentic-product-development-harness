@@ -48,9 +48,21 @@ import type { HarnessConfig } from "../../src/config/types.js";
 describe("executePlanningPhase", () => {
   let tempRoot = "";
   let configPath = "";
+  const envKeys = [
+    "HARNESS_CONFIG_JSON_B64",
+    "HARNESS_CONFIG_JSON",
+    "HARNESS_CONFIG_PATH",
+    "GITHUB_TOKEN",
+  ] as const;
+  const savedEnv: Partial<Record<(typeof envKeys)[number], string | undefined>> =
+    {};
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    for (const key of envKeys) {
+      savedEnv[key] = process.env[key];
+      delete process.env[key];
+    }
     tempRoot = await mkdtemp(path.join(tmpdir(), "harness-planning-"));
     const config: HarnessConfig = {
       version: 1,
@@ -144,6 +156,14 @@ describe("executePlanningPhase", () => {
   afterEach(async () => {
     delete process.env.LINEAR_API_KEY;
     delete process.env.CURSOR_API_KEY;
+    for (const key of envKeys) {
+      const value = savedEnv[key];
+      if (value === undefined) {
+        delete process.env[key];
+      } else {
+        process.env[key] = value;
+      }
+    }
     await rm(tempRoot, { recursive: true, force: true });
   });
 
@@ -153,6 +173,8 @@ describe("executePlanningPhase", () => {
       configPath,
     });
 
+    expect(result.manifest.errorClassification).toBeNull();
+    expect(result.manifest.validationSummary).toBeNull();
     expect(result.exitCode).toBe(0);
     expect(result.manifest.finalOutcome).toBe("success");
     expect(result.manifest.cursorAgentId).toBe("agent-abc");
@@ -165,5 +187,32 @@ describe("executePlanningPhase", () => {
     expect(mocks.transitionIssueStatus).toHaveBeenCalledTimes(2);
     expect(mocks.postPlanningComment).toHaveBeenCalledTimes(1);
     expect(mocks.sendAndObserve).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips stale wrong_status when issue left Ready for Planning before claim", async () => {
+    mocks.fetchLinearIssue.mockResolvedValue({
+      id: "issue-plan",
+      identifier: "WES-PLAN",
+      title: "Plan hello world",
+      description: `## Target repo\n\nowner/example-target-app\n\n## Task\n\nAdd hello page\n\n## Acceptance criteria\n\n- [ ] Route works\n\n## Out of scope\n\n- Harness`,
+      status: "Blocked",
+      projectName: "Example Target App",
+      teamName: "WES",
+      teamKey: null,
+      teamId: "team-1",
+      url: null,
+    });
+
+    const result = await executePlanningPhase({
+      issueKey: "WES-PLAN",
+      configPath,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.manifest.finalOutcome).toBe("skipped");
+    expect(result.manifest.errorClassification).toBe("wrong_status");
+    expect(result.manifest.validationSummary).toMatch(/wrong_status/);
+    expect(mocks.transitionIssueStatus).not.toHaveBeenCalled();
+    expect(mocks.createPlanningAgent).not.toHaveBeenCalled();
   });
 });

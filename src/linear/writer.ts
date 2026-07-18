@@ -60,9 +60,22 @@ export async function transitionIssueStatus(
   if (!linearIssue) {
     throw new Error(`Linear issue not found: ${issue.id}`);
   }
-  const payload = await linearIssue.update({ stateId });
-  if (!payload.success) {
-    throw new Error(`Failed to transition issue to ${statusName}`);
+  try {
+    const payload = await linearIssue.update({ stateId });
+    if (!payload.success) {
+      throw new Error(`Failed to transition issue to ${statusName}`);
+    }
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.startsWith("Failed to transition issue")
+    ) {
+      throw error;
+    }
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Failed to transition issue to ${statusName}: ${detail}`,
+    );
   }
 }
 

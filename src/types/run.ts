@@ -142,6 +142,8 @@ export type RunEventName =
   | "phase_inferred"
   | "canonical_workflow_preflight"
   | "idempotency_skip"
+  | "phase_error"
+  | "stale_eligibility_skip"
   | "planning_comment_loaded"
   | "implementation_comment_loaded"
   | "linear_status_changed"

@@ -226,12 +226,34 @@ jobs:
           export RECEIVED_AT
           npx tsx src/workflow/write-dispatch-metadata.ts
 
-      - name: Run harness
-        id: harness
+      # Re-check after concurrency queue: status may have left the eligible window.
+      - name: Re-check route after queue
+        id: reresolve
         env:
           ISSUE_KEY: ${{ needs.gate.outputs.issue_key }}
           INPUT_PHASE: ${{ needs.gate.outputs.input_phase }}
-          RESOLVED_PHASE: ${{ needs.gate.outputs.phase }}
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.HARNESS_GITHUB_TOKEN }}
+          HARNESS_CONFIG_JSON_B64: ${{ secrets.HARNESS_CONFIG_JSON_B64 }}
+          HARNESS_CONFIG_FINGERPRINT: ${{ vars.HARNESS_CONFIG_FINGERPRINT }}
+        run: |
+          PHASE_ARG="$INPUT_PHASE"
+          if [ -z "$PHASE_ARG" ] || [ "$PHASE_ARG" = "auto" ]; then
+            PHASE_ARG="auto"
+          fi
+          npx tsx src/index.ts resolve-route \
+            --issue "$ISSUE_KEY" \
+            --phase "$PHASE_ARG" \
+            --json \
+            --github-output
+
+      - name: Run harness
+        id: harness
+        if: steps.reresolve.outputs.should_run == 'true'
+        env:
+          ISSUE_KEY: ${{ needs.gate.outputs.issue_key }}
+          INPUT_PHASE: ${{ needs.gate.outputs.input_phase }}
+          RESOLVED_PHASE: ${{ steps.reresolve.outputs.phase || needs.gate.outputs.phase }}
           FORCE_FLAG_INPUT: ${{ needs.gate.outputs.force }}
         run: |
           set +e
@@ -248,8 +270,18 @@ jobs:
           echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
           exit $EXIT_CODE
 
+      - name: Skip stale queued run
+        id: harness_skip
+        if: steps.reresolve.outputs.should_run != 'true'
+        env:
+          LIVE_STATUS: ${{ steps.reresolve.outputs.linear_status }}
+        run: |
+          echo "Live status is no longer eligible after queue wait; skipping harness run."
+          echo "exit_code=0" >> "$GITHUB_OUTPUT"
+          echo "linear_status=$LIVE_STATUS" >> "$GITHUB_OUTPUT"
+
       - name: Finalize harness run
-        if: always()
+        if: always() && steps.reresolve.outputs.should_run == 'true'
         env:
           ISSUE_KEY: ${{ needs.gate.outputs.issue_key }}
           EXIT_CODE: ${{ steps.harness.outputs.exit_code }}
@@ -267,10 +299,12 @@ jobs:
         if: always()
         env:
           ISSUE_KEY: ${{ needs.gate.outputs.issue_key }}
-          PHASE: ${{ needs.gate.outputs.phase }}
+          PHASE: ${{ steps.reresolve.outputs.phase || needs.gate.outputs.phase }}
           TRIGGER: ${{ needs.gate.outputs.trigger }}
           LINEAR_DELIVERY_ID: ${{ needs.gate.outputs.linear_delivery_id }}
-          EXIT_CODE: ${{ steps.harness.outputs.exit_code }}
+          EXIT_CODE: ${{ steps.harness.outputs.exit_code || steps.harness_skip.outputs.exit_code }}
+          LIVE_STATUS: ${{ steps.reresolve.outputs.linear_status }}
+          SHOULD_RUN: ${{ steps.reresolve.outputs.should_run }}
         run: |
           {
             echo "## Harness Auto Runner"
@@ -279,6 +313,8 @@ jobs:
             echo "- Phase: \`$PHASE\`"
             echo "- Trigger: \`$TRIGGER\`"
             echo "- Linear delivery ID: \`$LINEAR_DELIVERY_ID\`"
+            echo "- Live status after queue: \`$LIVE_STATUS\`"
+            echo "- Should run after re-check: \`$SHOULD_RUN\`"
             echo "- Harness exit code: \`$EXIT_CODE\`"
             echo ""
             if [ -f harness-run-output.json ]; then

@@ -30,6 +30,11 @@ import {
 import { manifestModelEvidence } from "../../cursor/model.js";
 import { buildPlanningPrompt } from "../../prompts/builder.js";
 import { PlanningError } from "../errors.js";
+import {
+  classifyUnexpectedPhaseError,
+  extractErrorMessage,
+  isStaleEligibilitySkip,
+} from "../classify-phase-error.js";
 import { runPreflight } from "../preflight.js";
 import { resolveRunGeneration } from "../run-generation.js";
 import { updateRunStatusPhase } from "../../linear/run-status-comment.js";
@@ -55,6 +60,19 @@ import {
   emitPromptProvenanceEvent,
   emitSkillProvenanceEvent,
 } from "../../evaluation/telemetry/phase-emit.js";
+
+async function writeErrorArtifact(
+  runDirectory: string,
+  message: string,
+  errorClassification: ErrorClassification,
+): Promise<void> {
+  await mkdir(`${runDirectory}/errors`, { recursive: true });
+  await writeFile(
+    `${runDirectory}/errors/error.json`,
+    `${JSON.stringify({ message, errorClassification }, null, 2)}\n`,
+    "utf8",
+  );
+}
 
 export interface PlanningPhaseOptions {
   issueKey: string;
@@ -98,7 +116,9 @@ async function writeFinalManifest(
   }
 
   const exitCode =
-    finalOutcome === "success" || finalOutcome === "duplicate"
+    finalOutcome === "success" ||
+    finalOutcome === "duplicate" ||
+    finalOutcome === "skipped"
       ? 0
       : finalOutcome === "failed" && !errorClassification
         ? 2
@@ -198,6 +218,7 @@ export async function executePlanningPhase(
   let linearStatusAfter = issue.status;
   let finalOutcome: FinalOutcome = "failed";
   let errorClassification: ErrorClassification = null;
+  let validationSummary: string | null = null;
   let cursorAgentId: string | null = null;
   let cursorRunId: string | null = null;
   let promptVersion: string | null = null;
@@ -455,27 +476,34 @@ export async function executePlanningPhase(
       await disposeAgent(agent);
     }
   } catch (error) {
+    const message = extractErrorMessage(error);
     if (error instanceof PlanningError) {
       errorClassification = error.classification;
-    } else if (error instanceof Error) {
-      errorClassification = "linear_write_failure";
     } else {
-      errorClassification = "linear_write_failure";
+      errorClassification = classifyUnexpectedPhaseError(error);
     }
+    validationSummary = message;
+    await events.log("phase_error", "error", {
+      message,
+      errorClassification,
+      enteredPlanning,
+    });
+    await writeErrorArtifact(runDirectory, message, errorClassification);
 
-    if (enteredPlanning) {
+    if (isStaleEligibilitySkip(error, enteredPlanning)) {
+      finalOutcome = "skipped";
+      await events.log("stale_eligibility_skip", "info", {
+        reason: message,
+        status: linearStatusAfter,
+      });
+    } else if (enteredPlanning) {
       try {
-        await postErrorComment(
-          client,
-          issue.id,
-          error instanceof Error ? error.message : String(error),
-          {
-            ...footerBase,
-            promptVersion: promptVersion ?? "planning@1",
-            cursorAgentId: cursorAgentId ?? undefined,
-            cursorRunId: cursorRunId ?? undefined,
-          },
-        );
+        await postErrorComment(client, issue.id, message, {
+          ...footerBase,
+          promptVersion: promptVersion ?? "planning@1",
+          cursorAgentId: cursorAgentId ?? undefined,
+          cursorRunId: cursorRunId ?? undefined,
+        });
         const blocked = getTransitionalStatus(config, "blocked");
         await transitionIssueStatus(client, issue, blocked);
         linearStatusAfter = blocked;
@@ -511,7 +539,7 @@ export async function executePlanningPhase(
     branch: null,
     prUrl: null,
     previewUrl: null,
-    validationSummary: null,
+    validationSummary,
     changedFiles: null,
     checkSummary: null,
     previousImplementationRunId: null,

@@ -43,6 +43,11 @@ import { shouldCaptureApplicationPreview } from "../../preview/preview-capabilit
 import { normalizeRepoUrl } from "../../resolver/normalize-repo.js";
 import { resolveBuilderThreadMarkerEvidence } from "../builder-thread-lineage.js";
 import { HandoffError } from "../errors.js";
+import {
+  classifyUnexpectedPhaseError,
+  extractErrorMessage,
+  isStaleEligibilitySkip,
+} from "../classify-phase-error.js";
 import { runPreflight } from "../preflight.js";
 import {
   assertHandoffEligibleStatus,
@@ -128,7 +133,9 @@ async function writeFinalManifest(
   }
 
   const exitCode =
-    finalOutcome === "success" || finalOutcome === "duplicate"
+    finalOutcome === "success" ||
+    finalOutcome === "duplicate" ||
+    finalOutcome === "skipped"
       ? 0
       : errorClassification &&
           [
@@ -664,18 +671,26 @@ export async function executeHandoffPhase(
     finalOutcome = "success";
     errorClassification = null;
   } catch (error) {
+    const message = extractErrorMessage(error);
     if (error instanceof HandoffError) {
       errorClassification = error.classification;
-    } else if (error instanceof Error) {
-      errorClassification = "linear_write_failure";
     } else {
-      errorClassification = "linear_write_failure";
+      errorClassification = classifyUnexpectedPhaseError(error);
     }
-
-    const message = error instanceof Error ? error.message : String(error);
+    await events.log("phase_error", "error", {
+      message,
+      errorClassification,
+      enteredHandoff,
+    });
     await writeErrorArtifact(runDirectory, message, errorClassification);
 
-    if (enteredHandoff) {
+    if (isStaleEligibilitySkip(error, enteredHandoff)) {
+      finalOutcome = "skipped";
+      await events.log("stale_eligibility_skip", "info", {
+        reason: message,
+        status: linearStatusAfter,
+      });
+    } else if (enteredHandoff) {
       try {
         await postErrorComment(
           client,
