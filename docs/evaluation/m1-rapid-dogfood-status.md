@@ -1,48 +1,92 @@
 # Milestone 1 Rapid dogfood status
 
-Date: 2026-07-17
+Date: 2026-07-17 (updated 2026-07-18)
 
-## Automated Rapid gate (completed)
+## Automated Rapid gate
 
 | Check | Result |
 |---|---|
 | `npm run build` | Pass |
-| `npx vitest run tests/evaluation` (27 tests) | Pass |
-| `tests/runner/implementation.test.ts` | Pass |
-| `tests/runner/handoff.test.ts` | Pass |
-| `tests/runner/orchestrator.test.ts` | Pass |
+| Focused evaluation tests | Pass |
+| Focused `.npmrc` snapshot-policy tests | Pass |
+| Session-attribute unit tests | Pass |
 
-## Prepared Linear issue
+## Snapshot-contract fix
 
-- [FRE-2](https://linear.app/weston-product-lab/issue/FRE-2/langfuse-m1-dogfood-add-readme-note-line-for-target-app) — Backlog, narrow README-only dogfood task
+| Item | Evidence |
+|---|---|
+| Policy | `.npmrc` added to `REQUIRED_PATHS` + `INCLUDE_FILES` |
+| Commit | `42c1fcb2b9b843ba6bcf90b7410f0ad4bf72aa13` |
+| Private upgrade | [p-dev-harness#12](https://github.com/weston-uribe/p-dev-harness/pull/12) → `b39dd67242a3f90e7264ab064b6b933fc6b71938` |
+| Private `.npmrc` | Present with `legacy-peer-deps=true` only (no auth/token lines) |
 
-## Live dogfood (blocked — requires human)
+## Managed-runner configuration canary
 
-Blocked at Langfuse Cloud sign-in. Browser reached GitHub OAuth for Langfuse US (`https://us.cloud.langfuse.com`) and requires interactive login.
+| Field | Value |
+|---|---|
+| Operation id | `47e71fcc-c508-43ef-b367-e43ad93d5b59` |
+| Run | https://github.com/weston-uribe/p-dev-harness/actions/runs/29628008281 |
+| Conclusion | **success** (`npm ci` + config canary) |
 
-### Remaining human steps
+Prior red canary (`29627551133`) failed at `npm ci` with `@langfuse/otel` / Sentry OTEL peer conflict before `.npmrc` was packaged.
 
-1. Sign in / create Langfuse US account (browser tab may already be on GitHub OAuth).
-2. Create project `p-dev-maintainer-evals` and API keys.
-3. Set GitHub Actions secrets on this harness repo:
-   - `LANGFUSE_PUBLIC_KEY`
-   - `LANGFUSE_SECRET_KEY`
-4. Set GitHub Actions variables:
-   - `P_DEV_EVALUATION_PROVIDER=langfuse`
-   - `P_DEV_EVALUATION_CAPTURE_PROFILE=metadata-v1`
-   - `P_DEV_EVALUATION_NAMESPACE=weston-dogfood`
-   - `LANGFUSE_BASE_URL=https://us.cloud.langfuse.com`
-   - `LANGFUSE_TRACING_ENVIRONMENT=dogfood`
-5. Merge/push the Milestone 1 implementation to the branch GHA checks out (default `main`).
-6. Move **FRE-2** to **Ready for Build**, wait for implementation → handoff → **PM Review**.
-7. In Langfuse, confirm one session with implementation + handoff traces, expected children, correlation IDs matching `runs/<issue>/**/manifest.json` / `harness-run-output.json`, and no forbidden content.
+## GitHub Actions configuration on `weston-uribe/p-dev-harness` (names only)
 
-### Suggested commands after keys exist
+Secrets present: `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` (plus pre-existing harness secrets).
 
-```bash
-gh secret set LANGFUSE_PUBLIC_KEY
-gh secret set LANGFUSE_SECRET_KEY
-gh api --method POST repos/weston-uribe/agentic-product-development-harness/actions/variables \
-  -f name=P_DEV_EVALUATION_PROVIDER -f value=langfuse
-# …repeat for other variables
-```
+Variables present: `P_DEV_EVALUATION_PROVIDER`, `P_DEV_EVALUATION_CAPTURE_PROFILE`, `P_DEV_EVALUATION_NAMESPACE`, `LANGFUSE_BASE_URL`, `LANGFUSE_TRACING_ENVIRONMENT`.
+
+Secret values are not recorded here.
+
+## FRE-2 live harness path
+
+Issue: [FRE-2](https://linear.app/weston-product-lab/issue/FRE-2/langfuse-m1-dogfood-add-readme-note-line-for-target-app)
+
+| Step | Result |
+|---|---|
+| First Ready for Build (target `example-target-app`) | Failed at gate: target not in `allowedTargetRepos` — https://github.com/weston-uribe/p-dev-harness/actions/runs/29628046355 |
+| Retarget to allowlisted `weston-uribe/weston-uribe-portfolio` | Done (no cloud-config change) |
+| Implementation → handoff → PM Review | Pass — GHA run `29628139252`; PR https://github.com/weston-uribe/weston-uribe-portfolio/pull/37 |
+| Artifact | `harness-run-FRE-2-29628139252` |
+
+### Artifact ↔ evaluation correlation (first successful path)
+
+| Phase | Run id | Trace id (manifest) | Session id |
+|---|---|---|---|
+| implementation | `2026-07-18T03-07-17-495Z-FRE-2` | `5daabe596750b606a8e91e7f345299bb` | `42737f89…5803f1` |
+| handoff | `2026-07-18T03-08-26-727Z-FRE-2` | `2b240dabcbfa90480f5b57588dc6a913` | same |
+
+First-export Langfuse traces had **empty `sessionId`** (concrete defect). Observation trees were otherwise present (`p-dev.implementation` / `p-dev.handoff` + expected children). Inputs null; outputs limited to allowlisted finish summary fields. No issue title/description, prompts, diffs, PR/preview URLs, or credentials in payloads. `repositoryConfigurationId` carried the allowlisted config id `weston-uribe-portfolio`.
+
+## Session-linking fix
+
+| Item | Evidence |
+|---|---|
+| Cause | Isolated `NodeTracerProvider` without a registered OTEL context manager → `propagateAttributes` no-op |
+| Fix | Set `session.id` + `langfuse.trace.name` directly on root/child spans |
+| Commit | `22e3b49f34631b48863470b86258887744111c57` |
+| Private upgrade | `063251e6726eea9f68c1bf0ea973e093b00b54aa` (sourceCommit `22e3b49…`) |
+| Local Langfuse repro | Session GET returned the trace after fix |
+
+### Post-fix live session validation
+
+GHA run https://github.com/weston-uribe/p-dev-harness/actions/runs/29628701518 (duplicate short-circuit outcomes; still emitted evaluation traces).
+
+| Phase | Trace id | Session id on Langfuse |
+|---|---|---|
+| implementation | `990be6933ad4cb926a2ab3932fa12145` | `42737f89…5803f1` |
+| handoff | `072fa6c998594dc47180dcd6a8d8ce6b` | same |
+
+Langfuse `sessions.get(42737f89…)` returns **both** traces. Privacy rescan: no forbidden value hits. Issue restored to **PM Review**.
+
+## Deferred Checkpoint items
+
+1. Investigate and remove `legacy-peer-deps` by resolving Langfuse / OpenTelemetry / Sentry peer compatibility.
+2. Invalid key/endpoint live runs; provider-disabled confirmation.
+3. Optional: reduce OTEL `resourceAttributes.service.name` path noise on observations.
+
+## PR status
+
+Public draft PR https://github.com/weston-uribe/agentic-product-development-harness/pull/84 — **not merged** (awaiting operator review of this live evidence).
+
+Langfuse Agent Skill remains untracked / not vendored.
