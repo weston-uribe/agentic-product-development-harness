@@ -2,7 +2,7 @@
 
 Operator guide for harness releases: GitHub source release plus public npm package `p-dev-harness`.
 
-**Related:** [`v0.3.1.md`](v0.3.1.md) (current release contract), [`v0.3.0.md`](v0.3.0.md) (historical), [`CHANGELOG.md`](../../CHANGELOG.md), [`docs/p-dev.md`](../p-dev.md)
+**Related:** [`v0.4.0.md`](v0.4.0.md) (current release contract), [`v0.3.1.md`](v0.3.1.md) / [`v0.3.0.md`](v0.3.0.md) (historical), [`CHANGELOG.md`](../../CHANGELOG.md), [`docs/p-dev.md`](../p-dev.md)
 
 ## Variables
 
@@ -10,10 +10,10 @@ Use these placeholders throughout:
 
 | Variable | Example | Meaning |
 |----------|---------|---------|
-| `VERSION` | `0.3.1` | SemVer package/root version |
-| `TAG` | `v0.3.1` | Annotated git tag |
+| `VERSION` | `0.4.0` | SemVer package/root version |
+| `TAG` | `v0.4.0` | Annotated git tag |
 | `RELEASE_SHA` | merge commit on `main` | Exact post-merge release commit |
-| `TARBALL` | `packages/p-dev/p-dev-harness-0.3.1.tgz` | Exact npm publish artifact |
+| `TARBALL` | `packages/p-dev/p-dev-harness-0.4.0.tgz` | Exact npm publish artifact |
 
 ## Summary
 
@@ -215,11 +215,11 @@ Merge after checks pass.
 
 ---
 
-## V0.3.1 — exact commands (current example)
+## V0.4.0 — exact commands (current example)
 
 ```bash
-VERSION=0.3.1
-TAG=v0.3.1
+VERSION=0.4.0
+TAG=v0.4.0
 
 # After release-prep PR merge
 RELEASE_SHA=$(git rev-parse origin/main)
@@ -373,7 +373,18 @@ Use the exact-head packaged tarball with the committed public PostHog project to
 8. Run every dashboard insight query and verify session, Configure, release-filter, and OS cards show validation data.
 9. Teardown: stop launcher, delete temp `P_DEV_HOME`, unset PostHog environment variables.
 
-## Current example — v0.3.1 (published 2026-07-14)
+## Current example — v0.4.0 (release-prep; not published until approved)
+
+| Variable | Value |
+|----------|-------|
+| `VERSION` | `0.4.0` |
+| `TAG` | `v0.4.0` (not created until post-merge approval) |
+| `RELEASE_SHA` | merge commit on `main` after this release-prep PR |
+| `TARBALL` | `packages/p-dev/p-dev-harness-0.4.0.tgz` |
+| Merge PR | (this release-prep PR) |
+| npm / GitHub release | **Not created** until operator approves PR + artifact checksum |
+
+## Previous example — v0.3.1 (published 2026-07-14)
 
 | Variable | Value |
 |----------|-------|
