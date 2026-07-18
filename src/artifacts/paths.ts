@@ -155,3 +155,49 @@ export function getTelemetryCompletenessPath(runDirectory: string): string {
 export function getErrorPath(runDirectory: string): string {
   return path.join(runDirectory, "errors", "error.json");
 }
+
+/** Session-scoped evaluation store under runs/<issueKey>/evaluation/. */
+export function getIssueEvaluationDirectory(
+  logDirectory: string,
+  issueKey: string,
+): string {
+  return path.join(logDirectory, issueKey, "evaluation");
+}
+
+export function getEvaluationSubjectsPath(evaluationDirectory: string): string {
+  return path.join(evaluationDirectory, "subjects.jsonl");
+}
+
+export function getSubjectExtractionReportPath(
+  evaluationDirectory: string,
+): string {
+  return path.join(evaluationDirectory, "subject-extraction-report.json");
+}
+
+export function getEvaluationAnnotationsPath(
+  evaluationDirectory: string,
+): string {
+  return path.join(evaluationDirectory, "annotations.jsonl");
+}
+
+export function getAnnotationCoveragePath(
+  evaluationDirectory: string,
+): string {
+  return path.join(evaluationDirectory, "annotation-coverage.json");
+}
+
+export function getDatasetReadinessPath(evaluationDirectory: string): string {
+  return path.join(evaluationDirectory, "dataset-readiness.json");
+}
+
+export function getAnnotationBundlesDirectory(
+  evaluationDirectory: string,
+): string {
+  return path.join(evaluationDirectory, "annotation-bundles");
+}
+
+export function getCorrectedOutputsDirectory(
+  evaluationDirectory: string,
+): string {
+  return path.join(evaluationDirectory, "corrected-outputs");
+}
