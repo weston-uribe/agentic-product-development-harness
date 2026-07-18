@@ -56,11 +56,22 @@ import type {
 } from "../../types/run.js";
 import type { ParsedIssue } from "../../types/parsed-issue.js";
 import type { ResolvedTarget } from "../../resolver/target-repo.js";
+import type {
+  EvaluationRuntime,
+  PhaseTraceHandle,
+} from "../../evaluation/types.js";
+import { categorizeCheckResult } from "../../evaluation/capture-policy.js";
+import {
+  finishPhaseTrace,
+  safeStartPhaseTrace,
+  withEvaluationCorrelation,
+} from "../../evaluation/phase-helpers.js";
 
 export interface HandoffPhaseOptions {
   issueKey: string;
   configPath: string;
   force?: boolean;
+  evaluationRuntime?: EvaluationRuntime;
 }
 
 export interface HandoffPhaseResult {
@@ -101,10 +112,15 @@ async function writeFinalManifest(
   events: EventLogger | null,
   finalOutcome: FinalOutcome,
   errorClassification: ErrorClassification,
+  phaseTrace: PhaseTraceHandle | null = null,
+  extraEvalMetadata?: Record<string, unknown>,
 ): Promise<HandoffPhaseResult> {
+  const correlation = finishPhaseTrace(phaseTrace, manifest, extraEvalMetadata);
+  const finalManifest = withEvaluationCorrelation(manifest, correlation);
+
   if (runDirectory) {
-    await writeManifest(runDirectory, manifest);
-    await writeRunSummary(runDirectory, manifest, parsed, resolved);
+    await writeManifest(runDirectory, finalManifest);
+    await writeRunSummary(runDirectory, finalManifest, parsed, resolved);
     await events?.log("run_finished", finalOutcome === "success" ? "info" : "error", {
       finalOutcome,
       errorClassification,
@@ -130,7 +146,7 @@ async function writeFinalManifest(
         ? 2
         : 3;
 
-  return { manifest, runDirectory, exitCode };
+  return { manifest: finalManifest, runDirectory, exitCode };
 }
 
 export async function executeHandoffPhase(
@@ -145,8 +161,14 @@ export async function executeHandoffPhase(
   } catch (error) {
     if (error instanceof HandoffError) {
       const startedAt = new Date().toISOString();
+      const runId = `auth-failure-${options.issueKey}`;
+      const phaseTrace = await safeStartPhaseTrace(options.evaluationRuntime, {
+        phase: "handoff",
+        issueKey: options.issueKey,
+        runId,
+      });
       const manifest: RunManifest = {
-        runId: `auth-failure-${options.issueKey}`,
+        runId,
         issueKey: options.issueKey,
         phase: "handoff",
         phaseInferredFromStatus: null,
@@ -176,7 +198,21 @@ export async function executeHandoffPhase(
       ...emptyMergeManifestFields(),
       model: null,
       };
-      return { manifest, runDirectory: "", exitCode: 2 };
+      return writeFinalManifest(
+        manifest,
+        "",
+        {
+          task: "",
+          acceptanceCriteria: [],
+          outOfScope: [],
+          parseErrors: [],
+        },
+        null,
+        null,
+        "failed",
+        error.classification,
+        phaseTrace,
+      );
     }
     throw error;
   }
@@ -187,7 +223,24 @@ export async function executeHandoffPhase(
     linearApiKey,
   });
 
+  let phaseTrace: PhaseTraceHandle | null = null;
+
   if (!preflight.success) {
+    phaseTrace = await safeStartPhaseTrace(options.evaluationRuntime, {
+      phase: "handoff",
+      issueKey: options.issueKey,
+      runId: preflight.runId,
+      metadata: {
+        resolutionSource: preflight.resolved?.resolutionSource ?? null,
+        baseBranch: preflight.resolved?.baseBranch ?? null,
+        repositoryConfigurationId: preflight.resolved?.repoConfigId ?? null,
+        linearStatusBefore: preflight.issue?.status ?? null,
+      },
+    });
+    phaseTrace?.startChild("p-dev.preflight", "span")?.end({
+      finalOutcome: "failed",
+      errorClassification: preflight.errorClassification,
+    });
     const manifest: RunManifest = {
       runId: preflight.runId,
       issueKey: options.issueKey,
@@ -227,6 +280,7 @@ export async function executeHandoffPhase(
       preflight.events,
       "failed",
       preflight.errorClassification,
+      phaseTrace,
     );
   }
 
@@ -242,6 +296,23 @@ export async function executeHandoffPhase(
     phaseInferredFromStatus,
     startedAt,
   } = preflight.context;
+
+  phaseTrace = await safeStartPhaseTrace(options.evaluationRuntime, {
+    phase: "handoff",
+    issueKey: options.issueKey,
+    runId,
+    metadata: {
+      resolutionSource: resolved.resolutionSource,
+      baseBranch: resolved.baseBranch,
+      repositoryConfigurationId: resolved.repoConfigId,
+      linearStatusBefore: issue.status,
+      promptContractVersion: HANDOFF_PROMPT_VERSION,
+    },
+  });
+  phaseTrace?.startChild("p-dev.preflight", "span")?.end({
+    finalOutcome: "success",
+    resolutionSource: resolved.resolutionSource,
+  });
 
   const linearStatusBefore = issue.status;
   let linearStatusAfter = issue.status;
@@ -321,6 +392,7 @@ export async function executeHandoffPhase(
         events,
         finalOutcome,
         errorClassification,
+        phaseTrace,
       );
     }
 
@@ -371,10 +443,15 @@ export async function executeHandoffPhase(
 
     const markerTargetRepo = normalizeRepoUrl(resolved.targetRepo);
 
+    const prInspectionObs = phaseTrace?.startChild(
+      "p-dev.github.pr-inspection",
+      "span",
+    );
     let inspection;
     try {
       inspection = await inspectPullRequest(github, parsedPr, markerTargetRepo);
     } catch (error) {
+      prInspectionObs?.end({ finalOutcome: "failed" });
       const classification = classifyGitHubError(error);
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes("wrong_target_repo")) {
@@ -395,6 +472,7 @@ export async function executeHandoffPhase(
         expectedBaseBranch: resolved.baseBranch,
       });
     } catch (error) {
+      prInspectionObs?.end({ finalOutcome: "failed" });
       throw new HandoffError(
         "wrong_pr_base_branch",
         error instanceof Error ? error.message : String(error),
@@ -402,6 +480,11 @@ export async function executeHandoffPhase(
     }
     changedFiles = inspection.changedFiles.map((f) => f.path);
     checkSummary = inspection.checkSummary;
+    prInspectionObs?.end({
+      changedFileCount: changedFiles.length,
+      checkResultCategory: categorizeCheckResult(checkSummary),
+      prCreated: true,
+    });
 
     await mkdir(`${runDirectory}/github`, { recursive: true });
     await writeFile(
@@ -429,6 +512,7 @@ export async function executeHandoffPhase(
     let previewWarning: string | null = null;
 
     if (shouldCaptureApplicationPreview(resolved.previewProvider)) {
+      const previewObs = phaseTrace?.startChild("p-dev.preview", "span");
       await events.log("preview_poll_started", "info", {
         pollTimeoutSeconds: pollTimeout,
         pollIntervalSeconds: pollInterval,
@@ -459,9 +543,17 @@ export async function executeHandoffPhase(
           previewUrl,
           source: previewResult.source,
         });
+        previewObs?.end({
+          previewConfigured: true,
+          previewAvailable: true,
+        });
       } else {
         await events.log("preview_not_found", "warn", {
           warnings: previewResult.warnings,
+        });
+        previewObs?.end({
+          previewConfigured: true,
+          previewAvailable: false,
         });
       }
 
@@ -488,6 +580,7 @@ export async function executeHandoffPhase(
       });
     }
 
+    const publishObs = phaseTrace?.startChild("p-dev.handoff.publish", "span");
     const handoffBody = buildHandoffCommentBody({
       prTitle: inspection.title,
       prUrl: inspection.url,
@@ -537,6 +630,11 @@ export async function executeHandoffPhase(
       phase: "handoff",
       commentId: handoffCommentId,
     });
+    publishObs?.end({
+      changedFileCount: changedFiles?.length ?? null,
+      previewAvailable: Boolean(previewUrl),
+      checkResultCategory: categorizeCheckResult(checkSummary),
+    });
 
     const pmReviewStatus = getTransitionalStatus(config, "pmReview");
     await transitionIssueStatus(client, issue, pmReviewStatus);
@@ -545,6 +643,12 @@ export async function executeHandoffPhase(
       from: linearStatusBefore,
       to: pmReviewStatus,
     });
+    phaseTrace
+      ?.startChild("p-dev.linear.status-transition", "event")
+      ?.end({
+        linearStatusBefore,
+        linearStatusAfter: pmReviewStatus,
+      });
 
     const afterIssue = await fetchLinearIssue(options.issueKey, linearApiKey);
     await writeFile(
@@ -639,5 +743,13 @@ export async function executeHandoffPhase(
     events,
     finalOutcome,
     errorClassification,
+    phaseTrace,
+    {
+      totalPhaseDurationMs: Date.now() - startedAt.getTime(),
+      changedFileCount: changedFiles?.length ?? null,
+      checkResultCategory: categorizeCheckResult(checkSummary),
+      previewConfigured: shouldCaptureApplicationPreview(resolved.previewProvider),
+      promptContractVersion: HANDOFF_PROMPT_VERSION,
+    },
   );
 }

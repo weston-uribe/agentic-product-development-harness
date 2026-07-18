@@ -1,0 +1,282 @@
+import { redactSecrets } from "../artifacts/redact.js";
+
+export const METADATA_V1_ALLOWED_KEYS = [
+  "evaluationSchemaVersion",
+  "captureProfile",
+  "pDevPackageVersion",
+  "harnessReleaseSha",
+  "githubActionsRunId",
+  "githubWorkflowName",
+  "triggerType",
+  "githubActionsConfigFingerprint",
+  "issueKey",
+  "pDevRunId",
+  "runGeneration",
+  "phase",
+  "promptContractVersion",
+  "repositoryConfigurationId",
+  "resolutionSource",
+  "baseBranch",
+  "modelId",
+  "modelRole",
+  "modelParams",
+  "cursorAgentId",
+  "cursorRunId",
+  "cursorRequestId",
+  "builderThreadAction",
+  "builderThreadGeneration",
+  "builderReplacementReason",
+  "linearStatusBefore",
+  "linearStatusAfter",
+  "finalOutcome",
+  "errorClassification",
+  "totalPhaseDurationMs",
+  "changedFileCount",
+  "prCreated",
+  "previewConfigured",
+  "previewAvailable",
+  "checkResultCategory",
+  "cursorStatus",
+  "cursorUsageInputTokens",
+  "cursorUsageOutputTokens",
+  "cursorUsageTotalTokens",
+  "cursorDurationMs",
+] as const;
+
+export type MetadataV1Key = (typeof METADATA_V1_ALLOWED_KEYS)[number];
+
+const ALLOWED_KEY_SET = new Set<string>(METADATA_V1_ALLOWED_KEYS);
+
+const MAX_STRING_LENGTH = 200;
+const MAX_MODEL_PARAM_VALUE_LENGTH = 64;
+const MAX_MODEL_PARAMS = 16;
+
+const FORBIDDEN_SOURCE_KEYS = [
+  "title",
+  "description",
+  "acceptanceCriteria",
+  "outOfScope",
+  "prompt",
+  "assistantText",
+  "response",
+  "thought",
+  "reasoning",
+  "toolPayload",
+  "sourceCode",
+  "diff",
+  "changedFiles",
+  "filePath",
+  "filePaths",
+  "repositoryUrl",
+  "targetRepo",
+  "prUrl",
+  "previewUrl",
+  "deploymentUrl",
+  "commentBody",
+  "checkSummary",
+  "validationSummary",
+  "errorMessage",
+  "message",
+  "stack",
+  "hostname",
+  "apiKey",
+  "token",
+  "authorization",
+  "secret",
+] as const;
+
+export interface ModelParamInput {
+  id: string;
+  value: string;
+}
+
+export interface CursorUsageInput {
+  inputTokens?: unknown;
+  outputTokens?: unknown;
+  totalTokens?: unknown;
+  [key: string]: unknown;
+}
+
+function boundString(value: unknown, max = MAX_STRING_LENGTH): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  return trimmed.length > max ? trimmed.slice(0, max) : trimmed;
+}
+
+function boundNumber(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return null;
+  }
+  return value;
+}
+
+function boundBoolean(value: unknown): boolean | null {
+  return typeof value === "boolean" ? value : null;
+}
+
+function boundModelParams(
+  params: ModelParamInput[] | null | undefined,
+): Array<{ id: string; value: string }> | null {
+  if (!Array.isArray(params) || params.length === 0) {
+    return null;
+  }
+  const out: Array<{ id: string; value: string }> = [];
+  for (const param of params.slice(0, MAX_MODEL_PARAMS)) {
+    const id = boundString(param?.id, 64);
+    const value = boundString(param?.value, MAX_MODEL_PARAM_VALUE_LENGTH);
+    if (id && value !== null) {
+      out.push({ id, value: value ?? "" });
+    }
+  }
+  return out.length > 0 ? out : null;
+}
+
+/**
+ * Builds an allowlisted metadata-v1 object. Unknown keys and forbidden
+ * source fields are dropped. Values are bounded and then secret-redacted.
+ */
+export function buildMetadataV1(
+  input: Record<string, unknown>,
+): Record<string, unknown> {
+  const raw: Record<string, unknown> = {};
+
+  for (const [key, value] of Object.entries(input)) {
+    if (!ALLOWED_KEY_SET.has(key)) {
+      continue;
+    }
+    if (
+      (FORBIDDEN_SOURCE_KEYS as readonly string[]).includes(key) ||
+      value === undefined
+    ) {
+      continue;
+    }
+
+    switch (key) {
+      case "modelParams":
+        raw[key] = boundModelParams(value as ModelParamInput[]);
+        break;
+      case "evaluationSchemaVersion":
+      case "runGeneration":
+      case "builderThreadGeneration":
+      case "totalPhaseDurationMs":
+      case "changedFileCount":
+      case "cursorUsageInputTokens":
+      case "cursorUsageOutputTokens":
+      case "cursorUsageTotalTokens":
+      case "cursorDurationMs":
+        raw[key] = boundNumber(value);
+        break;
+      case "prCreated":
+      case "previewConfigured":
+      case "previewAvailable":
+        raw[key] = boundBoolean(value);
+        break;
+      default:
+        if (typeof value === "boolean" || typeof value === "number") {
+          raw[key] = value;
+        } else {
+          raw[key] = boundString(value);
+        }
+        break;
+    }
+
+    if (raw[key] === null || raw[key] === undefined) {
+      delete raw[key];
+    }
+  }
+
+  return redactSecrets(raw) as Record<string, unknown>;
+}
+
+/** Extract allowlisted numeric Cursor usage fields only. */
+export function extractAllowlistedCursorUsage(
+  usage: CursorUsageInput | null | undefined,
+): {
+  cursorUsageInputTokens?: number;
+  cursorUsageOutputTokens?: number;
+  cursorUsageTotalTokens?: number;
+} {
+  if (!usage || typeof usage !== "object") {
+    return {};
+  }
+  const out: {
+    cursorUsageInputTokens?: number;
+    cursorUsageOutputTokens?: number;
+    cursorUsageTotalTokens?: number;
+  } = {};
+  const inputTokens = boundNumber(usage.inputTokens);
+  const outputTokens = boundNumber(usage.outputTokens);
+  const totalTokens = boundNumber(usage.totalTokens);
+  if (inputTokens !== null) out.cursorUsageInputTokens = inputTokens;
+  if (outputTokens !== null) out.cursorUsageOutputTokens = outputTokens;
+  if (totalTokens !== null) out.cursorUsageTotalTokens = totalTokens;
+  return out;
+}
+
+export function categorizeCheckResult(
+  checkSummary: string | null | undefined,
+): string | null {
+  if (!checkSummary) {
+    return null;
+  }
+  const lower = checkSummary.toLowerCase();
+  if (lower.includes("fail")) return "failing";
+  if (lower.includes("pending") || lower.includes("progress")) return "pending";
+  if (lower.includes("pass") || lower.includes("success")) return "passing";
+  if (lower.includes("skip")) return "skipped";
+  return "unknown";
+}
+
+export function assertNoForbiddenContent(
+  payload: Record<string, unknown>,
+): string[] {
+  const violations: string[] = [];
+  const json = JSON.stringify(payload);
+  const forbiddenSubstrings = [
+    "lin_api_",
+    "ghp_",
+    "sk-",
+    "Bearer ",
+    "http://",
+    "https://",
+  ];
+  for (const needle of forbiddenSubstrings) {
+    if (json.includes(needle)) {
+      violations.push(`contains_forbidden_substring:${needle.trim()}`);
+    }
+  }
+  for (const key of Object.keys(payload)) {
+    if (!ALLOWED_KEY_SET.has(key)) {
+      violations.push(`unknown_key:${key}`);
+    }
+  }
+  return violations;
+}
+
+/** Flatten allowlisted metadata to string map for Langfuse propagateAttributes. */
+export function metadataToStringMap(
+  metadata: Record<string, unknown>,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(metadata)) {
+    if (value === null || value === undefined) continue;
+    let asString: string;
+    if (typeof value === "string") {
+      asString = value;
+    } else if (typeof value === "number" || typeof value === "boolean") {
+      asString = String(value);
+    } else {
+      asString = JSON.stringify(value);
+    }
+    if (asString.length > MAX_STRING_LENGTH) {
+      asString = asString.slice(0, MAX_STRING_LENGTH);
+    }
+    out[key] = asString;
+  }
+  return out;
+}

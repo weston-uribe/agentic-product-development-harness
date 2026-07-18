@@ -31,6 +31,9 @@ describe("workspace snapshot policy", () => {
     expect(WORKSPACE_SNAPSHOT_POLICY.requiredPaths).toContain("src");
     expect(WORKSPACE_SNAPSHOT_POLICY.requiredPaths).toContain(".agents");
     expect(WORKSPACE_SNAPSHOT_POLICY.requiredPaths).toContain("tests");
+    expect(WORKSPACE_SNAPSHOT_POLICY.requiredPaths).toContain(".npmrc");
+    expect(WORKSPACE_SNAPSHOT_POLICY.includeFiles).toContain(".npmrc");
+    expect(isIncludedSnapshotPath(".npmrc")).toBe(true);
   });
 
   it("excludes the Operations live draft path from workspace snapshots", () => {

@@ -121,6 +121,14 @@ export interface RunManifest {
   deliveryId?: string | null;
   runGeneration?: number | null;
   runOwnedStatuses?: string[] | null;
+  /** Optional Langfuse correlation; absent/null when evaluation is disabled. */
+  evaluation?: {
+    schemaVersion: 1;
+    provider: "langfuse";
+    captureProfile: "metadata-v1";
+    sessionId: string;
+    traceId: string;
+  } | null;
 }
 
 export type RunEventName =
