@@ -10,6 +10,7 @@ import {
   canonicalWhitespaceNameFixture,
   canonicalWrongCategoryFixture,
 } from "./canonical-violations.js";
+import { planReviewBrowserFixture } from "./plan-review-browser.js";
 import type { WorkflowFixtureDefinition } from "../fixture-definition.js";
 
 const FIXTURES: Record<WorkflowFixtureId, WorkflowFixtureDefinition> = {
@@ -22,6 +23,7 @@ const FIXTURES: Record<WorkflowFixtureId, WorkflowFixtureDefinition> = {
   "canonical-wrong-category": canonicalWrongCategoryFixture,
   "canonical-whitespace-name": canonicalWhitespaceNameFixture,
   "canonical-plan-review-present": canonicalPlanReviewPresentFixture,
+  "plan-review-browser": planReviewBrowserFixture,
 };
 
 export function getFixtureDefinition(
