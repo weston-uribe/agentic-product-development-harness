@@ -9,13 +9,15 @@ import {
   assertAllowedPropertyKeys,
 } from "./privacy-schema.js";
 import type { PhaseBypassEvent } from "../workflow/optional-phase.js";
+import { captureAnalyticsEvent } from "./facade.js";
 
 export type WorkflowAnalyticsEventName =
   | "p_dev_workflow_transition"
   | "p_dev_phase_bypassed"
   | "p_dev_review_cycle_incremented"
   | "p_dev_cycle_limit_reached"
-  | "p_dev_reconciliation_recovery";
+  | "p_dev_reconciliation_recovery"
+  | "p_dev_plan_review_readiness";
 
 export interface WorkflowAnalyticsProperties {
   workflow_schema_version: string;
@@ -68,6 +70,24 @@ export function bypassEventToAnalytics(
       status_after: bypass.bypassDestinationPhaseId,
     }),
   };
+}
+
+/**
+ * Capture a bounded workflow analytics event.
+ * Properties must already be privacy-bounded (no plan/findings bodies).
+ */
+export function captureWorkflowAnalyticsEvent(
+  type: WorkflowAnalyticsEventName | string,
+  properties: Record<string, unknown>,
+): void {
+  try {
+    captureAnalyticsEvent({
+      type: type as "p_dev_workflow_transition",
+      ...properties,
+    } as Parameters<typeof captureAnalyticsEvent>[0]);
+  } catch {
+    // Observability must never fail the harness run.
+  }
 }
 
 /** Sentry error context only — never emit for normal transitions. */

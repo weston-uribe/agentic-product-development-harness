@@ -6,6 +6,8 @@ const PLANNING_STATUSES = new Set([
   "planning",
 ]);
 
+const PLAN_REVIEW_STATUSES = new Set(["plan review"]);
+
 const IMPLEMENTATION_STATUSES = new Set([
   "ready for build",
   "building",
@@ -42,6 +44,10 @@ export function inferPhaseFromStatus(
 
   if (planningStatuses.includes(normalized) || PLANNING_STATUSES.has(normalized)) {
     return { phase: "planning", statusLabel: status };
+  }
+
+  if (PLAN_REVIEW_STATUSES.has(normalized)) {
+    return { phase: "plan_review", statusLabel: status };
   }
 
   if (handoffStatuses.includes(normalized) || HANDOFF_STATUSES.has(normalized)) {

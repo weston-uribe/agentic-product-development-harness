@@ -3,6 +3,7 @@ import type {
 } from "../workflow/canonical-product-development-workflow.js";
 import type { RequiredWorkflowStatus } from "../setup/linear-status-contract.js";
 import type { CanonicalValidationViolation } from "../workflow/canonical-workflow-validation.js";
+import type { PlanReviewUiState } from "../workflow/plan-review-readiness.js";
 import type { RoleModelRole } from "../config/role-models.js";
 
 export type WorkflowSourceMode = "live" | "fixture";
@@ -131,7 +132,16 @@ export interface WorkflowRoleModelSaveReadiness {
 export interface ModelSaveReadiness {
   planner: WorkflowRoleModelSaveReadiness;
   builder: WorkflowRoleModelSaveReadiness;
+  planReviewer: WorkflowRoleModelSaveReadiness;
   ready: boolean;
+}
+
+export interface PlanReviewReadinessView {
+  requestedEnabled: boolean;
+  effectiveEnabled: boolean;
+  uiState: PlanReviewUiState;
+  missingRequirementMessages: string[];
+  cycleLimit: number;
 }
 
 export interface WorkflowBootstrapPayload {
@@ -145,6 +155,8 @@ export interface WorkflowBootstrapPayload {
   catalogLoadMetadata: WorkflowCatalogLoadMetadata;
   plannerSelection: WorkflowModelSelection;
   builderSelection: WorkflowModelSelection;
+  planReviewerSelection: WorkflowModelSelection;
+  planReviewReadiness: PlanReviewReadinessView;
   configFingerprint: string;
   modelSaveReadiness: ModelSaveReadiness;
   canonicalWorkflow: WorkflowCanonicalWorkflowView;

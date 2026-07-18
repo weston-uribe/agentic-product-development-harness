@@ -40,6 +40,18 @@ export function getPlanningResultPath(runDirectory: string): string {
   return path.join(runDirectory, "outputs", "planning-result.md");
 }
 
+export function getPlanReviewPromptPath(runDirectory: string): string {
+  return path.join(runDirectory, "prompts", "plan-review-agent.md");
+}
+
+export function getPlanReviewResultPath(runDirectory: string): string {
+  return path.join(runDirectory, "outputs", "plan-review-result.md");
+}
+
+export function getPlanArtifactIdentityPath(runDirectory: string): string {
+  return path.join(runDirectory, "workflow", "plan-artifact.json");
+}
+
 export function getImplementationPromptPath(runDirectory: string): string {
   return path.join(runDirectory, "prompts", "implementation-agent.md");
 }

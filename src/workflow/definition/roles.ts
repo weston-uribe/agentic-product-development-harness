@@ -41,10 +41,14 @@ export const WORKFLOW_MODEL_ROLES = [
 ] as const;
 export type WorkflowModelRole = (typeof WORKFLOW_MODEL_ROLES)[number];
 
-export const ACTIVE_MODEL_ROLES = ["planner", "builder"] as const;
+export const ACTIVE_MODEL_ROLES = [
+  "planner",
+  "builder",
+  "plan_reviewer",
+] as const;
 export type ActiveModelRole = (typeof ACTIVE_MODEL_ROLES)[number];
 
-export const RESERVED_MODEL_ROLES = ["plan_reviewer", "code_reviewer"] as const;
+export const RESERVED_MODEL_ROLES = ["code_reviewer"] as const;
 
 export interface StatusPhaseRoleMapping {
   statusId: string;

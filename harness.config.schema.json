@@ -121,6 +121,39 @@
                 "id"
               ],
               "additionalProperties": false
+            },
+            "planReviewer": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "params": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "value": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "value"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "id"
+              ],
+              "additionalProperties": false
             }
           },
           "additionalProperties": false
@@ -192,7 +225,7 @@
                 "planReview": {
                   "type": "integer",
                   "exclusiveMinimum": 0,
-                  "default": 3
+                  "default": 4
                 },
                 "codeReview": {
                   "type": "integer",
@@ -202,7 +235,7 @@
               },
               "additionalProperties": false,
               "default": {
-                "planReview": 3,
+                "planReview": 4,
                 "codeReview": 3
               }
             }

@@ -252,6 +252,16 @@ export function toPublicWorkflowBootstrap(
     },
     plannerSelection: cloneModelSelection(input.plannerSelection),
     builderSelection: cloneModelSelection(input.builderSelection),
+    planReviewerSelection: cloneModelSelection(input.planReviewerSelection),
+    planReviewReadiness: {
+      requestedEnabled: input.planReviewReadiness.requestedEnabled,
+      effectiveEnabled: input.planReviewReadiness.effectiveEnabled,
+      uiState: input.planReviewReadiness.uiState,
+      missingRequirementMessages: [
+        ...input.planReviewReadiness.missingRequirementMessages,
+      ],
+      cycleLimit: input.planReviewReadiness.cycleLimit,
+    },
     configFingerprint: input.configFingerprint,
     modelSaveReadiness: {
       planner: {
@@ -265,6 +275,12 @@ export function toPublicWorkflowBootstrap(
         ready: input.modelSaveReadiness.builder.ready,
         state: input.modelSaveReadiness.builder.state,
         issues: [...input.modelSaveReadiness.builder.issues],
+      },
+      planReviewer: {
+        role: input.modelSaveReadiness.planReviewer.role,
+        ready: input.modelSaveReadiness.planReviewer.ready,
+        state: input.modelSaveReadiness.planReviewer.state,
+        issues: [...input.modelSaveReadiness.planReviewer.issues],
       },
       ready: input.modelSaveReadiness.ready,
     },

@@ -20,7 +20,7 @@ export const DEFAULT_OPTIONAL_PHASES = {
 } as const;
 
 export const DEFAULT_CYCLE_LIMITS = {
-  plan_review_cycles: 3,
+  plan_review_cycles: 4,
   code_review_cycles: 3,
 } as const;
 
@@ -269,7 +269,7 @@ const PHASES: readonly WorkflowPhaseDefinition[] = [
     bypassNext: "implementation_dispatch",
     defaultNext: "implementation_dispatch",
     retryTarget: "planning",
-    maximumCycles: 3,
+    maximumCycles: 4,
     cycleCounter: "plan_review_cycles",
     evaluationPhase: "plan_review",
     requiresLinearStatus: false,

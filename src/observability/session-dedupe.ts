@@ -41,6 +41,18 @@ export function analyticsEventDedupeSuffix(
       return `skill_mode:${event.agentRole}:${event.skillInvocationMode}:${event.nativeCapabilityState}`;
     case "p_dev_native_skill_unavailable":
       return `native_skill_unavailable:${event.agentRole}:${event.nativeCapabilityState}`;
+    case "p_dev_workflow_transition":
+      return `workflow_transition:${event.workflow_phase_id ?? ""}:${event.transition_reason ?? ""}:${event.workflow_state_revision ?? ""}`;
+    case "p_dev_phase_bypassed":
+      return `phase_bypassed:${event.workflow_phase_id ?? ""}:${event.bypass_reason ?? ""}`;
+    case "p_dev_review_cycle_incremented":
+      return `review_cycle:${event.workflow_phase_id ?? ""}:${event.cycle_count ?? ""}`;
+    case "p_dev_cycle_limit_reached":
+      return `cycle_limit:${event.workflow_phase_id ?? ""}:${event.cycle_limit ?? ""}`;
+    case "p_dev_reconciliation_recovery":
+      return `reconciliation:${event.workflow_phase_id ?? ""}:${event.reconciliation_source ?? ""}`;
+    case "p_dev_plan_review_readiness":
+      return `plan_review_readiness:${event.ui_state ?? ""}:${event.missing_codes ?? ""}`;
     default: {
       const exhaustive: never = event;
       return String(exhaustive);

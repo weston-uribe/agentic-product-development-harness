@@ -11,6 +11,7 @@ import {
 import {
   resolveBuilderModel,
   resolveModelResolutionForRole,
+  resolvePlanReviewerModel,
   resolvePlannerModel,
 } from "./model.js";
 import type { HarnessConfig } from "../config/types.js";
@@ -113,6 +114,35 @@ export async function createPlanningCloudAgent(
     mode: "plan",
     config: params.config,
     role: "planner",
+    cloud: {
+      repos: [
+        {
+          url: params.targetRepo,
+          startingRef: params.baseBranch,
+        },
+      ],
+      autoCreatePR: false,
+      skipReviewerRequest: true,
+    },
+  });
+}
+
+export type PlanReviewAgentParams = PlanningAgentParams;
+
+/**
+ * Fresh Plan Reviewer agent — must not reuse the planner conversation.
+ * Read-only plan mode; never auto-creates a PR.
+ */
+export async function createPlanReviewCloudAgent(
+  params: PlanReviewAgentParams,
+): Promise<SDKAgent> {
+  const model: ModelSelection = resolvePlanReviewerModel(params.config);
+  return createCloudAgentWithModel({
+    apiKey: params.apiKey,
+    model,
+    mode: "plan",
+    config: params.config,
+    role: "planReviewer",
     cloud: {
       repos: [
         {

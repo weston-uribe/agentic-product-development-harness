@@ -36,11 +36,16 @@ describe("canonical product development workflow descriptor", () => {
     ]);
   });
 
-  it("excludes Plan Review from active workflow", () => {
-    expect(DEPRECATED_CANONICAL_STATUS_NAMES).toContain("Plan Review");
-    expect(
-      CANONICAL_STATUSES.some((status) => status.name === "Plan Review"),
-    ).toBe(false);
+  it("models Plan Review as an optional canonical status", () => {
+    expect(DEPRECATED_CANONICAL_STATUS_NAMES).not.toContain("Plan Review");
+    const planReview = lookupCanonicalStatus("plan-review");
+    expect(planReview?.name).toBe("Plan Review");
+    expect(planReview?.optionalPhase).toBe(true);
+
+    const preflightRequired = getPreflightRequiredCanonicalStatuses();
+    expect(preflightRequired.some((status) => status.key === "plan-review")).toBe(
+      false,
+    );
   });
 
   it("models Duplicate as optional system terminal that does not block preflight", () => {

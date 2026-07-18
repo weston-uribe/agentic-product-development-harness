@@ -4,6 +4,7 @@
  */
 
 import type { ReviewDecision } from "../review-contracts.js";
+import type { PlanArtifactIdentity } from "../plan-artifact.js";
 
 export const WORKFLOW_STATE_RECORD_KIND = "p-dev.workflow-state.v1" as const;
 
@@ -12,6 +13,29 @@ export interface AcceptedReviewDecision {
   decisionIdentity: string;
   phaseId: string;
   acceptedAt: string;
+  reviewedPlanGenerationId?: string;
+  reviewedPlanArtifactHash?: string;
+  findings?: Array<{
+    id: string;
+    severity: "blocking" | "non_blocking";
+    category: string;
+    evidence: string;
+    requiredChange?: string;
+  }>;
+}
+
+/** Frozen configuration/readiness captured at phase claim time. */
+export interface PhaseExecutionFreeze {
+  phaseId: string;
+  claimedAt: string;
+  requestedEnabled: boolean;
+  /** Fail-closed readiness at claim — not merely the config toggle. */
+  effectiveEnabled: boolean;
+  cycleLimit: number;
+  planReviewerModelId: string | null;
+  planReviewerFast: boolean | null;
+  missingRequirementCodes: string[];
+  workflowSchemaVersion: string;
 }
 
 export interface WorkflowStateRecord {
@@ -22,7 +46,10 @@ export interface WorkflowStateRecord {
   stateRevision: number;
   currentPhaseExecutionId: string | null;
   currentPhaseId: string | null;
+  /** Requested optional-phase toggles from config (not necessarily effective). */
   enabledOptionalPhases: Record<string, boolean>;
+  /** Effective optional-phase activation after readiness (fail-closed). */
+  effectiveOptionalPhases: Record<string, boolean>;
   cycleCounters: Record<string, number>;
   lastAcceptedReviewDecision: AcceptedReviewDecision | null;
   returnDestination: string | null;
@@ -31,6 +58,8 @@ export interface WorkflowStateRecord {
   supersededGenerationIdentities: string[];
   lastTransitionIdentity: string | null;
   lastTransitionAt: string | null;
+  latestPlanArtifact: PlanArtifactIdentity | null;
+  phaseExecutionFreeze: PhaseExecutionFreeze | null;
 }
 
 /** Immutable snapshot reference stored on manifests/comments. */
@@ -45,7 +74,12 @@ export function createEmptyWorkflowState(input: {
   issueKey: string;
   workflowSchemaVersion: string;
   enabledOptionalPhases?: Record<string, boolean>;
+  effectiveOptionalPhases?: Record<string, boolean>;
 }): WorkflowStateRecord {
+  const requested = input.enabledOptionalPhases ?? {
+    planReview: false,
+    codeReview: false,
+  };
   return {
     kind: WORKFLOW_STATE_RECORD_KIND,
     issueKey: input.issueKey,
@@ -53,7 +87,8 @@ export function createEmptyWorkflowState(input: {
     stateRevision: 0,
     currentPhaseExecutionId: null,
     currentPhaseId: null,
-    enabledOptionalPhases: input.enabledOptionalPhases ?? {
+    enabledOptionalPhases: requested,
+    effectiveOptionalPhases: input.effectiveOptionalPhases ?? {
       planReview: false,
       codeReview: false,
     },
@@ -68,6 +103,8 @@ export function createEmptyWorkflowState(input: {
     supersededGenerationIdentities: [],
     lastTransitionIdentity: null,
     lastTransitionAt: null,
+    latestPlanArtifact: null,
+    phaseExecutionFreeze: null,
   };
 }
 

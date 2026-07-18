@@ -24,6 +24,15 @@ export interface ResolveWorkflowDefinitionInput {
   workflowConfig?: WorkflowConfigSlice | null;
   baseBranch?: string;
   productionBranch?: string;
+  /**
+   * Fail-closed effective activation. When provided, overrides config for
+   * routing (`enabledOptionalPhases`). Requested toggles remain on the
+   * resolved definition as `requestedOptionalPhases`.
+   */
+  effectiveOptionalPhases?: {
+    planReview?: boolean;
+    codeReview?: boolean;
+  };
   /** Override for tests. */
   baseDefinition?: WorkflowDefinition;
 }
@@ -58,13 +67,21 @@ export function resolveWorkflowDefinition(
   }
 
   const workflowConfig = input.workflowConfig;
-  const enabledOptionalPhases = {
+  const requestedOptionalPhases = {
     planReview:
       workflowConfig?.optionalPhases?.planReview ??
       DEFAULT_OPTIONAL_PHASES.planReview,
     codeReview:
       workflowConfig?.optionalPhases?.codeReview ??
       DEFAULT_OPTIONAL_PHASES.codeReview,
+  };
+  const enabledOptionalPhases = {
+    planReview:
+      input.effectiveOptionalPhases?.planReview ??
+      requestedOptionalPhases.planReview,
+    codeReview:
+      input.effectiveOptionalPhases?.codeReview ??
+      requestedOptionalPhases.codeReview,
   };
 
   const cycleLimits: Record<string, number> = {
@@ -160,6 +177,7 @@ export function resolveWorkflowDefinition(
     phases,
     transitions: mergeFiltered,
     enabledOptionalPhases,
+    requestedOptionalPhases,
     cycleLimits,
     mergePathVariant,
   };

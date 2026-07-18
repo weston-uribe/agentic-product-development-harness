@@ -16,6 +16,7 @@ import type {
 
 export type AgentObservePhase =
   | "planning"
+  | "plan_review"
   | "implementation"
   | "revision"
   | "integration_repair";
@@ -139,6 +140,7 @@ export interface AgentProvider {
   resolveModelId(config: HarnessConfig): string;
 
   createPlanningAgent(params: PlanningAgentParams): Promise<AgentHandle>;
+  createPlanReviewAgent(params: PlanningAgentParams): Promise<AgentHandle>;
   createImplementationAgent(params: ImplementationAgentParams): Promise<AgentHandle>;
   acquireBuilderAgent(params: AcquireBuilderAgentParams): Promise<AcquiredBuilderAgent>;
 

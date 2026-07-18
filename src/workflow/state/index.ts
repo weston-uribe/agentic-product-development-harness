@@ -3,6 +3,7 @@ export {
   createEmptyWorkflowState,
   toSnapshotRef,
   type AcceptedReviewDecision,
+  type PhaseExecutionFreeze,
   type WorkflowStateRecord,
   type WorkflowStateSnapshotRef,
 } from "./types.js";

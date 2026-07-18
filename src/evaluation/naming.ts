@@ -5,12 +5,14 @@
 
 export type AgentDisplayRole =
   | "planner"
+  | "plan_reviewer"
   | "implementer"
   | "reviser"
   | "integration_repairer";
 
 export type PhaseDisplayName =
   | "planning"
+  | "plan_review"
   | "implementation"
   | "handoff"
   | "revision"
@@ -72,6 +74,8 @@ export function defaultAgentRoleForPhase(
   switch (phase) {
     case "planning":
       return "planner";
+    case "plan_review":
+      return "plan_reviewer";
     case "implementation":
       return "implementer";
     case "revision":

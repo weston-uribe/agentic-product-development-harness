@@ -4,6 +4,7 @@ import { executeMergePhase } from "./phases/merge.js";
 import { executeRevisionPhase } from "./phases/revision.js";
 import { executeImplementationPhase } from "./phases/implementation.js";
 import { executePlanningPhase } from "./phases/planning.js";
+import { executePlanReviewPhase } from "./phases/plan-review.js";
 import { fetchLinearIssue } from "../linear/client.js";
 import { inferPhaseFromStatus } from "./phase-infer.js";
 import { loadHarnessConfig } from "../config/load-config.js";
@@ -14,6 +15,13 @@ import type { EvaluationRuntime } from "../evaluation/types.js";
 export function shouldContinueToImplementationAfterPlanning(
   manifest: RunManifest,
 ): boolean {
+  // When Plan Review is effectively enabled, planning lands on Plan Review — do not auto-build.
+  if (
+    manifest.linearStatusAfter &&
+    manifest.linearStatusAfter.trim().toLowerCase() === "plan review"
+  ) {
+    return false;
+  }
   return manifest.finalOutcome === "success";
 }
 
@@ -95,6 +103,8 @@ export async function runOrchestrator(
     const inferred = inferPhaseFromStatus(issue.status, config);
     if (inferred.phase === "planning") {
       phase = "planning";
+    } else if (inferred.phase === "plan_review") {
+      phase = "plan_review";
     } else if (inferred.phase === "handoff") {
       phase = "handoff";
     } else if (inferred.phase === "revision") {
@@ -109,6 +119,20 @@ export async function runOrchestrator(
       );
       return { exitCode: EXIT_CONFIG };
     }
+  }
+
+  if (phase === "plan_review") {
+    const result = await executePlanReviewPhase({
+      issueKey: options.issueKey,
+      configPath: options.configPath,
+      force: options.force,
+      evaluationRuntime: options.evaluationRuntime,
+    });
+    return {
+      exitCode: result.exitCode,
+      runDirectory: result.runDirectory,
+      manifest: result.manifest,
+    };
   }
 
   if (phase === "planning") {

@@ -15,20 +15,32 @@ import {
 } from "../workflow/transition-engine.js";
 import {
   applyWorkflowTransition,
+  type PhaseExecutionFreeze,
   type WorkflowStateStore,
 } from "../workflow/state/index.js";
 import type { PhaseBypassEvent } from "../workflow/optional-phase.js";
+import type { PlanArtifactIdentity } from "../workflow/plan-artifact.js";
 
 export function resolveDefinitionForConfig(input: {
   config: HarnessConfig;
   baseBranch?: string;
   productionBranch?: string;
+  /** Fail-closed effective Plan Review activation for routing. */
+  planReviewEffectiveEnabled?: boolean;
 }): ResolvedWorkflowDefinition {
   const workflowConfig = migrateWorkflowConfigSection(input.config);
   return resolveWorkflowDefinition({
     workflowConfig,
     baseBranch: input.baseBranch,
     productionBranch: input.productionBranch,
+    ...(input.planReviewEffectiveEnabled !== undefined
+      ? {
+          effectiveOptionalPhases: {
+            planReview: input.planReviewEffectiveEnabled,
+            codeReview: workflowConfig.optionalPhases.codeReview === true,
+          },
+        }
+      : {}),
   });
 }
 
@@ -40,6 +52,7 @@ export function evaluatePhaseTransition(input: {
   cycleCounters?: Record<string, number>;
   baseBranch?: string;
   productionBranch?: string;
+  planReviewEffectiveEnabled?: boolean;
 }): TransitionResult {
   const definition = resolveDefinitionForConfig(input);
   return evaluateTransition({
@@ -65,6 +78,7 @@ export function resolveNextStatusName(input: {
   evidence: TransitionEvidence;
   baseBranch?: string;
   productionBranch?: string;
+  planReviewEffectiveEnabled?: boolean;
 }): {
   statusName: string;
   result: TransitionResult;
@@ -96,12 +110,19 @@ export async function applyPhaseTransition(input: {
   claimActiveRunId?: string;
   clearActiveRunId?: string;
   phaseExecutionId?: string;
+  planReviewEffectiveEnabled?: boolean;
+  returnDestination?: string | null;
+  latestPlanArtifact?: PlanArtifactIdentity | null;
+  phaseExecutionFreeze?: PhaseExecutionFreeze | null;
 }): Promise<{
   statusName: string | null;
   applyOk: boolean;
   result: TransitionResult | null;
   reason: string;
   stateRevision: number | null;
+  state: Awaited<
+    ReturnType<typeof applyWorkflowTransition>
+  >["state"];
 }> {
   const definition = resolveDefinitionForConfig(input);
   const applied = await applyWorkflowTransition({
@@ -115,6 +136,9 @@ export async function applyPhaseTransition(input: {
     claimActiveRunId: input.claimActiveRunId,
     clearActiveRunId: input.clearActiveRunId,
     phaseExecutionId: input.phaseExecutionId,
+    returnDestination: input.returnDestination,
+    latestPlanArtifact: input.latestPlanArtifact,
+    phaseExecutionFreeze: input.phaseExecutionFreeze,
   });
   return {
     statusName: applied.transition?.nextStatusName ?? null,
@@ -122,5 +146,6 @@ export async function applyPhaseTransition(input: {
     result: applied.transition,
     reason: applied.reason,
     stateRevision: applied.state?.stateRevision ?? null,
+    state: applied.state,
   };
 }

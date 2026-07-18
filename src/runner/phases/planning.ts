@@ -369,9 +369,66 @@ export async function executePlanningPhase(
       generation: runGeneration,
     });
 
+    const { FileWorkflowStateStore: PlanningStateStore, loadOrBootstrapWorkflowState: loadPlanningState } =
+      await import("../../workflow/state/index.js");
+    const planningStateStore = new PlanningStateStore(
+      config.logDirectory ?? "runs",
+    );
+    const planningWorkflowState = await loadPlanningState({
+      store: planningStateStore,
+      issueKey: options.issueKey,
+      workflowSchemaVersion: "product-development-v2",
+      currentPhaseId: "planning",
+    });
+    let priorPlanBody = "_Prior plan unavailable._";
+    const needsPlanRevision =
+      planningWorkflowState.returnDestination === "plan_review" &&
+      Boolean(planningWorkflowState.latestPlanArtifact) &&
+      planningWorkflowState.lastAcceptedReviewDecision?.decision ===
+        "needs_revision";
+    if (needsPlanRevision) {
+      try {
+        const priorComments = await listIssueComments(client, issue.id);
+        const prior = priorComments
+          .slice()
+          .reverse()
+          .find((c) => c.body.includes("### Full plan"));
+        if (prior) {
+          const match = prior.body.match(
+            /### Full plan\n([\s\S]*?)(?:\n<!--|\n---|\s*$)/,
+          );
+          priorPlanBody = match?.[1]?.trim() || prior.body;
+        }
+      } catch {
+        // best-effort
+      }
+    }
+    const revisionContext = needsPlanRevision
+      ? {
+          priorPlanBody,
+          acceptedBlockingFindings: (
+            planningWorkflowState.lastAcceptedReviewDecision?.findings ?? []
+          )
+            .filter((f) => f.severity === "blocking")
+            .map((f) => ({
+              id: f.id,
+              category: f.category,
+              evidence: f.evidence,
+              requiredChange: f.requiredChange,
+            })),
+          planReviewCycle:
+            planningWorkflowState.cycleCounters.plan_review_cycles ?? 0,
+          planReviewCycleLimit: 4,
+          causedByReviewDecisionIdentity:
+            planningWorkflowState.lastAcceptedReviewDecision
+              ?.decisionIdentity ?? null,
+        }
+      : null;
+
     const { prompt: basePrompt, promptVersion: version } =
       await buildPlanningPrompt(issue, parsed, resolved, {
         productInitializationState: productInitialization.state,
+        revision: revisionContext,
       });
     promptVersion = version;
     const { assembleAgentPrompt } = await import("../../prompts/assemble.js");
@@ -616,25 +673,130 @@ export async function executePlanningPhase(
       commentId: planningComment,
     });
 
-    const planningSuccess = resolveNextStatusName({
+    // Fail-closed Plan Review readiness: route only when effectively enabled.
+    const { evaluatePlanReviewReadiness, buildPlanReviewReadinessDiagnostic } =
+      await import("../../workflow/plan-review-readiness.js");
+    const { createPlanArtifactIdentity } = await import(
+      "../../workflow/plan-artifact.js"
+    );
+    const { FileWorkflowStateStore, loadOrBootstrapWorkflowState } =
+      await import("../../workflow/state/index.js");
+    const { applyPhaseTransition } = await import("../workflow-transition.js");
+    const { captureWorkflowAnalyticsEvent, bypassEventToAnalytics } =
+      await import("../../observability/workflow-analytics.js");
+    const { listTeamWorkflowStates } = await import(
+      "../../setup/linear-setup-client.js"
+    );
+
+    let linearStatuses: Array<{ name: string; type: string }> = [];
+    try {
+      if (config.linear?.teamId) {
+        linearStatuses = await listTeamWorkflowStates(
+          client,
+          config.linear.teamId,
+        );
+      }
+    } catch {
+      linearStatuses = [];
+    }
+    const readiness = await evaluatePlanReviewReadiness({
       config,
+      linearStatuses,
+    });
+    if (readiness.requestedEnabled && !readiness.effectiveEnabled) {
+      const diag = buildPlanReviewReadinessDiagnostic({
+        readiness,
+        configurationSurface: "runner",
+      });
+      captureWorkflowAnalyticsEvent(diag.event, diag.properties);
+      await events.log("plan_review_setup_required", "warn", {
+        missingRequirements: readiness.missingRequirements,
+      });
+    }
+
+    const logDirectory = config.logDirectory ?? "runs";
+    const store = new FileWorkflowStateStore(logDirectory);
+    const priorState = await loadOrBootstrapWorkflowState({
+      store,
+      issueKey: options.issueKey,
+      workflowSchemaVersion: readiness.workflowSchemaVersion,
+      enabledOptionalPhases: {
+        planReview: readiness.requestedEnabled,
+        codeReview: false,
+      },
+      effectiveOptionalPhases: {
+        planReview: readiness.effectiveEnabled,
+        codeReview: false,
+      },
       currentPhaseId: "planning",
+    });
+    const planArtifact = createPlanArtifactIdentity({
+      planBody: observed.assistantText,
+      plannerRunId: runId,
+      promptContractVersion: version,
+      workflowStateRevision: priorState.stateRevision + 1,
+      supersedesPlanGenerationId:
+        priorState.latestPlanArtifact?.planGenerationId ?? null,
+      causedByReviewDecisionIdentity:
+        priorState.returnDestination === "plan_review"
+          ? priorState.lastAcceptedReviewDecision?.decisionIdentity ?? null
+          : null,
+    });
+
+    const applied = await applyPhaseTransition({
+      store,
+      issueKey: options.issueKey,
+      config,
+      expectedStateRevision: priorState.stateRevision,
+      currentPhaseId: "planning",
+      planReviewEffectiveEnabled: readiness.effectiveEnabled,
+      latestPlanArtifact: planArtifact,
       outcome: {
         kind: "success",
         phaseId: "planning",
         attemptIdentity: runId,
+        generationId: planArtifact.planGenerationId,
       },
       evidence: { linearStatusName: planningStatus },
     });
-    const readyForBuild = planningSuccess.statusName;
-    await transitionIssueStatus(client, issue, readyForBuild);
-    linearStatusAfter = readyForBuild;
+
+    const planningSuccess = applied.applyOk && applied.statusName
+      ? {
+          statusName: applied.statusName,
+          result: applied.result!,
+          bypass: applied.result?.bypass ?? null,
+        }
+      : resolveNextStatusName({
+          config,
+          currentPhaseId: "planning",
+          planReviewEffectiveEnabled: readiness.effectiveEnabled,
+          outcome: {
+            kind: "success",
+            phaseId: "planning",
+            attemptIdentity: runId,
+          },
+          evidence: { linearStatusName: planningStatus },
+        });
+
+    const nextStatus = planningSuccess.statusName;
+    await transitionIssueStatus(client, issue, nextStatus);
+    linearStatusAfter = nextStatus;
     await events.log("linear_status_changed", "info", {
       from: planningStatus,
-      to: readyForBuild,
+      to: nextStatus,
       transitionReason: planningSuccess.result.reason,
       bypass: planningSuccess.bypass?.event ?? null,
+      planGenerationId: planArtifact.planGenerationId,
+      planArtifactHash: planArtifact.planArtifactHash,
+      planReviewEffectiveEnabled: readiness.effectiveEnabled,
     });
+    if (planningSuccess.bypass) {
+      const bypassAnalytics = bypassEventToAnalytics(planningSuccess.bypass);
+      captureWorkflowAnalyticsEvent(
+        bypassAnalytics.event,
+        bypassAnalytics.properties,
+      );
+    }
 
     const afterIssue = await fetchLinearIssue(options.issueKey, linearApiKey);
     await writeFile(

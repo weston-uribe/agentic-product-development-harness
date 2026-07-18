@@ -81,6 +81,7 @@ export function useModelAutosave({
   return {
     plannerSelection: optimisticSelections.planner,
     builderSelection: optimisticSelections.builder,
+    planReviewerSelection: optimisticSelections.planReviewer,
     handleModelSelect,
     handleModelParameter,
     retrySave,

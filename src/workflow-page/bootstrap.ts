@@ -17,12 +17,16 @@ import type {
   WorkflowScope,
   WorkflowSourceContext,
 } from "./types.js";
-import { buildModelSaveReadiness } from "./catalog-validation.js";
+import {
+  evaluatePlanReviewReadiness,
+  type PlanReviewReadinessResult,
+} from "../workflow/plan-review-readiness.js";
 import { dataSourceLabel } from "./source-context.js";
 import { getFixtureDefinition } from "./fixtures/index.js";
 import { getFixtureWorkflowScopes } from "./fixtures/workflow-scopes.js";
 import { emptyHarnessConfig } from "./model-catalog.js";
 import { lookupModelInCatalog } from "./model-catalog-lookup.js";
+import { buildModelSaveReadiness } from "./catalog-validation.js";
 import { hashWorkflowFingerprint } from "./fingerprint.js";
 import { buildLiveWorkflowScopes, validateRequestedScopeId } from "./workflow-scopes.js";
 import { enrichWorkflowScopes } from "./scope-branches.js";
@@ -85,6 +89,18 @@ function buildWorkflowModelSelection(
   };
 }
 
+function toPlanReviewReadinessView(
+  readiness: PlanReviewReadinessResult,
+): WorkflowBootstrapPayload["planReviewReadiness"] {
+  return {
+    requestedEnabled: readiness.requestedEnabled,
+    effectiveEnabled: readiness.effectiveEnabled,
+    uiState: readiness.uiState,
+    missingRequirementMessages: [...readiness.missingRequirementMessages],
+    cycleLimit: readiness.cycleLimit,
+  };
+}
+
 function resolveScopes(deps: WorkflowBootstrapDependencies): WorkflowScope[] {
   const raw =
     deps.scopes?.length
@@ -136,11 +152,11 @@ export async function buildWorkflowBootstrap(
   const scopeResolution = validateRequestedScopeId(context.scopeId, allowlist);
 
   if (context.rejectionReason) {
-    return rejectedPayload(context, scopes, warnings);
+    return await rejectedPayload(context, scopes, warnings);
   }
 
   if (scopeResolution.error || !scopeResolution.scope) {
-    return rejectedPayload(
+    return await rejectedPayload(
       {
         ...context,
         rejectionReason: scopeResolution.error ?? "Workflow scope is required.",
@@ -199,9 +215,25 @@ export async function buildWorkflowBootstrap(
     "builder",
     modelCatalog,
   );
+  const planReviewerSelection = buildWorkflowModelSelection(
+    effectiveConfig,
+    "planReviewer",
+    modelCatalog,
+  );
+  const planReviewReadiness = toPlanReviewReadinessView(
+    await evaluatePlanReviewReadiness({
+      config: effectiveConfig,
+      linearStatuses: linearStatuses.map((status) => ({
+        name: status.name,
+        type: status.type,
+        id: status.id,
+      })),
+    }),
+  );
   const modelSaveReadiness = buildModelSaveReadiness({
     plannerSelection,
     builderSelection,
+    planReviewerSelection,
     modelCatalog,
     catalogLoaded: catalogLoadMetadata.modelCatalog === "loaded",
   });
@@ -224,6 +256,8 @@ export async function buildWorkflowBootstrap(
     catalogLoadMetadata,
     plannerSelection,
     builderSelection,
+    planReviewerSelection,
+    planReviewReadiness,
     configFingerprint:
       deps.configFingerprint ?? buildConfigFingerprint(config),
     modelSaveReadiness,
@@ -245,14 +279,22 @@ export async function buildWorkflowBootstrap(
   };
 }
 
-function rejectedPayload(
+async function rejectedPayload(
   context: WorkflowSourceContext,
   scopes: WorkflowScope[],
   warnings: string[],
-): WorkflowBootstrapPayload {
+): Promise<WorkflowBootstrapPayload> {
   const emptyConfig = emptyHarnessConfig();
   const plannerSelection = buildWorkflowModelSelection(emptyConfig, "planner", []);
   const builderSelection = buildWorkflowModelSelection(emptyConfig, "builder", []);
+  const planReviewerSelection = buildWorkflowModelSelection(
+    emptyConfig,
+    "planReviewer",
+    [],
+  );
+  const planReviewReadiness = toPlanReviewReadinessView(
+    await evaluatePlanReviewReadiness({ config: emptyConfig, linearStatuses: [] }),
+  );
 
   return {
     sourceMode: context.mode,
@@ -270,10 +312,13 @@ function rejectedPayload(
     },
     plannerSelection,
     builderSelection,
+    planReviewerSelection,
+    planReviewReadiness,
     configFingerprint: buildConfigFingerprint(undefined),
     modelSaveReadiness: buildModelSaveReadiness({
       plannerSelection,
       builderSelection,
+      planReviewerSelection,
       modelCatalog: [],
       catalogLoaded: false,
     }),

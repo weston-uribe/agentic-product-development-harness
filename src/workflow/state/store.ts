@@ -139,14 +139,30 @@ export async function loadOrBootstrapWorkflowState(input: {
   issueKey: string;
   workflowSchemaVersion: string;
   enabledOptionalPhases?: Record<string, boolean>;
+  effectiveOptionalPhases?: Record<string, boolean>;
   currentPhaseId?: string | null;
 }): Promise<WorkflowStateRecord> {
   const existing = await input.store.load(input.issueKey);
-  if (existing) return existing;
+  if (existing) {
+    return {
+      ...existing,
+      enabledOptionalPhases: existing.enabledOptionalPhases ?? {
+        planReview: false,
+        codeReview: false,
+      },
+      effectiveOptionalPhases: existing.effectiveOptionalPhases ?? {
+        planReview: false,
+        codeReview: false,
+      },
+      latestPlanArtifact: existing.latestPlanArtifact ?? null,
+      phaseExecutionFreeze: existing.phaseExecutionFreeze ?? null,
+    };
+  }
   const bootstrapped = createEmptyWorkflowState({
     issueKey: input.issueKey,
     workflowSchemaVersion: input.workflowSchemaVersion,
     enabledOptionalPhases: input.enabledOptionalPhases,
+    effectiveOptionalPhases: input.effectiveOptionalPhases,
   });
   bootstrapped.currentPhaseId = input.currentPhaseId ?? null;
   return bootstrapped;

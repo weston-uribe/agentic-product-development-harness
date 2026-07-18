@@ -9,6 +9,7 @@ export type AgentTelemetryProvider = "cursor";
 
 export type AgentTelemetryPhase =
   | "planning"
+  | "plan_review"
   | "implementation"
   | "handoff"
   | "revision"

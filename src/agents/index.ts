@@ -21,6 +21,12 @@ export function createPlanningAgent(
   return getAgentProvider(params.config).createPlanningAgent(params);
 }
 
+export function createPlanReviewAgent(
+  params: PlanningAgentParams,
+): Promise<AgentHandle> {
+  return getAgentProvider(params.config).createPlanReviewAgent(params);
+}
+
 export function createImplementationAgent(
   params: ImplementationAgentParams,
 ): Promise<AgentHandle> {

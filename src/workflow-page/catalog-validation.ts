@@ -114,6 +114,7 @@ export function validateModelSelectionAgainstCatalog(input: {
 export function buildModelSaveReadiness(input: {
   plannerSelection: WorkflowModelSelection;
   builderSelection: WorkflowModelSelection;
+  planReviewerSelection: WorkflowModelSelection;
   modelCatalog: WorkflowModelCatalogEntry[];
   catalogLoaded: boolean;
 }): ModelSaveReadiness {
@@ -135,11 +136,21 @@ export function buildModelSaveReadiness(input: {
     modelCatalog: input.modelCatalog,
     catalogLoaded: input.catalogLoaded,
   });
+  const planReviewer = validateModelSelectionAgainstCatalog({
+    role: "planReviewer",
+    selection: {
+      modelId: input.planReviewerSelection.modelId,
+      parameters: input.planReviewerSelection.parameters,
+    },
+    modelCatalog: input.modelCatalog,
+    catalogLoaded: input.catalogLoaded,
+  });
 
   return {
     planner,
     builder,
-    ready: planner.ready && builder.ready,
+    planReviewer,
+    ready: planner.ready && builder.ready && planReviewer.ready,
   };
 }
 

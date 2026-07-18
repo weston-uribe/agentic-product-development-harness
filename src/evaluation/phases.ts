@@ -1,5 +1,9 @@
 export const EVALUATION_PHASES = {
   planning: { traceName: "p-dev.planning", machineKey: "p-dev.planning" },
+  plan_review: {
+    traceName: "p-dev.plan-review",
+    machineKey: "p-dev.plan-review",
+  },
   implementation: {
     traceName: "p-dev.implementation",
     machineKey: "p-dev.implementation",
@@ -31,6 +35,7 @@ export function isEvaluationPhase(value: string): value is EvaluationPhase {
 /** Phases that invoke a real Cursor agent by default. */
 export const AGENT_INVOKING_PHASES: ReadonlySet<EvaluationPhase> = new Set([
   "planning",
+  "plan_review",
   "implementation",
   "revision",
   "integration_repair",

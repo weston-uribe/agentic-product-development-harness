@@ -21,6 +21,7 @@ export const ANALYTICS_EVENT_NAMES = [
   "p_dev_review_cycle_incremented",
   "p_dev_cycle_limit_reached",
   "p_dev_reconciliation_recovery",
+  "p_dev_plan_review_readiness",
 ] as const;
 
 /** Bounded workflow transition keys (no issue bodies, prompts, or code). */
@@ -38,6 +39,12 @@ export const ALLOWED_WORKFLOW_ANALYTICS_PROPERTY_KEYS = [
   "decision_type",
   "reconciliation_source",
   "workflow_state_revision",
+  "requested_enabled",
+  "effective_enabled",
+  "ui_state",
+  "missing_count",
+  "missing_codes",
+  "configuration_surface",
 ] as const;
 
 /** Bounded prompt/skill keys allowed despite the /prompt/i forbid pattern. */
@@ -352,6 +359,15 @@ export function analyticsEventToProperties(
         skill_invocation_mode: event.skillInvocationMode,
         native_capability_state: event.nativeCapabilityState,
       };
+    case "p_dev_workflow_transition":
+    case "p_dev_phase_bypassed":
+    case "p_dev_review_cycle_incremented":
+    case "p_dev_cycle_limit_reached":
+    case "p_dev_reconciliation_recovery":
+    case "p_dev_plan_review_readiness": {
+      const { type: _type, ...rest } = event;
+      return { ...rest };
+    }
     default: {
       const exhaustive: never = event;
       throw new Error(`Unsupported analytics event: ${String(exhaustive)}`);

@@ -1,6 +1,6 @@
 # ADR 0007: Modular workflow state machine
 
-**Status:** Accepted (Chunk 4 — foundation)  
+**Status:** Accepted (Chunk 4 foundation; Chunk 5 Plan Review loop)  
 **Date:** 2026-07-18
 
 ## Context
@@ -80,21 +80,54 @@ Counters are issue-scoped inside `WorkflowStateRecord`. Infrastructure retries, 
 
 `workflow-status-report` produces a dry-run requirement report (missing/extra/category mismatches). It does not create or modify live statuses. Optional review statuses appear in the report only when enabled.
 
-### Extension procedure (next chunks)
+### Fail-closed Plan Review activation (Chunk 5)
 
-To add Plan Reviewer or Code Reviewer **without changing the transition engine**:
+Separate:
 
-1. Enable the optional phase in config (`optionalPhases.planReview` / `codeReview`)
-2. Ensure Linear statuses exist (via a later deployment cycle using the dry-run report)
-3. Implement the reviewer agent + prompt/skill slots already reserved in Chunk 3
-4. Emit `ReviewOutcome` into `evaluateTransition` / `applyWorkflowTransition`
-5. Wire observability using existing allowlisted workflow metadata keys
+| Flag | Meaning |
+|------|---------|
+| `requestedEnabled` | `workflow.optionalPhases.planReview === true` |
+| `effectiveEnabled` | Safe to execute: Linear Plan Review status present with required category, definition/prompt/skill/model valid, runner schema supported |
 
-Do not add special-case status routing in phase files.
+Until effective:
+
+- Persist requested setting; GUI shows **Enabled — setup required** with exact missing requirements
+- Production route remains **Planning → Ready for Build**
+- No missing-status transition, no reviewer agent, no Plan Review trace/score
+- Emit bounded `p_dev_plan_review_readiness` diagnostic (not a false preference-driven bypass)
+
+Freeze **`effectiveEnabled`** (plus requested, cycle limit, model) into each claimed phase execution. Readiness/config changes apply only to subsequent claims.
+
+### Plan Review lifecycle (when effective)
+
+```text
+Planning → Plan Review
+  approved        → Ready for Build
+  needs_revision  → Ready for Planning → Planning → Plan Review
+  cycle limit     → Blocked (no auto-approve)
+```
+
+Default max cycles: **4**. Revision increments `plan_review_cycles` once; infra/duplicate/stale do not.
+
+### Materiality and independence
+
+Blocking findings only for meaningful risk (wrong behavior, missing outcome, unsafe migration, unverifiable acceptance, arch/security/privacy, material ambiguity). Style-only notes are nonblocking. Reviewer is a fresh agent with bounded context; harness owns status transitions.
+
+### Plan artifact identity
+
+Every plan generation persists `planGenerationId`, `planArtifactHash`, planner run id, prompt contract version, workflow-state revision, timestamps, and supersession links. Reviews must match harness evidence; model-claimed identity is insufficient.
+
+### Mid-cycle configuration
+
+Disabling Plan Review mid-cycle does not silent-bypass an active claimed reviewer. Final deployment cycle promotes requested → effective after Linear status migration and runner compatibility checks (out of Chunk 5 freeze for live migration).
+
+### Extension procedure (Code Review)
+
+Reuse the same pattern: optional phase + readiness gate + `ReviewOutcome` + independent counter + GUI three-state card. Do not invent parallel routing.
 
 ## Consequences
 
-- Current workflow behavior is preserved with optional reviewers disabled
-- GUI ownership columns derive from the shared definition; unfinished controls stay hidden
+- Current workflow behavior is preserved when Plan Review is not effectively enabled
+- GUI shows Plan Review as Disabled / Setup required / Active
 - Markers/manifests become snapshots referencing `stateRevision` / transition identity
 - Concurrent webhook/reconcile races are handled by atomic apply + bounded retry

@@ -57,6 +57,19 @@ const MINIMAL_BOOTSTRAP: WorkflowBootstrapPayload = {
     parameters: [],
     source: "roleModels",
   },
+  planReviewerSelection: {
+    modelId: "composer-2.5",
+    displayName: "Composer 2.5",
+    parameters: [],
+    source: "roleModels",
+  },
+  planReviewReadiness: {
+    requestedEnabled: false,
+    effectiveEnabled: false,
+    uiState: "disabled",
+    missingRequirementMessages: ["Plan Review is disabled in configuration."],
+    cycleLimit: 4,
+  },
   configFingerprint: "abc",
   modelSaveReadiness: {
     planner: {
@@ -67,6 +80,12 @@ const MINIMAL_BOOTSTRAP: WorkflowBootstrapPayload = {
     },
     builder: {
       role: "builder",
+      ready: true,
+      state: "ready",
+      issues: [],
+    },
+    planReviewer: {
+      role: "planReviewer",
       ready: true,
       state: "ready",
       issues: [],

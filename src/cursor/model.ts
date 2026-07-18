@@ -62,13 +62,17 @@ export function resolveBuilderModel(config: HarnessConfig): ModelSelection {
   return toSdkSelection(resolveModelSelectionForRole(config, "builder"));
 }
 
+export function resolvePlanReviewerModel(config: HarnessConfig): ModelSelection {
+  return toSdkSelection(resolveModelSelectionForRole(config, "planReviewer"));
+}
+
 export function resolveModelForRole(
   config: HarnessConfig,
   role: RoleModelRole,
 ): ModelSelection {
-  return role === "planner"
-    ? resolvePlannerModel(config)
-    : resolveBuilderModel(config);
+  if (role === "planner") return resolvePlannerModel(config);
+  if (role === "planReviewer") return resolvePlanReviewerModel(config);
+  return resolveBuilderModel(config);
 }
 
 /** Full resolution including evidence layers (read-only; does not mutate config). */

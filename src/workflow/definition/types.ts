@@ -120,7 +120,10 @@ export interface WorkflowDefinition {
 }
 
 export interface ResolvedWorkflowDefinition extends WorkflowDefinition {
+  /** Fail-closed effective activation used for routing. */
   enabledOptionalPhases: Readonly<Record<string, boolean>>;
+  /** User-requested toggles from config (may be true while effective is false). */
+  requestedOptionalPhases: Readonly<Record<string, boolean>>;
   cycleLimits: Readonly<Record<string, number>>;
   mergePathVariant: "integration-then-production" | "direct-production";
 }

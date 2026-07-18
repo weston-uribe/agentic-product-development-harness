@@ -32,6 +32,7 @@ export type CanonicalActorRole =
 
 export type CanonicalAgentPhaseKey =
   | "planning"
+  | "plan-review"
   | "implementation"
   | "revision"
   | "merge-integration-repair";
@@ -40,6 +41,7 @@ export type CanonicalStatusKey =
   | "backlog"
   | "ready-for-planning"
   | "planning"
+  | "plan-review"
   | "ready-for-build"
   | "building"
   | "pr-open"
@@ -80,6 +82,8 @@ export interface CanonicalStatusDefinition {
   inProgressStatusKey?: CanonicalStatusKey;
   suggestedPosition: CanonicalGraphPosition;
   graphGroup: "intake" | "planning" | "build" | "review" | "merge" | "terminal";
+  /** Optional phase statuses are not required in Linear preflight when absent. */
+  optionalPhase?: boolean;
 }
 
 export interface CanonicalTransition {
@@ -126,7 +130,7 @@ export const DUPLICATE_STATUS_CONTRACT = {
   validateWhenPresent: true,
 };
 
-export const DEPRECATED_CANONICAL_STATUS_NAMES = ["Plan Review"] as const;
+export const DEPRECATED_CANONICAL_STATUS_NAMES = [] as const;
 
 export const CANONICAL_DISPATCH_TRIGGER_STATUS_NAMES = [
   "Ready for Planning",
@@ -175,6 +179,20 @@ export const CANONICAL_STATUSES: readonly CanonicalStatusDefinition[] = [
     agentPhaseKey: "planning",
     suggestedPosition: { x: 560, y: 0 },
     graphGroup: "planning",
+  },
+  {
+    key: "plan-review",
+    name: "Plan Review",
+    category: "started",
+    role: "transitional",
+    creatable: true,
+    systemManaged: false,
+    automationTrigger: false,
+    actorRole: "planner-agent",
+    agentPhaseKey: "plan-review",
+    suggestedPosition: { x: 700, y: 0 },
+    graphGroup: "planning",
+    optionalPhase: true,
   },
   {
     key: "ready-for-build",
@@ -534,9 +552,15 @@ export function getCreatableCanonicalStatuses(): CanonicalStatusDefinition[] {
 }
 
 export function getPreflightRequiredCanonicalStatuses(): CanonicalStatusDefinition[] {
-  return CANONICAL_STATUSES.filter(
-    (status) => status.key !== "duplicate" || DUPLICATE_STATUS_CONTRACT.requiredForPreflight,
-  );
+  return CANONICAL_STATUSES.filter((status) => {
+    if (status.optionalPhase) {
+      return false;
+    }
+    if (status.key === "duplicate") {
+      return DUPLICATE_STATUS_CONTRACT.requiredForPreflight;
+    }
+    return true;
+  });
 }
 
 export function resolveMergePathVariant(input: {

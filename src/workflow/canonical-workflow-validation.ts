@@ -200,13 +200,17 @@ export function validateCanonicalLinearWorkflow(input: {
   }
 
   for (const canonical of CANONICAL_STATUSES) {
-    if (canonical.key === "duplicate" && !DUPLICATE_STATUS_CONTRACT.requiredForPreflight) {
-      const duplicateMatches = findLinearStatesByName(
+    if (
+      (canonical.key === "duplicate" &&
+        !DUPLICATE_STATUS_CONTRACT.requiredForPreflight) ||
+      canonical.optionalPhase
+    ) {
+      const optionalMatches = findLinearStatesByName(
         input.workflowStates,
         canonical.name,
       );
-      if (duplicateMatches.length === 1) {
-        const match = duplicateMatches[0];
+      if (optionalMatches.length === 1) {
+        const match = optionalMatches[0];
         if (categoriesMatch(match.category, canonical.category)) {
           resolvedStatuses[canonical.key] = match;
         } else {

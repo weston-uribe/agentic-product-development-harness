@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import {
   IMPLEMENTATION_PROMPT_VERSION,
   INTEGRATION_REPAIR_PROMPT_VERSION,
+  PLAN_REVIEW_PROMPT_VERSION,
   PLANNING_PROMPT_VERSION,
   REVISION_PROMPT_VERSION,
 } from "../config/defaults.js";
@@ -124,16 +125,32 @@ export const PROMPT_REGISTRY: PromptRegistryEntry[] = [
     },
   },
   {
-    phase: null,
-    templateFile: null,
+    phase: "plan_review",
+    templateFile: "plan-review.md",
     definition: {
       name: "p-dev.plan-review",
       role: "plan_reviewer",
-      contractVersion: "plan-review@0",
+      contractVersion: PLAN_REVIEW_PROMPT_VERSION,
       type: "text",
-      variableSchema: schema(["promptVersion", "issueKey"]),
+      variableSchema: schema(
+        [
+          ...COMMON_ISSUE_VARS,
+          "planGenerationId",
+          "planArtifactHash",
+          "plannerRunId",
+          "planPromptContractVersion",
+          "planWorkflowStateRevision",
+          "planBody",
+          "architectureContext",
+          "planningStandards",
+          "previousAcceptedFeedback",
+          "planReviewCycle",
+          "planReviewCycleLimit",
+        ],
+        ["targetRepo", "baseBranch"],
+      ),
       localTemplatePath: "src/prompts/plan-review.md",
-      implemented: false,
+      implemented: true,
     },
   },
   {

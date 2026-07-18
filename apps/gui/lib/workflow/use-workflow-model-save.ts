@@ -5,7 +5,7 @@ import type { RoleModelRole } from "@harness/config/role-models";
 import type { WorkflowModelSelection } from "@harness/workflow-page/types";
 import { saveWorkflowModel } from "@/lib/workflow/api-client";
 
-export type WorkflowModelPhaseKey = "planning" | "implementation";
+export type WorkflowModelPhaseKey = "planning" | "implementation" | "plan_review";
 
 export type ModelSaveState = "idle" | "saving" | "saved" | "error";
 
@@ -17,7 +17,9 @@ export type ModelSaveError = {
 const AUTOSAVE_DELAY_MS = 400;
 
 function phaseToRole(phaseKey: WorkflowModelPhaseKey): RoleModelRole {
-  return phaseKey === "planning" ? "planner" : "builder";
+  if (phaseKey === "planning") return "planner";
+  if (phaseKey === "plan_review") return "planReviewer";
+  return "builder";
 }
 
 export type WorkflowModelSaveContext = {
@@ -51,6 +53,7 @@ export function useWorkflowModelSave({
   >({
     planning: "idle",
     implementation: "idle",
+    plan_review: "idle",
   });
   const [saveErrors, setSaveErrors] = useState<
     Partial<Record<WorkflowModelPhaseKey, ModelSaveError>>
@@ -62,6 +65,7 @@ export function useWorkflowModelSave({
   const generationRef = useRef<Record<WorkflowModelPhaseKey, number>>({
     planning: 0,
     implementation: 0,
+    plan_review: 0,
   });
 
   fingerprintRef.current = context.configFingerprint;

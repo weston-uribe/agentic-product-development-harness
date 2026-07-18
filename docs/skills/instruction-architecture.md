@@ -16,7 +16,7 @@ Canonical decisions: [ADR 0006](../decisions/0006-agent-instruction-and-prompt-a
 | Code health audit | operator | N/A | operator invoke | N/A | `.agents/skills/code-health-audit/SKILL.md` | Operator | N/A | N/A | N/A | N/A | N/A |
 | Architecture evolution audit | operator | N/A | operator invoke | N/A | `.agents/skills/architecture-evolution-audit/SKILL.md` | Operator | N/A | N/A | N/A | N/A | N/A |
 | Security audit | operator | N/A | operator invoke | N/A | `.agents/skills/security-audit/SKILL.md` | Operator | N/A | N/A | N/A | N/A | N/A |
-| Plan reviewer (future) | reserved | slot `p-dev.plan-review` | not implemented | TBD | reserved | — | reserved | — | — | — | — |
+| Plan reviewer | `plan_review` | `src/prompts/plan-review.md` | builder + skill execution | `plan-reviewer` | `.agents/skills/plan-reviewer/SKILL.md` | **Rendered** | `plan-review@1` / `p-dev.plan-review` | issue fields, plan identity/hash/body, cycle limits, prior feedback | `roleModels.planReviewer` (defaults to planner) → Cursor `mode: plan` | prompt/skill provenance; phase `plan_review` | None |
 | Code reviewer (future) | reserved | slot `p-dev.code-review` | not implemented | TBD | reserved | — | reserved | — | — | — | — |
 | Handoff / merge | orchestration | version constants only | no agent prompt template | none | — | none | `handoff@1` / `merge@1` | — | — | partial metadata | — |
 
@@ -64,7 +64,7 @@ These must not be committed as production adapters in this chunk.
 
 ## Future extension points
 
-- `plan_reviewer` / `code_reviewer` prompt registry slots (`p-dev.plan-review`, `p-dev.code-review`) — not implemented.
+- `code_reviewer` prompt registry slot (`p-dev.code-review`) — not implemented. `plan_reviewer` is implemented (Chunk 5).
 - Post-evidence generated secondary layout from `.agents/skills` with parity tests.
 - Ephemeral cloud availability adapter that does not leave harness skill files in target PRs.
 

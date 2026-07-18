@@ -18,7 +18,8 @@ import {
   loadOrBootstrapWorkflowState,
   type WorkflowStateStore,
 } from "./store.js";
-import type { WorkflowStateRecord } from "./types.js";
+import type { PlanArtifactIdentity } from "../plan-artifact.js";
+import type { PhaseExecutionFreeze, WorkflowStateRecord } from "./types.js";
 
 export interface ApplyWorkflowTransitionInput {
   store: WorkflowStateStore;
@@ -33,6 +34,8 @@ export interface ApplyWorkflowTransitionInput {
   claimActiveRunId?: string;
   clearActiveRunId?: string;
   returnDestination?: string | null;
+  latestPlanArtifact?: PlanArtifactIdentity | null;
+  phaseExecutionFreeze?: PhaseExecutionFreeze | null;
   maxRetries?: number;
   now?: () => string;
 }
@@ -45,6 +48,23 @@ export interface ApplyWorkflowTransitionResult {
   attempts: number;
 }
 
+function normalizeWorkflowState(record: WorkflowStateRecord): WorkflowStateRecord {
+  return {
+    ...record,
+    enabledOptionalPhases: record.enabledOptionalPhases ?? {
+      planReview: false,
+      codeReview: false,
+    },
+    effectiveOptionalPhases: record.effectiveOptionalPhases ?? {
+      planReview: false,
+      codeReview: false,
+    },
+    latestPlanArtifact: record.latestPlanArtifact ?? null,
+    phaseExecutionFreeze: record.phaseExecutionFreeze ?? null,
+    supersededGenerationIdentities: record.supersededGenerationIdentities ?? [],
+  };
+}
+
 function buildNextState(input: {
   previous: WorkflowStateRecord;
   transition: TransitionResult;
@@ -54,9 +74,12 @@ function buildNextState(input: {
   claimActiveRunId?: string;
   clearActiveRunId?: string;
   returnDestination?: string | null;
+  latestPlanArtifact?: PlanArtifactIdentity | null;
+  phaseExecutionFreeze?: PhaseExecutionFreeze | null;
   now: string;
 }): WorkflowStateRecord {
-  const completed = [...input.previous.completedPhaseIdentities];
+  const previous = normalizeWorkflowState(input.previous);
+  const completed = [...previous.completedPhaseIdentities];
   if (
     input.transition.accepted &&
     (input.outcome.kind === "success" ||
@@ -70,7 +93,7 @@ function buildNextState(input: {
     }
   }
 
-  let activeRunIdentities = [...input.previous.activeRunIdentities];
+  let activeRunIdentities = [...previous.activeRunIdentities];
   if (input.claimActiveRunId) {
     activeRunIdentities = [input.claimActiveRunId];
   }
@@ -80,7 +103,7 @@ function buildNextState(input: {
     );
   }
 
-  let lastAccepted = input.previous.lastAcceptedReviewDecision;
+  let lastAccepted = previous.lastAcceptedReviewDecision;
   if (
     input.transition.accepted &&
     input.outcome.kind === "review" &&
@@ -91,29 +114,79 @@ function buildNextState(input: {
       decisionIdentity: input.outcome.review.decisionIdentity,
       phaseId: input.currentPhaseId,
       acceptedAt: input.now,
+      reviewedPlanGenerationId: input.outcome.review.reviewedPlanGenerationId,
+      reviewedPlanArtifactHash: input.outcome.review.reviewedPlanArtifactHash,
+      findings: input.outcome.review.findings.map((f) => ({
+        id: f.id,
+        severity: f.severity,
+        category: f.category,
+        evidence: f.evidence,
+        ...(f.requiredChange ? { requiredChange: f.requiredChange } : {}),
+      })),
     };
   }
 
+  let returnDestination =
+    input.returnDestination !== undefined
+      ? input.returnDestination
+      : previous.returnDestination;
+  if (input.returnDestination === undefined && input.transition.accepted) {
+    if (
+      input.outcome.kind === "review" &&
+      input.outcome.review?.decision === "needs_revision" &&
+      input.transition.reason === "review_needs_revision"
+    ) {
+      returnDestination = "plan_review";
+    } else if (
+      input.outcome.kind === "review" &&
+      (input.outcome.review?.decision === "approved" ||
+        input.transition.reason === "cycle_limit_reached")
+    ) {
+      returnDestination = null;
+    }
+  }
+
+  let superseded = [...previous.supersededGenerationIdentities];
+  let latestPlanArtifact = previous.latestPlanArtifact;
+  if (input.latestPlanArtifact !== undefined) {
+    if (
+      input.latestPlanArtifact &&
+      previous.latestPlanArtifact &&
+      previous.latestPlanArtifact.planGenerationId !==
+        input.latestPlanArtifact.planGenerationId
+    ) {
+      superseded.push(previous.latestPlanArtifact.planGenerationId);
+    }
+    latestPlanArtifact = input.latestPlanArtifact;
+  }
+
+  let phaseExecutionFreeze = previous.phaseExecutionFreeze;
+  if (input.phaseExecutionFreeze !== undefined) {
+    phaseExecutionFreeze = input.phaseExecutionFreeze;
+  } else if (input.claimActiveRunId && input.phaseExecutionFreeze === undefined) {
+    // keep previous unless explicitly cleared via null
+  }
+
   return {
-    ...input.previous,
-    stateRevision: input.previous.stateRevision + 1,
+    ...previous,
+    stateRevision: previous.stateRevision + 1,
     currentPhaseExecutionId:
       input.phaseExecutionId ??
-      (input.claimActiveRunId ?? input.previous.currentPhaseExecutionId),
+      (input.claimActiveRunId ?? previous.currentPhaseExecutionId),
     currentPhaseId: input.transition.nextPhaseId,
     cycleCounters: {
-      ...input.previous.cycleCounters,
+      ...previous.cycleCounters,
       ...input.transition.updatedCounters,
     },
     lastAcceptedReviewDecision: lastAccepted,
-    returnDestination:
-      input.returnDestination !== undefined
-        ? input.returnDestination
-        : input.previous.returnDestination,
+    returnDestination,
     activeRunIdentities,
     completedPhaseIdentities: completed,
+    supersededGenerationIdentities: superseded,
     lastTransitionIdentity: input.transition.idempotencyIdentity,
     lastTransitionAt: input.now,
+    latestPlanArtifact,
+    phaseExecutionFreeze,
   };
 }
 
@@ -136,7 +209,10 @@ export async function applyWorkflowTransition(
   while (attempts < maxRetries) {
     attempts += 1;
 
-    const persisted = await input.store.load(input.issueKey);
+    const persistedRaw = await input.store.load(input.issueKey);
+    const persisted = persistedRaw
+      ? normalizeWorkflowState(persistedRaw)
+      : null;
     const loaded =
       persisted ??
       (await loadOrBootstrapWorkflowState({
@@ -144,6 +220,14 @@ export async function applyWorkflowTransition(
         issueKey: input.issueKey,
         workflowSchemaVersion: input.definition.schemaVersion,
         enabledOptionalPhases: {
+          planReview:
+            input.definition.requestedOptionalPhases?.planReview ??
+            input.definition.enabledOptionalPhases.planReview,
+          codeReview:
+            input.definition.requestedOptionalPhases?.codeReview ??
+            input.definition.enabledOptionalPhases.codeReview,
+        },
+        effectiveOptionalPhases: {
           planReview: input.definition.enabledOptionalPhases.planReview,
           codeReview: input.definition.enabledOptionalPhases.codeReview,
         },
@@ -196,6 +280,15 @@ export async function applyWorkflowTransition(
       lastAcceptedDecisionIdentity:
         loaded.lastAcceptedReviewDecision?.decisionIdentity,
       activeRunId: loaded.activeRunIdentities[0],
+      latestPlanGenerationId:
+        input.evidence.latestPlanGenerationId ??
+        loaded.latestPlanArtifact?.planGenerationId,
+      latestPlanArtifactHash:
+        input.evidence.latestPlanArtifactHash ??
+        loaded.latestPlanArtifact?.planArtifactHash,
+      latestPlanWorkflowStateRevision:
+        input.evidence.latestPlanWorkflowStateRevision ??
+        loaded.latestPlanArtifact?.workflowStateRevision,
     };
 
     if (
@@ -264,6 +357,8 @@ export async function applyWorkflowTransition(
       claimActiveRunId: input.claimActiveRunId,
       clearActiveRunId: input.clearActiveRunId,
       returnDestination: input.returnDestination,
+      latestPlanArtifact: input.latestPlanArtifact,
+      phaseExecutionFreeze: input.phaseExecutionFreeze,
       now: now(),
     });
 

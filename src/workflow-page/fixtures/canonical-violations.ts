@@ -46,5 +46,5 @@ export const canonicalPlanReviewPresentFixture = withStatuses(
     ...basicCurrentWorkflowFixture.statuses,
     { id: "status-plan-review", name: "Plan Review", type: "started" },
   ],
-  ["Fixture includes deprecated Plan Review as an extra Linear status."],
+  ["Fixture includes optional Plan Review status when present in Linear."],
 );

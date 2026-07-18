@@ -783,6 +783,7 @@ export function buildPhaseStartCommentBody(
 
   const statusByPhase: Record<PhaseStartPhase, string> = {
     planning_start: "Planning has started.",
+    plan_review_start: "Plan Review has started.",
     implementation_start: "Build has started.",
     revision_start: "Revision has started.",
     merge_start: "Merging has started.",

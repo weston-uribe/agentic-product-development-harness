@@ -1,5 +1,6 @@
 export type RunPhase =
   | "planning"
+  | "plan_review"
   | "implementation"
   | "handoff"
   | "revision"
@@ -201,6 +202,8 @@ export type RunEventName =
   | "product_marker_loaded"
   | "product_marker_skipped"
   | "project_metadata_sync"
+  | "plan_review_setup_required"
+  | "plan_review_not_effective"
   | "run_finished";
 
 export interface RunEvent {

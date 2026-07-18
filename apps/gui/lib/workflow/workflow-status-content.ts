@@ -1,5 +1,6 @@
 import type { CanonicalStatusKey } from "@harness/workflow/canonical-product-development-workflow";
 import type { MergePathVariant } from "@harness/workflow/canonical-product-development-workflow";
+import type { PlanReviewReadinessView } from "@harness/workflow-page/types";
 
 export type WorkflowStatusField = {
   label: string;
@@ -13,6 +14,9 @@ export type WorkflowStatusContent = {
   showPlannerModel?: boolean;
   showBuilderModel?: boolean;
   showBuilderModelReference?: boolean;
+  showPlanReviewerModel?: boolean;
+  showOptionalPhaseControls?: boolean;
+  independentAgentNote?: string;
 };
 
 const NO_DESTINATION = "No automatic destination.";
@@ -104,6 +108,15 @@ export const WORKFLOW_STATUS_CONTENT: Record<CanonicalStatusKey, WorkflowStatusC
     fields: [success("Ready for Build"), failure()],
     showPlannerModel: true,
   },
+  "plan-review": {
+    description:
+      "An independent Plan Reviewer agent evaluates the plan before implementation begins.",
+    fields: [],
+    showPlanReviewerModel: true,
+    showOptionalPhaseControls: true,
+    independentAgentNote:
+      "Plan Review uses a separate agent role from Planning. It does not share the Planner session.",
+  },
   building: {
     description:
       "The Builder implements the work, validates it, and creates or updates the pull request.",
@@ -134,10 +147,66 @@ export function getMergingDestinations(
   };
 }
 
+export function resolvePlanReviewStatusContent(
+  readiness: PlanReviewReadinessView,
+): WorkflowStatusContent {
+  const base = WORKFLOW_STATUS_CONTENT["plan-review"];
+
+  if (readiness.uiState === "disabled") {
+    return {
+      ...base,
+      fields: [
+        {
+          label: "Effective route",
+          value: "Planning → Ready for Build (Plan Review bypassed)",
+        },
+      ],
+    };
+  }
+
+  if (readiness.uiState === "setup_required") {
+    return {
+      ...base,
+      fields: [
+        {
+          label: "Requested route",
+          value: "Planning → Plan Review → Ready for Build",
+        },
+        {
+          label: "Effective route",
+          value: "Planning → Ready for Build (setup incomplete — Plan Review bypassed)",
+        },
+        {
+          label: "Setup required",
+          value: readiness.missingRequirementMessages.join(" "),
+        },
+      ],
+    };
+  }
+
+  return {
+    ...base,
+    fields: [
+      { label: "Entry", value: "Planning → Plan Review" },
+      { label: "Approve", value: "Ready for Build" },
+      {
+        label: "Revise",
+        value: "Ready for Planning → Planning → Plan Review (up to max cycles)",
+      },
+      failure(),
+    ],
+  };
+}
+
 export function resolveStatusContent(
   statusKey: CanonicalStatusKey,
   mergePathVariant: MergePathVariant,
+  planReviewReadiness?: PlanReviewReadinessView,
 ): WorkflowStatusContent {
+  if (statusKey === "plan-review" && planReviewReadiness) {
+    return resolvePlanReviewStatusContent(planReviewReadiness);
+  }
+
   const base = WORKFLOW_STATUS_CONTENT[statusKey];
   if (statusKey === "merging") {
     return {

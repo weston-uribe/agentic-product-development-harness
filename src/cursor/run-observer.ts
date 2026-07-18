@@ -26,6 +26,7 @@ import {
 
 export type ObservePhase =
   | "planning"
+  | "plan_review"
   | "implementation"
   | "revision"
   | "integration_repair";

@@ -245,6 +245,65 @@ export type AnalyticsEvent =
       agentRole: string;
       skillInvocationMode: string;
       nativeCapabilityState: string;
+    }
+  | {
+      type: "p_dev_workflow_transition";
+      workflow_schema_version?: string;
+      workflow_phase_id?: string;
+      status_before?: string;
+      status_after?: string;
+      transition_reason?: string;
+      optional_phase_enabled?: boolean;
+      bypass_reason?: string;
+      cycle_name?: string;
+      cycle_count?: number;
+      cycle_limit?: number;
+      decision_type?: string;
+      reconciliation_source?: string;
+      workflow_state_revision?: number;
+    }
+  | {
+      type: "p_dev_phase_bypassed";
+      workflow_schema_version?: string;
+      workflow_phase_id?: string;
+      bypass_reason?: string;
+      optional_phase_enabled?: boolean;
+      status_after?: string;
+    }
+  | {
+      type: "p_dev_review_cycle_incremented";
+      workflow_schema_version?: string;
+      workflow_phase_id?: string;
+      cycle_name?: string;
+      cycle_count?: number;
+      cycle_limit?: number;
+      decision_type?: string;
+    }
+  | {
+      type: "p_dev_cycle_limit_reached";
+      workflow_schema_version?: string;
+      workflow_phase_id?: string;
+      cycle_name?: string;
+      cycle_count?: number;
+      cycle_limit?: number;
+      decision_type?: string;
+    }
+  | {
+      type: "p_dev_reconciliation_recovery";
+      workflow_schema_version?: string;
+      workflow_phase_id?: string;
+      reconciliation_source?: string;
+    }
+  | {
+      type: "p_dev_plan_review_readiness";
+      requested_enabled?: boolean;
+      effective_enabled?: boolean;
+      ui_state?: string;
+      missing_count?: number;
+      missing_codes?: string;
+      cycle_limit?: number;
+      workflow_schema_version?: string;
+      configuration_surface?: string;
     };
 
 export interface AllowedSentryContext {

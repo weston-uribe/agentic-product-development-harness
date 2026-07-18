@@ -46,6 +46,10 @@ export interface TransitionEvidence {
   completedPhaseIdentities?: readonly string[];
   supersededGenerationIds?: readonly string[];
   lastAcceptedDecisionIdentity?: string;
+  /** Latest immutable plan identity for Plan Review correlation. */
+  latestPlanGenerationId?: string;
+  latestPlanArtifactHash?: string;
+  latestPlanWorkflowStateRevision?: number;
 }
 
 export interface TransitionEngineInput {
@@ -365,6 +369,42 @@ function evaluateReviewTransition(
     evidence.supersededGenerationIds?.includes(review.generationId)
   ) {
     return reject(input, "stale_generation");
+  }
+
+  // Plan Review: verify harness plan identity (model claim is insufficient).
+  if (
+    current.id === "plan_review" &&
+    (review.reviewedPlanGenerationId || review.reviewedPlanArtifactHash)
+  ) {
+    if (
+      review.reviewedPlanGenerationId &&
+      evidence.supersededGenerationIds?.includes(
+        review.reviewedPlanGenerationId,
+      )
+    ) {
+      return reject(input, "superseded_plan");
+    }
+    if (
+      evidence.latestPlanGenerationId &&
+      review.reviewedPlanGenerationId &&
+      evidence.latestPlanGenerationId !== review.reviewedPlanGenerationId
+    ) {
+      return reject(input, "newer_plan_exists");
+    }
+    if (
+      evidence.latestPlanArtifactHash &&
+      review.reviewedPlanArtifactHash &&
+      evidence.latestPlanArtifactHash !== review.reviewedPlanArtifactHash
+    ) {
+      return reject(input, "plan_hash_mismatch");
+    }
+    if (
+      review.expectedStateRevision !== undefined &&
+      evidence.latestPlanWorkflowStateRevision !== undefined &&
+      review.expectedStateRevision < evidence.latestPlanWorkflowStateRevision
+    ) {
+      return reject(input, "stale_workflow_revision");
+    }
   }
 
   const decision = current.decisions?.find((d) => d.id === review.decision);

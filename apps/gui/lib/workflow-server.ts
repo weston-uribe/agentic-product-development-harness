@@ -33,6 +33,15 @@ import {
   saveFixtureRoleModel,
 } from "@harness/workflow-page/fixture-role-models";
 import {
+  applyFixtureOptionalPhasesToConfig,
+  saveFixtureOptionalPhases,
+} from "@harness/workflow-page/fixture-optional-phases";
+import {
+  saveWorkflowOptionalPhases as persistWorkflowOptionalPhases,
+  type WorkflowOptionalPhasesSaveRequest,
+  type WorkflowOptionalPhasesSaveResult,
+} from "@harness/setup/workflow-optional-phases-sync";
+import {
   isWorkflowCloudConfigSynchronized,
   readWorkflowModelsSyncEvidence,
 } from "@harness/setup/workflow-models-sync-evidence";
@@ -159,10 +168,13 @@ export async function loadWorkflowBootstrap(
     modelCatalog = fixture.modelCatalog;
     catalogLoadMetadata = { statusCatalog: "loaded", modelCatalog: "loaded" };
     linearStatuses = fixture.statuses;
-    const fixtureRoleModels = getFixtureRoleModels(
-      context.fixtureId,
-      context.scopeId ?? effectiveConfig.repos[0]?.id ?? "default",
-    );
+    const scopeId = context.scopeId ?? effectiveConfig.repos[0]?.id ?? "default";
+    effectiveConfig = applyFixtureOptionalPhasesToConfig({
+      fixtureId: context.fixtureId,
+      scopeId,
+      baseConfig: effectiveConfig,
+    });
+    const fixtureRoleModels = getFixtureRoleModels(context.fixtureId, scopeId);
     if (fixtureRoleModels) {
       effectiveConfig = { ...effectiveConfig, roleModels: fixtureRoleModels };
     }
@@ -315,6 +327,55 @@ export async function saveWorkflowModel(
     request: input,
     provider,
   }).then((outcome) => outcome.result);
+}
+
+export async function saveWorkflowOptionalPhases(
+  input: WorkflowOptionalPhasesSaveRequest & {
+    sourceMode: "live" | "fixture";
+    fixtureId?: string;
+    scopeId?: string;
+  },
+): Promise<WorkflowOptionalPhasesSaveResult> {
+  const cwd = resolveHarnessWorkspaceDir();
+  loadHarnessDotenv(cwd);
+
+  if (input.sourceMode === "fixture") {
+    if (!input.fixtureId || !input.scopeId) {
+      throw new WorkflowModelSyncError(
+        "workflow_model_validation_failed",
+        "Fixture saves require fixture and scope identifiers.",
+      );
+    }
+    const fixture = getFixtureDefinition(input.fixtureId as WorkflowFixtureId);
+    const saved = saveFixtureOptionalPhases({
+      fixtureId: input.fixtureId,
+      scopeId: input.scopeId,
+      baseConfig: fixture.config ?? FALLBACK_CONFIG,
+      planReviewEnabled: input.planReviewEnabled,
+      planReviewCycleLimit: input.planReviewCycleLimit,
+    });
+    return {
+      saved: true,
+      configFingerprint: saved.configFingerprint,
+      localConfigUpdated: true,
+      cloudConfigUpdated: true,
+      savedAt: new Date().toISOString(),
+    };
+  }
+
+  const githubToken = await loadSecretFromEnvLocal({
+    cwd,
+    key: "GITHUB_TOKEN",
+  });
+  const provider = githubToken
+    ? createLiveGitHubRemoteSetupProvider(githubToken)
+    : undefined;
+
+  return persistWorkflowOptionalPhases({
+    cwd,
+    request: input,
+    provider,
+  });
 }
 
 export { WorkflowModelSyncError };

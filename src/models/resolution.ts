@@ -200,6 +200,16 @@ function storedParamsForRole(
       storedParams: cloneParams(explicit.params),
     };
   }
+  // Plan Reviewer defaults to the current planner model when unset.
+  if (role === "planReviewer") {
+    const planner = config.roleModels?.planner;
+    if (planner?.id) {
+      return {
+        modelId: planner.id,
+        storedParams: cloneParams(planner.params),
+      };
+    }
+  }
   return {
     modelId: resolveLegacyModelId(config),
     // Legacy configs do not store params; omit so harness pin applies at resolve time.

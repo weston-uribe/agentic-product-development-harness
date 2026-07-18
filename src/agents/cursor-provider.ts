@@ -1,5 +1,6 @@
 import {
   createImplementationCloudAgent,
+  createPlanReviewCloudAgent,
   createPlanningCloudAgent,
   disposeCloudAgent,
 } from "../cursor/agent-factory.js";
@@ -86,6 +87,11 @@ export const cursorAgentProvider: AgentProvider = {
 
   async createPlanningAgent(params: PlanningAgentParams): Promise<AgentHandle> {
     const agent = await createPlanningCloudAgent(params);
+    return wrapCursorAgent(agent);
+  },
+
+  async createPlanReviewAgent(params: PlanningAgentParams): Promise<AgentHandle> {
+    const agent = await createPlanReviewCloudAgent(params);
     return wrapCursorAgent(agent);
   },
 

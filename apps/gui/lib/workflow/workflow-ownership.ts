@@ -11,6 +11,14 @@ export interface WorkflowOwnershipColumn {
   statuses: readonly CanonicalStatusKey[];
 }
 
+export interface WorkflowOptionalPhaseDefinition {
+  statusKey: CanonicalStatusKey;
+  /** Always render the card even when the phase is disabled in config. */
+  alwaysVisible: boolean;
+  /** Insert the optional card immediately after this canonical status. */
+  insertAfter: CanonicalStatusKey;
+}
+
 function ownerToColumn(owner: WorkflowOwner): WorkflowOwnershipColumnId {
   if (owner === "agent") return "agent";
   if (owner === "human" || owner === "terminal") return "human";
@@ -19,7 +27,7 @@ function ownerToColumn(owner: WorkflowOwner): WorkflowOwnershipColumnId {
 
 /**
  * Derive ownership columns from the shared workflow definition.
- * Optional review statuses are excluded until later chunks enable them.
+ * Optional review statuses are rendered separately via WORKFLOW_OPTIONAL_PHASES.
  */
 function statusesForColumn(
   column: WorkflowOwnershipColumnId,
@@ -37,6 +45,14 @@ function statusesForColumn(
   }
   return result;
 }
+
+export const WORKFLOW_OPTIONAL_PHASES: readonly WorkflowOptionalPhaseDefinition[] = [
+  {
+    statusKey: "plan-review",
+    alwaysVisible: true,
+    insertAfter: "planning",
+  },
+];
 
 export const WORKFLOW_OWNERSHIP_COLUMNS: readonly WorkflowOwnershipColumn[] = [
   {
@@ -58,3 +74,9 @@ export const WORKFLOW_OWNERSHIP_COLUMNS: readonly WorkflowOwnershipColumn[] = [
     statuses: statusesForColumn("agent"),
   },
 ] as const;
+
+export function optionalPhasesAfterStatus(
+  statusKey: CanonicalStatusKey,
+): readonly WorkflowOptionalPhaseDefinition[] {
+  return WORKFLOW_OPTIONAL_PHASES.filter((phase) => phase.insertAfter === statusKey);
+}
