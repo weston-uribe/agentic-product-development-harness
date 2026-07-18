@@ -40,6 +40,7 @@ function unwrapCursorAgent(handle: AgentHandle): CursorCloudAgent {
 function mapObservedRun(
   observed: Awaited<ReturnType<typeof cursorSendAndObserve>>,
 ): ObservedAgentRun {
+  const usage = observed.result?.usage;
   return {
     agentId: observed.agentId,
     runId: observed.runId,
@@ -47,6 +48,28 @@ function mapObservedRun(
     assistantText: observed.assistantText,
     gitResult: observed.gitResult,
     cancelOutcome: observed.cancelOutcome,
+    status: observed.result?.status,
+    durationMs: observed.result?.durationMs ?? null,
+    usage:
+      usage && typeof usage === "object"
+        ? {
+            inputTokens:
+              typeof (usage as { inputTokens?: unknown }).inputTokens ===
+              "number"
+                ? (usage as { inputTokens: number }).inputTokens
+                : undefined,
+            outputTokens:
+              typeof (usage as { outputTokens?: unknown }).outputTokens ===
+              "number"
+                ? (usage as { outputTokens: number }).outputTokens
+                : undefined,
+            totalTokens:
+              typeof (usage as { totalTokens?: unknown }).totalTokens ===
+              "number"
+                ? (usage as { totalTokens: number }).totalTokens
+                : undefined,
+          }
+        : null,
   };
 }
 

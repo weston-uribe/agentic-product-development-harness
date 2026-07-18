@@ -9,6 +9,7 @@ import { inferPhaseFromStatus } from "./phase-infer.js";
 import { loadHarnessConfig } from "../config/load-config.js";
 import { EXIT_CONFIG } from "../cli/exit-codes.js";
 import type { RunManifest } from "../types/run.js";
+import type { EvaluationRuntime } from "../evaluation/types.js";
 
 export function shouldContinueToImplementationAfterPlanning(
   manifest: RunManifest,
@@ -39,6 +40,7 @@ async function continueAfterImplementation(
     issueKey: options.issueKey,
     configPath: options.configPath,
     force: options.force,
+    evaluationRuntime: options.evaluationRuntime,
   });
   return {
     exitCode: handoffResult.exitCode,
@@ -57,6 +59,7 @@ export interface OrchestratorOptions {
   fixturePath?: string;
   phase?: RunPhaseArg;
   force?: boolean;
+  evaluationRuntime?: EvaluationRuntime;
 }
 
 export async function runOrchestrator(
@@ -119,6 +122,7 @@ export async function runOrchestrator(
         issueKey: options.issueKey,
         configPath: options.configPath,
         force: options.force,
+        evaluationRuntime: options.evaluationRuntime,
       });
       return continueAfterImplementation(options, implResult);
     }
@@ -134,6 +138,7 @@ export async function runOrchestrator(
       issueKey: options.issueKey,
       configPath: options.configPath,
       force: options.force,
+      evaluationRuntime: options.evaluationRuntime,
     });
     return continueAfterImplementation(options, result);
   }
@@ -143,6 +148,7 @@ export async function runOrchestrator(
       issueKey: options.issueKey,
       configPath: options.configPath,
       force: options.force,
+      evaluationRuntime: options.evaluationRuntime,
     });
     return {
       exitCode: result.exitCode,

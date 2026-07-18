@@ -65,11 +65,25 @@ import type {
 } from "../../types/run.js";
 import type { ParsedIssue } from "../../types/parsed-issue.js";
 import type { ResolvedTarget } from "../../resolver/target-repo.js";
+import type {
+  EvaluationRuntime,
+  NestedObservationHandle,
+  PhaseTraceHandle,
+} from "../../evaluation/types.js";
+import {
+  extractAllowlistedCursorUsage,
+} from "../../evaluation/capture-policy.js";
+import {
+  finishPhaseTrace,
+  safeStartPhaseTrace,
+  withEvaluationCorrelation,
+} from "../../evaluation/phase-helpers.js";
 
 export interface ImplementationPhaseOptions {
   issueKey: string;
   configPath: string;
   force?: boolean;
+  evaluationRuntime?: EvaluationRuntime;
 }
 
 export interface ImplementationPhaseResult {
@@ -111,10 +125,15 @@ async function writeFinalManifest(
   finalOutcome: FinalOutcome,
   errorClassification: ErrorClassification,
   cursorCleanup: CursorCancelOutcome | null = null,
+  phaseTrace: PhaseTraceHandle | null = null,
+  extraEvalMetadata?: Record<string, unknown>,
 ): Promise<ImplementationPhaseResult> {
+  const correlation = finishPhaseTrace(phaseTrace, manifest, extraEvalMetadata);
+  const finalManifest = withEvaluationCorrelation(manifest, correlation);
+
   if (runDirectory) {
-    await writeManifest(runDirectory, manifest);
-    await writeRunSummary(runDirectory, manifest, parsed, resolved, {
+    await writeManifest(runDirectory, finalManifest);
+    await writeRunSummary(runDirectory, finalManifest, parsed, resolved, {
       cursorCleanup,
     });
     await events?.log("run_finished", finalOutcome === "success" ? "info" : "error", {
@@ -139,7 +158,7 @@ async function writeFinalManifest(
         ? 2
         : 3;
 
-  return { manifest, runDirectory, exitCode };
+  return { manifest: finalManifest, runDirectory, exitCode };
 }
 
 export async function executeImplementationPhase(
@@ -154,7 +173,25 @@ export async function executeImplementationPhase(
     linearApiKey,
   });
 
+  let phaseTrace: PhaseTraceHandle | null = null;
+
   if (!preflight.success) {
+    phaseTrace = await safeStartPhaseTrace(options.evaluationRuntime, {
+      phase: "implementation",
+      issueKey: options.issueKey,
+      runId: preflight.runId,
+      metadata: {
+        resolutionSource: preflight.resolved?.resolutionSource ?? null,
+        baseBranch: preflight.resolved?.baseBranch ?? null,
+        repositoryConfigurationId: preflight.resolved?.repoConfigId ?? null,
+        linearStatusBefore: preflight.issue?.status ?? null,
+      },
+    });
+    const preflightObs = phaseTrace?.startChild("p-dev.preflight", "span");
+    preflightObs?.end({
+      finalOutcome: "failed",
+      errorClassification: preflight.errorClassification,
+    });
     const manifest: RunManifest = {
       runId: preflight.runId,
       issueKey: options.issueKey,
@@ -200,6 +237,8 @@ export async function executeImplementationPhase(
       preflight.events,
       "failed",
       preflight.errorClassification,
+      null,
+      phaseTrace,
     );
   }
 
@@ -216,6 +255,27 @@ export async function executeImplementationPhase(
     phaseInferredFromStatus,
     startedAt,
   } = preflight.context;
+
+  phaseTrace = await safeStartPhaseTrace(options.evaluationRuntime, {
+    phase: "implementation",
+    issueKey: options.issueKey,
+    runId,
+    metadata: {
+      resolutionSource: resolved.resolutionSource,
+      baseBranch: resolved.baseBranch,
+      repositoryConfigurationId: resolved.repoConfigId,
+      linearStatusBefore: issue.status,
+      promptContractVersion: IMPLEMENTATION_PROMPT_VERSION,
+      modelId: manifestModelEvidence(config, "builder").model,
+      modelRole: "builder",
+      modelParams: manifestModelEvidence(config, "builder").modelParams,
+    },
+  });
+  const preflightObs = phaseTrace?.startChild("p-dev.preflight", "span");
+  preflightObs?.end({
+    finalOutcome: "success",
+    resolutionSource: resolved.resolutionSource,
+  });
 
   const linearStatusBefore = issue.status;
   let linearStatusAfter = issue.status;
@@ -303,6 +363,8 @@ export async function executeImplementationPhase(
         events,
         finalOutcome,
         errorClassification,
+        null,
+        phaseTrace,
       );
     }
 
@@ -382,6 +444,8 @@ export async function executeImplementationPhase(
         events,
         finalOutcome,
         errorClassification,
+        null,
+        phaseTrace,
       );
     }
 
@@ -425,6 +489,12 @@ export async function executeImplementationPhase(
       from: linearStatusBefore,
       to: buildingStatus,
     });
+    phaseTrace
+      ?.startChild("p-dev.linear.status-transition", "event")
+      ?.end({
+        linearStatusBefore,
+        linearStatusAfter: buildingStatus,
+      });
 
     const repoConfig = config.repos.find((repo) => repo.id === resolved.repoConfigId);
     const validationCommands = repoConfig?.validation?.commands ?? [];
@@ -486,6 +556,8 @@ export async function executeImplementationPhase(
     }, timeoutMs);
 
     let observed;
+    const builderObs: NestedObservationHandle | undefined =
+      phaseTrace?.startChild("p-dev.cursor.builder", "agent");
     try {
       observed = await sendAndObserve(agent, prompt, runDirectory, events, {
         phase: "implementation",
@@ -535,7 +607,26 @@ export async function executeImplementationPhase(
           });
         },
       });
+      builderObs?.end({
+        modelId: model,
+        modelRole: "builder",
+        modelParams: builderModel.modelParams,
+        cursorAgentId: observed.agentId,
+        cursorRunId: observed.runId,
+        cursorRequestId: observed.requestId ?? null,
+        cursorStatus: observed.status ?? null,
+        cursorDurationMs: observed.durationMs ?? null,
+        builderThreadAction: builderEvidence.builderThreadAction,
+        builderThreadGeneration: builderEvidence.builderThreadGeneration,
+        builderReplacementReason: builderEvidence.builderThreadReplacementReason,
+        prCreated: Boolean(observed.gitResult?.prUrl),
+        ...extractAllowlistedCursorUsage(observed.usage ?? undefined),
+      });
     } catch (error) {
+      builderObs?.end({
+        cursorStatus: "error",
+        builderThreadAction: builderEvidence.builderThreadAction,
+      });
       if (abortController.signal.aborted && timeoutError) {
         throw timeoutError;
       }
@@ -588,6 +679,10 @@ export async function executeImplementationPhase(
         throw new ImplementationError("missing_pr_url", `Invalid PR URL: ${prUrl}`);
       }
       const github = new GitHubClient({ token: process.env.GITHUB_TOKEN });
+      const prValidationObs = phaseTrace?.startChild(
+        "p-dev.github.pr-validation",
+        "span",
+      );
       try {
         const inspection = await inspectPullRequest(
           github,
@@ -599,6 +694,10 @@ export async function executeImplementationPhase(
           actualBaseBranch: inspection.baseBranch,
           expectedBaseBranch: resolved.baseBranch,
         });
+        prValidationObs?.end({
+          prCreated: true,
+          baseBranch: resolved.baseBranch,
+        });
 
         const pollTimeout =
           config.preview?.pollTimeoutSeconds ?? DEFAULT_PREVIEW_POLL_TIMEOUT_SECONDS;
@@ -606,6 +705,7 @@ export async function executeImplementationPhase(
           config.preview?.pollIntervalSeconds ?? DEFAULT_PREVIEW_POLL_INTERVAL_SECONDS;
 
         if (shouldCaptureApplicationPreview(resolved.previewProvider)) {
+          const previewObs = phaseTrace?.startChild("p-dev.preview", "span");
           const previewResult = await pollForVercelPreview(
             async () => {
               const latest = await inspectPullRequest(github, parsedPr, resolved.targetRepo);
@@ -623,10 +723,18 @@ export async function executeImplementationPhase(
               source: previewResult.source,
               phase: "implementation",
             });
+            previewObs?.end({
+              previewConfigured: true,
+              previewAvailable: true,
+            });
           } else {
             await events.log("preview_not_found", "warn", {
               warnings: previewResult.warnings,
               phase: "implementation",
+            });
+            previewObs?.end({
+              previewConfigured: true,
+              previewAvailable: false,
             });
           }
         } else {
@@ -636,6 +744,10 @@ export async function executeImplementationPhase(
           });
         }
       } catch (error) {
+        prValidationObs?.end({
+          prCreated: Boolean(prUrl),
+          finalOutcome: "failed",
+        });
         const message = error instanceof Error ? error.message : String(error);
         if (message.startsWith("wrong_pr_base_branch")) {
           throw new ImplementationError("wrong_pr_base_branch", message);
@@ -653,6 +765,12 @@ export async function executeImplementationPhase(
       from: buildingStatus,
       to: prOpenStatus,
     });
+    phaseTrace
+      ?.startChild("p-dev.linear.status-transition", "event")
+      ?.end({
+        linearStatusBefore: buildingStatus,
+        linearStatusAfter: prOpenStatus,
+      });
 
     const afterIssue = await fetchLinearIssue(options.issueKey, linearApiKey);
     await writeFile(
@@ -759,5 +877,18 @@ export async function executeImplementationPhase(
     finalOutcome,
     errorClassification,
     cursorCleanup,
+    phaseTrace,
+    {
+      totalPhaseDurationMs: Date.now() - startedAt.getTime(),
+      modelId: model,
+      modelRole: "builder",
+      modelParams: builderModel.modelParams,
+      cursorAgentId,
+      cursorRunId,
+      cursorRequestId,
+      builderThreadAction: builderContinuity?.action ?? null,
+      builderThreadGeneration: builderContinuity?.reference.generation ?? null,
+      previewConfigured: shouldCaptureApplicationPreview(resolved.previewProvider),
+    },
   );
 }

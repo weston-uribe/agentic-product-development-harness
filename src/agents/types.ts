@@ -30,6 +30,14 @@ export interface ObservedAgentRun {
   assistantText: string;
   gitResult: CapturedGitResult | null;
   cancelOutcome: CursorCancelOutcome | null;
+  /** Allowlisted Cursor completion fields for evaluation (optional). */
+  status?: string;
+  durationMs?: number | null;
+  usage?: {
+    inputTokens?: number;
+    outputTokens?: number;
+    totalTokens?: number;
+  } | null;
 }
 
 export interface AgentHandle {

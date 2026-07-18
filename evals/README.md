@@ -2,21 +2,33 @@
 
 Human-readable readiness rubrics and eval contracts for the agentic product development harness.
 
-## v0.1 approach
+## Manual scorecards (v0.1 — current)
 
 Evals start as **manual scorecards**, not automated test suites. Use [`templates/eval-scorecard.md`](../templates/eval-scorecard.md) to record pass / partial / fail / N-A per criterion with evidence and human sign-off.
+
+## Online trace foundation (Milestone 1 — maintainer-only)
+
+PDev can optionally emit privacy-safe Langfuse traces for implementation and handoff runs. This is **trace infrastructure only**, not automated quality evaluation or release gates.
+
+- Maintainer docs: [`docs/evaluation/langfuse-milestone-1.md`](../docs/evaluation/langfuse-milestone-1.md)
+- Validation levels: [`docs/validation-levels.md`](../docs/validation-levels.md)
+- Enabled only via env vars in the managed private harness; disabled by default
 
 ## Why manual first
 
 Automated evals are only useful when the criteria are stable. v0.1 runs against real issues (starting with the target repo) will reveal which criteria repeat and which are one-offs.
 
-## Future direction (planned)
+## Future direction (planned / deferred)
 
-| Phase | Eval capability |
-|-------|-----------------|
-| v0.1 | Manual rubrics in markdown |
-| v0.3 eval contract | **Deferred** — manual rubrics remain; see [`docs/releases/v0.3.0.md`](../docs/releases/v0.3.0.md) |
-| Later | Optional automated checks (lint, tests, preview smoke) tied to scorecard rows |
+| Capability | Status |
+|---|---|
+| Manual rubrics in markdown | Implemented |
+| Online Langfuse traces (implementation/handoff, metadata-v1) | Milestone 1 (maintainer-only) |
+| Scores / score configs | Deferred |
+| LLM judges / human annotation queues | Deferred |
+| Datasets / offline experiments / benchmark runners | Deferred |
+| Release gates tied to eval scores | Deferred |
+| Full issue/prompt/response capture | Deferred |
 
 ## What belongs here
 
@@ -26,6 +38,6 @@ Automated evals are only useful when the criteria are stable. v0.1 runs against 
 
 ## What does not belong here yet
 
-- CI scripts or test runners
+- CI scripts that grade quality from Langfuse
 - Auto-grading agents
-- Production gate enforcement
+- Production gate enforcement from eval scores
