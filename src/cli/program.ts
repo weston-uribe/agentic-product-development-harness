@@ -14,6 +14,16 @@ import { runDiagnoseVercelBridgeCommand } from "./commands/diagnose-vercel-bridg
 import { runOperatorInit } from "./commands/operator-init.js";
 import { runCanaryRunnerConfigCommand } from "./commands/canary-runner-config.js";
 import { runSyncManagedRunnerCommand } from "./commands/sync-managed-runner.js";
+import {
+  runEvalAnnotate,
+  runEvalAnnotationBundle,
+  runEvalAnnotationCoverage,
+  runEvalAnnotationExport,
+  runEvalAnnotationValidate,
+  runEvalDatasetReadiness,
+  runEvalSubjects,
+  runEvalSubjectsList,
+} from "./commands/eval.js";
 
 export function createProgram(): Command {
   const program = new Command();
@@ -242,6 +252,219 @@ export function createProgram(): Command {
       const exitCode = await runOperatorInit({ force: opts.force ?? false });
       process.exitCode = exitCode;
     });
+
+  const evalCmd = program
+    .command("eval")
+    .description("Offline evaluation subjects, rubrics, and human annotations");
+
+  evalCmd
+    .command("subjects")
+    .description("Extract evaluation subjects from local run evidence")
+    .requiredOption("--issue <key>", "Linear issue key")
+    .option("--run <path>", "Limit extraction to one run directory")
+    .option("--log-directory <path>", "Override harness logDirectory")
+    .option("--namespace <namespace>", "Evaluation namespace")
+    .option("--json", "Print JSON", false)
+    .action(
+      async (opts: {
+        issue: string;
+        run?: string;
+        logDirectory?: string;
+        namespace?: string;
+        json?: boolean;
+      }) => {
+        const configPath = program.opts<{ config: string }>().config;
+        process.exitCode = await runEvalSubjects({
+          configPath,
+          issueKey: opts.issue,
+          runDirectory: opts.run,
+          logDirectory: opts.logDirectory,
+          namespace: opts.namespace,
+          json: opts.json === true,
+        });
+      },
+    );
+
+  evalCmd
+    .command("subjects-list")
+    .description("List annotation-eligible evaluation subjects")
+    .requiredOption("--issue <key>", "Linear issue key")
+    .option("--log-directory <path>", "Override harness logDirectory")
+    .option("--namespace <namespace>", "Evaluation namespace")
+    .option("--json", "Print JSON", false)
+    .action(
+      async (opts: {
+        issue: string;
+        logDirectory?: string;
+        namespace?: string;
+        json?: boolean;
+      }) => {
+        const configPath = program.opts<{ config: string }>().config;
+        process.exitCode = await runEvalSubjectsList({
+          configPath,
+          issueKey: opts.issue,
+          logDirectory: opts.logDirectory,
+          namespace: opts.namespace,
+          json: opts.json === true,
+        });
+      },
+    );
+
+  evalCmd
+    .command("annotation-bundle")
+    .description("Generate a disposable human annotation review bundle")
+    .requiredOption("--issue <key>", "Linear issue key")
+    .requiredOption("--subject <id>", "evaluationSubjectId")
+    .option("--run <path>", "Run directory for optional evidence previews")
+    .option("--include-previews", "Include bounded evidence previews", false)
+    .option("--log-directory <path>", "Override harness logDirectory")
+    .option("--json", "Print JSON", false)
+    .action(
+      async (opts: {
+        issue: string;
+        subject: string;
+        run?: string;
+        includePreviews?: boolean;
+        logDirectory?: string;
+        json?: boolean;
+      }) => {
+        const configPath = program.opts<{ config: string }>().config;
+        process.exitCode = await runEvalAnnotationBundle({
+          configPath,
+          issueKey: opts.issue,
+          subjectId: opts.subject,
+          runDirectory: opts.run,
+          includePreviews: opts.includePreviews === true,
+          logDirectory: opts.logDirectory,
+          json: opts.json === true,
+        });
+      },
+    );
+
+  evalCmd
+    .command("annotate")
+    .description("Append a human annotation from a JSON input file")
+    .requiredOption("--issue <key>", "Linear issue key")
+    .requiredOption("--input <path>", "Annotation input JSON file")
+    .option("--log-directory <path>", "Override harness logDirectory")
+    .option("--json", "Print JSON", false)
+    .action(
+      async (opts: {
+        issue: string;
+        input: string;
+        logDirectory?: string;
+        json?: boolean;
+      }) => {
+        const configPath = program.opts<{ config: string }>().config;
+        process.exitCode = await runEvalAnnotate({
+          configPath,
+          issueKey: opts.issue,
+          inputPath: opts.input,
+          logDirectory: opts.logDirectory,
+          json: opts.json === true,
+        });
+      },
+    );
+
+  evalCmd
+    .command("annotation-validate")
+    .description("Validate the local annotations store")
+    .requiredOption("--issue <key>", "Linear issue key")
+    .option("--log-directory <path>", "Override harness logDirectory")
+    .option("--json", "Print JSON", false)
+    .action(
+      async (opts: {
+        issue: string;
+        logDirectory?: string;
+        json?: boolean;
+      }) => {
+        const configPath = program.opts<{ config: string }>().config;
+        process.exitCode = await runEvalAnnotationValidate({
+          configPath,
+          issueKey: opts.issue,
+          logDirectory: opts.logDirectory,
+          json: opts.json === true,
+        });
+      },
+    );
+
+  evalCmd
+    .command("annotation-coverage")
+    .description("Compute annotation coverage artifact")
+    .requiredOption("--issue <key>", "Linear issue key")
+    .option("--log-directory <path>", "Override harness logDirectory")
+    .option("--namespace <namespace>", "Evaluation namespace")
+    .option("--json", "Print JSON", false)
+    .action(
+      async (opts: {
+        issue: string;
+        logDirectory?: string;
+        namespace?: string;
+        json?: boolean;
+      }) => {
+        const configPath = program.opts<{ config: string }>().config;
+        process.exitCode = await runEvalAnnotationCoverage({
+          configPath,
+          issueKey: opts.issue,
+          logDirectory: opts.logDirectory,
+          namespace: opts.namespace,
+          json: opts.json === true,
+        });
+      },
+    );
+
+  evalCmd
+    .command("dataset-readiness")
+    .description("Derive dataset-readiness.json from subjects and annotations")
+    .requiredOption("--issue <key>", "Linear issue key")
+    .option("--log-directory <path>", "Override harness logDirectory")
+    .option("--namespace <namespace>", "Evaluation namespace")
+    .option("--json", "Print JSON", false)
+    .action(
+      async (opts: {
+        issue: string;
+        logDirectory?: string;
+        namespace?: string;
+        json?: boolean;
+      }) => {
+        const configPath = program.opts<{ config: string }>().config;
+        process.exitCode = await runEvalDatasetReadiness({
+          configPath,
+          issueKey: opts.issue,
+          logDirectory: opts.logDirectory,
+          namespace: opts.namespace,
+          json: opts.json === true,
+        });
+      },
+    );
+
+  evalCmd
+    .command("annotation-export")
+    .description("Export submitted annotations for later Langfuse import")
+    .requiredOption("--issue <key>", "Linear issue key")
+    .option("--output <path>", "Output JSON path")
+    .option("--log-directory <path>", "Override harness logDirectory")
+    .option("--namespace <namespace>", "Evaluation namespace")
+    .option("--json", "Print JSON", false)
+    .action(
+      async (opts: {
+        issue: string;
+        output?: string;
+        logDirectory?: string;
+        namespace?: string;
+        json?: boolean;
+      }) => {
+        const configPath = program.opts<{ config: string }>().config;
+        process.exitCode = await runEvalAnnotationExport({
+          configPath,
+          issueKey: opts.issue,
+          outputPath: opts.output,
+          logDirectory: opts.logDirectory,
+          namespace: opts.namespace,
+          json: opts.json === true,
+        });
+      },
+    );
 
   return program;
 }
