@@ -178,8 +178,10 @@ module.exports = async function handler(req, res) {
       linearDeliveryId: getHeader(req, "linear-delivery"),
       linearWebhookId: getHeader(req, "linear-webhook-id"),
       receivedAt: new Date().toISOString(),
-      triggerKind: triggerKind,
-      commentId: commentId,
+      meta: {
+        triggerKind: triggerKind,
+        commentId: commentId,
+      },
     });
   } catch {
     return json(res, 500, { error: "dispatch_failed" });

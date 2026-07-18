@@ -188,8 +188,10 @@ export async function handleLinearWebhook(
       linearDeliveryId: parsed.linearDeliveryId,
       linearWebhookId: parsed.linearWebhookId,
       receivedAt: new Date(options.nowMs ?? Date.now()).toISOString(),
-      triggerKind: "comment_create",
-      commentId: parsed.commentId,
+      meta: {
+        triggerKind: "comment_create",
+        commentId: parsed.commentId,
+      },
     };
   } else {
     const parsed = parseLinearIssueEvent(payload, headers, teamKey);
@@ -244,7 +246,9 @@ export async function handleLinearWebhook(
       linearDeliveryId: parsed.linearDeliveryId,
       linearWebhookId: parsed.linearWebhookId,
       receivedAt: new Date(options.nowMs ?? Date.now()).toISOString(),
-      triggerKind: "issue_status",
+      meta: {
+        triggerKind: "issue_status",
+      },
     };
   }
 

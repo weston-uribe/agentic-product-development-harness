@@ -68,9 +68,14 @@ export interface RepositoryDispatchPayload {
   linearDeliveryId: string | null;
   linearWebhookId: string | null;
   receivedAt: string;
-  triggerKind?: "issue_status" | "comment_create";
-  commentId?: string | null;
-  pmFeedbackCommentId?: string | null;
+  /**
+   * Nested so the top-level client_payload stays within GitHub's 10-property limit.
+   */
+  meta?: {
+    triggerKind?: "issue_status" | "comment_create";
+    commentId?: string | null;
+    pmFeedbackCommentId?: string | null;
+  };
 }
 
 export interface ProductionPromotedDispatchPayload {

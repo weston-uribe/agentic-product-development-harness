@@ -89,8 +89,10 @@ export async function runReconcileRevisionCommand(
             linearDeliveryId: null,
             linearWebhookId: null,
             receivedAt: new Date().toISOString(),
-            triggerKind: "issue_status",
-            pmFeedbackCommentId: reconcile.pmFeedbackCommentId,
+            meta: {
+              triggerKind: "issue_status",
+              pmFeedbackCommentId: reconcile.pmFeedbackCommentId,
+            },
           },
         });
         result.dispatched = true;
