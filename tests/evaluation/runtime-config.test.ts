@@ -89,6 +89,19 @@ describe("evaluation runtime configuration", () => {
     expect(warn).toHaveBeenCalled();
   });
 
+  it("accepts content-v1 capture profile for Langfuse projection", () => {
+    const resolved = resolveEvaluationConfig({
+      P_DEV_EVALUATION_PROVIDER: "langfuse",
+      P_DEV_EVALUATION_CAPTURE_PROFILE: "content-v1",
+      LANGFUSE_PUBLIC_KEY: "pk",
+      LANGFUSE_SECRET_KEY: "sk",
+    });
+    expect(resolved.ok).toBe(true);
+    if (resolved.ok) {
+      expect(resolved.config.captureProfile).toBe("content-v1");
+    }
+  });
+
   it("createNoopRuntime never enables tracing", async () => {
     const runtime = createNoopRuntime();
     expect(runtime.enabled).toBe(false);
