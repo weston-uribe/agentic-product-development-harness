@@ -5,6 +5,14 @@ import type {
   BuilderThreadResolution,
   BuilderThreadSourcePhase,
 } from "../runner/builder-thread-types.js";
+import type {
+  AgentCostRecord,
+  AgentTelemetryCompleteness,
+  AgentTelemetryEventCounts,
+  ArtifactRef,
+  OnTelemetryEvent,
+  TelemetryCorrelationContext,
+} from "../evaluation/telemetry/types.js";
 
 export type AgentObservePhase =
   | "planning"
@@ -23,6 +31,16 @@ export interface CapturedGitResult {
   prUrl: string;
 }
 
+export interface ObservedAgentUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  reasoningTokens?: number;
+  cost: AgentCostRecord;
+}
+
 export interface ObservedAgentRun {
   agentId: string;
   runId: string;
@@ -33,11 +51,13 @@ export interface ObservedAgentRun {
   /** Allowlisted Cursor completion fields for evaluation (optional). */
   status?: string;
   durationMs?: number | null;
-  usage?: {
-    inputTokens?: number;
-    outputTokens?: number;
-    totalTokens?: number;
-  } | null;
+  /** Actual model returned by Cursor when present. */
+  model?: { id: string; params?: Array<{ id: string; value: string }> } | null;
+  usage?: ObservedAgentUsage | null;
+  /** References to local artifacts (prompt/output/run-result) — not event bodies. */
+  artifactRefs?: ArtifactRef[];
+  eventCounts?: AgentTelemetryEventCounts;
+  completeness?: AgentTelemetryCompleteness;
 }
 
 export interface AgentHandle {
@@ -81,6 +101,11 @@ export interface SendAndObserveOptions {
   idempotencyKey?: string;
   onAgentCreated?: (details: { agentId: string; runId: string }) => Promise<void>;
   onBeforeSend?: (details: { agentId: string }) => Promise<void>;
+  /** Provider-neutral streaming telemetry callback (local JSONL + Langfuse). */
+  onTelemetryEvent?: OnTelemetryEvent;
+  /** Correlation context for canonical telemetry (required for JSONL capture). */
+  telemetryCorrelation?: TelemetryCorrelationContext;
+  revisionRequiresPmFeedback?: boolean;
 }
 
 export interface AcquireBuilderAgentParams {

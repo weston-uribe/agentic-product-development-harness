@@ -6,6 +6,7 @@ import {
 import { resolveModelId as cursorResolveModelId } from "../cursor/model.js";
 import { sendAndObserve as cursorSendAndObserve } from "../cursor/run-observer.js";
 import { acquireBuilderAgent as acquireBuilderAgentImpl } from "../runner/builder-thread-acquire.js";
+import { unavailableCost, buildUsageRecord } from "../evaluation/telemetry/cost.js";
 import type {
   AcquiredBuilderAgent,
   AcquireBuilderAgentParams,
@@ -40,7 +41,9 @@ function unwrapCursorAgent(handle: AgentHandle): CursorCloudAgent {
 function mapObservedRun(
   observed: Awaited<ReturnType<typeof cursorSendAndObserve>>,
 ): ObservedAgentRun {
-  const usage = observed.result?.usage;
+  const usageRaw = observed.result?.usage;
+  const usage = buildUsageRecord(usageRaw);
+  const model = observed.result?.model;
   return {
     agentId: observed.agentId,
     runId: observed.runId,
@@ -50,26 +53,22 @@ function mapObservedRun(
     cancelOutcome: observed.cancelOutcome,
     status: observed.result?.status,
     durationMs: observed.result?.durationMs ?? null,
-    usage:
-      usage && typeof usage === "object"
+    model:
+      model && typeof model.id === "string"
         ? {
-            inputTokens:
-              typeof (usage as { inputTokens?: unknown }).inputTokens ===
-              "number"
-                ? (usage as { inputTokens: number }).inputTokens
-                : undefined,
-            outputTokens:
-              typeof (usage as { outputTokens?: unknown }).outputTokens ===
-              "number"
-                ? (usage as { outputTokens: number }).outputTokens
-                : undefined,
-            totalTokens:
-              typeof (usage as { totalTokens?: unknown }).totalTokens ===
-              "number"
-                ? (usage as { totalTokens: number }).totalTokens
-                : undefined,
+            id: model.id,
+            params: Array.isArray(model.params)
+              ? model.params.map((p) => ({
+                  id: String(p.id),
+                  value: String(p.value),
+                }))
+              : undefined,
           }
         : null,
+    usage: usage ?? { cost: unavailableCost() },
+    artifactRefs: observed.artifactRefs,
+    eventCounts: observed.eventCounts,
+    completeness: observed.completeness,
   };
 }
 
