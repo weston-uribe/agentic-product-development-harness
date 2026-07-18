@@ -12,6 +12,10 @@ export function getManifestPath(runDirectory: string): string {
   return path.join(runDirectory, "manifest.json");
 }
 
+export function getRuntimeProvenancePath(runDirectory: string): string {
+  return path.join(runDirectory, "evaluation", "runtime-provenance.json");
+}
+
 export function getEventsPath(runDirectory: string): string {
   return path.join(runDirectory, "events.jsonl");
 }

@@ -73,6 +73,22 @@ async function writeRun(params: {
       "utf8",
     );
   }
+  await mkdir(path.join(runDirectory, "evaluation"), { recursive: true });
+  await writeFile(
+    path.join(runDirectory, "evaluation", "runtime-provenance.json"),
+    `${JSON.stringify(
+      {
+        harnessSourceCommit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        managedRunnerCommit: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        provenanceSchemaVersion: "runtime-provenance-v1",
+        capturedAt: "2026-07-18T00:00:00.000Z",
+        provenanceSource: "local_environment",
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
   return runDirectory;
 }
 

@@ -37,6 +37,7 @@ import type {
 } from "./types.js";
 import { SUBJECT_EXTRACTION_POLICY_VERSION } from "./types.js";
 import { writeSubjectsIdempotent } from "./writer.js";
+import { readRuntimeProvenance } from "../runtime-provenance.js";
 
 const EVALUABLE_MANIFEST_PHASES = new Set<RunPhase>([
   "planning",
@@ -405,10 +406,8 @@ export async function extractEvaluationSubjects(
   const revisionRunsMissingFeedbackIdentity: string[] = [];
   const runsSkipped: Array<{ runDirectory: string; reason: string }> = [];
   const subjectsEmittedByType = emptyCounts();
-
-  const release =
-    process.env.LANGFUSE_RELEASE ?? process.env.GITHUB_SHA ?? null;
-  const commit = process.env.GITHUB_SHA ?? null;
+  let sessionHarnessSourceCommit: string | null = null;
+  let sessionHarnessRelease: string | null = null;
 
   for (const runDirectory of runDirectories) {
     let manifest: RunManifest;
@@ -476,6 +475,25 @@ export async function extractEvaluationSubjects(
     const privacy = privacyFromManifest(manifest);
     const createdAt = manifest.finishedAt || manifest.startedAt || computedAt;
 
+    const runtimeProvenance = await readRuntimeProvenance(runDirectory);
+    if (!runtimeProvenance) {
+      runsSkipped.push({
+        runDirectory,
+        reason: "runtime_provenance_missing",
+      });
+      continue;
+    }
+
+    const sourceHarnessCommit = runtimeProvenance.harnessSourceCommit;
+    const sourceHarnessRelease =
+      runtimeProvenance.harnessSourceCommit ??
+      runtimeProvenance.managedRunnerCommit;
+
+    if (sessionHarnessSourceCommit === null && sourceHarnessCommit) {
+      sessionHarnessSourceCommit = sourceHarnessCommit;
+      sessionHarnessRelease = sourceHarnessRelease;
+    }
+
     subjects.push({
       evaluationSubjectId: derivePhaseExecutionSubjectId(phaseExecutionId),
       subjectType: "phase_execution",
@@ -495,8 +513,8 @@ export async function extractEvaluationSubjects(
         telemetryCompletenessSummary: completeness,
         privacyStatusAtCapture: privacy,
         createdAt,
-        sourceHarnessRelease: release,
-        sourceHarnessCommit: commit,
+        sourceHarnessRelease,
+        sourceHarnessCommit,
         promptContractVersion: manifest.promptVersion,
         modelId: manifest.model,
       }),
@@ -539,8 +557,8 @@ export async function extractEvaluationSubjects(
           telemetryCompletenessSummary: completeness,
           privacyStatusAtCapture: privacy,
           createdAt,
-          sourceHarnessRelease: release,
-          sourceHarnessCommit: commit,
+          sourceHarnessRelease,
+          sourceHarnessCommit,
           promptContractVersion: manifest.promptVersion,
           modelId: manifest.model,
         }),
@@ -574,8 +592,8 @@ export async function extractEvaluationSubjects(
             telemetryCompletenessSummary: completeness,
             privacyStatusAtCapture: privacy,
             createdAt,
-            sourceHarnessRelease: release,
-            sourceHarnessCommit: commit,
+            sourceHarnessRelease,
+            sourceHarnessCommit,
             promptContractVersion: manifest.promptVersion,
             modelId: manifest.model,
           }),
@@ -623,8 +641,8 @@ export async function extractEvaluationSubjects(
           telemetryCompletenessSummary: completeness,
           privacyStatusAtCapture: privacy,
           createdAt,
-          sourceHarnessRelease: release,
-          sourceHarnessCommit: commit,
+          sourceHarnessRelease,
+          sourceHarnessCommit,
           promptContractVersion: manifest.promptVersion,
           modelId: manifest.model,
         }),
@@ -667,8 +685,8 @@ export async function extractEvaluationSubjects(
           telemetryCompletenessSummary: null,
           privacyStatusAtCapture: privacy,
           createdAt: event.timestamp || createdAt,
-          sourceHarnessRelease: release,
-          sourceHarnessCommit: commit,
+          sourceHarnessRelease,
+          sourceHarnessCommit,
           promptContractVersion: manifest.promptVersion,
           modelId: manifest.model,
         }),
@@ -696,8 +714,8 @@ export async function extractEvaluationSubjects(
       telemetryCompletenessSummary: null,
       privacyStatusAtCapture: "local_only",
       createdAt: computedAt,
-      sourceHarnessRelease: release,
-      sourceHarnessCommit: commit,
+      sourceHarnessRelease: sessionHarnessRelease,
+      sourceHarnessCommit: sessionHarnessSourceCommit,
       promptContractVersion: null,
       modelId: null,
     }),

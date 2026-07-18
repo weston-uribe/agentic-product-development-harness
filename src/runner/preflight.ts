@@ -43,6 +43,7 @@ import type { ParsedIssue } from "../types/parsed-issue.js";
 import type { LinearIssueSnapshot } from "../linear/client.js";
 import { acknowledgeIssueReceived } from "../linear/run-status-comment.js";
 import { createLinearClient } from "../linear/writer.js";
+import { captureRuntimeProvenanceAtRunStart } from "../evaluation/runtime-provenance.js";
 
 export interface PreflightOptions {
   issueKey: string;
@@ -136,6 +137,9 @@ export async function runPreflight(
     events = new EventLogger(runDirectory);
     await events.init();
     await mkdir(runDirectory, { recursive: true });
+    await captureRuntimeProvenanceAtRunStart(runDirectory, {
+      workspaceRoot,
+    });
 
     const executionEnvironment = logExecutionEnvironmentMarker();
 

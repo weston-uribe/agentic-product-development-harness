@@ -29,6 +29,19 @@ Telemetry events **reference** artifacts (`artifactKind`, `artifactPath`,
 
 Controlled by `P_DEV_EVALUATION_CAPTURE_PROFILE`. Profile does **not** gate local retention.
 
+## Runtime provenance (dual-commit, Strategy A)
+
+Each phase run captures immutable `evaluation/runtime-provenance.json` at run start:
+
+| Field | Meaning |
+|-------|---------|
+| `harnessSourceCommit` | Harness source evaluated (`createdFromPackageSnapshot.sourceCommit`) |
+| `managedRunnerCommit` | Managed-repository checkout SHA (`GITHUB_SHA`) |
+| `harnessReleaseSha` (metadata) | Retains managed-repo SHA semantics for historical traces |
+| `LANGFUSE_RELEASE` | Set to `harnessSourceCommit` in managed workflows |
+
+Subject extraction reads the captured artifact only — never the live managed marker.
+
 ## Correlation (canonical)
 
 Required on every event: `evaluationSessionId`, `harnessRunId`,

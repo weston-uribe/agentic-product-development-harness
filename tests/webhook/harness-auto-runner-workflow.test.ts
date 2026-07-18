@@ -146,11 +146,22 @@ function assertHarnessWorkflowContracts(workflow: string, label: string): void {
       expect(runHarness).toContain("LANGFUSE_SECRET_KEY");
       expect(runMerge).toContain("P_DEV_EVALUATION_PROVIDER");
       expect(runMerge).toContain("LANGFUSE_SECRET_KEY");
-      expect(runMerge).toContain("LANGFUSE_RELEASE");
 
       expect(gate).not.toContain("LANGFUSE_SECRET_KEY");
       expect(syncSection).not.toContain("LANGFUSE_SECRET_KEY");
       expect(syncSection).not.toContain("P_DEV_EVALUATION_PROVIDER");
+    });
+
+    it("resolves dual-commit provenance before harness jobs via GITHUB_ENV", () => {
+      const runHarness = extractJobSection(workflow, "run-harness");
+      const runMerge = extractJobSection(workflow, "run-merge");
+      for (const section of [runHarness, runMerge]) {
+        expect(section).toContain("Resolve runtime provenance");
+        expect(section).toContain("write-github-provenance-env.ts");
+        expect(section).not.toMatch(
+          /^\s+LANGFUSE_RELEASE:\s*\$\{\{\s*github\.sha\s*\}\}/m,
+        );
+      }
     });
 
     it("forwards dispatch metadata to sync-production CLI", () => {

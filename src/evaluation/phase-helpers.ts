@@ -8,6 +8,11 @@ import type {
 } from "./types.js";
 import type { EvaluationPhase } from "./phases.js";
 import { buildMetadataV1 } from "./capture-policy.js";
+import {
+  readRuntimeProvenance,
+  resolveRuntimeProvenanceFromProcessEnv,
+  runtimeProvenanceMetadata,
+} from "./runtime-provenance.js";
 import { buildPhaseSuccessScore } from "./outcomes.js";
 import { writeEvaluationOutcomeArtifact } from "./outcome-artifact.js";
 
@@ -61,20 +66,48 @@ export function withEvaluationCorrelation(
 }
 
 /** Shared env-derived allowlisted fields for phase traces. */
-export function commonEnvMetadata(): Record<string, unknown> {
+export function commonEnvMetadata(
+  provenance?: {
+    harnessSourceCommit: string | null;
+    managedRunnerCommit: string | null;
+  },
+): Record<string, unknown> {
+  const resolved = provenance ?? resolveRuntimeProvenanceFromProcessEnv();
   return buildMetadataV1({
     githubActionsRunId: process.env.GITHUB_RUN_ID ?? null,
     githubWorkflowName: process.env.GITHUB_WORKFLOW ?? null,
     triggerType: process.env.TRIGGER ?? process.env.GITHUB_EVENT_NAME ?? null,
     githubActionsConfigFingerprint:
       process.env.HARNESS_CONFIG_FINGERPRINT ?? null,
-    harnessReleaseSha:
-      process.env.LANGFUSE_RELEASE ?? process.env.GITHUB_SHA ?? null,
+    harnessReleaseSha: resolved.managedRunnerCommit,
+    harnessSourceCommit: resolved.harnessSourceCommit,
+    managedRunnerCommit: resolved.managedRunnerCommit,
     pDevPackageVersion: process.env.P_DEV_PACKAGE_VERSION ?? null,
     runGeneration: process.env.P_DEV_RUN_GENERATION
       ? Number(process.env.P_DEV_RUN_GENERATION)
       : null,
   });
+}
+
+export async function commonEnvMetadataForRun(
+  runDirectory: string,
+): Promise<Record<string, unknown>> {
+  const captured = await readRuntimeProvenance(runDirectory);
+  if (captured) {
+    return buildMetadataV1({
+      githubActionsRunId: process.env.GITHUB_RUN_ID ?? null,
+      githubWorkflowName: process.env.GITHUB_WORKFLOW ?? null,
+      triggerType: process.env.TRIGGER ?? process.env.GITHUB_EVENT_NAME ?? null,
+      githubActionsConfigFingerprint:
+        process.env.HARNESS_CONFIG_FINGERPRINT ?? null,
+      ...runtimeProvenanceMetadata(captured),
+      pDevPackageVersion: process.env.P_DEV_PACKAGE_VERSION ?? null,
+      runGeneration: process.env.P_DEV_RUN_GENERATION
+        ? Number(process.env.P_DEV_RUN_GENERATION)
+        : null,
+    });
+  }
+  return commonEnvMetadata();
 }
 
 export async function safeStartPhaseTrace(

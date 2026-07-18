@@ -5,6 +5,8 @@ export const METADATA_V1_ALLOWED_KEYS = [
   "captureProfile",
   "pDevPackageVersion",
   "harnessReleaseSha",
+  "harnessSourceCommit",
+  "managedRunnerCommit",
   "githubActionsRunId",
   "githubWorkflowName",
   "triggerType",
