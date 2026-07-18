@@ -91,6 +91,23 @@ import {
   finalizePhaseEvaluation,
   safeStartPhaseTrace,
 } from "../../evaluation/phase-helpers.js";
+import { buildTelemetryCorrelation } from "../../evaluation/telemetry/correlation.js";
+import {
+  buildPromptProvenance,
+  buildSkillProvenance,
+  PHASE_ELIGIBLE_SKILLS,
+} from "../../evaluation/telemetry/provenance.js";
+import {
+  agentObsMetadataFromObserved,
+  emitPmFeedbackTelemetryEvent,
+  emitPromptProvenanceEvent,
+  emitSkillProvenanceEvent,
+} from "../../evaluation/telemetry/phase-emit.js";
+import { completenessToMetadata } from "../../evaluation/telemetry/completeness.js";
+import { allowsLangfuseContentProjection } from "../../evaluation/telemetry/profiles.js";
+import { boundRedactedContent } from "../../evaluation/telemetry/redact.js";
+import { MAX_LANGFUSE_CONTENT_CHARS } from "../../evaluation/telemetry/bounds.js";
+import { buildArtifactRef } from "../../evaluation/telemetry/artifact-ref.js";
 
 export interface RevisionPhaseOptions {
   issueKey: string;
@@ -472,11 +489,8 @@ export async function executeRevisionPhase(
       `${handoffComment.body}\n`,
       "utf8",
     );
-    await writeFile(
-      getPmFeedbackCommentLoadedPath(runDirectory),
-      `${pmFeedbackComment.body}\n`,
-      "utf8",
-    );
+    const pmFeedbackPath = getPmFeedbackCommentLoadedPath(runDirectory);
+    await writeFile(pmFeedbackPath, `${pmFeedbackComment.body}\n`, "utf8");
     await events.log("handoff_comment_loaded", "info", {
       commentId: handoffComment.id,
       previousHandoffRunId,
@@ -484,15 +498,95 @@ export async function executeRevisionPhase(
     await events.log("pm_feedback_loaded", "info", {
       commentId: pmFeedbackComment.id,
     });
-    phaseTrace?.startChild("p-dev.review-feedback-loaded", "event")?.end({
-      pmFeedbackCommentId,
-    });
 
     revisionCycleIndex = deriveRevisionCycleIndex(
       comments,
       config.orchestratorMarker,
       prUrl,
     );
+
+    const telemetryCorrelation = buildTelemetryCorrelation({
+      namespace: options.evaluationRuntime?.namespace ?? "default",
+      issueKey: issue.identifier,
+      harnessRunId: runId,
+      phase: "revision",
+      providerTraceId: phaseTrace?.correlation.traceId,
+    });
+    const pmFeedbackRef = await buildArtifactRef({
+      runDirectory,
+      absolutePath: pmFeedbackPath,
+      artifactKind: "pm_feedback",
+    });
+    const pmWordCount = pmFeedbackComment.body.trim().split(/\s+/).filter(Boolean)
+      .length;
+    const handoffCreatedAt = handoffComment.createdAt
+      ? Date.parse(handoffComment.createdAt)
+      : NaN;
+    const feedbackCreatedAt = pmFeedbackComment.createdAt
+      ? Date.parse(pmFeedbackComment.createdAt)
+      : NaN;
+    const timeSinceHandoffMs =
+      Number.isFinite(handoffCreatedAt) && Number.isFinite(feedbackCreatedAt)
+        ? Math.max(0, feedbackCreatedAt - handoffCreatedAt)
+        : null;
+    const pmBounded = boundRedactedContent(
+      pmFeedbackComment.body,
+      MAX_LANGFUSE_CONTENT_CHARS,
+    );
+    const pmObs = phaseTrace?.startChild("p-dev.pm-feedback", "event");
+    pmObs?.end({
+      metadata: {
+        pmFeedbackCommentId,
+        pmFeedbackWordCount: pmWordCount,
+        pmFeedbackSha256: pmFeedbackRef?.sha256 ?? null,
+        pmFeedbackByteCount: pmFeedbackRef?.byteCount ?? null,
+        timeSinceHandoffMs,
+        revisionCycleIndex,
+      },
+      ...(phaseTrace &&
+      allowsLangfuseContentProjection(phaseTrace.correlation.captureProfile)
+        ? { input: pmBounded.text }
+        : {}),
+    });
+    phaseTrace?.startChild("p-dev.review-feedback-loaded", "event")?.end({
+      pmFeedbackCommentId,
+      pmFeedbackWordCount: pmWordCount,
+    });
+    await emitPmFeedbackTelemetryEvent(
+      runDirectory,
+      telemetryCorrelation,
+      {
+        artifactRef: pmFeedbackRef,
+        pmFeedbackCommentId: pmFeedbackCommentId ?? "",
+        pmFeedbackWordCount: pmWordCount,
+        timeSinceHandoffMs,
+        contentPreview: pmBounded.text,
+      },
+      (e) => phaseTrace?.onTelemetryEvent?.(e),
+    );
+    if (
+      phaseTrace &&
+      allowsLangfuseContentProjection(phaseTrace.correlation.captureProfile)
+    ) {
+      phaseTrace.setIO?.(
+        {
+          pmFeedback: pmBounded.text,
+          revisionCycleIndex,
+          pmFeedbackCommentId,
+        },
+        undefined,
+      );
+    } else {
+      phaseTrace?.setIO?.(
+        {
+          pmFeedbackCommentId,
+          pmFeedbackSha256: pmFeedbackRef?.sha256 ?? null,
+          pmFeedbackWordCount: pmWordCount,
+          revisionCycleIndex,
+        },
+        undefined,
+      );
+    }
 
     const parsedPr = parsePrUrl(prUrl);
     if (!parsedPr) {
@@ -611,7 +705,31 @@ export async function executeRevisionPhase(
     });
 
     await mkdir(`${runDirectory}/prompts`, { recursive: true });
-    await writeFile(getRevisionPromptPath(runDirectory), `${prompt}\n`, "utf8");
+    const revisionPromptPath = getRevisionPromptPath(runDirectory);
+    await writeFile(revisionPromptPath, `${prompt}\n`, "utf8");
+    const promptProvenance = await buildPromptProvenance({
+      runDirectory,
+      promptContractVersion: promptVersion,
+      promptTemplatePath: "src/prompts/revision.md",
+      renderedPromptAbsolutePath: revisionPromptPath,
+    });
+    const skillProvenance = await buildSkillProvenance({
+      eligible: PHASE_ELIGIBLE_SKILLS.revision ?? [],
+      declared: [],
+      observed: [],
+    });
+    await emitPromptProvenanceEvent(
+      runDirectory,
+      telemetryCorrelation,
+      promptProvenance,
+      (e) => phaseTrace?.onTelemetryEvent?.(e),
+    );
+    await emitSkillProvenanceEvent(
+      runDirectory,
+      telemetryCorrelation,
+      skillProvenance,
+      (e) => phaseTrace?.onTelemetryEvent?.(e),
+    );
 
     try {
     const timeoutMs =
@@ -629,6 +747,19 @@ export async function executeRevisionPhase(
     let observed;
     try {
       builderObs = phaseTrace?.startChild("p-dev.cursor.builder-revision", "agent") ?? null;
+      if (
+        builderObs &&
+        phaseTrace &&
+        allowsLangfuseContentProjection(phaseTrace.correlation.captureProfile)
+      ) {
+        builderObs.update({
+          input: boundRedactedContent(prompt, MAX_LANGFUSE_CONTENT_CHARS).text,
+          metadata: {
+            promptContractVersion: promptVersion,
+            promptTemplateSha256: promptProvenance.promptTemplateSha256,
+          },
+        });
+      }
       observed = await sendAndObserve(agent, prompt, runDirectory, events, {
         phase: "revision",
         targetRepo: markerTargetRepo,
@@ -639,6 +770,9 @@ export async function executeRevisionPhase(
         model: resolveBuilderModel(config),
         mode: "agent",
         idempotencyKey: revisionIdempotencyKey,
+        telemetryCorrelation,
+        revisionRequiresPmFeedback: true,
+        onTelemetryEvent: (e) => phaseTrace?.onTelemetryEvent?.(e),
         onBeforeSend: async ({ agentId }) => {
           const commentId = await postPhaseStartCommentIfNeeded(client, issue.id, {
             orchestratorMarker: config.orchestratorMarker,
@@ -693,29 +827,59 @@ export async function executeRevisionPhase(
     cursorAgentId = observed.agentId;
     cursorRunId = observed.runId;
     cursorRequestId = observed.requestId ?? null;
-    builderObs?.end({
-      modelId: model,
+    await mkdir(`${runDirectory}/outputs`, { recursive: true });
+    const revisionResultPath = getRevisionResultPath(runDirectory);
+    await writeFile(revisionResultPath, `${observed.assistantText}\n`, "utf8");
+    const revisionOutputRef = await buildArtifactRef({
+      runDirectory,
+      absolutePath: revisionResultPath,
+      artifactKind: "agent_output",
+    });
+    const revisionEndMeta = {
+      modelId: observed.model?.id ?? model,
       modelRole: "builder",
-      cursorAgentId,
-      cursorRunId,
-      cursorRequestId,
       builderThreadAction: builderEvidence.builderThreadAction,
       builderThreadGeneration: builderEvidence.builderThreadGeneration,
       builderReplacementReason: builderEvidence.builderThreadReplacementReason,
-      cursorStatus: observed.status ?? null,
-      cursorDurationMs: observed.durationMs ?? null,
-      ...extractAllowlistedCursorUsage(observed.usage),
-    });
+      promptTemplateSha256: promptProvenance.promptTemplateSha256,
+      agentOutputSha256: revisionOutputRef?.sha256 ?? null,
+      agentOutputByteCount: revisionOutputRef?.byteCount ?? null,
+      ...extractAllowlistedCursorUsage(
+        observed.usage as
+          | import("../../evaluation/capture-policy.js").CursorUsageInput
+          | null
+          | undefined,
+      ),
+      ...agentObsMetadataFromObserved(observed),
+      ...(observed.completeness
+        ? completenessToMetadata(observed.completeness)
+        : {}),
+    };
+    if (
+      phaseTrace &&
+      allowsLangfuseContentProjection(phaseTrace.correlation.captureProfile)
+    ) {
+      builderObs?.end({
+        output: boundRedactedContent(
+          observed.assistantText,
+          MAX_LANGFUSE_CONTENT_CHARS,
+        ).text,
+        metadata: revisionEndMeta,
+        model: observed.model?.id ?? model,
+      });
+      phaseTrace.setIO?.(undefined, {
+        assistantPreview: boundRedactedContent(
+          observed.assistantText,
+          MAX_LANGFUSE_CONTENT_CHARS,
+        ).text,
+        prUrlPresent: Boolean(observed.gitResult?.prUrl ?? prUrl),
+      });
+    } else {
+      builderObs?.end(revisionEndMeta);
+    }
     branch = observed.gitResult?.branch ?? branch;
     prUrl = observed.gitResult?.prUrl ?? prUrl;
     validationSummary = observed.assistantText;
-
-    await mkdir(`${runDirectory}/outputs`, { recursive: true });
-    await writeFile(
-      getRevisionResultPath(runDirectory),
-      `${observed.assistantText}\n`,
-      "utf8",
-    );
     await events.log("revision_pr_validated", "info", { prUrl, branch });
     await events.log("validation_completed", "info", { validationSummary });
 

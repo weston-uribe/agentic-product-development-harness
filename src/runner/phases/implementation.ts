@@ -78,6 +78,22 @@ import {
   safeStartPhaseTrace,
   withEvaluationCorrelation,
 } from "../../evaluation/phase-helpers.js";
+import { buildTelemetryCorrelation } from "../../evaluation/telemetry/correlation.js";
+import {
+  buildPromptProvenance,
+  buildSkillProvenance,
+  PHASE_ELIGIBLE_SKILLS,
+} from "../../evaluation/telemetry/provenance.js";
+import {
+  agentObsMetadataFromObserved,
+  emitPromptProvenanceEvent,
+  emitSkillProvenanceEvent,
+} from "../../evaluation/telemetry/phase-emit.js";
+import { completenessToMetadata } from "../../evaluation/telemetry/completeness.js";
+import { allowsLangfuseContentProjection } from "../../evaluation/telemetry/profiles.js";
+import { boundRedactedContent } from "../../evaluation/telemetry/redact.js";
+import { MAX_LANGFUSE_CONTENT_CHARS } from "../../evaluation/telemetry/bounds.js";
+import { buildArtifactRef } from "../../evaluation/telemetry/artifact-ref.js";
 
 export interface ImplementationPhaseOptions {
   issueKey: string;
@@ -510,7 +526,65 @@ export async function executeImplementationPhase(
     });
 
     await mkdir(`${runDirectory}/prompts`, { recursive: true });
-    await writeFile(getImplementationPromptPath(runDirectory), `${prompt}\n`, "utf8");
+    const promptPath = getImplementationPromptPath(runDirectory);
+    await writeFile(promptPath, `${prompt}\n`, "utf8");
+
+    const telemetryCorrelation = buildTelemetryCorrelation({
+      namespace: options.evaluationRuntime?.namespace ?? "default",
+      issueKey: issue.identifier,
+      harnessRunId: runId,
+      phase: "implementation",
+      providerTraceId: phaseTrace?.correlation.traceId,
+    });
+    const promptProvenance = await buildPromptProvenance({
+      runDirectory,
+      promptContractVersion: IMPLEMENTATION_PROMPT_VERSION,
+      promptTemplatePath: "src/prompts/implementation.md",
+      renderedPromptAbsolutePath: promptPath,
+    });
+    // Cloud orchestration does not currently supply Cursor skills explicitly.
+    const skillProvenance = await buildSkillProvenance({
+      eligible: PHASE_ELIGIBLE_SKILLS.implementation ?? [],
+      declared: [],
+      observed: [],
+    });
+    await emitPromptProvenanceEvent(
+      runDirectory,
+      telemetryCorrelation,
+      promptProvenance,
+      (e) => phaseTrace?.onTelemetryEvent?.(e),
+    );
+    await emitSkillProvenanceEvent(
+      runDirectory,
+      telemetryCorrelation,
+      skillProvenance,
+      (e) => phaseTrace?.onTelemetryEvent?.(e),
+    );
+    if (
+      phaseTrace &&
+      allowsLangfuseContentProjection(phaseTrace.correlation.captureProfile)
+    ) {
+      const bounded = boundRedactedContent(prompt, MAX_LANGFUSE_CONTENT_CHARS);
+      phaseTrace.setIO?.(
+        {
+          task: parsed.task,
+          acceptanceCriteria: parsed.acceptanceCriteria,
+          promptPreview: bounded.text,
+        },
+        undefined,
+      );
+    } else {
+      phaseTrace?.setIO?.(
+        {
+          promptTemplateSha256: promptProvenance.promptTemplateSha256,
+          renderedPromptSha256:
+            promptProvenance.renderedPromptArtifact?.sha256 ?? null,
+          renderedPromptByteCount:
+            promptProvenance.renderedPromptArtifact?.byteCount ?? null,
+        },
+        undefined,
+      );
+    }
 
     const implementationIdempotencyKey = buildImplementationIdempotencyKey({
       issueKey: issue.identifier,
@@ -558,6 +632,26 @@ export async function executeImplementationPhase(
     let observed;
     const builderObs: NestedObservationHandle | undefined =
       phaseTrace?.startChild("p-dev.cursor.builder", "agent");
+    if (
+      builderObs &&
+      phaseTrace &&
+      allowsLangfuseContentProjection(phaseTrace.correlation.captureProfile)
+    ) {
+      builderObs.update({
+        input: boundRedactedContent(prompt, MAX_LANGFUSE_CONTENT_CHARS).text,
+        metadata: {
+          promptContractVersion: IMPLEMENTATION_PROMPT_VERSION,
+          promptTemplateSha256: promptProvenance.promptTemplateSha256,
+        },
+      });
+    } else {
+      builderObs?.update({
+        promptContractVersion: IMPLEMENTATION_PROMPT_VERSION,
+        promptTemplateSha256: promptProvenance.promptTemplateSha256,
+        renderedPromptSha256:
+          promptProvenance.renderedPromptArtifact?.sha256 ?? null,
+      });
+    }
     try {
       observed = await sendAndObserve(agent, prompt, runDirectory, events, {
         phase: "implementation",
@@ -567,6 +661,8 @@ export async function executeImplementationPhase(
         model: resolveBuilderModel(config),
         mode: "agent",
         idempotencyKey: implementationIdempotencyKey,
+        telemetryCorrelation,
+        onTelemetryEvent: (e) => phaseTrace?.onTelemetryEvent?.(e),
         onBeforeSend: async ({ agentId }) => {
           const commentId = await postPhaseStartCommentIfNeeded(client, issue.id, {
             orchestratorMarker: config.orchestratorMarker,
@@ -607,21 +703,68 @@ export async function executeImplementationPhase(
           });
         },
       });
-      builderObs?.end({
-        modelId: model,
+      const outputPath = getImplementationResultPath(runDirectory);
+      await mkdir(`${runDirectory}/outputs`, { recursive: true });
+      await writeFile(outputPath, `${observed.assistantText}\n`, "utf8");
+      const outputRef = await buildArtifactRef({
+        runDirectory,
+        absolutePath: outputPath,
+        artifactKind: "agent_output",
+      });
+      const endMeta = {
+        modelId: observed.model?.id ?? model,
         modelRole: "builder",
         modelParams: builderModel.modelParams,
-        cursorAgentId: observed.agentId,
-        cursorRunId: observed.runId,
-        cursorRequestId: observed.requestId ?? null,
-        cursorStatus: observed.status ?? null,
-        cursorDurationMs: observed.durationMs ?? null,
         builderThreadAction: builderEvidence.builderThreadAction,
         builderThreadGeneration: builderEvidence.builderThreadGeneration,
         builderReplacementReason: builderEvidence.builderThreadReplacementReason,
         prCreated: Boolean(observed.gitResult?.prUrl),
-        ...extractAllowlistedCursorUsage(observed.usage ?? undefined),
-      });
+        promptTemplateSha256: promptProvenance.promptTemplateSha256,
+        agentOutputSha256: outputRef?.sha256 ?? null,
+        agentOutputByteCount: outputRef?.byteCount ?? null,
+        ...extractAllowlistedCursorUsage(
+          observed.usage as
+            | import("../../evaluation/capture-policy.js").CursorUsageInput
+            | undefined,
+        ),
+        ...agentObsMetadataFromObserved(observed),
+        ...(observed.completeness
+          ? completenessToMetadata(observed.completeness)
+          : {}),
+      };
+      if (
+        phaseTrace &&
+        allowsLangfuseContentProjection(phaseTrace.correlation.captureProfile)
+      ) {
+        builderObs?.end({
+          output: boundRedactedContent(
+            observed.assistantText,
+            MAX_LANGFUSE_CONTENT_CHARS,
+          ).text,
+          metadata: endMeta,
+          model: observed.model?.id ?? model,
+          usageDetails: {
+            ...(typeof observed.usage?.inputTokens === "number"
+              ? { input: observed.usage.inputTokens }
+              : {}),
+            ...(typeof observed.usage?.outputTokens === "number"
+              ? { output: observed.usage.outputTokens }
+              : {}),
+            ...(typeof observed.usage?.totalTokens === "number"
+              ? { total: observed.usage.totalTokens }
+              : {}),
+          },
+        });
+        phaseTrace.setIO?.(undefined, {
+          assistantPreview: boundRedactedContent(
+            observed.assistantText,
+            MAX_LANGFUSE_CONTENT_CHARS,
+          ).text,
+          prCreated: Boolean(observed.gitResult?.prUrl),
+        });
+      } else {
+        builderObs?.end(endMeta);
+      }
     } catch (error) {
       builderObs?.end({
         cursorStatus: "error",
@@ -643,13 +786,6 @@ export async function executeImplementationPhase(
     branch = observed.gitResult?.branch ?? null;
     prUrl = observed.gitResult?.prUrl ?? null;
     validationSummary = observed.assistantText;
-
-    await mkdir(`${runDirectory}/outputs`, { recursive: true });
-    await writeFile(
-      getImplementationResultPath(runDirectory),
-      `${observed.assistantText}\n`,
-      "utf8",
-    );
 
     await mkdir(`${runDirectory}/github`, { recursive: true });
     await writeFile(

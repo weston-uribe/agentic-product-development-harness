@@ -31,6 +31,16 @@ import type { LinearIssueSnapshot } from "../../linear/client.js";
 import { postIssueComment } from "../../linear/writer.js";
 import { inferVercelReadyFromComments } from "../../preview/production-from-merge.js";
 import { buildIntegrationRepairPrompt } from "../../prompts/integration-repair-builder.js";
+import { buildTelemetryCorrelation } from "../../evaluation/telemetry/correlation.js";
+import {
+  buildPromptProvenance,
+  buildSkillProvenance,
+  PHASE_ELIGIBLE_SKILLS,
+} from "../../evaluation/telemetry/provenance.js";
+import {
+  emitPromptProvenanceEvent,
+  emitSkillProvenanceEvent,
+} from "../../evaluation/telemetry/phase-emit.js";
 import type { ResolvedTarget } from "../../resolver/target-repo.js";
 import type { ParsedIssue } from "../../types/parsed-issue.js";
 import { manifestModelEvidence, resolveBuilderModel } from "../../cursor/model.js";
@@ -449,10 +459,34 @@ async function attemptAgentRepair(
   });
 
   await mkdir(`${options.runDirectory}/prompts`, { recursive: true });
-  await writeFile(
-    `${options.runDirectory}/prompts/integration-repair-agent.md`,
-    `${prompt}\n`,
-    "utf8",
+  const repairPromptPath = `${options.runDirectory}/prompts/integration-repair-agent.md`;
+  await writeFile(repairPromptPath, `${prompt}\n`, "utf8");
+  const telemetryCorrelation = buildTelemetryCorrelation({
+    namespace: "default",
+    issueKey: options.issue.identifier,
+    harnessRunId: options.runId,
+    phase: "integration_repair",
+  });
+  const promptProvenance = await buildPromptProvenance({
+    runDirectory: options.runDirectory,
+    promptContractVersion: INTEGRATION_REPAIR_PROMPT_VERSION,
+    promptTemplatePath: "src/prompts/integration-repair.md",
+    renderedPromptAbsolutePath: repairPromptPath,
+  });
+  const skillProvenance = await buildSkillProvenance({
+    eligible: PHASE_ELIGIBLE_SKILLS.integration_repair ?? [],
+    declared: [],
+    observed: [],
+  });
+  await emitPromptProvenanceEvent(
+    options.runDirectory,
+    telemetryCorrelation,
+    promptProvenance,
+  );
+  await emitSkillProvenanceEvent(
+    options.runDirectory,
+    telemetryCorrelation,
+    skillProvenance,
   );
 
   let inspectionBeforeAgent = await inspectPullRequestForMerge(
@@ -516,6 +550,7 @@ async function attemptAgentRepair(
           model: resolveBuilderModel(options.config),
           mode: "agent",
           idempotencyKey: repairIdempotencyKey,
+          telemetryCorrelation,
           onBeforeSend: async ({ agentId }) => {
             repairAgentId = agentId;
             await postRepairComment(options, {

@@ -45,6 +45,16 @@ import type {
 } from "../../types/run.js";
 import type { ParsedIssue } from "../../types/parsed-issue.js";
 import type { ResolvedTarget } from "../../resolver/target-repo.js";
+import { buildTelemetryCorrelation } from "../../evaluation/telemetry/correlation.js";
+import {
+  buildPromptProvenance,
+  buildSkillProvenance,
+  PHASE_ELIGIBLE_SKILLS,
+} from "../../evaluation/telemetry/provenance.js";
+import {
+  emitPromptProvenanceEvent,
+  emitSkillProvenanceEvent,
+} from "../../evaluation/telemetry/phase-emit.js";
 
 export interface PlanningPhaseOptions {
   issueKey: string;
@@ -309,7 +319,35 @@ export async function executePlanningPhase(
     );
     promptVersion = version;
     await mkdir(`${runDirectory}/prompts`, { recursive: true });
-    await writeFile(getPlanningPromptPath(runDirectory), `${prompt}\n`, "utf8");
+    const planningPromptPath = getPlanningPromptPath(runDirectory);
+    await writeFile(planningPromptPath, `${prompt}\n`, "utf8");
+    const telemetryCorrelation = buildTelemetryCorrelation({
+      namespace: "default",
+      issueKey: issue.identifier,
+      harnessRunId: runId,
+      phase: "planning",
+    });
+    const promptProvenance = await buildPromptProvenance({
+      runDirectory,
+      promptContractVersion: version,
+      promptTemplatePath: "src/prompts/planning.md",
+      renderedPromptAbsolutePath: planningPromptPath,
+    });
+    const skillProvenance = await buildSkillProvenance({
+      eligible: PHASE_ELIGIBLE_SKILLS.planning ?? [],
+      declared: [],
+      observed: [],
+    });
+    await emitPromptProvenanceEvent(
+      runDirectory,
+      telemetryCorrelation,
+      promptProvenance,
+    );
+    await emitSkillProvenanceEvent(
+      runDirectory,
+      telemetryCorrelation,
+      skillProvenance,
+    );
 
     const agent = await createPlanningAgent({
       apiKey: cursorApiKey,
@@ -327,6 +365,7 @@ export async function executePlanningPhase(
       sendAndObserve(agent, prompt, runDirectory, events, {
         apiKey: cursorApiKey,
         phase: "planning",
+        telemetryCorrelation,
         onAgentCreated: async ({ agentId, runId: cursorRunId }) => {
           const commentId = await postPhaseStartCommentIfNeeded(client, issue.id, {
             orchestratorMarker: config.orchestratorMarker,
