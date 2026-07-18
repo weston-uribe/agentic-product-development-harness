@@ -4,19 +4,22 @@ import type {
   EvaluationScoreInput,
   NestedObservationHandle,
   ObservationKind,
+  ObservationUpdateAttrs,
   PhaseFinishSummary,
   PhaseTraceHandle,
   StartPhaseTraceInput,
 } from "./types.js";
-import {
-  EVALUATION_CAPTURE_PROFILE,
-  EVALUATION_SCHEMA_VERSION,
-} from "./types.js";
+import { EVALUATION_SCHEMA_VERSION } from "./types.js";
 import { deriveSessionId, buildTraceSeed } from "./identifiers.js";
 import { getPhaseTraceName } from "./phases.js";
 import { buildMetadataV1, metadataToStringMap } from "./capture-policy.js";
 import { warnOnce, withFlushTimeout } from "./warn.js";
 import { CREDENTIAL_SECRET_PATTERNS } from "../artifacts/redact.js";
+import { allowsLangfuseContentProjection } from "./telemetry/profiles.js";
+import { boundRedactedContent } from "./telemetry/redact.js";
+import { MAX_LANGFUSE_CONTENT_CHARS } from "./telemetry/bounds.js";
+import type { AgentTelemetryEvent } from "./telemetry/types.js";
+import { createLangfuseTelemetryForwarder } from "./telemetry/langfuse-adapter.js";
 
 type LangfuseModules = {
   createTraceId: (seed?: string) => Promise<string>;
@@ -171,11 +174,71 @@ function safeEnd(observation: LangfuseObservation | null | undefined): void {
   }
 }
 
+function isRichAttrs(
+  attrs: ObservationUpdateAttrs | Record<string, unknown> | undefined,
+): attrs is ObservationUpdateAttrs {
+  if (!attrs || typeof attrs !== "object") return false;
+  return (
+    "metadata" in attrs ||
+    "input" in attrs ||
+    "output" in attrs ||
+    "model" in attrs ||
+    "modelParameters" in attrs ||
+    "usageDetails" in attrs ||
+    "costDetails" in attrs
+  );
+}
+
+function projectObservationUpdate(
+  attrs: ObservationUpdateAttrs | Record<string, unknown> | undefined,
+  allowContent: boolean,
+): Record<string, unknown> {
+  if (!attrs) return {};
+  if (!isRichAttrs(attrs)) {
+    // Backward-compatible: flat metadata object
+    return { metadata: buildMetadataV1(attrs) };
+  }
+  const out: Record<string, unknown> = {};
+  if (attrs.metadata) {
+    out.metadata = buildMetadataV1(attrs.metadata);
+  }
+  if (attrs.model) out.model = attrs.model;
+  if (attrs.modelParameters) out.modelParameters = attrs.modelParameters;
+  if (attrs.usageDetails) out.usageDetails = attrs.usageDetails;
+  if (attrs.costDetails) out.costDetails = attrs.costDetails;
+  if (allowContent) {
+    if (attrs.input !== undefined) {
+      out.input =
+        typeof attrs.input === "string"
+          ? boundRedactedContent(attrs.input, MAX_LANGFUSE_CONTENT_CHARS).text
+          : attrs.input;
+    }
+    if (attrs.output !== undefined) {
+      out.output =
+        typeof attrs.output === "string"
+          ? boundRedactedContent(attrs.output, MAX_LANGFUSE_CONTENT_CHARS).text
+          : attrs.output;
+    }
+  }
+  return out;
+}
+
+function noopChildHandle(): NestedObservationHandle {
+  return {
+    update() {},
+    end() {},
+    startChild() {
+      return noopChildHandle();
+    },
+  };
+}
+
 function createChildHandle(
   parent: LangfuseObservation,
   name: string,
   kind: ObservationKind,
   correlation: { sessionId: string; traceName: string },
+  allowContent: boolean,
 ): NestedObservationHandle {
   let child: LangfuseObservation | null = null;
   try {
@@ -198,11 +261,10 @@ function createChildHandle(
 
   let ended = false;
   return {
-    update(metadata) {
+    update(attrs) {
       if (!child || ended) return;
       try {
-        const safe = buildMetadataV1(metadata ?? {});
-        child.update({ metadata: safe });
+        child.update(projectObservationUpdate(attrs, allowContent));
       } catch (error) {
         warnOnce(
           "child-update",
@@ -212,18 +274,27 @@ function createChildHandle(
         );
       }
     },
-    end(metadata) {
+    end(attrs) {
       if (!child || ended) return;
       ended = true;
       try {
-        if (metadata) {
-          const safe = buildMetadataV1(metadata);
-          child.update({ metadata: safe });
+        if (attrs) {
+          child.update(projectObservationUpdate(attrs, allowContent));
         }
       } catch {
         // ignore update errors before end
       }
       safeEnd(child);
+    },
+    startChild(childName, childKind = "span") {
+      if (!child || ended) return noopChildHandle();
+      return createChildHandle(
+        child,
+        childName,
+        childKind,
+        correlation,
+        allowContent,
+      );
     },
   };
 }
@@ -302,9 +373,13 @@ export async function createLangfuseRuntime(
         );
         const traceName = getPhaseTraceName(input.phase);
 
+        const allowContent = allowsLangfuseContentProjection(
+          config.captureProfile,
+        );
+
         const baseMetadata = buildMetadataV1({
           evaluationSchemaVersion: EVALUATION_SCHEMA_VERSION,
-          captureProfile: EVALUATION_CAPTURE_PROFILE,
+          captureProfile: config.captureProfile,
           issueKey: input.issueKey,
           pDevRunId: input.runId,
           phase: input.phase,
@@ -336,20 +411,51 @@ export async function createLangfuseRuntime(
         applyTraceCorrelationAttributes(root, { sessionId, traceName });
 
         let finished = false;
+        let pendingInput: unknown;
+        let pendingOutput: unknown;
+        let telemetryForwarder:
+          | ((event: AgentTelemetryEvent) => void)
+          | null = null;
 
         const handle: PhaseTraceHandle = {
           correlation: {
             schemaVersion: EVALUATION_SCHEMA_VERSION,
             provider: "langfuse",
-            captureProfile: EVALUATION_CAPTURE_PROFILE,
+            captureProfile: config.captureProfile,
             sessionId,
             traceId,
           },
           startChild(name, kind = "span") {
             if (finished || demoted) {
-              return { update() {}, end() {} };
+              return noopChildHandle();
             }
-            return createChildHandle(root, name, kind, { sessionId, traceName });
+            const child = createChildHandle(
+              root,
+              name,
+              kind,
+              { sessionId, traceName },
+              allowContent,
+            );
+            if (kind === "agent") {
+              telemetryForwarder = createLangfuseTelemetryForwarder({
+                phaseTrace: handle,
+                agentObservation: child,
+                captureProfile: config.captureProfile,
+              });
+            }
+            return child;
+          },
+          setIO(input, output) {
+            if (input !== undefined) pendingInput = input;
+            if (output !== undefined) pendingOutput = output;
+          },
+          onTelemetryEvent(event) {
+            if (finished || demoted) return;
+            try {
+              telemetryForwarder?.(event);
+            } catch {
+              // non-authoritative
+            }
           },
           finish(summary: PhaseFinishSummary, metadata) {
             if (finished) return;
@@ -365,15 +471,22 @@ export async function createLangfuseRuntime(
                 previewAvailable: summary.previewAvailable,
                 changedFileCount: summary.changedFileCount,
               });
+              const outputPayload = {
+                finalOutcome: summary.finalOutcome,
+                errorClassification: summary.errorClassification,
+                linearStatusAfter: summary.linearStatusAfter,
+                prCreated: summary.prCreated,
+                previewAvailable: summary.previewAvailable,
+                changedFileCount: summary.changedFileCount,
+                ...(allowContent && pendingOutput !== undefined
+                  ? { detail: pendingOutput }
+                  : {}),
+              };
               root.update({
-                output: {
-                  finalOutcome: summary.finalOutcome,
-                  errorClassification: summary.errorClassification,
-                  linearStatusAfter: summary.linearStatusAfter,
-                  prCreated: summary.prCreated,
-                  previewAvailable: summary.previewAvailable,
-                  changedFileCount: summary.changedFileCount,
-                },
+                ...(allowContent && pendingInput !== undefined
+                  ? { input: pendingInput }
+                  : {}),
+                output: outputPayload,
                 metadata: safeSummary,
                 level:
                   summary.finalOutcome === "failed" ? "ERROR" : "DEFAULT",
