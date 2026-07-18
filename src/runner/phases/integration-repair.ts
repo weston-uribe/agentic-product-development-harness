@@ -445,7 +445,7 @@ async function attemptAgentRepair(
     (repo) => repo.id === options.resolved.repoConfigId,
   );
   const validationCommands = repoConfig?.validation?.commands ?? [];
-  const { prompt } = await buildIntegrationRepairPrompt({
+  const { prompt: basePrompt } = await buildIntegrationRepairPrompt({
     issue: options.issue,
     parsed: options.parsedIssue,
     resolved: options.resolved,
@@ -457,6 +457,13 @@ async function attemptAgentRepair(
     baseBranchDelta: [],
     validationCommands,
   });
+  const { assembleAgentPrompt } = await import("../../prompts/assemble.js");
+  const { promptNameForPhase } = await import("../../prompts/skill-inject.js");
+  const skillInjection = await assembleAgentPrompt({
+    phase: "integration_repair",
+    localCompiledPrompt: basePrompt,
+  });
+  const prompt = skillInjection.prompt;
 
   await mkdir(`${options.runDirectory}/prompts`, { recursive: true });
   const repairPromptPath = `${options.runDirectory}/prompts/integration-repair-agent.md`;
@@ -473,20 +480,57 @@ async function attemptAgentRepair(
     promptTemplatePath: "src/prompts/integration-repair.md",
     renderedPromptAbsolutePath: repairPromptPath,
   });
+  const declaredSkills = skillInjection.skillsUsed.map((s) => ({
+    skillId: s.skillId,
+    sourcePath: s.sourcePath,
+    role: s.role,
+  }));
   const skillProvenance = await buildSkillProvenance({
     eligible: PHASE_ELIGIBLE_SKILLS.integration_repair ?? [],
-    declared: [],
-    observed: [],
+    declared: declaredSkills,
+    observed: declaredSkills,
   });
   await emitPromptProvenanceEvent(
     options.runDirectory,
     telemetryCorrelation,
-    promptProvenance,
+    {
+      ...promptProvenance,
+      promptName: promptNameForPhase("integration_repair"),
+      promptAssemblySchemaVersion: 1,
+      promptProvider: skillInjection.assembly.provider,
+      promptSource: skillInjection.assembly.source,
+      providerPromptVersion: skillInjection.assembly.providerPromptVersion,
+      providerLabel: skillInjection.assembly.providerLabel,
+      providerTemplateSha256: skillInjection.assembly.providerTemplateSha256,
+      localTemplateSha256: skillInjection.assembly.localTemplateSha256,
+      fallbackUsed: skillInjection.assembly.fallbackUsed,
+      fallbackReason: skillInjection.assembly.fallbackReason,
+      skillInvocationMode: skillInjection.assembly.skillInvocationMode,
+      langfusePromptLinked: skillInjection.assembly.langfusePromptLinked,
+      langfusePromptJson: skillInjection.langfusePromptLinkJson,
+      nativeCapabilityState: skillInjection.assembly.nativeCapabilityState,
+      componentOrdering: skillInjection.assembly.componentOrdering,
+      variablesUsed: skillInjection.assembly.variablesUsed,
+    },
   );
   await emitSkillProvenanceEvent(
     options.runDirectory,
     telemetryCorrelation,
-    skillProvenance,
+    {
+      ...skillProvenance,
+      skillsUsed: skillInjection.skillsUsed.map((s) => ({
+        skillId: s.skillId,
+        sourcePath: s.sourcePath,
+        role: s.role,
+        contentSha256: s.contentSha256,
+        inclusionMethod: s.inclusionMethod,
+        discovered: s.discovered,
+        invoked: s.invoked,
+        evidenceSource: s.evidenceSource,
+        fallbackReason: s.fallbackReason,
+      })),
+      skillProvenanceStatus: skillInjection.skillProvenanceStatus,
+    },
   );
 
   let inspectionBeforeAgent = await inspectPullRequestForMerge(

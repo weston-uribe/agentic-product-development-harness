@@ -158,7 +158,7 @@ export async function runSyntheticProjectionCanary(options: {
     costUnavailableReason: cost.costUnavailableReason ?? null,
     costUsd:
       cost.estimatedCostUsd ?? cost.providerReportedCostUsd ?? null,
-    effectiveVariant: "standard",
+    effectiveVariant: "standard" as const,
   };
 
   let applied = false;

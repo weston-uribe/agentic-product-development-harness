@@ -82,6 +82,7 @@ export function createLangfuseTelemetryForwarder(params: {
 
     try {
       if (event.kind === "prompt_provenance") {
+        const langfusePromptLinked = event.payload.langfusePromptLinked === true;
         const meta: Record<string, unknown> = {
           ...identityMeta(),
           promptName: event.payload.promptName,
@@ -94,7 +95,32 @@ export function createLangfuseTelemetryForwarder(params: {
             (event.payload.renderedPromptArtifact as { byteCount?: number } | undefined)
               ?.byteCount ?? event.payload.renderedPromptByteCount,
           promptAssemblySchemaVersion: event.payload.promptAssemblySchemaVersion,
+          promptProvider: event.payload.promptProvider,
+          promptSource: event.payload.promptSource,
+          providerPromptVersion: event.payload.providerPromptVersion ?? null,
+          providerLabel: event.payload.providerLabel ?? null,
+          providerTemplateSha256: event.payload.providerTemplateSha256 ?? null,
+          localTemplateSha256: event.payload.localTemplateSha256,
+          fallbackUsed: event.payload.fallbackUsed ?? false,
+          fallbackReason: event.payload.fallbackReason ?? "none",
+          skillInvocationMode: event.payload.skillInvocationMode,
+          langfusePromptLinked,
+          nativeCapabilityState: event.payload.nativeCapabilityState,
+          componentOrdering: event.payload.componentOrdering,
+          variablesUsed: event.payload.variablesUsed,
         };
+        // Only attach Langfuse prompt-link metadata when a real remote prompt was used.
+        // Never invent a prompt-version link for local fallback.
+        if (
+          langfusePromptLinked &&
+          typeof event.payload.langfusePromptJson === "string"
+        ) {
+          try {
+            meta.langfusePrompt = JSON.parse(event.payload.langfusePromptJson);
+          } catch {
+            meta.langfusePromptLinkError = "invalid_langfuse_prompt_json";
+          }
+        }
         agent.update({ metadata: meta });
         const gen = ensureGeneration();
         gen?.update({ metadata: meta });
@@ -112,10 +138,32 @@ export function createLangfuseTelemetryForwarder(params: {
       }
 
       if (event.kind === "skill_provenance") {
+        const skillsUsed = (event.payload.skillsUsed ??
+          event.payload.declaredSkills ??
+          []) as Array<Record<string, unknown>>;
+        // Strip any invented discovery/invocation claims for production rendered runs.
+        const sanitizedSkills = skillsUsed.map((s) => {
+          const inclusionMethod = s.inclusionMethod;
+          const discovered =
+            inclusionMethod === "provider_native" ? s.discovered ?? null : null;
+          const invoked =
+            inclusionMethod === "provider_native" ? s.invoked ?? null : null;
+          return {
+            skillId: s.skillId,
+            sourcePath: s.sourcePath,
+            role: s.role,
+            contentSha256: s.contentSha256,
+            inclusionMethod,
+            discovered,
+            invoked,
+            evidenceSource: s.evidenceSource ?? "local_render",
+            fallbackReason: s.fallbackReason,
+          };
+        });
         const meta: Record<string, unknown> = {
           ...identityMeta(),
           skillProvenanceStatus: event.payload.skillProvenanceStatus ?? "none",
-          skillsUsed: event.payload.skillsUsed ?? event.payload.declaredSkills ?? [],
+          skillsUsed: sanitizedSkills,
         };
         agent.update({ metadata: meta });
         ensureGeneration()?.update({ metadata: meta });

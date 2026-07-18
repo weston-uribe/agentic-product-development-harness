@@ -1,5 +1,6 @@
 ---
 name: code-health-audit
+skillContractVersion: "1"
 description: >-
   Conduct a report-only code health audit focused on maintainability,
   understandability, local modularity, and test confidence. Use when an operator

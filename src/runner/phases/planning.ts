@@ -67,10 +67,7 @@ import {
   safeStartPhaseTrace,
 } from "../../evaluation/phase-helpers.js";
 import { agentObservationDisplayName } from "../../evaluation/naming.js";
-import {
-  injectPhaseSkills,
-  promptNameForPhase,
-} from "../../prompts/skill-inject.js";
+import { promptNameForPhase } from "../../prompts/skill-inject.js";
 import { allowsLangfuseContentProjection } from "../../evaluation/telemetry/profiles.js";
 import { boundRedactedContent } from "../../evaluation/telemetry/redact.js";
 import { MAX_LANGFUSE_CONTENT_CHARS } from "../../evaluation/telemetry/bounds.js";
@@ -367,9 +364,10 @@ export async function executePlanningPhase(
         productInitializationState: productInitialization.state,
       });
     promptVersion = version;
-    const skillInjection = await injectPhaseSkills({
+    const { assembleAgentPrompt } = await import("../../prompts/assemble.js");
+    const skillInjection = await assembleAgentPrompt({
       phase: "planning",
-      basePrompt,
+      localCompiledPrompt: basePrompt,
     });
     const prompt = skillInjection.prompt;
     await mkdir(`${runDirectory}/prompts`, { recursive: true });
@@ -426,6 +424,20 @@ export async function executePlanningPhase(
         promptName: promptNameForPhase("planning"),
         promptAssemblySchemaVersion: 1,
         renderedPromptPreview: promptPreview,
+        promptProvider: skillInjection.assembly.provider,
+        promptSource: skillInjection.assembly.source,
+        providerPromptVersion: skillInjection.assembly.providerPromptVersion,
+        providerLabel: skillInjection.assembly.providerLabel,
+        providerTemplateSha256: skillInjection.assembly.providerTemplateSha256,
+        localTemplateSha256: skillInjection.assembly.localTemplateSha256,
+        fallbackUsed: skillInjection.assembly.fallbackUsed,
+        fallbackReason: skillInjection.assembly.fallbackReason,
+        skillInvocationMode: skillInjection.assembly.skillInvocationMode,
+        langfusePromptLinked: skillInjection.assembly.langfusePromptLinked,
+        langfusePromptJson: skillInjection.langfusePromptLinkJson,
+        nativeCapabilityState: skillInjection.assembly.nativeCapabilityState,
+        componentOrdering: skillInjection.assembly.componentOrdering,
+        variablesUsed: skillInjection.assembly.variablesUsed,
       },
       onTelemetry,
     );
@@ -440,6 +452,10 @@ export async function executePlanningPhase(
           role: s.role,
           contentSha256: s.contentSha256,
           inclusionMethod: s.inclusionMethod,
+          discovered: s.discovered,
+          invoked: s.invoked,
+          evidenceSource: s.evidenceSource,
+          fallbackReason: s.fallbackReason,
         })),
         skillProvenanceStatus: skillInjection.skillProvenanceStatus,
       },

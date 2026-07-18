@@ -12,6 +12,22 @@ export const ANALYTICS_EVENT_NAMES = [
   "p_dev_model_fast_preference_changed",
   "p_dev_model_agent_run_started",
   "p_dev_model_agent_run_completed",
+  "p_dev_prompt_resolved",
+  "p_dev_prompt_fallback_used",
+  "p_dev_skill_mode_selected",
+  "p_dev_native_skill_unavailable",
+] as const;
+
+/** Bounded prompt/skill keys allowed despite the /prompt/i forbid pattern. */
+export const ALLOWED_PROMPT_ANALYTICS_PROPERTY_KEYS = [
+  "prompt_name",
+  "prompt_source",
+  "prompt_contract_version",
+  "remote_prompt_fallback_used",
+  "skill_invocation_mode",
+  "skill_count",
+  "native_capability_state",
+  "agent_role",
 ] as const;
 
 export const COMMON_ANALYTICS_PROPERTY_KEYS = [
@@ -82,6 +98,13 @@ export const ALLOWED_SENTRY_TAG_KEYS = [
   "capability_registry_version",
   "failure_classification",
   "requested_model_params",
+  "prompt_name",
+  "prompt_provider",
+  "prompt_contract_version",
+  "skill_ids",
+  "skill_invocation_mode",
+  "native_capability_state",
+  "capability_source_version",
 ] as const;
 
 export function bucketDurationMs(durationMs: number): DurationBucket {
@@ -158,11 +181,15 @@ export function assertAllowedPropertyKeys(
   allowedKeys: readonly string[],
 ): void {
   const allowed = new Set<string>(allowedKeys);
+  const promptCarveOut = new Set<string>(ALLOWED_PROMPT_ANALYTICS_PROPERTY_KEYS);
   for (const key of Object.keys(properties)) {
     if (!allowed.has(key)) {
       throw new Error(`Observability property "${key}" is not allowlisted.`);
     }
-    if (FORBIDDEN_PROPERTY_KEY_PATTERNS.some((pattern) => pattern.test(key))) {
+    if (
+      FORBIDDEN_PROPERTY_KEY_PATTERNS.some((pattern) => pattern.test(key)) &&
+      !promptCarveOut.has(key)
+    ) {
       throw new Error(`Observability property "${key}" is forbidden.`);
     }
   }
@@ -258,6 +285,41 @@ export function analyticsEventToProperties(
         configuration_surface: event.configurationSurface,
         parameter_evidence_source: event.parameterEvidenceSource,
         outcome: event.outcome,
+      };
+    case "p_dev_prompt_resolved":
+      return {
+        agent_role: event.agentRole,
+        prompt_name: event.promptName,
+        prompt_source: event.promptSource,
+        prompt_contract_version: event.promptContractVersion,
+        remote_prompt_fallback_used: event.remotePromptFallbackUsed,
+        skill_invocation_mode: event.skillInvocationMode,
+        skill_count: event.skillCount,
+        native_capability_state: event.nativeCapabilityState,
+      };
+    case "p_dev_prompt_fallback_used":
+      return {
+        agent_role: event.agentRole,
+        prompt_name: event.promptName,
+        prompt_source: event.promptSource,
+        prompt_contract_version: event.promptContractVersion,
+        remote_prompt_fallback_used: true,
+        skill_invocation_mode: event.skillInvocationMode,
+        skill_count: event.skillCount,
+        native_capability_state: event.nativeCapabilityState,
+      };
+    case "p_dev_skill_mode_selected":
+      return {
+        agent_role: event.agentRole,
+        skill_invocation_mode: event.skillInvocationMode,
+        skill_count: event.skillCount,
+        native_capability_state: event.nativeCapabilityState,
+      };
+    case "p_dev_native_skill_unavailable":
+      return {
+        agent_role: event.agentRole,
+        skill_invocation_mode: event.skillInvocationMode,
+        native_capability_state: event.nativeCapabilityState,
       };
     default: {
       const exhaustive: never = event;

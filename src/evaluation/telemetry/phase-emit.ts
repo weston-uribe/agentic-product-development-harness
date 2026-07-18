@@ -40,6 +40,21 @@ export async function emitPromptProvenanceEvent(
     promptName?: string;
     promptAssemblySchemaVersion?: number;
     renderedPromptPreview?: string;
+    promptProvider?: string;
+    promptSource?: string;
+    providerPromptVersion?: number | null;
+    providerLabel?: string | null;
+    providerTemplateSha256?: string | null;
+    localTemplateSha256?: string;
+    fallbackUsed?: boolean;
+    fallbackReason?: string;
+    skillInvocationMode?: string;
+    langfusePromptLinked?: boolean;
+    /** Minimal Langfuse prompt link object JSON (name/version/labels only — no template body) */
+    langfusePromptJson?: string | null;
+    nativeCapabilityState?: string;
+    componentOrdering?: string[];
+    variablesUsed?: string[];
   },
   onTelemetryEvent?: (event: AgentTelemetryEvent) => void | Promise<void>,
 ): Promise<void> {
@@ -52,6 +67,46 @@ export async function emitPromptProvenanceEvent(
     artifactRef: provenance.renderedPromptArtifact,
     renderedPromptSha256: provenance.renderedPromptArtifact?.sha256,
     renderedPromptByteCount: provenance.renderedPromptArtifact?.byteCount,
+    ...(provenance.promptProvider
+      ? { promptProvider: provenance.promptProvider }
+      : {}),
+    ...(provenance.promptSource ? { promptSource: provenance.promptSource } : {}),
+    ...(provenance.providerPromptVersion !== undefined
+      ? { providerPromptVersion: provenance.providerPromptVersion }
+      : {}),
+    ...(provenance.providerLabel !== undefined
+      ? { providerLabel: provenance.providerLabel }
+      : {}),
+    ...(provenance.providerTemplateSha256 !== undefined
+      ? { providerTemplateSha256: provenance.providerTemplateSha256 }
+      : {}),
+    ...(provenance.localTemplateSha256
+      ? { localTemplateSha256: provenance.localTemplateSha256 }
+      : {}),
+    ...(provenance.fallbackUsed !== undefined
+      ? { fallbackUsed: provenance.fallbackUsed }
+      : {}),
+    ...(provenance.fallbackReason
+      ? { fallbackReason: provenance.fallbackReason }
+      : {}),
+    ...(provenance.skillInvocationMode
+      ? { skillInvocationMode: provenance.skillInvocationMode }
+      : {}),
+    ...(provenance.langfusePromptLinked !== undefined
+      ? { langfusePromptLinked: provenance.langfusePromptLinked }
+      : {}),
+    ...(provenance.langfusePromptJson
+      ? { langfusePromptJson: provenance.langfusePromptJson }
+      : {}),
+    ...(provenance.nativeCapabilityState
+      ? { nativeCapabilityState: provenance.nativeCapabilityState }
+      : {}),
+    ...(provenance.componentOrdering
+      ? { componentOrdering: provenance.componentOrdering }
+      : {}),
+    ...(provenance.variablesUsed
+      ? { variablesUsed: provenance.variablesUsed }
+      : {}),
     ...(provenance.renderedPromptPreview
       ? { renderedPromptPreview: provenance.renderedPromptPreview }
       : {}),

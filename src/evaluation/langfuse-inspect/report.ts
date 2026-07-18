@@ -174,6 +174,101 @@ function observationClaimsSkillUsage(obs: LangfuseInspectObservation): boolean {
   return false;
 }
 
+export function collectPromptSkillInspectGaps(
+  obs: LangfuseInspectObservation,
+  traceId: string,
+): LangfuseInspectGap[] {
+  const gaps: LangfuseInspectGap[] = [];
+  const isGeneration =
+    obs.type === "GENERATION" ||
+    obs.type === "generation" ||
+    Boolean(obs.name?.includes("Cursor run"));
+  if (!isGeneration) return gaps;
+
+  const hasPromptMeta =
+    Boolean(obs.promptName) ||
+    Boolean(obs.metadata.promptProvider) ||
+    Boolean(obs.metadata.promptSource);
+
+  if (hasPromptMeta && !obs.promptName) {
+    gaps.push({
+      code: "missing_prompt_source",
+      severity: "error",
+      message: `Generation ${obs.name ?? obs.id} missing promptName`,
+      traceId: traceId || undefined,
+      observationId: obs.id,
+    });
+  }
+  if (hasPromptMeta && !obs.promptContractVersion) {
+    gaps.push({
+      code: "missing_prompt_contract",
+      severity: "error",
+      message: `Generation ${obs.name ?? obs.id} missing promptContractVersion`,
+      traceId: traceId || undefined,
+      observationId: obs.id,
+    });
+  }
+
+  const source = obs.metadata.promptSource;
+  const linked = obs.metadata.langfusePromptLinked === true;
+  const hasLinkObject = obs.metadata.langfusePrompt != null;
+  if (source === "langfuse" && (!linked || !hasLinkObject)) {
+    gaps.push({
+      code: "claimed_remote_prompt_without_link",
+      severity: "error",
+      message: `Generation ${obs.name ?? obs.id} claims langfuse prompt source without a real prompt link`,
+      traceId: traceId || undefined,
+      observationId: obs.id,
+    });
+  }
+  if (source === "local" && (linked || hasLinkObject)) {
+    gaps.push({
+      code: "invalid_fallback_state",
+      severity: "error",
+      message: `Generation ${obs.name ?? obs.id} has local prompt source but claims a Langfuse prompt link`,
+      traceId: traceId || undefined,
+      observationId: obs.id,
+    });
+  }
+
+  const skillsUsed = obs.metadata.skillsUsed;
+  if (Array.isArray(skillsUsed)) {
+    const seen = new Set<string>();
+    for (const raw of skillsUsed) {
+      const rec =
+        raw && typeof raw === "object"
+          ? (raw as Record<string, unknown>)
+          : null;
+      const skillId = typeof rec?.skillId === "string" ? rec.skillId : null;
+      if (skillId && seen.has(skillId)) {
+        gaps.push({
+          code: "duplicate_skill_injection",
+          severity: "error",
+          message: `Generation ${obs.name ?? obs.id} lists skill ${skillId} more than once`,
+          traceId: traceId || undefined,
+          observationId: obs.id,
+        });
+      }
+      if (skillId) seen.add(skillId);
+
+      if (rec?.discovered === true || rec?.invoked === true) {
+        const mode = rec.inclusionMethod ?? obs.metadata.skillInvocationMode;
+        if (mode !== "provider_native") {
+          gaps.push({
+            code: "false_native_skill_claim",
+            severity: "error",
+            message: `Generation ${obs.name ?? obs.id} claims skill discovered/invoked without provider_native evidence`,
+            traceId: traceId || undefined,
+            observationId: obs.id,
+          });
+        }
+      }
+    }
+  }
+
+  return gaps;
+}
+
 export function buildInspectReport(params: {
   issueKey: string;
   namespace: string;
@@ -324,6 +419,8 @@ export function buildInspectReport(params: {
           });
         }
       }
+
+      gaps.push(...collectPromptSkillInspectGaps(obs, id));
     }
 
     const inputInfo = contentPresence(raw.input);

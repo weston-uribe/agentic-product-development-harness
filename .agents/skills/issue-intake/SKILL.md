@@ -1,5 +1,6 @@
 ---
 name: issue-intake
+skillContractVersion: "1"
 description: >-
   Turn a fuzzy product idea into a harness-compatible Linear issue. Use when
   starting new harness work, drafting Linear issues, or validating issue

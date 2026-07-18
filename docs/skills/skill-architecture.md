@@ -95,7 +95,7 @@ Used directly by the operator in an agent client (Cursor, future clients). The o
 
 Reusable workflow contracts aligned with harness phases and cloud agent runs. They describe what an agent should do when planning or implementing work; they are distinct from operator-invoked skills.
 
-Runner/agent phase skills are **workflow contracts only** today. They are **not** wired as runner prompt integration — SDK runners continue to use [`src/prompts/*.md`](../src/prompts/). Status routing and Linear transitions remain runner-owned.
+Runner/agent phase skills are durable workflow contracts. SDK runners use [`src/prompts/*.md`](../../src/prompts/) and, for planning / implementation / revision / integration-repair, **render** the matching canonical `SKILL.md` into the phase prompt (`rendered_into_prompt`) from [`.agents/skills/`](../../.agents/skills/). Native Cursor skill invocation for SDK Cloud Agents remains **unproven** — see [instruction architecture](instruction-architecture.md) and [ADR 0006](../decisions/0006-agent-instruction-and-prompt-authority.md). Status routing and Linear transitions remain runner-owned.
 
 **Implemented:**
 
@@ -182,8 +182,8 @@ After this document and the accompanying migration:
 | `performance-cost-audit` | Planned architecture concept only |
 | Skill registry / package manager | Not implemented — intentionally deferred |
 | Skill manifests | Not implemented — intentionally deferred |
-| Runner-skill / prompt integration | Not implemented — `src/prompts/*.md` remain runner implementation details |
-| Provider/client adapters | Not implemented — documented as future work |
+| Runner-skill / prompt integration | **Implemented** as `rendered_into_prompt` from `.agents/skills` (not native invocation) |
+| Provider/client adapters | Not implemented as production generators — `.cursor/skills` remains a canary candidate only until Cloud Agent evidence |
 
 ## Compatibility
 

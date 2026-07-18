@@ -758,12 +758,13 @@ export async function executeRevisionPhase(
       changedFiles,
       validationCommands,
     });
-    const { injectPhaseSkills, promptNameForPhase } = await import(
+    const { promptNameForPhase } = await import(
       "../../prompts/skill-inject.js"
     );
-    const skillInjection = await injectPhaseSkills({
+    const { assembleAgentPrompt } = await import("../../prompts/assemble.js");
+    const skillInjection = await assembleAgentPrompt({
       phase: "revision",
-      basePrompt,
+      localCompiledPrompt: basePrompt,
     });
     const prompt = skillInjection.prompt;
 
@@ -799,6 +800,20 @@ export async function executeRevisionPhase(
         promptName: promptNameForPhase("revision"),
         promptAssemblySchemaVersion: 1,
         renderedPromptPreview: revisionPromptPreview,
+        promptProvider: skillInjection.assembly.provider,
+        promptSource: skillInjection.assembly.source,
+        providerPromptVersion: skillInjection.assembly.providerPromptVersion,
+        providerLabel: skillInjection.assembly.providerLabel,
+        providerTemplateSha256: skillInjection.assembly.providerTemplateSha256,
+        localTemplateSha256: skillInjection.assembly.localTemplateSha256,
+        fallbackUsed: skillInjection.assembly.fallbackUsed,
+        fallbackReason: skillInjection.assembly.fallbackReason,
+        skillInvocationMode: skillInjection.assembly.skillInvocationMode,
+        langfusePromptLinked: skillInjection.assembly.langfusePromptLinked,
+        langfusePromptJson: skillInjection.langfusePromptLinkJson,
+        nativeCapabilityState: skillInjection.assembly.nativeCapabilityState,
+        componentOrdering: skillInjection.assembly.componentOrdering,
+        variablesUsed: skillInjection.assembly.variablesUsed,
       },
       (e) => phaseTrace?.onTelemetryEvent?.(e),
     );
@@ -813,6 +828,10 @@ export async function executeRevisionPhase(
           role: s.role,
           contentSha256: s.contentSha256,
           inclusionMethod: s.inclusionMethod,
+          discovered: s.discovered,
+          invoked: s.invoked,
+          evidenceSource: s.evidenceSource,
+          fallbackReason: s.fallbackReason,
         })),
         skillProvenanceStatus: skillInjection.skillProvenanceStatus,
       },

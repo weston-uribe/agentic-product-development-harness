@@ -125,6 +125,41 @@
           },
           "additionalProperties": false
         },
+        "promptProvider": {
+          "type": "object",
+          "properties": {
+            "provider": {
+              "type": "string",
+              "enum": [
+                "local",
+                "langfuse_with_local_fallback"
+              ],
+              "default": "local"
+            },
+            "label": {
+              "type": "string",
+              "minLength": 1
+            },
+            "version": {
+              "type": "integer",
+              "exclusiveMinimum": 0
+            },
+            "cacheTtlSeconds": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "preferredSkillMode": {
+              "type": "string",
+              "enum": [
+                "automatic",
+                "native_when_supported",
+                "rendered_fallback"
+              ],
+              "default": "automatic"
+            }
+          },
+          "additionalProperties": false
+        },
         "linear": {
           "type": "object",
           "properties": {
@@ -357,6 +392,10 @@
                       "minLength": 1
                     },
                     "teamKey": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "teamName": {
                       "type": "string",
                       "minLength": 1
                     },

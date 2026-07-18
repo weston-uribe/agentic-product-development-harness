@@ -1,5 +1,6 @@
 ---
 name: planner
+skillContractVersion: "1"
 description: >-
   Convert approved product intent or audit findings into implementation-ready
   plans and reviewable PR slices. Use when planning feature work or audit

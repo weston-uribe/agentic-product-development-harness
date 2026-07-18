@@ -1,0 +1,67 @@
+# Agent instruction architecture
+
+**Status:** Implemented (Chunk 3 inventory + contracts). Production skill mode: `rendered_into_prompt` from `.agents/skills` only. Native Cloud Agent skill support: **unproven**.
+
+Canonical decisions: [ADR 0006](../decisions/0006-agent-instruction-and-prompt-authority.md).
+
+## Role / prompt / skill matrix
+
+| Role | Phase | Prompt template | Assembly | Skills copied into prompt | SKILL.md source | Invoked vs rendered | Prompt contract | Variables (names) | Model config source | Langfuse provenance today | Target-repo changes |
+|------|-------|-----------------|----------|---------------------------|-----------------|---------------------|-----------------|-------------------|---------------------|---------------------------|---------------------|
+| Planner | `planning` | `src/prompts/planning.md` | builder + skill execution | `planner` | `.agents/skills/planner/SKILL.md` | **Rendered** | `planning@1` / `p-dev.planning` | issueKey, issueTitle, issueUrl, task, acceptanceCriteria, outOfScope, validationExpectations, targetRepo, baseBranch, promptVersion | `roleModels.planner` → Cursor `mode: plan` | prompt hashes + skill rendered metadata; no discovery/invocation claim | None (skills embedded in prompt) |
+| Builder / implementer | `implementation` | `src/prompts/implementation.md` | builder + skill execution | `implementation` | `.agents/skills/implementation/SKILL.md` | **Rendered** | `implementation@1` / `p-dev.implementation` | issue fields, branchName, planningComment, validationCommands, runId, … | `roleModels.builder` → `mode: agent` | same | None |
+| Reviser | `revision` | `src/prompts/revision.md` | revision-builder + skill execution | `implementation` | `.agents/skills/implementation/SKILL.md` | **Rendered** | `revision@1` / `p-dev.revision` | pmFeedback, changedFiles, branch, prUrl, … | `roleModels.builder` | same | None |
+| Integration repairer | `integration_repair` | `src/prompts/integration-repair.md` | repair-builder + skill execution | `implementation` | `.agents/skills/implementation/SKILL.md` | **Rendered** | `integration-repair@1` / `p-dev.integration-repair` | conflictFiles, baseBranchDelta, … | `roleModels.builder` | same | None |
+| Issue intake | operator | N/A (skill / ChatGPT prompts) | operator invoke | N/A | `.agents/skills/issue-intake/SKILL.md` | Operator native/editor invoke (not SDK runner) | N/A | N/A | N/A | N/A | N/A |
+| Code health audit | operator | N/A | operator invoke | N/A | `.agents/skills/code-health-audit/SKILL.md` | Operator | N/A | N/A | N/A | N/A | N/A |
+| Architecture evolution audit | operator | N/A | operator invoke | N/A | `.agents/skills/architecture-evolution-audit/SKILL.md` | Operator | N/A | N/A | N/A | N/A | N/A |
+| Security audit | operator | N/A | operator invoke | N/A | `.agents/skills/security-audit/SKILL.md` | Operator | N/A | N/A | N/A | N/A | N/A |
+| Plan reviewer (future) | reserved | slot `p-dev.plan-review` | not implemented | TBD | reserved | — | reserved | — | — | — | — |
+| Code reviewer (future) | reserved | slot `p-dev.code-review` | not implemented | TBD | reserved | — | reserved | — | — | — | — |
+| Handoff / merge | orchestration | version constants only | no agent prompt template | none | — | none | `handoff@1` / `merge@1` | — | — | partial metadata | — |
+
+## Cursor execution-surface capability matrix
+
+Classifications from installed `@cursor/sdk@1.0.23` types and harness usage. Values: `supported` | `unsupported` | `unproven`.
+
+| Surface | Native skill support | Evidence summary |
+|---------|----------------------|------------------|
+| Cursor editor | **unproven** (API) | No editor types in SDK; operator SKILL.md convention documented |
+| Cursor CLI interactive | **unsupported** | No skill fields; harness does not invoke CLI |
+| Cursor CLI non-interactive | **unsupported** | No skill fields; harness does not invoke CLI |
+| SDK local agent | **unsupported** | No skill fields; `settingSources` / `customSubagents` are not skills |
+| SDK Cloud Agent | **unproven** | No skill create/send fields; ambient project settings ≠ proven skill discovery; no skill events on `SDKMessage` |
+| Background Agent | **unsupported** | No BackgroundAgent skill API; task `isBackground` is not skills |
+
+Registry code: [`src/skills/capability.ts`](../../src/skills/capability.ts).
+
+### Proof still required (final remote canary)
+
+1. Whether a skill placed only under `.agents/skills/` in the **target** checkout is discovered by an SDK-created Cloud Agent.
+2. Whether a skill placed only under `.cursor/skills/` is discovered (tested independently).
+3. Whether any other candidate layout is discovered.
+4. Whether invocation can be evidenced via provider stream/result or workspace contract (not model self-report).
+5. Whether harness-owned skills can be made available without permanently contaminating target PRs.
+
+Until then: production remains `rendered_into_prompt`; no production `.cursor/skills` mirror; GUI must not imply native execution is available.
+
+## Candidate canary layouts (disposable fixtures only)
+
+- `.agents/skills/<skill>/SKILL.md`
+- `.cursor/skills/<skill>/SKILL.md`
+- Any additional candidates documented during audit
+
+These must not be committed as production adapters in this chunk.
+
+## Future extension points
+
+- `plan_reviewer` / `code_reviewer` prompt registry slots (`p-dev.plan-review`, `p-dev.code-review`) — not implemented.
+- Post-evidence generated secondary layout from `.agents/skills` with parity tests.
+- Ephemeral cloud availability adapter that does not leave harness skill files in target PRs.
+
+## Related
+
+- [Skill architecture](skill-architecture.md)
+- [Langfuse prompt lifecycle](../evaluation/langfuse-prompt-lifecycle.md)
+- [Native skill canary](../evaluation/native-skill-canary.md)
+- [Cursor SDK contract](../evaluation/cursor-sdk-contract.md)

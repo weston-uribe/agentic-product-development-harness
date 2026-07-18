@@ -86,6 +86,17 @@ There is no separate `tool-call-error` message type; errors appear as
 
 No SDK field named `correlationId`.
 
+## Native Agent Skills (@cursor/sdk@1.0.23)
+
+| Concern | Status |
+|---------|--------|
+| Explicit skill fields on `Agent.create` / `SendOptions` / `V1CreateAgentRequest` | **Absent** → explicit invoke **unsupported** |
+| Skill load / invoke on `SDKMessage` | **Absent** |
+| Ambient Cloud Agent discovery from target-repo `.agents/skills` or `.cursor/skills` | **Unproven** — requires final remote canary |
+| Harness production path | `rendered_into_prompt` from `.agents/skills` only |
+
+See [native-skill-canary.md](native-skill-canary.md) and [instruction-architecture.md](../skills/instruction-architecture.md).
+
 ## Absent or unreliable for telemetry
 
 | Signal | Status |

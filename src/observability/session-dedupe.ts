@@ -33,6 +33,14 @@ export function analyticsEventDedupeSuffix(
       return `model_agent_run_started:${event.agentRole}:${event.baseModelId}:${event.fastEnabled}:${Date.now()}`;
     case "p_dev_model_agent_run_completed":
       return `model_agent_run_completed:${event.agentRole}:${event.baseModelId}:${event.outcome}:${Date.now()}`;
+    case "p_dev_prompt_resolved":
+      return `prompt_resolved:${event.agentRole}:${event.promptName}:${event.promptSource}:${event.promptContractVersion}`;
+    case "p_dev_prompt_fallback_used":
+      return `prompt_fallback:${event.agentRole}:${event.promptName}:${event.promptContractVersion}`;
+    case "p_dev_skill_mode_selected":
+      return `skill_mode:${event.agentRole}:${event.skillInvocationMode}:${event.nativeCapabilityState}`;
+    case "p_dev_native_skill_unavailable":
+      return `native_skill_unavailable:${event.agentRole}:${event.nativeCapabilityState}`;
     default: {
       const exhaustive: never = event;
       return String(exhaustive);

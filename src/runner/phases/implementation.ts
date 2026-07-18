@@ -83,10 +83,8 @@ import {
   safeStartPhaseTrace,
 } from "../../evaluation/phase-helpers.js";
 import { agentObservationDisplayName } from "../../evaluation/naming.js";
-import {
-  injectPhaseSkills,
-  promptNameForPhase,
-} from "../../prompts/skill-inject.js";
+import { promptNameForPhase } from "../../prompts/skill-inject.js";
+import { assembleAgentPrompt } from "../../prompts/assemble.js";
 import { buildTelemetryCorrelation } from "../../evaluation/telemetry/correlation.js";
 import {
   buildPromptProvenance,
@@ -541,9 +539,9 @@ export async function executeImplementationPhase(
       validationCommands,
       productInitializationState: productInitialization.state,
     });
-    const skillInjection = await injectPhaseSkills({
+    const skillInjection = await assembleAgentPrompt({
       phase: "implementation",
-      basePrompt,
+      localCompiledPrompt: basePrompt,
     });
     const prompt = skillInjection.prompt;
 
@@ -587,6 +585,20 @@ export async function executeImplementationPhase(
         promptName: promptNameForPhase("implementation"),
         promptAssemblySchemaVersion: 1,
         renderedPromptPreview: promptPreview,
+        promptProvider: skillInjection.assembly.provider,
+        promptSource: skillInjection.assembly.source,
+        providerPromptVersion: skillInjection.assembly.providerPromptVersion,
+        providerLabel: skillInjection.assembly.providerLabel,
+        providerTemplateSha256: skillInjection.assembly.providerTemplateSha256,
+        localTemplateSha256: skillInjection.assembly.localTemplateSha256,
+        fallbackUsed: skillInjection.assembly.fallbackUsed,
+        fallbackReason: skillInjection.assembly.fallbackReason,
+        skillInvocationMode: skillInjection.assembly.skillInvocationMode,
+        langfusePromptLinked: skillInjection.assembly.langfusePromptLinked,
+        langfusePromptJson: skillInjection.langfusePromptLinkJson,
+        nativeCapabilityState: skillInjection.assembly.nativeCapabilityState,
+        componentOrdering: skillInjection.assembly.componentOrdering,
+        variablesUsed: skillInjection.assembly.variablesUsed,
       },
       (e) => phaseTrace?.onTelemetryEvent?.(e),
     );
@@ -601,6 +613,10 @@ export async function executeImplementationPhase(
           role: s.role,
           contentSha256: s.contentSha256,
           inclusionMethod: s.inclusionMethod,
+          discovered: s.discovered,
+          invoked: s.invoked,
+          evidenceSource: s.evidenceSource,
+          fallbackReason: s.fallbackReason,
         })),
         skillProvenanceStatus: skillInjection.skillProvenanceStatus,
       },

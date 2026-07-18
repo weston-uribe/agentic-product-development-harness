@@ -211,6 +211,40 @@ export type AnalyticsEvent =
       configurationSurface: ModelConfigurationSurface;
       parameterEvidenceSource: ParameterEvidenceSourceProperty;
       outcome: "completed" | "failed";
+    }
+  | {
+      type: "p_dev_prompt_resolved";
+      agentRole: string;
+      promptName: string;
+      promptSource: string;
+      promptContractVersion: string;
+      remotePromptFallbackUsed: boolean;
+      skillInvocationMode: string;
+      skillCount: number;
+      nativeCapabilityState: string;
+    }
+  | {
+      type: "p_dev_prompt_fallback_used";
+      agentRole: string;
+      promptName: string;
+      promptSource: string;
+      promptContractVersion: string;
+      skillInvocationMode: string;
+      skillCount: number;
+      nativeCapabilityState: string;
+    }
+  | {
+      type: "p_dev_skill_mode_selected";
+      agentRole: string;
+      skillInvocationMode: string;
+      skillCount: number;
+      nativeCapabilityState: string;
+    }
+  | {
+      type: "p_dev_native_skill_unavailable";
+      agentRole: string;
+      skillInvocationMode: string;
+      nativeCapabilityState: string;
     };
 
 export interface AllowedSentryContext {
@@ -262,6 +296,13 @@ export interface ProductErrorCaptureInput {
   failureClassification?: string;
   /** JSON-serialized allowlisted param id/value pairs only — never prompts. */
   requestedModelParams?: string;
+  promptName?: string;
+  promptProvider?: string;
+  promptContractVersion?: string;
+  skillIds?: string;
+  skillInvocationMode?: string;
+  nativeCapabilityState?: string;
+  capabilitySourceVersion?: string;
 }
 
 export type TypedBreadcrumb =

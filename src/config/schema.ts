@@ -111,6 +111,30 @@ const agentProviderSchema = z.object({
   model: z.object({ id: z.string() }).optional(),
 });
 
+const promptProviderConfigSchema = z
+  .object({
+    provider: z
+      .enum(["local", "langfuse_with_local_fallback"])
+      .default("local"),
+    /** Approved label such as dogfood — never "latest" */
+    label: z.string().min(1).optional(),
+    version: z.number().int().positive().optional(),
+    cacheTtlSeconds: z.number().positive().optional(),
+    /**
+     * Preferred skill mode. Native execution is not available while Cloud Agent
+     * capability is unproven — runtime always renders from .agents/skills.
+     */
+    preferredSkillMode: z
+      .enum(["automatic", "native_when_supported", "rendered_fallback"])
+      .default("automatic"),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.label == null || value.label.trim().toLowerCase() !== "latest",
+    { message: 'promptProvider.label must not be "latest"' },
+  );
+
 export const harnessConfigSchema = z
   .object({
     version: z.literal(1),
@@ -119,6 +143,7 @@ export const harnessConfigSchema = z
     agentProvider: agentProviderSchema.optional(),
     defaultModel: z.object({ id: z.string() }).optional(),
     roleModels: roleModelsSchema.optional(),
+    promptProvider: promptProviderConfigSchema.optional(),
     linear: linearConfigSchema.optional(),
     planning: planningConfigSchema.optional(),
     implementation: implementationConfigSchema.optional(),

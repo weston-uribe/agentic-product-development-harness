@@ -1,5 +1,6 @@
 ---
 name: implementation
+skillContractVersion: "1"
 description: >-
   Execute one approved planner slice or validated issue at a time with
   verification-driven repair until acceptance criteria have objective passing

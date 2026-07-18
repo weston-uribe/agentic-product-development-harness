@@ -34,6 +34,9 @@ import {
 import { runEvaluationCanaryLangfuseProjection } from "./commands/evaluation-canary-langfuse-projection.js";
 import { runEvaluationInspectLangfuse } from "./commands/evaluation-inspect-langfuse.js";
 import { runEvaluationReprojectLangfuse } from "./commands/evaluation-reproject-langfuse.js";
+import { runPromptsValidate } from "./commands/prompts-validate.js";
+import { runPromptsLangfuseSync } from "./commands/prompts-langfuse-sync.js";
+import { runEvaluationCanaryNativeSkill } from "./commands/evaluation-canary-native-skill.js";
 
 export function createProgram(): Command {
   const program = new Command();
@@ -804,6 +807,62 @@ export function createProgram(): Command {
           apply: opts.apply === true,
           out: opts.out,
           json: opts.json === true,
+        });
+      },
+    );
+
+  evalCmd
+    .command("canary-native-skill")
+    .description(
+      "Prepare disposable native-skill canary fixtures (dry-run/preflight; refuses live Cloud Agents)",
+    )
+    .option("--live", "Request live Cloud Agent run (refused in Chunk 3)", false)
+    .option("--keep-fixture", "Retain disposable fixture directory", false)
+    .option("--out <path>", "Write report JSON")
+    .option("--json", "Print report JSON to stdout", true)
+    .action(
+      async (opts: {
+        live?: boolean;
+        keepFixture?: boolean;
+        out?: string;
+        json?: boolean;
+      }) => {
+        process.exitCode = await runEvaluationCanaryNativeSkill({
+          live: opts.live === true,
+          keepFixture: opts.keepFixture === true,
+          out: opts.out,
+          json: opts.json !== false,
+        });
+      },
+    );
+
+  program
+    .command("prompts:validate")
+    .description(
+      "Validate local prompt contracts and canonical .agents/skills packages",
+    )
+    .action(async () => {
+      process.exitCode = await runPromptsValidate();
+    });
+
+  program
+    .command("prompts:langfuse:sync")
+    .description(
+      "Prepare Langfuse prompt sync changeset (dry-run; does not publish)",
+    )
+    .option("--dry-run", "Prepare changeset without publishing (default)", true)
+    .option("--label <label>", "Approved label (default: dogfood)", "dogfood")
+    .option(
+      "--publish",
+      "Request publish (blocked in this chunk; dry-run only)",
+      false,
+    )
+    .action(
+      async (opts: { dryRun?: boolean; label?: string; publish?: boolean }) => {
+        process.exitCode = await runPromptsLangfuseSync({
+          dryRun: opts.dryRun !== false,
+          label: opts.label,
+          publish: opts.publish === true,
         });
       },
     );
