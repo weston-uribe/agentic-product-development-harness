@@ -1,4 +1,5 @@
 // Prerequisite: npx playwright install chromium
+// Operator runtime: same launcher as `p-dev` / `npm start` (immutable next start).
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "@playwright/test";
@@ -21,7 +22,7 @@ export default defineConfig({
     cwd: repoRoot,
     url: "http://localhost:3100/",
     reuseExistingServer: false,
-    timeout: 300_000,
+    timeout: 420_000,
   },
   outputDir: "/tmp/workflow-validation/playwright-results",
 });

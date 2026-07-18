@@ -35,4 +35,15 @@ const FIXTURE_MODEL_CATALOG: WorkflowModelCatalogEntry[] = [
     providerDefaultParams: [{ id: "fast", value: "true" }],
     harnessDefaultParams: [{ id: "fast", value: "false" }],
   },
+  {
+    id: "fixture-no-fast-model",
+    displayName: "Fixture No-Fast Model",
+    availability: "available",
+    supportedParameters: [],
+    fetchedAt: FIXTURE_MODEL_CATALOG_CAPTURED_AT,
+    source: "fixture",
+    fastModeAvailable: false,
+    providerDefaultParams: [],
+    harnessDefaultParams: [],
+  },
 ];
