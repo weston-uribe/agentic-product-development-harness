@@ -36,14 +36,25 @@ function baseEvent(
 export async function emitPromptProvenanceEvent(
   runDirectory: string,
   ctx: TelemetryCorrelationContext,
-  provenance: PromptProvenance,
+  provenance: PromptProvenance & {
+    promptName?: string;
+    promptAssemblySchemaVersion?: number;
+    renderedPromptPreview?: string;
+  },
   onTelemetryEvent?: (event: AgentTelemetryEvent) => void | Promise<void>,
 ): Promise<void> {
   const event = baseEvent(ctx, "prompt_provenance", "prompt", {
+    promptName: provenance.promptName,
     promptContractVersion: provenance.promptContractVersion,
     promptTemplatePath: provenance.promptTemplatePath,
     promptTemplateSha256: provenance.promptTemplateSha256,
+    promptAssemblySchemaVersion: provenance.promptAssemblySchemaVersion ?? 1,
     artifactRef: provenance.renderedPromptArtifact,
+    renderedPromptSha256: provenance.renderedPromptArtifact?.sha256,
+    renderedPromptByteCount: provenance.renderedPromptArtifact?.byteCount,
+    ...(provenance.renderedPromptPreview
+      ? { renderedPromptPreview: provenance.renderedPromptPreview }
+      : {}),
   });
   await appendTelemetryEvent(runDirectory, event);
   await onTelemetryEvent?.(event);
@@ -56,13 +67,21 @@ export async function emitSkillProvenanceEvent(
     eligibleSkills: SkillProvenanceRecord[];
     declaredSkills: SkillProvenanceRecord[];
     observedSkills: SkillProvenanceRecord[];
+    skillsUsed?: Array<SkillProvenanceRecord & { inclusionMethod?: string }>;
+    skillProvenanceStatus?: "present" | "none";
   },
   onTelemetryEvent?: (event: AgentTelemetryEvent) => void | Promise<void>,
 ): Promise<void> {
+  const skillsUsed = skills.skillsUsed ?? skills.declaredSkills;
+  const skillProvenanceStatus =
+    skills.skillProvenanceStatus ??
+    (skillsUsed.length > 0 ? "present" : "none");
   const event = baseEvent(ctx, "skill_provenance", "skills", {
     eligibleSkills: skills.eligibleSkills,
     declaredSkills: skills.declaredSkills,
     observedSkills: skills.observedSkills,
+    skillsUsed,
+    skillProvenanceStatus,
   });
   await appendTelemetryEvent(runDirectory, event);
   await onTelemetryEvent?.(event);
@@ -130,6 +149,19 @@ export function agentObsMetadataFromObserved(observed: {
     cursorDurationMs: observed.durationMs ?? null,
     modelId: observed.model?.id ?? null,
     costSource: usage?.cost?.costSource ?? "unavailable",
+    costUnavailableReason:
+      (usage?.cost as { costUnavailableReason?: string } | undefined)
+        ?.costUnavailableReason ??
+      (usage?.cost?.costSource === "unavailable" || !usage?.cost?.costSource
+        ? "provider_did_not_report"
+        : undefined),
+    pricingRegistryVersion: (
+      usage?.cost as { pricingRegistryVersion?: string } | undefined
+    )?.pricingRegistryVersion,
+    costUsd:
+      (usage?.cost as { providerReportedCostUsd?: number; estimatedCostUsd?: number } | undefined)
+        ?.providerReportedCostUsd ??
+      (usage?.cost as { estimatedCostUsd?: number } | undefined)?.estimatedCostUsd,
     cursorUsageInputTokens: usage?.inputTokens,
     cursorUsageOutputTokens: usage?.outputTokens,
     cursorUsageTotalTokens: usage?.totalTokens,
@@ -137,7 +169,8 @@ export function agentObsMetadataFromObserved(observed: {
     cursorUsageCacheWriteTokens: usage?.cacheWriteTokens,
     cursorUsageReasoningTokens: usage?.reasoningTokens,
     telemetryEventCount: observed.eventCounts?.total,
-    usageAggregation: "cursor_run",
+    usageAggregation: "cursor_run_aggregate",
+    individualModelCallsAvailable: false,
     ...(observed.completeness
       ? {
           telemetryCompletenessModel: observed.completeness.model_present,

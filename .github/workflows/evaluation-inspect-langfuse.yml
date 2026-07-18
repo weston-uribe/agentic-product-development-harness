@@ -1,0 +1,124 @@
+# Maintainer-only diagnostic: inventory Langfuse session for an issue and upload
+# a redacted gap report. Uses existing Langfuse secrets; never prints credentials.
+name: evaluation-inspect-langfuse
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_key:
+        description: Linear issue key (e.g. FRE-3)
+        required: true
+        type: string
+      namespace:
+        description: P_DEV_EVALUATION_NAMESPACE
+        required: false
+        default: weston-dogfood
+        type: string
+      mode:
+        description: inspect, reproject-dry-run, or reproject-apply
+        required: false
+        default: inspect
+        type: choice
+        options:
+          - inspect
+          - reproject-dry-run
+          - reproject-apply
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Run Langfuse inspect
+        if: ${{ inputs.mode == 'inspect' }}
+        env:
+          P_DEV_EVALUATION_PROVIDER: langfuse
+          P_DEV_EVALUATION_CAPTURE_PROFILE: content-v1
+          P_DEV_EVALUATION_NAMESPACE: ${{ inputs.namespace }}
+          LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+          LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+          LANGFUSE_BASE_URL: ${{ vars.LANGFUSE_BASE_URL }}
+          LANGFUSE_TRACING_ENVIRONMENT: ${{ vars.LANGFUSE_TRACING_ENVIRONMENT }}
+        run: |
+          mkdir -p runs/.evaluation-reports
+          npm run evaluation:inspect-langfuse -- \
+            --issue "${{ inputs.issue_key }}" \
+            --namespace "${{ inputs.namespace }}" \
+            --out "runs/.evaluation-reports/${{ inputs.issue_key }}-langfuse-inspect.json" \
+            --safe-content \
+            --json > "runs/.evaluation-reports/${{ inputs.issue_key }}-langfuse-inspect.stdout.json" || true
+      - name: Download FRE-3 run artifacts for reprojection
+        if: ${{ inputs.mode == 'reproject-dry-run' || inputs.mode == 'reproject-apply' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p runs/.fre3-artifact-cache
+          cd /tmp
+          rm -rf fre3-arts && mkdir fre3-arts && cd fre3-arts
+          gh run download 29655238184 -R weston-uribe/p-dev-harness || true
+          gh run download 29656783022 -R weston-uribe/p-dev-harness || true
+          gh run download 29658249852 -R weston-uribe/p-dev-harness || true
+          for d in /tmp/fre3-arts/*/runs; do
+            if [ -d "$d" ]; then
+              cp -R "$d"/* "$GITHUB_WORKSPACE/runs/.fre3-artifact-cache/" 2>/dev/null || true
+            fi
+          done
+          find "$GITHUB_WORKSPACE/runs/.fre3-artifact-cache" -name manifest.json | head
+      - name: Run Langfuse reproject dry-run
+        if: ${{ inputs.mode == 'reproject-dry-run' }}
+        env:
+          P_DEV_EVALUATION_PROVIDER: langfuse
+          P_DEV_EVALUATION_CAPTURE_PROFILE: content-v1
+          P_DEV_EVALUATION_NAMESPACE: ${{ inputs.namespace }}
+          LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+          LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+          LANGFUSE_BASE_URL: ${{ vars.LANGFUSE_BASE_URL }}
+          LANGFUSE_TRACING_ENVIRONMENT: ${{ vars.LANGFUSE_TRACING_ENVIRONMENT }}
+        run: |
+          mkdir -p runs/.evaluation-reports
+          npm run evaluation:reproject-langfuse -- \
+            --issue "${{ inputs.issue_key }}" \
+            --namespace "${{ inputs.namespace }}" \
+            --artifact-cache runs/.fre3-artifact-cache \
+            --out "runs/.evaluation-reports/${{ inputs.issue_key }}-langfuse-reproject.json" \
+            --json
+      - name: Run Langfuse reproject apply
+        if: ${{ inputs.mode == 'reproject-apply' }}
+        env:
+          P_DEV_EVALUATION_PROVIDER: langfuse
+          P_DEV_EVALUATION_CAPTURE_PROFILE: content-v1
+          P_DEV_EVALUATION_NAMESPACE: ${{ inputs.namespace }}
+          LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+          LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+          LANGFUSE_BASE_URL: ${{ vars.LANGFUSE_BASE_URL }}
+          LANGFUSE_TRACING_ENVIRONMENT: ${{ vars.LANGFUSE_TRACING_ENVIRONMENT }}
+        run: |
+          mkdir -p runs/.evaluation-reports
+          npm run evaluation:reproject-langfuse -- \
+            --issue "${{ inputs.issue_key }}" \
+            --namespace "${{ inputs.namespace }}" \
+            --artifact-cache runs/.fre3-artifact-cache \
+            --apply \
+            --out "runs/.evaluation-reports/${{ inputs.issue_key }}-langfuse-reproject-apply.json" \
+            --json
+          npm run evaluation:inspect-langfuse -- \
+            --issue "${{ inputs.issue_key }}" \
+            --namespace "${{ inputs.namespace }}" \
+            --out "runs/.evaluation-reports/${{ inputs.issue_key }}-langfuse-inspect-post.json" \
+            --safe-content \
+            --json > "runs/.evaluation-reports/${{ inputs.issue_key }}-langfuse-inspect-post.stdout.json" || true
+      - name: Upload redacted report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: langfuse-inspect-${{ inputs.issue_key }}
+          path: runs/.evaluation-reports/
+          if-no-files-found: warn

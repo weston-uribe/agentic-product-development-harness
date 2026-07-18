@@ -11,7 +11,7 @@ import type {
 } from "./types.js";
 import { EVALUATION_SCHEMA_VERSION } from "./types.js";
 import { deriveSessionId, buildTraceSeed } from "./identifiers.js";
-import { getPhaseTraceName } from "./phases.js";
+import { getPhaseMachineKey } from "./phases.js";
 import { buildMetadataV1, metadataToStringMap } from "./capture-policy.js";
 import { warnOnce, withFlushTimeout } from "./warn.js";
 import { CREDENTIAL_SECRET_PATTERNS } from "../artifacts/redact.js";
@@ -20,6 +20,11 @@ import { boundRedactedContent } from "./telemetry/redact.js";
 import { MAX_LANGFUSE_CONTENT_CHARS } from "./telemetry/bounds.js";
 import type { AgentTelemetryEvent } from "./telemetry/types.js";
 import { createLangfuseTelemetryForwarder } from "./telemetry/langfuse-adapter.js";
+import {
+  phaseTraceDisplayName,
+  sessionDisplayName,
+} from "./naming.js";
+import { derivePhaseExecutionId } from "./telemetry/ids.js";
 
 type LangfuseModules = {
   createTraceId: (seed?: string) => Promise<string>;
@@ -33,6 +38,7 @@ type LangfuseModules = {
       sessionId?: string;
       metadata?: Record<string, string>;
       traceName?: string;
+      tags?: string[];
     },
     fn: () => T,
   ) => T;
@@ -343,6 +349,7 @@ export async function createLangfuseRuntime(
           dataType: input.dataType,
           value: mapScoreValueForLangfuse(input.dataType, input.value),
           timestamp: input.timestamp,
+          comment: "operational scoreClass=operational",
         };
         if (input.target === "trace" && input.traceId) {
           payload.traceId = input.traceId;
@@ -371,16 +378,34 @@ export async function createLangfuseRuntime(
         const traceId = await mods.createTraceId(
           buildTraceSeed(config.namespace, input.runId),
         );
-        const traceName = getPhaseTraceName(input.phase);
+        const machineTraceKey = getPhaseMachineKey(input.phase);
+        const displayTraceName = phaseTraceDisplayName({
+          issueKey: input.issueKey,
+          phase: input.phase,
+          revisionCycleIndex: input.revisionCycleIndex,
+        });
+        // Human-readable primary name; machine key retained in metadata.
+        const traceName = displayTraceName;
 
         const allowContent = allowsLangfuseContentProjection(
           config.captureProfile,
         );
 
+        const phaseExecutionId =
+          input.phaseExecutionId ??
+          derivePhaseExecutionId(config.namespace, input.runId, input.phase);
+
         const baseMetadata = buildMetadataV1({
           evaluationSchemaVersion: EVALUATION_SCHEMA_VERSION,
           captureProfile: config.captureProfile,
           issueKey: input.issueKey,
+          linearIssueKey: input.issueKey,
+          linearTeamKey: input.linearTeamKey ?? null,
+          sessionDisplayName: sessionDisplayName(input.issueKey),
+          phaseExecutionId,
+          revisionCycleIndex: input.revisionCycleIndex ?? null,
+          harnessRunId: input.runId,
+          machineTraceKey,
           pDevRunId: input.runId,
           phase: input.phase,
           harnessReleaseSha: config.release,
@@ -393,7 +418,12 @@ export async function createLangfuseRuntime(
           {
             sessionId,
             traceName,
-            metadata: metadataToStringMap(baseMetadata),
+            metadata: metadataToStringMap({
+              ...baseMetadata,
+              // Helps session browsing surfaces that read metadata tags.
+              sessionName: sessionDisplayName(input.issueKey),
+            }),
+            tags: [input.issueKey, input.phase, machineTraceKey],
           },
           () =>
             mods.startObservation(
@@ -441,6 +471,12 @@ export async function createLangfuseRuntime(
                 phaseTrace: handle,
                 agentObservation: child,
                 captureProfile: config.captureProfile,
+                issueKey: input.issueKey,
+                phase: input.phase,
+                phaseExecutionId,
+                harnessRunId: input.runId,
+                linearTeamKey: input.linearTeamKey ?? null,
+                revisionCycleIndex: input.revisionCycleIndex ?? null,
               });
             }
             return child;

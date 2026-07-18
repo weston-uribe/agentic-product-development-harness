@@ -117,6 +117,9 @@ export async function safeStartPhaseTrace(
     issueKey: string;
     runId: string;
     metadata?: Record<string, unknown>;
+    linearTeamKey?: string | null;
+    revisionCycleIndex?: number | null;
+    phaseExecutionId?: string | null;
   },
 ): Promise<PhaseTraceHandle | null> {
   if (!runtime) return null;

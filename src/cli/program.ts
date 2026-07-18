@@ -31,6 +31,8 @@ import {
   runEvalSubjects,
   runEvalSubjectsList,
 } from "./commands/eval.js";
+import { runEvaluationInspectLangfuse } from "./commands/evaluation-inspect-langfuse.js";
+import { runEvaluationReprojectLangfuse } from "./commands/evaluation-reproject-langfuse.js";
 
 export function createProgram(): Command {
   const program = new Command();
@@ -688,6 +690,85 @@ export function createProgram(): Command {
           issueKey: opts.issue,
           logDirectory: opts.logDirectory,
           namespace: opts.namespace,
+          json: opts.json === true,
+        });
+      },
+    );
+
+  evalCmd
+    .command("inspect-langfuse")
+    .description(
+      "Maintainer-only: inventory a Langfuse issue session and emit a redacted gap report",
+    )
+    .requiredOption("--issue <key>", "Linear issue key, e.g. FRE-3")
+    .option("--namespace <namespace>", "Evaluation namespace")
+    .option("--log-directory <path>", "Override harness logDirectory")
+    .option("--out <path>", "Write redacted report JSON to this path")
+    .option(
+      "--safe-content",
+      "Include content hashes/byte counts (never raw bodies)",
+      false,
+    )
+    .option("--json", "Print full report JSON to stdout", false)
+    .action(
+      async (opts: {
+        issue: string;
+        namespace?: string;
+        logDirectory?: string;
+        out?: string;
+        safeContent?: boolean;
+        json?: boolean;
+      }) => {
+        const configPath = program.opts<{ config: string }>().config;
+        process.exitCode = await runEvaluationInspectLangfuse({
+          issueKey: opts.issue,
+          configPath,
+          namespace: opts.namespace,
+          logDirectory: opts.logDirectory,
+          out: opts.out,
+          safeContent: opts.safeContent === true,
+          json: opts.json === true,
+        });
+      },
+    );
+
+  evalCmd
+    .command("reproject-langfuse")
+    .description(
+      "Maintainer-only: idempotently reproject issue artifacts into Langfuse",
+    )
+    .requiredOption("--issue <key>", "Linear issue key, e.g. FRE-3")
+    .option("--namespace <namespace>", "Evaluation namespace")
+    .option("--log-directory <path>", "Override harness logDirectory")
+    .option(
+      "--artifact-cache <path>",
+      "Directory containing downloaded run artifacts",
+    )
+    .option("--dry-run", "Plan changes without writing to Langfuse", true)
+    .option("--apply", "Apply reprojection to Langfuse", false)
+    .option("--out <path>", "Write redacted change report JSON")
+    .option("--json", "Print report JSON to stdout", false)
+    .action(
+      async (opts: {
+        issue: string;
+        namespace?: string;
+        logDirectory?: string;
+        artifactCache?: string;
+        dryRun?: boolean;
+        apply?: boolean;
+        out?: string;
+        json?: boolean;
+      }) => {
+        const configPath = program.opts<{ config: string }>().config;
+        process.exitCode = await runEvaluationReprojectLangfuse({
+          issueKey: opts.issue,
+          configPath,
+          namespace: opts.namespace,
+          logDirectory: opts.logDirectory,
+          artifactCache: opts.artifactCache,
+          dryRun: opts.apply === true ? false : opts.dryRun !== false,
+          apply: opts.apply === true,
+          out: opts.out,
           json: opts.json === true,
         });
       },

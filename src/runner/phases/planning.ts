@@ -57,9 +57,24 @@ import {
   PHASE_ELIGIBLE_SKILLS,
 } from "../../evaluation/telemetry/provenance.js";
 import {
+  agentObsMetadataFromObserved,
   emitPromptProvenanceEvent,
   emitSkillProvenanceEvent,
 } from "../../evaluation/telemetry/phase-emit.js";
+import type { EvaluationRuntime, NestedObservationHandle, PhaseTraceHandle } from "../../evaluation/types.js";
+import {
+  finalizePhaseEvaluation,
+  safeStartPhaseTrace,
+} from "../../evaluation/phase-helpers.js";
+import { agentObservationDisplayName } from "../../evaluation/naming.js";
+import {
+  injectPhaseSkills,
+  promptNameForPhase,
+} from "../../prompts/skill-inject.js";
+import { allowsLangfuseContentProjection } from "../../evaluation/telemetry/profiles.js";
+import { boundRedactedContent } from "../../evaluation/telemetry/redact.js";
+import { MAX_LANGFUSE_CONTENT_CHARS } from "../../evaluation/telemetry/bounds.js";
+import { buildArtifactRef } from "../../evaluation/telemetry/artifact-ref.js";
 
 async function writeErrorArtifact(
   runDirectory: string,
@@ -78,6 +93,7 @@ export interface PlanningPhaseOptions {
   issueKey: string;
   configPath: string;
   force?: boolean;
+  evaluationRuntime?: EvaluationRuntime;
 }
 
 export interface PlanningPhaseResult {
@@ -105,10 +121,21 @@ async function writeFinalManifest(
   events: EventLogger | null,
   finalOutcome: FinalOutcome,
   errorClassification: ErrorClassification,
+  evaluationRuntime: EvaluationRuntime | null = null,
+  phaseTrace: PhaseTraceHandle | null = null,
+  extraEvalMetadata?: Record<string, unknown>,
 ): Promise<PlanningPhaseResult> {
+  const finalManifest = await finalizePhaseEvaluation({
+    runtime: evaluationRuntime,
+    phaseTrace,
+    manifest,
+    runDirectory,
+    extraMetadata: extraEvalMetadata,
+  });
+
   if (runDirectory) {
-    await writeManifest(runDirectory, manifest);
-    await writeRunSummary(runDirectory, manifest, parsed, resolved);
+    await writeManifest(runDirectory, finalManifest);
+    await writeRunSummary(runDirectory, finalManifest, parsed, resolved);
     await events?.log("run_finished", finalOutcome === "success" ? "info" : "error", {
       finalOutcome,
       errorClassification,
@@ -130,7 +157,7 @@ async function writeFinalManifest(
           ? 2
           : 3;
 
-  return { manifest, runDirectory, exitCode };
+  return { manifest: finalManifest, runDirectory, exitCode };
 }
 
 export async function executePlanningPhase(
@@ -226,6 +253,9 @@ export async function executePlanningPhase(
   const model = plannerModel.model;
   let enteredPlanning = false;
   const commentsWritten: string[] = [];
+  let phaseTrace: PhaseTraceHandle | null = null;
+  let plannerObs: NestedObservationHandle | null = null;
+  let extraEvalMetadata: Record<string, unknown> | undefined;
 
   const footerBase = {
     orchestratorMarker: config.orchestratorMarker,
@@ -332,21 +362,38 @@ export async function executePlanningPhase(
       generation: runGeneration,
     });
 
-    const { prompt, promptVersion: version } = await buildPlanningPrompt(
-      issue,
-      parsed,
-      resolved,
-      { productInitializationState: productInitialization.state },
-    );
+    const { prompt: basePrompt, promptVersion: version } =
+      await buildPlanningPrompt(issue, parsed, resolved, {
+        productInitializationState: productInitialization.state,
+      });
     promptVersion = version;
+    const skillInjection = await injectPhaseSkills({
+      phase: "planning",
+      basePrompt,
+    });
+    const prompt = skillInjection.prompt;
     await mkdir(`${runDirectory}/prompts`, { recursive: true });
     const planningPromptPath = getPlanningPromptPath(runDirectory);
     await writeFile(planningPromptPath, `${prompt}\n`, "utf8");
+
+    phaseTrace = await safeStartPhaseTrace(options.evaluationRuntime, {
+      phase: "planning",
+      issueKey: issue.identifier,
+      runId,
+      linearTeamKey: issue.teamKey ?? null,
+      metadata: {
+        modelId: model,
+        modelRole: "planner",
+        promptContractVersion: version,
+      },
+    });
+
     const telemetryCorrelation = buildTelemetryCorrelation({
-      namespace: "default",
+      namespace: options.evaluationRuntime?.namespace ?? "default",
       issueKey: issue.identifier,
       harnessRunId: runId,
       phase: "planning",
+      providerTraceId: phaseTrace?.correlation.traceId,
     });
     const promptProvenance = await buildPromptProvenance({
       runDirectory,
@@ -354,20 +401,49 @@ export async function executePlanningPhase(
       promptTemplatePath: "src/prompts/planning.md",
       renderedPromptAbsolutePath: planningPromptPath,
     });
+    const declaredSkills = skillInjection.skillsUsed.map((s) => ({
+      skillId: s.skillId,
+      sourcePath: s.sourcePath,
+      role: s.role,
+    }));
     const skillProvenance = await buildSkillProvenance({
       eligible: PHASE_ELIGIBLE_SKILLS.planning ?? [],
-      declared: [],
-      observed: [],
+      declared: declaredSkills,
+      observed: declaredSkills,
     });
+    const onTelemetry = (e: Parameters<NonNullable<PhaseTraceHandle["onTelemetryEvent"]>>[0]) =>
+      phaseTrace?.onTelemetryEvent?.(e);
+    const promptPreview = allowsLangfuseContentProjection(
+      phaseTrace?.correlation.captureProfile ?? "metadata-v1",
+    )
+      ? boundRedactedContent(prompt, MAX_LANGFUSE_CONTENT_CHARS).text
+      : undefined;
     await emitPromptProvenanceEvent(
       runDirectory,
       telemetryCorrelation,
-      promptProvenance,
+      {
+        ...promptProvenance,
+        promptName: promptNameForPhase("planning"),
+        promptAssemblySchemaVersion: 1,
+        renderedPromptPreview: promptPreview,
+      },
+      onTelemetry,
     );
     await emitSkillProvenanceEvent(
       runDirectory,
       telemetryCorrelation,
-      skillProvenance,
+      {
+        ...skillProvenance,
+        skillsUsed: skillInjection.skillsUsed.map((s) => ({
+          skillId: s.skillId,
+          sourcePath: s.sourcePath,
+          role: s.role,
+          contentSha256: s.contentSha256,
+          inclusionMethod: s.inclusionMethod,
+        })),
+        skillProvenanceStatus: skillInjection.skillProvenanceStatus,
+      },
+      onTelemetry,
     );
 
     const agent = await createPlanningAgent({
@@ -382,11 +458,32 @@ export async function executePlanningPhase(
       (config.planning?.timeoutSeconds ?? DEFAULT_PLANNING_TIMEOUT_SECONDS) *
       1000;
 
+    plannerObs =
+      phaseTrace?.startChild(
+        agentObservationDisplayName({
+          issueKey: issue.identifier,
+          role: "planner",
+        }),
+        "agent",
+      ) ?? null;
+    if (plannerObs && promptPreview) {
+      plannerObs.update({
+        input: promptPreview,
+        metadata: {
+          promptName: promptNameForPhase("planning"),
+          promptContractVersion: version,
+          linearIssueKey: issue.identifier,
+          agentRole: "planner",
+        },
+      });
+    }
+
     const observed = await Promise.race([
       sendAndObserve(agent, prompt, runDirectory, events, {
         apiKey: cursorApiKey,
         phase: "planning",
         telemetryCorrelation,
+        onTelemetryEvent: onTelemetry,
         onAgentCreated: async ({ agentId, runId: cursorRunId }) => {
           const commentId = await postPhaseStartCommentIfNeeded(client, issue.id, {
             orchestratorMarker: config.orchestratorMarker,
@@ -428,11 +525,44 @@ export async function executePlanningPhase(
     cursorRunId = observed.runId;
 
     await mkdir(`${runDirectory}/outputs`, { recursive: true });
+    const planningResultPath = getPlanningResultPath(runDirectory);
     await writeFile(
-      getPlanningResultPath(runDirectory),
+      planningResultPath,
       `${observed.assistantText}\n`,
       "utf8",
     );
+    const outputRef = await buildArtifactRef({
+      runDirectory,
+      absolutePath: planningResultPath,
+      artifactKind: "agent_output",
+    });
+    const endMeta = {
+      modelId: observed.model?.id ?? model,
+      modelRole: "planner",
+      promptName: promptNameForPhase("planning"),
+      linearIssueKey: issue.identifier,
+      agentRole: "planner",
+      agentOutputSha256: outputRef?.sha256 ?? null,
+      agentOutputByteCount: outputRef?.byteCount ?? null,
+      ...agentObsMetadataFromObserved(observed),
+    };
+    if (
+      plannerObs &&
+      phaseTrace &&
+      allowsLangfuseContentProjection(phaseTrace.correlation.captureProfile)
+    ) {
+      plannerObs.end({
+        output: boundRedactedContent(
+          observed.assistantText,
+          MAX_LANGFUSE_CONTENT_CHARS,
+        ).text,
+        metadata: endMeta,
+        model: observed.model?.id ?? model,
+      });
+    } else {
+      plannerObs?.end(endMeta);
+    }
+    extraEvalMetadata = endMeta;
 
     const planningComment = await postPlanningComment(
       client,
@@ -562,5 +692,8 @@ export async function executePlanningPhase(
     events,
     finalOutcome,
     errorClassification,
+    options.evaluationRuntime ?? null,
+    phaseTrace,
+    extraEvalMetadata,
   );
 }

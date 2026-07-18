@@ -1,0 +1,130 @@
+import { describe, expect, it } from "vitest";
+import { buildInspectReport } from "../../src/evaluation/langfuse-inspect/report.js";
+import { deriveSessionId } from "../../src/evaluation/identifiers.js";
+
+describe("langfuse inspect report", () => {
+  it("fails acceptance when planning trace and planner agent are missing", () => {
+    const sessionId = deriveSessionId("weston-dogfood", "FRE-3");
+    const report = buildInspectReport({
+      issueKey: "FRE-3",
+      namespace: "weston-dogfood",
+      sessionId,
+      session: { id: sessionId },
+      traces: [
+        {
+          id: "t1",
+          name: "p-dev.implementation",
+          metadata: { phase: "implementation" },
+          observations: [],
+        },
+      ],
+      observations: [],
+      scores: [],
+    });
+    expect(report.acceptance.hasPlanningTrace).toBe(false);
+    expect(report.acceptance.hasPlannerAgent).toBe(false);
+    expect(report.acceptance.complete).toBe(false);
+    expect(report.gaps.some((g) => g.code === "missing_planning_trace")).toBe(
+      true,
+    );
+    expect(report.gaps.some((g) => g.code === "missing_visible_issue_key")).toBe(
+      true,
+    );
+  });
+
+  it("passes planner gates when human-readable planning entities exist", () => {
+    const sessionId = deriveSessionId("weston-dogfood", "FRE-3");
+    const report = buildInspectReport({
+      issueKey: "FRE-3",
+      namespace: "weston-dogfood",
+      sessionId,
+      session: { id: sessionId, name: "FRE-3" },
+      traces: [
+        {
+          id: "plan",
+          name: "FRE-3 · planning",
+          metadata: {
+            linearIssueKey: "FRE-3",
+            phase: "planning",
+            harnessRunId: "run-plan",
+            phaseExecutionId: "pe-plan",
+          },
+          observations: [
+            {
+              id: "planner",
+              name: "FRE-3 · planner",
+              type: "AGENT",
+              metadata: { linearIssueKey: "FRE-3", phase: "planning" },
+            },
+            {
+              id: "gen",
+              name: "FRE-3 · planner · Cursor run",
+              type: "GENERATION",
+              model: "composer-2.5",
+              usageDetails: { input: 10, output: 5 },
+              metadata: {
+                linearIssueKey: "FRE-3",
+                costSource: "unavailable",
+                costUnavailableReason: "missing_pricing_entry",
+              },
+            },
+          ],
+        },
+      ],
+      observations: [],
+      scores: [
+        {
+          id: "s1",
+          name: "phase_success",
+          traceId: "plan",
+          value: true,
+        },
+      ],
+    });
+    expect(report.acceptance.hasPlanningTrace).toBe(true);
+    expect(report.acceptance.hasPlannerAgent).toBe(true);
+    expect(report.acceptance.missingVisibleIssueKey).toBe(false);
+    expect(
+      report.gaps.some((g) => g.code === "incomplete_cost_record"),
+    ).toBe(false);
+  });
+
+  it("flags incomplete cost when costSource=unavailable without reason", () => {
+    const sessionId = deriveSessionId("weston-dogfood", "FRE-3");
+    const report = buildInspectReport({
+      issueKey: "FRE-3",
+      namespace: "weston-dogfood",
+      sessionId,
+      session: null,
+      traces: [
+        {
+          id: "plan",
+          name: "FRE-3 · planning",
+          metadata: { linearIssueKey: "FRE-3", phase: "planning" },
+          observations: [
+            {
+              id: "gen",
+              name: "FRE-3 · planner · Cursor run",
+              type: "GENERATION",
+              metadata: {
+                linearIssueKey: "FRE-3",
+                costSource: "unavailable",
+              },
+            },
+            {
+              id: "planner",
+              name: "FRE-3 · planner",
+              type: "AGENT",
+              metadata: { linearIssueKey: "FRE-3" },
+            },
+          ],
+        },
+      ],
+      observations: [],
+      scores: [],
+    });
+    expect(report.gaps.some((g) => g.code === "incomplete_cost_record")).toBe(
+      true,
+    );
+  });
+});

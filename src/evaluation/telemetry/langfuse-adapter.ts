@@ -2,9 +2,14 @@ import type { NestedObservationHandle, PhaseTraceHandle } from "../types.js";
 import { allowsLangfuseContentProjection } from "./profiles.js";
 import type { EvaluationCaptureProfile } from "../types.js";
 import { toolObservationName } from "./tool-classify.js";
-import type { AgentTelemetryEvent } from "./types.js";
+import type { AgentCostRecord, AgentTelemetryEvent } from "./types.js";
 import { boundRedactedContent } from "./redact.js";
 import { MAX_LANGFUSE_CONTENT_CHARS } from "./bounds.js";
+import { costProjectionFields } from "./cost.js";
+import {
+  aggregateGenerationDisplayName,
+  defaultAgentRoleForPhase,
+} from "../naming.js";
 
 /**
  * Forward canonical telemetry events into Langfuse nested observations.
@@ -14,10 +19,54 @@ export function createLangfuseTelemetryForwarder(params: {
   phaseTrace: PhaseTraceHandle | null | undefined;
   agentObservation: NestedObservationHandle | null | undefined;
   captureProfile: EvaluationCaptureProfile;
+  issueKey: string;
+  phase: string;
+  phaseExecutionId: string;
+  harnessRunId: string;
+  linearTeamKey?: string | null;
+  revisionCycleIndex?: number | null;
+  agentRole?: string | null;
 }): (event: AgentTelemetryEvent) => void {
   const toolHandles = new Map<string, NestedObservationHandle>();
   let generationStarted = false;
   let generationHandle: NestedObservationHandle | null = null;
+  let pendingPromptInput: string | null = null;
+  let pendingAssistantOutput: string | null = null;
+  let lastModelId: string | undefined;
+  let lastCost: AgentCostRecord | undefined;
+
+  const role =
+    params.agentRole ?? defaultAgentRoleForPhase(params.phase) ?? "agent";
+
+  const identityMeta = (): Record<string, unknown> => ({
+    linearIssueKey: params.issueKey,
+    linearTeamKey: params.linearTeamKey ?? null,
+    phase: params.phase,
+    phaseExecutionId: params.phaseExecutionId,
+    revisionCycleIndex: params.revisionCycleIndex ?? null,
+    harnessRunId: params.harnessRunId,
+    agentRole: role,
+  });
+
+  const ensureGeneration = (): NestedObservationHandle | null => {
+    if (!params.agentObservation) return null;
+    if (!generationStarted) {
+      const name = aggregateGenerationDisplayName({
+        issueKey: params.issueKey,
+        role,
+      });
+      generationHandle = params.agentObservation.startChild(name, "generation");
+      generationHandle.update({
+        metadata: {
+          ...identityMeta(),
+          usageAggregation: "cursor_run_aggregate",
+          individualModelCallsAvailable: false,
+        },
+      });
+      generationStarted = true;
+    }
+    return generationHandle;
+  };
 
   return (event: AgentTelemetryEvent) => {
     const root = params.phaseTrace;
@@ -27,6 +76,141 @@ export function createLangfuseTelemetryForwarder(params: {
     const allowContent = allowsLangfuseContentProjection(params.captureProfile);
 
     try {
+      if (event.kind === "prompt_provenance") {
+        const meta: Record<string, unknown> = {
+          ...identityMeta(),
+          promptName: event.payload.promptName,
+          promptContractVersion: event.payload.promptContractVersion,
+          promptTemplateSha256: event.payload.promptTemplateSha256,
+          renderedPromptSha256:
+            (event.payload.renderedPromptArtifact as { sha256?: string } | undefined)
+              ?.sha256 ?? event.payload.renderedPromptSha256,
+          renderedPromptByteCount:
+            (event.payload.renderedPromptArtifact as { byteCount?: number } | undefined)
+              ?.byteCount ?? event.payload.renderedPromptByteCount,
+          promptAssemblySchemaVersion: event.payload.promptAssemblySchemaVersion,
+        };
+        agent.update({ metadata: meta });
+        const gen = ensureGeneration();
+        gen?.update({ metadata: meta });
+        if (
+          allowContent &&
+          typeof event.payload.renderedPromptPreview === "string"
+        ) {
+          pendingPromptInput = boundRedactedContent(
+            event.payload.renderedPromptPreview,
+            MAX_LANGFUSE_CONTENT_CHARS,
+          ).text;
+          gen?.update({ input: pendingPromptInput });
+        }
+        return;
+      }
+
+      if (event.kind === "skill_provenance") {
+        const meta: Record<string, unknown> = {
+          ...identityMeta(),
+          skillProvenanceStatus: event.payload.skillProvenanceStatus ?? "none",
+          skillsUsed: event.payload.skillsUsed ?? event.payload.declaredSkills ?? [],
+        };
+        agent.update({ metadata: meta });
+        ensureGeneration()?.update({ metadata: meta });
+        return;
+      }
+
+      if (event.kind === "assistant_output") {
+        if (
+          allowContent &&
+          typeof event.payload.contentPreview === "string"
+        ) {
+          pendingAssistantOutput = boundRedactedContent(
+            event.payload.contentPreview,
+            MAX_LANGFUSE_CONTENT_CHARS,
+          ).text;
+        }
+        const meta: Record<string, unknown> = {
+          ...identityMeta(),
+          agentOutputByteCount: event.payload.charCount ?? event.payload.byteCount,
+          hasAssistantOutput: event.payload.hasAssistantOutput ?? true,
+        };
+        agent.update({ metadata: meta });
+        const gen = ensureGeneration();
+        if (pendingAssistantOutput) {
+          gen?.update({ output: pendingAssistantOutput, metadata: meta });
+        } else {
+          gen?.update({ metadata: meta });
+        }
+        return;
+      }
+
+      if (event.kind === "agent_run_started") {
+        agent.update({
+          metadata: {
+            ...identityMeta(),
+            cursorAgentId: event.payload.cursorAgentId,
+            cursorRunId: event.payload.cursorRunId,
+          },
+        });
+        return;
+      }
+
+      if (event.kind === "telemetry_completeness") {
+        const c = event.payload.completeness as Record<string, unknown> | undefined;
+        agent.update({
+          metadata: {
+            ...identityMeta(),
+            telemetryCompletenessTraceInput: c?.trace_input_present,
+            telemetryCompletenessTraceOutput: c?.trace_output_present,
+            telemetryCompletenessAgentInput: c?.agent_input_present,
+            telemetryCompletenessAgentOutput: c?.agent_output_present,
+            telemetryCompletenessModel: c?.model_present,
+            telemetryCompletenessUsage: c?.usage_present,
+            telemetryCompletenessToolEvents: c?.tool_events_present,
+            telemetryCompletenessToolCompletionRate:
+              c?.tool_event_completion_rate,
+            telemetryCompletenessPromptProvenance:
+              c?.prompt_provenance_present,
+            telemetryCompletenessSkillProvenance: c?.skill_provenance_present,
+            telemetryCompletenessPmFeedback: c?.pm_feedback_present,
+          },
+        });
+        return;
+      }
+
+      if (
+        event.kind === "error" ||
+        event.kind === "retry" ||
+        event.kind === "cancellation"
+      ) {
+        const gen = ensureGeneration();
+        gen?.update({
+          metadata: {
+            ...identityMeta(),
+            terminalEventKind: event.kind,
+            status: event.payload.status ?? event.kind,
+          },
+        });
+        if (event.kind !== "retry") {
+          gen?.end({
+            metadata: {
+              ...identityMeta(),
+              terminalEventKind: event.kind,
+              usageAggregation: "cursor_run_aggregate",
+              individualModelCallsAvailable: false,
+              ...(lastCost ? costProjectionFields(lastCost) : {}),
+            },
+            ...(lastModelId ? { model: lastModelId } : {}),
+            ...(pendingPromptInput && allowContent
+              ? { input: pendingPromptInput }
+              : {}),
+            ...(pendingAssistantOutput && allowContent
+              ? { output: pendingAssistantOutput }
+              : {}),
+          });
+          generationHandle = null;
+        }
+        return;
+      }
+
       if (event.kind === "tool_call_started") {
         const callId = String(event.payload.callId ?? "");
         const toolName = String(event.payload.toolName ?? "unknown");
@@ -34,6 +218,7 @@ export function createLangfuseTelemetryForwarder(params: {
         const handle = agent.startChild(toolObservationName(toolName), "tool");
         handle.update({
           metadata: {
+            ...identityMeta(),
             callId,
             toolName,
             status: "started",
@@ -52,6 +237,7 @@ export function createLangfuseTelemetryForwarder(params: {
         if (event.kind === "tool_call_finished") {
           handle.end({
             metadata: {
+              ...identityMeta(),
               callId,
               status: event.payload.status,
               durationMs: event.payload.durationMs,
@@ -78,22 +264,18 @@ export function createLangfuseTelemetryForwarder(params: {
               cacheReadTokens?: number;
               cacheWriteTokens?: number;
               reasoningTokens?: number;
-              cost?: { costSource?: string };
+              cost?: AgentCostRecord;
             }
           | undefined;
         const modelId =
           typeof event.payload.modelId === "string"
             ? event.payload.modelId
             : undefined;
+        if (modelId) lastModelId = modelId;
+        if (usage?.cost) lastCost = usage.cost;
 
-        if (!generationStarted && agent) {
-          generationHandle = agent.startChild(
-            "p-dev.cursor.aggregate-usage",
-            "generation",
-          );
-          generationStarted = true;
-        }
-        if (generationHandle) {
+        const gen = ensureGeneration();
+        if (gen) {
           const usageDetails: Record<string, number> = {};
           if (typeof usage?.inputTokens === "number") {
             usageDetails.input = usage.inputTokens;
@@ -113,25 +295,44 @@ export function createLangfuseTelemetryForwarder(params: {
           if (typeof usage?.reasoningTokens === "number") {
             usageDetails.reasoning = usage.reasoningTokens;
           }
-          generationHandle.update({
-            model: modelId,
+
+          const cost = usage?.cost ?? lastCost;
+          const costFields = cost
+            ? costProjectionFields(cost)
+            : {
+                costSource: "unavailable",
+                costUnavailableReason: "provider_did_not_report",
+              };
+          const costDetails: Record<string, number> | undefined =
+            typeof costFields.costUsd === "number"
+              ? { total: costFields.costUsd as number }
+              : undefined;
+
+          const updateAttrs = {
+            model: modelId ?? lastModelId,
             usageDetails:
               Object.keys(usageDetails).length > 0 ? usageDetails : undefined,
+            costDetails,
             metadata: {
-              usageAggregation: "cursor_run",
-              costSource: usage?.cost?.costSource ?? "unavailable",
+              ...identityMeta(),
+              usageAggregation: "cursor_run_aggregate",
+              individualModelCallsAvailable: false,
+              modelId: modelId ?? lastModelId ?? null,
+              ...costFields,
+              cursorAgentId: event.payload.cursorAgentId,
+              cursorRunId: event.payload.cursorRunId,
             },
-          });
+            ...(pendingPromptInput && allowContent
+              ? { input: pendingPromptInput }
+              : {}),
+            ...(pendingAssistantOutput && allowContent
+              ? { output: pendingAssistantOutput }
+              : {}),
+          };
+
+          gen.update(updateAttrs);
           if (event.kind === "agent_run_finished") {
-            generationHandle.end({
-              model: modelId,
-              usageDetails:
-                Object.keys(usageDetails).length > 0 ? usageDetails : undefined,
-              metadata: {
-                usageAggregation: "cursor_run",
-                costSource: usage?.cost?.costSource ?? "unavailable",
-              },
-            });
+            gen.end(updateAttrs);
             generationHandle = null;
           }
         }
@@ -144,7 +345,12 @@ export function createLangfuseTelemetryForwarder(params: {
             : undefined;
         if (content) {
           root.setIO?.(
-            { pmFeedback: boundRedactedContent(content, MAX_LANGFUSE_CONTENT_CHARS).text },
+            {
+              pmFeedback: boundRedactedContent(
+                content,
+                MAX_LANGFUSE_CONTENT_CHARS,
+              ).text,
+            },
             undefined,
           );
         }

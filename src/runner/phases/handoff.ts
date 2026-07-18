@@ -67,9 +67,8 @@ import type {
 } from "../../evaluation/types.js";
 import { categorizeCheckResult } from "../../evaluation/capture-policy.js";
 import {
-  finishPhaseTrace,
+  finalizePhaseEvaluation,
   safeStartPhaseTrace,
-  withEvaluationCorrelation,
 } from "../../evaluation/phase-helpers.js";
 
 export interface HandoffPhaseOptions {
@@ -119,9 +118,15 @@ async function writeFinalManifest(
   errorClassification: ErrorClassification,
   phaseTrace: PhaseTraceHandle | null = null,
   extraEvalMetadata?: Record<string, unknown>,
+  evaluationRuntime: EvaluationRuntime | null = null,
 ): Promise<HandoffPhaseResult> {
-  const correlation = finishPhaseTrace(phaseTrace, manifest, extraEvalMetadata);
-  const finalManifest = withEvaluationCorrelation(manifest, correlation);
+  const finalManifest = await finalizePhaseEvaluation({
+    runtime: evaluationRuntime,
+    phaseTrace,
+    manifest,
+    runDirectory,
+    extraMetadata: extraEvalMetadata,
+  });
 
   if (runDirectory) {
     await writeManifest(runDirectory, finalManifest);
@@ -766,5 +771,6 @@ export async function executeHandoffPhase(
       previewConfigured: shouldCaptureApplicationPreview(resolved.previewProvider),
       promptContractVersion: HANDOFF_PROMPT_VERSION,
     },
+    options.evaluationRuntime ?? null,
   );
 }

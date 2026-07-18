@@ -368,19 +368,6 @@ export async function executeRevisionPhase(
   const client = createLinearClient(linearApiKey);
   const github = new GitHubClient({ token: githubToken });
 
-  phaseTrace = await safeStartPhaseTrace(options.evaluationRuntime, {
-    phase: "revision",
-    issueKey: options.issueKey,
-    runId,
-    metadata: {
-      resolutionSource: resolved.resolutionSource,
-      baseBranch: resolved.baseBranch,
-      repositoryConfigurationId: resolved.repoConfigId,
-      linearStatusBefore,
-    },
-  });
-  phaseTrace?.startChild("p-dev.preflight", "span")?.end({ finalOutcome: "success" });
-
   try {
     const comments = await listIssueComments(client, issue.id);
 
@@ -554,6 +541,24 @@ export async function executeRevisionPhase(
       config.orchestratorMarker,
       prUrl,
     );
+
+    phaseTrace = await safeStartPhaseTrace(options.evaluationRuntime, {
+      phase: "revision",
+      issueKey: options.issueKey,
+      runId,
+      revisionCycleIndex,
+      linearTeamKey: issue.teamKey ?? null,
+      metadata: {
+        resolutionSource: resolved.resolutionSource,
+        baseBranch: resolved.baseBranch,
+        repositoryConfigurationId: resolved.repoConfigId,
+        linearStatusBefore,
+        revisionCycleIndex,
+      },
+    });
+    phaseTrace?.startChild("p-dev.preflight", "span")?.end({
+      finalOutcome: "success",
+    });
 
     const telemetryCorrelation = buildTelemetryCorrelation({
       namespace: options.evaluationRuntime?.namespace ?? "default",
@@ -742,7 +747,7 @@ export async function executeRevisionPhase(
 
     const repoConfig = config.repos.find((repo) => repo.id === resolved.repoConfigId);
     const validationCommands = repoConfig?.validation?.commands ?? [];
-    const { prompt, promptVersion } = await buildRevisionPrompt({
+    const { prompt: basePrompt, promptVersion } = await buildRevisionPrompt({
       issue,
       parsed,
       resolved,
@@ -753,6 +758,14 @@ export async function executeRevisionPhase(
       changedFiles,
       validationCommands,
     });
+    const { injectPhaseSkills, promptNameForPhase } = await import(
+      "../../prompts/skill-inject.js"
+    );
+    const skillInjection = await injectPhaseSkills({
+      phase: "revision",
+      basePrompt,
+    });
+    const prompt = skillInjection.prompt;
 
     await mkdir(`${runDirectory}/prompts`, { recursive: true });
     const revisionPromptPath = getRevisionPromptPath(runDirectory);
@@ -763,21 +776,46 @@ export async function executeRevisionPhase(
       promptTemplatePath: "src/prompts/revision.md",
       renderedPromptAbsolutePath: revisionPromptPath,
     });
+    const declaredSkills = skillInjection.skillsUsed.map((s) => ({
+      skillId: s.skillId,
+      sourcePath: s.sourcePath,
+      role: s.role,
+    }));
     const skillProvenance = await buildSkillProvenance({
       eligible: PHASE_ELIGIBLE_SKILLS.revision ?? [],
-      declared: [],
-      observed: [],
+      declared: declaredSkills,
+      observed: declaredSkills,
     });
+    const revisionPromptPreview = allowsLangfuseContentProjection(
+      phaseTrace?.correlation.captureProfile ?? "metadata-v1",
+    )
+      ? boundRedactedContent(prompt, MAX_LANGFUSE_CONTENT_CHARS).text
+      : undefined;
     await emitPromptProvenanceEvent(
       runDirectory,
       telemetryCorrelation,
-      promptProvenance,
+      {
+        ...promptProvenance,
+        promptName: promptNameForPhase("revision"),
+        promptAssemblySchemaVersion: 1,
+        renderedPromptPreview: revisionPromptPreview,
+      },
       (e) => phaseTrace?.onTelemetryEvent?.(e),
     );
     await emitSkillProvenanceEvent(
       runDirectory,
       telemetryCorrelation,
-      skillProvenance,
+      {
+        ...skillProvenance,
+        skillsUsed: skillInjection.skillsUsed.map((s) => ({
+          skillId: s.skillId,
+          sourcePath: s.sourcePath,
+          role: s.role,
+          contentSha256: s.contentSha256,
+          inclusionMethod: s.inclusionMethod,
+        })),
+        skillProvenanceStatus: skillInjection.skillProvenanceStatus,
+      },
       (e) => phaseTrace?.onTelemetryEvent?.(e),
     );
 
@@ -796,7 +834,11 @@ export async function executeRevisionPhase(
 
     let observed;
     try {
-      builderObs = phaseTrace?.startChild("p-dev.cursor.builder-revision", "agent") ?? null;
+      builderObs =
+        phaseTrace?.startChild(
+          `${issue.identifier} · reviser`,
+          "agent",
+        ) ?? null;
       if (
         builderObs &&
         phaseTrace &&

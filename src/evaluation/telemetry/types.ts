@@ -40,11 +40,19 @@ export interface ArtifactRef {
 
 export type CostSource = "provider" | "pricing_registry" | "unavailable";
 
+export type CostUnavailableReason =
+  | "provider_did_not_report"
+  | "missing_pricing_entry"
+  | "usage_unavailable"
+  | "billing_api_unavailable";
+
 export interface AgentCostRecord {
   providerReportedCostUsd?: number;
   estimatedCostUsd?: number;
   costSource: CostSource;
   pricingRegistryVersion?: string;
+  /** Required when costSource is unavailable — bare unavailable is incomplete. */
+  costUnavailableReason?: CostUnavailableReason;
 }
 
 export interface AgentUsageRecord {

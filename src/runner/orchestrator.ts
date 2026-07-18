@@ -116,6 +116,7 @@ export async function runOrchestrator(
       issueKey: options.issueKey,
       configPath: options.configPath,
       force: options.force,
+      evaluationRuntime: options.evaluationRuntime,
     });
     if (shouldContinueToImplementationAfterPlanning(result.manifest)) {
       const implResult = await executeImplementationPhase({

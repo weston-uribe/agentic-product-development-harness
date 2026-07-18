@@ -140,6 +140,7 @@ export function normalizeCursorSdkMessage(
         msg?.content
           ?.filter((c) => c.type === "text" && typeof c.text === "string")
           .map((c) => c.text as string) ?? [];
+      const joined = textParts.join("\n");
       events.push(
         envelope(
           baseCtx,
@@ -147,9 +148,14 @@ export function normalizeCursorSdkMessage(
           `assistant:${timestamp}:${textParts.length}`,
           {
             textBlockCount: textParts.length,
-            charCount: textParts.reduce((n, t) => n + t.length, 0),
-            // Content stays in local artifacts; stream event is metadata only
+            charCount: joined.length,
             hasAssistantOutput: textParts.length > 0,
+            // Bounded preview for content-v1 Langfuse projection; full body stays in artifacts
+            ...(joined
+              ? {
+                  contentPreview: joined.slice(0, 8000),
+                }
+              : {}),
           },
           timestamp,
         ),
@@ -241,7 +247,12 @@ export function normalizeCursorSdkMessage(
       break;
     }
     case "usage": {
-      const usage = buildUsageRecord(message.usage);
+      const usage = buildUsageRecord(
+        message.usage,
+        typeof (message as { model?: string }).model === "string"
+          ? (message as { model?: string }).model
+          : undefined,
+      );
       events.push(
         envelope(
           baseCtx,

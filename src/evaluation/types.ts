@@ -95,6 +95,12 @@ export interface StartPhaseTraceInput {
   issueKey: string;
   runId: string;
   metadata?: Record<string, unknown>;
+  /** Linear team key for allowlisted identity (never issue body). */
+  linearTeamKey?: string | null;
+  /** 1-based revision/repair cycle when applicable. */
+  revisionCycleIndex?: number | null;
+  /** Stable phase execution id for correlation. */
+  phaseExecutionId?: string | null;
 }
 
 export interface EvaluationRuntime {

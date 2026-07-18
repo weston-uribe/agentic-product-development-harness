@@ -79,10 +79,14 @@ import {
   extractAllowlistedCursorUsage,
 } from "../../evaluation/capture-policy.js";
 import {
-  finishPhaseTrace,
+  finalizePhaseEvaluation,
   safeStartPhaseTrace,
-  withEvaluationCorrelation,
 } from "../../evaluation/phase-helpers.js";
+import { agentObservationDisplayName } from "../../evaluation/naming.js";
+import {
+  injectPhaseSkills,
+  promptNameForPhase,
+} from "../../prompts/skill-inject.js";
 import { buildTelemetryCorrelation } from "../../evaluation/telemetry/correlation.js";
 import {
   buildPromptProvenance,
@@ -148,9 +152,15 @@ async function writeFinalManifest(
   cursorCleanup: CursorCancelOutcome | null = null,
   phaseTrace: PhaseTraceHandle | null = null,
   extraEvalMetadata?: Record<string, unknown>,
+  evaluationRuntime: EvaluationRuntime | null = null,
 ): Promise<ImplementationPhaseResult> {
-  const correlation = finishPhaseTrace(phaseTrace, manifest, extraEvalMetadata);
-  const finalManifest = withEvaluationCorrelation(manifest, correlation);
+  const finalManifest = await finalizePhaseEvaluation({
+    runtime: evaluationRuntime,
+    phaseTrace,
+    manifest,
+    runDirectory,
+    extraMetadata: extraEvalMetadata,
+  });
 
   if (runDirectory) {
     await writeManifest(runDirectory, finalManifest);
@@ -521,7 +531,7 @@ export async function executeImplementationPhase(
 
     const repoConfig = config.repos.find((repo) => repo.id === resolved.repoConfigId);
     const validationCommands = repoConfig?.validation?.commands ?? [];
-    const { prompt } = await buildImplementationPrompt({
+    const { prompt: basePrompt } = await buildImplementationPrompt({
       issue,
       parsed,
       resolved,
@@ -531,6 +541,11 @@ export async function executeImplementationPhase(
       validationCommands,
       productInitializationState: productInitialization.state,
     });
+    const skillInjection = await injectPhaseSkills({
+      phase: "implementation",
+      basePrompt,
+    });
+    const prompt = skillInjection.prompt;
 
     await mkdir(`${runDirectory}/prompts`, { recursive: true });
     const promptPath = getImplementationPromptPath(runDirectory);
@@ -549,22 +564,46 @@ export async function executeImplementationPhase(
       promptTemplatePath: "src/prompts/implementation.md",
       renderedPromptAbsolutePath: promptPath,
     });
-    // Cloud orchestration does not currently supply Cursor skills explicitly.
+    const declaredSkills = skillInjection.skillsUsed.map((s) => ({
+      skillId: s.skillId,
+      sourcePath: s.sourcePath,
+      role: s.role,
+    }));
     const skillProvenance = await buildSkillProvenance({
       eligible: PHASE_ELIGIBLE_SKILLS.implementation ?? [],
-      declared: [],
-      observed: [],
+      declared: declaredSkills,
+      observed: declaredSkills,
     });
+    const promptPreview = allowsLangfuseContentProjection(
+      phaseTrace?.correlation.captureProfile ?? "metadata-v1",
+    )
+      ? boundRedactedContent(prompt, MAX_LANGFUSE_CONTENT_CHARS).text
+      : undefined;
     await emitPromptProvenanceEvent(
       runDirectory,
       telemetryCorrelation,
-      promptProvenance,
+      {
+        ...promptProvenance,
+        promptName: promptNameForPhase("implementation"),
+        promptAssemblySchemaVersion: 1,
+        renderedPromptPreview: promptPreview,
+      },
       (e) => phaseTrace?.onTelemetryEvent?.(e),
     );
     await emitSkillProvenanceEvent(
       runDirectory,
       telemetryCorrelation,
-      skillProvenance,
+      {
+        ...skillProvenance,
+        skillsUsed: skillInjection.skillsUsed.map((s) => ({
+          skillId: s.skillId,
+          sourcePath: s.sourcePath,
+          role: s.role,
+          contentSha256: s.contentSha256,
+          inclusionMethod: s.inclusionMethod,
+        })),
+        skillProvenanceStatus: skillInjection.skillProvenanceStatus,
+      },
       (e) => phaseTrace?.onTelemetryEvent?.(e),
     );
     if (
@@ -638,7 +677,13 @@ export async function executeImplementationPhase(
 
     let observed;
     const builderObs: NestedObservationHandle | undefined =
-      phaseTrace?.startChild("p-dev.cursor.builder", "agent");
+      phaseTrace?.startChild(
+        agentObservationDisplayName({
+          issueKey: issue.identifier,
+          role: "implementer",
+        }),
+        "agent",
+      );
     if (
       builderObs &&
       phaseTrace &&
@@ -1042,5 +1087,6 @@ export async function executeImplementationPhase(
       builderThreadGeneration: builderContinuity?.reference.generation ?? null,
       previewConfigured: shouldCaptureApplicationPreview(resolved.previewProvider),
     },
+    options.evaluationRuntime ?? null,
   );
 }

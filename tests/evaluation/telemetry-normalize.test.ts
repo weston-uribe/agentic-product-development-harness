@@ -94,7 +94,10 @@ describe("Cursor SDK message normalization", () => {
   });
 
   it("reports costSource unavailable and does not invent estimates", () => {
-    expect(unavailableCost()).toEqual({ costSource: "unavailable" });
+    expect(unavailableCost()).toEqual({
+      costSource: "unavailable",
+      costUnavailableReason: "provider_did_not_report",
+    });
     const usage = buildUsageRecord({
       inputTokens: 1,
       outputTokens: 2,
@@ -103,6 +106,7 @@ describe("Cursor SDK message normalization", () => {
       cacheWriteTokens: 5,
     });
     expect(usage?.cost.costSource).toBe("unavailable");
+    expect(usage?.cost.costUnavailableReason).toBeTruthy();
     expect(usage?.estimatedCostUsd).toBeUndefined();
     expect(usage?.providerReportedCostUsd).toBeUndefined();
   });
