@@ -159,20 +159,35 @@ describe("coverage, readiness, bundles, langfuse mapping", () => {
     );
 
     const evaluatorResult: EvaluatorResult = {
-      schemaVersion: 1,
+      evaluatorResultSchemaVersion: 1,
+      evaluatorResultId: "example-id",
       evaluatorId: "example-det",
       evaluatorVersion: "1",
       evaluatorImplementationHash: "abc",
       evaluationSubjectId: subjectId,
-      rubricId: "planning-quality",
+      rubricId: "execution-contract",
       rubricVersion: "1",
-      dimensionId: "problem_understood",
-      result: 4,
+      rubricDefinitionHash: "def",
+      dimensionId: "phase_completed_successfully",
+      result: true,
       status: "pass",
+      skipReason: null,
+      reasonCode: "phase_completed_successfully",
       evidenceReferences: [],
+      missingEvidence: [],
+      untrustedEvidence: [],
       explanation: "deterministic placeholder",
-      executedAt: "2026-07-18T02:03:00.000Z",
+      startedAt: "2026-07-18T02:03:00.000Z",
+      completedAt: "2026-07-18T02:03:01.000Z",
+      executionDurationMs: 1000,
+      engineVersion: "evaluator-engine-v1",
+      sourceHarnessRelease: null,
+      sourceHarnessCommit: null,
+      evaluationPolicyVersion: "1",
+      evaluationPolicyHash: "pol",
+      evidenceFingerprint: "fp",
     };
-    expect(evaluatorResult.schemaVersion).toBe(1);
+    expect(evaluatorResult.evaluatorResultSchemaVersion).toBe(1);
+    expect(evaluatorResult.skipReason).toBeNull();
   });
 });

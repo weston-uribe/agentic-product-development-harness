@@ -17,24 +17,32 @@ describe("built-runtime rubric loading", () => {
       process.cwd(),
       "dist/evaluation/rubrics/definitions/implementation-quality.v1.json",
     );
+    const distMachine = path.resolve(
+      process.cwd(),
+      "dist/evaluation/rubrics/definitions/execution-contract.v1.json",
+    );
+    const distPolicy = path.resolve(
+      process.cwd(),
+      "dist/evaluation/evaluators/policies/dataset-readiness.v1.json",
+    );
 
     try {
       await access(distLoad);
       await access(distDefinitions);
+      await access(distMachine);
+      await access(distPolicy);
     } catch {
       throw new Error(
-        "dist rubric assets missing; run `npm run build:tsc` before this test",
+        "dist evaluation assets missing; run `npm run build:tsc` before this test",
       );
     }
 
     const mod = await import(pathToFileURL(distLoad).href);
     const rubrics = await mod.loadAllRubrics();
-    expect(rubrics.length).toBe(4);
-    expect(rubrics.map((r: { rubricId: string }) => r.rubricId).sort()).toEqual([
-      "implementation-quality",
-      "planning-quality",
-      "revision-quality",
-      "workflow-quality",
-    ]);
+    expect(rubrics.length).toBe(8);
+    expect(
+      rubrics.filter((r: { judgmentChannel: string }) => r.judgmentChannel === "machine")
+        .length,
+    ).toBe(4);
   });
 });
