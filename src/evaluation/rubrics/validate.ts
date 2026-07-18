@@ -1,4 +1,8 @@
-import type { EvaluationRubric, RubricDimension } from "./types.js";
+import type {
+  EvaluationRubric,
+  RubricDimension,
+  RubricJudgmentChannel,
+} from "./types.js";
 
 const RESPONSE_TYPES = new Set([
   "boolean",
@@ -7,6 +11,8 @@ const RESPONSE_TYPES = new Set([
   "ordinal",
   "free_text",
 ]);
+
+const JUDGMENT_CHANNELS = new Set<RubricJudgmentChannel>(["human", "machine"]);
 
 function validateDimension(dimension: RubricDimension, path: string): string[] {
   const errors: string[] = [];
@@ -29,7 +35,8 @@ function validateDimension(dimension: RubricDimension, path: string): string[] {
   }
   if (
     (dimension.responseType === "ordinal" ||
-      dimension.responseType === "categorical") &&
+      dimension.responseType === "categorical" ||
+      dimension.responseType === "boolean") &&
     (!dimension.allowedValues || dimension.allowedValues.length === 0)
   ) {
     errors.push(`${path}: allowedValues required for ${dimension.responseType}`);
@@ -41,6 +48,20 @@ function validateDimension(dimension: RubricDimension, path: string): string[] {
     ) {
       errors.push(`${path}: numericMin/numericMax required`);
     }
+  }
+  if (
+    dimension.applicableSubjectTypes !== undefined &&
+    (!Array.isArray(dimension.applicableSubjectTypes) ||
+      dimension.applicableSubjectTypes.length === 0)
+  ) {
+    errors.push(`${path}: applicableSubjectTypes must be a non-empty array when set`);
+  }
+  if (
+    dimension.applicablePhases !== undefined &&
+    dimension.applicablePhases !== null &&
+    !Array.isArray(dimension.applicablePhases)
+  ) {
+    errors.push(`${path}: applicablePhases must be array or null when set`);
   }
   return errors;
 }
@@ -59,6 +80,15 @@ export function validateRubric(rubric: unknown): {
   if (!r.rubricVersion) errors.push("rubricVersion required");
   if (!r.name) errors.push("name required");
   if (!r.description) errors.push("description required");
+  if (
+    r.judgmentChannel === undefined ||
+    r.judgmentChannel === null ||
+    (r.judgmentChannel as string) === ""
+  ) {
+    errors.push("judgmentChannel required");
+  } else if (!JUDGMENT_CHANNELS.has(r.judgmentChannel)) {
+    errors.push(`judgmentChannel invalid: ${String(r.judgmentChannel)}`);
+  }
   if (!Array.isArray(r.applicableSubjectTypes) || r.applicableSubjectTypes.length === 0) {
     errors.push("applicableSubjectTypes required");
   }

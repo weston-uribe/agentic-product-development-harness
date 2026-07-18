@@ -7,6 +7,9 @@ export type RubricResponseType =
   | "ordinal"
   | "free_text";
 
+/** Rubric-level channel — required; never silently defaulted. */
+export type RubricJudgmentChannel = "human" | "machine";
+
 export interface RubricScoreAnchor {
   value: string | number | boolean;
   label: string;
@@ -31,6 +34,12 @@ export interface RubricDimension {
   notApplicableSatisfiesCompletion?: boolean;
   /** Comment required when judgmentStatus is insufficient_evidence or not_applicable. */
   unscoredCommentRequired?: boolean;
+  /**
+   * Dimension-level applicability. When omitted, inherits rubric-level
+   * applicableSubjectTypes / applicablePhases.
+   */
+  applicableSubjectTypes?: EvaluationSubjectType[];
+  applicablePhases?: EvaluationSubjectPhase[] | null;
 }
 
 export interface EvaluationRubric {
@@ -38,6 +47,8 @@ export interface EvaluationRubric {
   rubricVersion: string;
   name: string;
   description: string;
+  /** Required. Missing or invalid values fail rubric validation. */
+  judgmentChannel: RubricJudgmentChannel;
   applicableSubjectTypes: EvaluationSubjectType[];
   applicablePhases: EvaluationSubjectPhase[] | null;
   dimensions: RubricDimension[];

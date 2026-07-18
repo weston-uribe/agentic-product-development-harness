@@ -76,6 +76,7 @@ export async function computeAnnotationCoverage(params: {
     const rubrics = await listRubricsForSubject({
       subjectType: subject.subjectType,
       phase: subject.phase,
+      judgmentChannel: "human",
     });
     for (const rubric of rubrics) {
       const dimensions: DimensionCoverageState[] = [];
@@ -155,8 +156,9 @@ export async function computeAnnotationCoverage(params: {
     if (state.annotation.status === "draft") draftAnnotationCount += 1;
   }
 
-  // Ensure all known rubrics appear in version map even with zero subjects.
+  // Ensure all known human rubrics appear in version map even with zero subjects.
   for (const rubric of await loadAllRubrics()) {
+    if (rubric.judgmentChannel !== "human") continue;
     const versionKey = `${rubric.rubricId}@${rubric.rubricVersion}`;
     coverageByRubricVersion[versionKey] ??= {
       complete: 0,

@@ -111,6 +111,7 @@ export async function buildAnnotationBundle(params: {
   const rubrics = await listRubricsForSubject({
     subjectType: subject.subjectType,
     phase: subject.phase,
+    judgmentChannel: "human",
   });
 
   const effectiveSubmitted: HumanAnnotation[] = [];
