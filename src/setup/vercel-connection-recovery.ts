@@ -30,6 +30,7 @@ import {
   type VercelTeamSummary,
 } from "./vercel-setup-client.js";
 import { assessDurableBridgeHealth } from "./workspace-entry.js";
+import { deriveVercelBridgeRepairEligibility } from "./vercel-bridge-readiness.js";
 import type { SetupGuiViewModel } from "./gui-view-model.js";
 import type { RemoteSetupSummary } from "./remote-setup-summary.js";
 import type {
@@ -91,16 +92,15 @@ function normalizeOperation(
 
 /**
  * Migrate malformed live ops without changing operationId.
- * Live dead-end: needs_scope + selectedScope + ambiguous multi-bridge message
- * → preparing_bridge for scoped rediscovery.
+ * 1) needs_scope + selectedScope + ambiguous multi-bridge → preparing_bridge
+ * 2) premature failed readiness (webhook/probe) before remote mutations → preparing_bridge
  */
 export function migrateRecoveryOperation(
   operation: VercelRecoveryOperation,
 ): VercelRecoveryOperation {
-  const ambiguous =
-    /multiple pdev-marked bridge projects/i.test(
-      operation.humanProblem ?? operation.failureReason ?? "",
-    );
+  const problem =
+    operation.humanProblem ?? operation.failureReason ?? "";
+  const ambiguous = /multiple pdev-marked bridge projects/i.test(problem);
   if (
     operation.stage === "needs_scope" &&
     operation.selectedScope &&
@@ -109,6 +109,48 @@ export function migrateRecoveryOperation(
     return {
       ...operation,
       stage: "preparing_bridge",
+      nextAction: "none",
+      humanProblem: undefined,
+      failureReason: undefined,
+      retrySafe: true,
+    };
+  }
+
+  const prematureReadinessFailure =
+    /linear issue webhook|signed webhook delivery|vercel production env var|\/api\/linear-webhook is reachable|resolve the vercel production url|redeploy vercel production/i.test(
+      problem,
+    );
+  if (
+    operation.stage === "failed" &&
+    operation.remoteMutationsOccurred === false &&
+    operation.prepareMode === "reuse" &&
+    Boolean(operation.projectId?.trim()) &&
+    Boolean(operation.selectedScope) &&
+    prematureReadinessFailure
+  ) {
+    return {
+      ...operation,
+      stage: "preparing_bridge",
+      nextAction: "none",
+      humanProblem: undefined,
+      failureReason: undefined,
+      retrySafe: true,
+    };
+  }
+
+  const fingerprintMismatch =
+    /setup context no longer matches the in-progress redeploy verification|preview fingerprint is stale/i.test(
+      problem,
+    );
+  if (
+    operation.stage === "failed" &&
+    Boolean(operation.pollActionId?.trim()) &&
+    Boolean(operation.projectId?.trim()) &&
+    fingerprintMismatch
+  ) {
+    return {
+      ...operation,
+      stage: "deploying_bridge",
       nextAction: "none",
       humanProblem: undefined,
       failureReason: undefined,
@@ -516,9 +558,11 @@ export async function advanceVercelConnectionRecovery(input: {
 
   if (operation.stage === "failed") {
     const resume =
-      operation.lastSuccessfulStage === "verifying_vercel"
-        ? "preparing_bridge"
-        : operation.lastSuccessfulStage ?? "verifying_vercel";
+      operation.pollActionId?.trim()
+        ? "deploying_bridge"
+        : operation.lastSuccessfulStage === "verifying_vercel"
+          ? "preparing_bridge"
+          : operation.lastSuccessfulStage ?? "verifying_vercel";
     operation = {
       ...operation,
       stage: resume === "ready" ? "verifying_webhook" : resume,
@@ -727,13 +771,19 @@ export async function advanceVercelConnectionRecovery(input: {
             };
 
       const previewResult = await preview(plan);
-      if (previewResult.validationError || !previewResult.readiness.ready) {
+      const eligibility = deriveVercelBridgeRepairEligibility({
+        validationError: previewResult.validationError,
+        readiness: previewResult.readiness,
+        endpointStatusCode: previewResult.endpointStatusCode,
+        signedProbeReason: previewResult.signedProbeReason,
+      });
+      if (!eligibility.repairAllowed) {
         operation = await writeOperation(
           failOperation(operation, {
             humanProblem:
-              previewResult.validationError ??
-              (previewResult.readiness.blockers.join(" ") ||
-                "Unable to prepare the automation bridge."),
+              eligibility.hardBlockers.join(" ").trim() ||
+              eligibility.reason ||
+              "Unable to prepare the automation bridge.",
             nextAction: "retry_recovery",
             retrySafe: true,
           }),
@@ -837,6 +887,40 @@ export async function advanceVercelConnectionRecovery(input: {
         );
         operation = await releaseLease(operation, input.cwd);
         return toPublicStatus(operation, input.cwd);
+      }
+
+      // Reopen fingerprint-mismatch / stale-fingerprint failures for poll retry.
+      const controlPlane = await readControlPlaneSetupState(input.cwd);
+      const pending = controlPlane?.vercel?.redeployVerification;
+      const reopenFingerprint =
+        pending &&
+        pending.actionId === operation.pollActionId &&
+        (pending.status === "verify_failed" ||
+          Boolean(pending.verificationClaim) ||
+          /setup context no longer matches|preview fingerprint is stale/i.test(
+            pending.blockedMessage ?? "",
+          ));
+      if (reopenFingerprint && pending) {
+        await updateControlPlaneSetupState(
+          {
+            vercel: {
+              ...controlPlane!.vercel!,
+              redeployVerification: {
+                ...pending,
+                status: pending.newDeploymentId ? "ready" : "triggered",
+                phase: pending.newDeploymentId ? "verifying" : "waiting_for_ready",
+                blockedMessage: undefined,
+                blockedNextSteps: undefined,
+                verificationClaim: undefined,
+                nextVerificationAttemptAt: undefined,
+                message:
+                  "Resuming redeploy verification after fingerprint drift repair.",
+                updatedAt: new Date().toISOString(),
+              },
+            },
+          },
+          input.cwd,
+        );
       }
 
       const polled = await poll({

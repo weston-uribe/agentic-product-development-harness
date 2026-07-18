@@ -20,7 +20,10 @@ import {
   type VercelTeamSummary,
 } from "./vercel-setup-client.js";
 import { hasPDevBridgeProjectMarker } from "./vercel-bridge-project-marker.js";
-import { REQUIRED_VERCEL_BRIDGE_ENV_VARS } from "./vercel-bridge-readiness.js";
+import {
+  REQUIRED_VERCEL_BRIDGE_ENV_VARS,
+  deriveVercelBridgeRepairEligibility,
+} from "./vercel-bridge-readiness.js";
 import {
   previewVercelBridgeSetup,
   type VercelBridgePlanInput,
@@ -311,14 +314,23 @@ export async function reconcileVercelControlPlaneFromRemote(input: {
   };
 
   const previewResult = await preview(plan);
-  if (!previewResult.readiness.ready) {
+  const eligibility = deriveVercelBridgeRepairEligibility({
+    validationError: previewResult.validationError,
+    readiness: previewResult.readiness,
+    endpointStatusCode: previewResult.endpointStatusCode,
+    signedProbeReason: previewResult.signedProbeReason,
+  });
+  if (!eligibility.repairAllowed) {
     return {
       status: "unhealthy",
       state,
       message:
-        "The only Vercel bridge candidate failed remote readiness verification.",
+        eligibility.reason ??
+        "The only Vercel bridge candidate has hard blockers that prevent repair.",
       candidates: shortlist,
-      readinessBlockers: previewResult.readiness.blockers,
+      readinessBlockers: eligibility.hardBlockers.length
+        ? eligibility.hardBlockers
+        : previewResult.readiness.blockers,
       reconciledFromExistingDeployment: false,
     };
   }

@@ -118,6 +118,116 @@ export function deriveVercelBridgeReadiness(input: {
   };
 }
 
+/**
+ * Whether preview blockers are final-readiness gaps that apply can repair,
+ * vs hard inputs/permissions that must block apply.
+ * Do not weaken deriveVercelBridgeReadiness — this only gates repair attempts.
+ */
+export type VercelBridgeRepairEligibility = {
+  repairAllowed: boolean;
+  hardBlockers: string[];
+  repairableBlockers: string[];
+  reason?: string;
+};
+
+const REPAIRABLE_BLOCKER_PATTERNS: RegExp[] = [
+  /resolve the vercel production url/i,
+  /\/api\/linear-webhook is reachable/i,
+  /vercel production env var .+ is missing/i,
+  /linear issue webhook points at the vercel bridge/i,
+  /signed webhook delivery verification has not passed/i,
+  /redeploy vercel production after env var changes/i,
+];
+
+const HARD_BLOCKER_PATTERNS: RegExp[] = [
+  /select the vercel bridge project/i,
+  /deployment protection/i,
+  /protection_redirect/i,
+  /unauthorized/i,
+  /forbidden/i,
+  /invalid token/i,
+  /vercel_token is required/i,
+  /github.?dispatch/i,
+];
+
+function classifyReadinessBlocker(
+  blocker: string,
+): "repairable" | "hard" | "unknown" {
+  if (REPAIRABLE_BLOCKER_PATTERNS.some((pattern) => pattern.test(blocker))) {
+    return "repairable";
+  }
+  if (HARD_BLOCKER_PATTERNS.some((pattern) => pattern.test(blocker))) {
+    return "hard";
+  }
+  return "unknown";
+}
+
+export function deriveVercelBridgeRepairEligibility(input: {
+  validationError?: string;
+  readiness: Pick<VercelBridgeReadiness, "ready" | "blockers" | "projectSelected">;
+  endpointStatusCode?: number;
+  signedProbeReason?: string;
+}): VercelBridgeRepairEligibility {
+  const hardBlockers: string[] = [];
+  const repairableBlockers: string[] = [];
+
+  if (input.validationError?.trim()) {
+    hardBlockers.push(input.validationError.trim());
+  }
+
+  const probeReason = input.signedProbeReason?.trim() ?? "";
+  if (/protection_redirect/i.test(probeReason)) {
+    hardBlockers.push(
+      "Vercel Deployment Protection is blocking signed webhook verification.",
+    );
+  }
+  if (input.endpointStatusCode === 401 || input.endpointStatusCode === 403) {
+    // Unreachable due to auth on the route itself can still be repairable via
+    // secret/env sync unless protection redirect is also indicated.
+    if (/protection/i.test(probeReason)) {
+      hardBlockers.push(
+        `Production bridge endpoint returned HTTP ${input.endpointStatusCode}.`,
+      );
+    }
+  }
+
+  for (const blocker of input.readiness.blockers) {
+    const kind = classifyReadinessBlocker(blocker);
+    if (kind === "repairable") {
+      repairableBlockers.push(blocker);
+    } else if (kind === "hard") {
+      hardBlockers.push(blocker);
+    } else if (!input.readiness.projectSelected) {
+      hardBlockers.push(blocker);
+    } else {
+      // Unknown blockers with a selected project are treated as repairable so
+      // apply can attempt the known repair path rather than dead-ending.
+      repairableBlockers.push(blocker);
+    }
+  }
+
+  if (input.readiness.ready && hardBlockers.length === 0) {
+    return {
+      repairAllowed: true,
+      hardBlockers: [],
+      repairableBlockers: [],
+      reason: "Bridge already meets final readiness.",
+    };
+  }
+
+  const repairAllowed = hardBlockers.length === 0;
+  return {
+    repairAllowed,
+    hardBlockers,
+    repairableBlockers,
+    reason: repairAllowed
+      ? repairableBlockers.length > 0
+        ? "Preview gaps are repairable by apply (webhook, env, deploy, or signed probe)."
+        : "Repair allowed."
+      : hardBlockers.join(" "),
+  };
+}
+
 export function isVercelBridgeStale(input: {
   configuredTeamKey?: string;
   selectedTeamKey?: string;

@@ -110,6 +110,17 @@ export function assessDurableBridgeHealth(
     return "missing";
   }
 
+  const probeVerified =
+    vercel.signedProbeVerified === true &&
+    vercel.linearWebhookVerified === true &&
+    vercel.endpointReachable === true &&
+    !vercel.deploymentRedeployRequired;
+
+  // Verified probe evidence wins over a stale in-progress redeploy record.
+  if (probeVerified) {
+    return "verified";
+  }
+
   const redeploy = vercel.redeployVerification;
   if (
     redeploy &&
@@ -118,16 +129,6 @@ export function assessDurableBridgeHealth(
     redeploy.phase !== "terminal"
   ) {
     return "deploying";
-  }
-
-  const probeVerified =
-    vercel.signedProbeVerified === true &&
-    vercel.linearWebhookVerified === true &&
-    vercel.endpointReachable === true &&
-    !vercel.deploymentRedeployRequired;
-
-  if (probeVerified) {
-    return "verified";
   }
 
   // Prior successful initial-setup completion is durable operational evidence

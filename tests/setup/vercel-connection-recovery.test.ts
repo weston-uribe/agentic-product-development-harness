@@ -238,7 +238,14 @@ describe("vercel-connection-recovery", () => {
     });
     const preview = vi.fn().mockResolvedValue({
       validationError: undefined,
-      readiness: { ready: true, blockers: [] },
+      readiness: {
+        ready: false,
+        projectSelected: true,
+        blockers: [
+          "Verify the Linear Issue webhook points at the Vercel bridge URL.",
+          "Signed webhook delivery verification has not passed against production.",
+        ],
+      },
       fingerprint: "fp-create",
     });
 
@@ -291,6 +298,110 @@ describe("vercel-connection-recovery", () => {
     expect(applied.operation?.intendedBridgeProjectName).toBe(
       started.operation?.intendedBridgeProjectName,
     );
+  });
+
+  it("applies even when preview readiness is not ready but repairable", async () => {
+    const verifyToken = vi.fn().mockResolvedValue({
+      status: "connected",
+      message: "ok",
+    });
+    const listTeams = vi.fn().mockResolvedValue([]);
+    const listMarkedInScope = vi.fn().mockResolvedValue([
+      { projectId: "prj_reuse", projectName: "bridge" },
+    ]);
+    const apply = vi.fn().mockResolvedValue({
+      status: "applied",
+      verified: true,
+      projectId: "prj_reuse",
+      projectName: "bridge",
+      writtenEnvKeys: ["LINEAR_WEBHOOK_SECRET"],
+      skippedEnvKeys: [],
+      linearWebhookSetup: { mode: "automated", manualSteps: [] },
+      signedProbeVerified: true,
+      deploymentRedeployRequired: false,
+      fingerprint: "fp-reuse",
+    });
+    const preview = vi.fn().mockResolvedValue({
+      validationError: undefined,
+      readiness: {
+        ready: false,
+        projectSelected: true,
+        blockers: [
+          "Verify the Linear Issue webhook points at the Vercel bridge URL.",
+          "Signed webhook delivery verification has not passed against production.",
+        ],
+      },
+      fingerprint: "fp-reuse",
+    });
+
+    const started = await startVercelConnectionRecovery({
+      cwd: tempRoot,
+      selectedScope: { teamId: "team-w", teamName: "Weston" },
+      deps: {
+        verifyToken: verifyToken as never,
+        listTeams: listTeams as never,
+        listMarkedInScope: listMarkedInScope as never,
+        preview: preview as never,
+        apply: apply as never,
+      },
+    });
+    const discovered = await advanceVercelConnectionRecovery({
+      cwd: tempRoot,
+      operationId: started.operation!.operationId,
+      expectedRevision: started.operation!.revision,
+      deps: {
+        verifyToken: verifyToken as never,
+        listTeams: listTeams as never,
+        listMarkedInScope: listMarkedInScope as never,
+        preview: preview as never,
+        apply: apply as never,
+      },
+    });
+    expect(discovered.operation?.prepareMode).toBe("reuse");
+
+    const applied = await advanceVercelConnectionRecovery({
+      cwd: tempRoot,
+      operationId: started.operation!.operationId,
+      expectedRevision: discovered.operation!.revision,
+      deps: {
+        verifyToken: verifyToken as never,
+        listTeams: listTeams as never,
+        listMarkedInScope: listMarkedInScope as never,
+        preview: preview as never,
+        apply: apply as never,
+        loadSetupSummary: async () =>
+          ({
+            overview: {
+              configResolved: true,
+              localFilesPresent: true,
+              readyForLocalDoctor: true,
+            },
+          }) as never,
+        loadRemoteSummary: async () =>
+          ({
+            harnessSecretStatuses: [],
+            targetRepos: [],
+          }) as never,
+        reconcileCompletion: async () =>
+          ({
+            ok: false,
+            state: null,
+            evidence: {
+              localConfigPresent: true,
+              linearConfigured: true,
+              vercelConfigured: true,
+              cloudSecretsVerified: false,
+              targetWorkflowsVerified: false,
+            },
+            reasons: [],
+            wroteMarker: false,
+          }) as never,
+      },
+    });
+
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(applied.operation?.stage).toBe("ready");
+    expect(applied.operation?.projectId).toBe("prj_reuse");
   });
 
   it("migrates live dead-end needs_scope + selectedScope + ambiguous message", async () => {
