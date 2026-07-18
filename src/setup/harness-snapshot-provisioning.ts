@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { performance } from "node:perf_hooks";
 import { GitHubApiError } from "../github/client.js";
 import { isGitHubRateLimitError } from "../github/rate-limit-metadata.js";
 import { HARNESS_MANAGED_REPO_MARKER_FILE } from "./harness-managed-repo-marker.js";
@@ -19,8 +20,40 @@ import {
   SnapshotProvisioningError,
 } from "./harness-snapshot-provisioning-helpers.js";
 import { GitHubUploadRateLimitGate } from "./github-upload-rate-limit-gate.js";
+import {
+  resolveGitPushTimeoutMs,
+  type HarnessGitTransportTimings,
+} from "./harness-snapshot-git-transport.js";
 
 export { SnapshotProvisioningError };
+
+async function withPhaseTimeout<T>(
+  phase: SnapshotProvisioningPhase,
+  timeoutMs: number,
+  fn: () => Promise<T>,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      fn(),
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(
+            new SnapshotProvisioningError(
+              "remote-phase-timeout",
+              `Provisioning phase "${phase}" timed out after ${timeoutMs}ms. Retry Step 1 Continue to resume or reconcile.`,
+              true,
+            ),
+          );
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
 
 const DEFAULT_UPLOAD_CONCURRENCY = resolveSnapshotUploadConcurrency();
 const MAX_UPLOAD_RETRIES = Number(process.env.HARNESS_SNAPSHOT_UPLOAD_RETRIES ?? 3);
@@ -70,9 +103,12 @@ function reconcilePollingConfig(): {
 
 export type SnapshotProvisioningPhase =
   | "repository-created"
+  | "preparing-snapshot"
   | "snapshot-objects-uploading"
+  | "workspace-uploading"
   | "snapshot-commit-created"
   | "marker-pending"
+  | "verifying"
   | "description-pending"
   | "persistence-pending";
 
@@ -80,7 +116,10 @@ export interface SnapshotProvisioningProgress {
   phase: SnapshotProvisioningProgressPhase;
   uploadedBlobs: number;
   totalBlobs: number;
+  completed?: number;
+  total?: number;
   rateLimitPauseSeconds?: number;
+  lastSafeCheckpoint?: string;
 }
 
 export type SnapshotProvisioningProgressPhase = SnapshotProvisioningPhase;
@@ -88,6 +127,17 @@ export type SnapshotProvisioningProgressPhase = SnapshotProvisioningPhase;
 export interface SnapshotProvisioningCheckpoint
   extends Partial<HarnessProvisioningPendingState> {
   phase: SnapshotProvisioningPhase;
+}
+
+export interface SnapshotProvisioningTimings {
+  repositoryCreateReconcileMs?: number;
+  workspaceUploadMs?: number;
+  descriptionFinalizationMs?: number;
+  gitTransport?: HarnessGitTransportTimings;
+}
+
+function elapsedProvisioningMs(startedAt: number): number {
+  return Math.round(performance.now() - startedAt);
 }
 
 function sleep(ms: number): Promise<void> {
@@ -621,6 +671,7 @@ export async function provisionHarnessWorkspaceFromSnapshot(input: {
       initializedCommitSha: string;
       snapshotCommitSha: string;
       markerCommitSha: string;
+      timings: SnapshotProvisioningTimings;
     }
   | { ok: false; message: string; recoverable: boolean; code?: SnapshotProvisioningError["code"] }
 > {
@@ -638,6 +689,8 @@ export async function provisionHarnessWorkspaceFromSnapshot(input: {
       });
     },
   });
+  const timings: SnapshotProvisioningTimings = {};
+  const repositoryCreateReconcileStartedAt = performance.now();
 
   if (input.pending?.repositoryId) {
     const identity = await verifyPendingRepositoryIdentity({
@@ -735,6 +788,9 @@ export async function provisionHarnessWorkspaceFromSnapshot(input: {
       totalBlobs: input.manifest.fileCount,
     });
   }
+  timings.repositoryCreateReconcileMs = elapsedProvisioningMs(
+    repositoryCreateReconcileStartedAt,
+  );
 
   if (!defaultBranch) {
     return {
@@ -747,96 +803,111 @@ export async function provisionHarnessWorkspaceFromSnapshot(input: {
   const resolvedDefaultBranch = defaultBranch;
 
   let snapshotCommitSha = input.pending?.snapshotCommitSha;
-  if (!snapshotCommitSha) {
-    const blobShaByPath = await uploadSnapshotBlobs({
-      provider: input.provider,
-      owner,
-      repo,
-      snapshotRoot: input.snapshotRoot,
-      manifest: input.manifest,
-      retryContext,
-      onProgress: input.onProgress,
-    });
-    snapshotCommitSha = await createSnapshotCommit({
-      provider: input.provider,
-      owner,
-      repo,
-      manifest: input.manifest,
-      parentCommitSha: initializedCommitSha!,
-      operationId: input.operationId,
-      blobShaByPath,
-      retryContext,
-    });
-    const currentRef = await input.provider.getGitRef(owner, repo, resolvedDefaultBranch);
-    if (currentRef.object.sha !== snapshotCommitSha) {
-      await withRetries(
-        () =>
-          input.provider.updateGitRef({
-            owner,
-            repo,
-            ref: resolvedDefaultBranch,
-            sha: snapshotCommitSha!,
-            force: false,
-            expectedSha: initializedCommitSha,
-          }),
-        retryContext,
-        "snapshot-commit-created",
-      );
-    }
-    await input.onCheckpoint?.({
-      phase: "snapshot-commit-created",
-      repositoryId,
-      defaultBranch: resolvedDefaultBranch,
-      initializedCommitSha,
-      snapshotCommitSha,
-      snapshotGitTreeSha1: input.manifest.gitRootTreeSha1,
-    });
-    input.onProgress?.({
-      phase: "snapshot-commit-created",
-      uploadedBlobs: input.manifest.fileCount,
-      totalBlobs: input.manifest.fileCount,
-    });
-  }
-
   let markerCommitSha = input.pending?.markerCommitSha;
-  if (!markerCommitSha) {
-    const marker = buildHarnessSnapshotManagedRepoMarker({
-      repository: `${owner}/${input.repoName}`,
-      repositoryId: repositoryId!,
-      manifest: input.manifest,
-      snapshotCommitSha: snapshotCommitSha!,
-      operationId: input.operationId,
-      createdByGithubUserId: input.user.id,
-      createdByLogin: input.user.login,
-      pDevVersion: input.packageVersion,
-      defaultBranch: resolvedDefaultBranch,
-    });
+
+  // Reconcile remote HEAD before creating or pushing anything new.
+  const remoteHead = await input.provider.getGitRef(owner, repo, resolvedDefaultBranch);
+  const remoteHeadSha = remoteHead.object.sha;
+
+  if (markerCommitSha && remoteHeadSha === markerCommitSha) {
+    // Already complete remotely — continue to description finalization.
+  } else if (snapshotCommitSha && remoteHeadSha === snapshotCommitSha && !markerCommitSha) {
+    // Snapshot present; marker still needed.
+  } else if (
+    snapshotCommitSha &&
+    markerCommitSha &&
+    remoteHeadSha !== markerCommitSha &&
+    remoteHeadSha !== snapshotCommitSha
+  ) {
+    return {
+      ok: false,
+      message: `Remote branch changed unexpectedly (expected marker ${markerCommitSha} or snapshot ${snapshotCommitSha}, found ${remoteHeadSha}). Force push is not allowed.`,
+      recoverable: true,
+      code: "ref-update-unexpected-head",
+    };
+  } else if (
+    !snapshotCommitSha &&
+    remoteHeadSha !== initializedCommitSha &&
+    remoteHeadSha !== input.pending?.snapshotCommitSha
+  ) {
+    // Remote may already contain our commits from a prior interrupted push.
     try {
-      markerCommitSha = await createMarkerCommit({
-        provider: input.provider,
-        owner,
-        repo,
-        defaultBranch: resolvedDefaultBranch,
-        parentCommitSha: snapshotCommitSha!,
-        snapshotTreeSha: input.manifest.gitRootTreeSha1,
-        markerContent: `${JSON.stringify(marker, null, 2)}\n`,
-        operationId: input.operationId,
-        sourceCommit: input.manifest.sourceCommit,
-        retryContext,
-      });
-    } catch (error) {
-      if (error instanceof SnapshotProvisioningError && error.code === "marker-commit-failed") {
+      const headCommit = await input.provider.getGitCommit(owner, repo, remoteHeadSha);
+      if (headCommit.parents[0]?.sha === initializedCommitSha) {
+        // Likely snapshot-only remote — treat as snapshot checkpoint.
+        snapshotCommitSha = remoteHeadSha;
+        await input.onCheckpoint?.({
+          phase: "snapshot-commit-created",
+          repositoryId,
+          defaultBranch: resolvedDefaultBranch,
+          initializedCommitSha,
+          snapshotCommitSha,
+          snapshotGitTreeSha1: input.manifest.gitRootTreeSha1,
+        });
+      } else if (headCommit.parents[0]?.sha) {
+        const parent = await input.provider.getGitCommit(
+          owner,
+          repo,
+          headCommit.parents[0].sha,
+        );
+        if (parent.parents[0]?.sha === initializedCommitSha) {
+          snapshotCommitSha = headCommit.parents[0].sha;
+          markerCommitSha = remoteHeadSha;
+          await input.onCheckpoint?.({
+            phase: "marker-pending",
+            repositoryId,
+            defaultBranch: resolvedDefaultBranch,
+            initializedCommitSha,
+            snapshotCommitSha,
+            markerCommitSha,
+            snapshotGitTreeSha1: input.manifest.gitRootTreeSha1,
+          });
+        } else if (remoteHeadSha !== initializedCommitSha) {
+          return {
+            ok: false,
+            message: `Remote branch changed unexpectedly (expected initialized commit ${initializedCommitSha}, found ${remoteHeadSha}). Force push is not allowed.`,
+            recoverable: true,
+            code: "ref-update-unexpected-head",
+          };
+        }
+      } else if (remoteHeadSha !== initializedCommitSha) {
         return {
           ok: false,
-          message: error.message,
+          message: `Remote branch changed unexpectedly (expected initialized commit ${initializedCommitSha}, found ${remoteHeadSha}). Force push is not allowed.`,
           recoverable: true,
-          code: error.code,
+          code: "ref-update-unexpected-head",
         };
       }
-      throw error;
+    } catch {
+      if (remoteHeadSha !== initializedCommitSha) {
+        return {
+          ok: false,
+          message: `Remote branch changed unexpectedly (expected initialized commit ${initializedCommitSha}, found ${remoteHeadSha}). Force push is not allowed.`,
+          recoverable: true,
+          code: "ref-update-unexpected-head",
+        };
+      }
     }
+  }
+
+  const usesBulkPush = typeof input.provider.pushHarnessSnapshotCommits === "function";
+
+  if (usesBulkPush && (!snapshotCommitSha || !markerCommitSha)) {
+    const expectedHeadSha = snapshotCommitSha ?? initializedCommitSha!;
+    const lastSafeCheckpoint = snapshotCommitSha
+      ? "snapshot-commit-created"
+      : "repository-created";
+
+    input.onProgress?.({
+      phase: "preparing-snapshot",
+      uploadedBlobs: 0,
+      totalBlobs: input.manifest.fileCount,
+      completed: 0,
+      total: input.manifest.fileCount,
+      lastSafeCheckpoint,
+    });
     await input.onCheckpoint?.({
-      phase: "marker-pending",
+      phase: "preparing-snapshot",
       repositoryId,
       defaultBranch: resolvedDefaultBranch,
       initializedCommitSha,
@@ -844,14 +915,210 @@ export async function provisionHarnessWorkspaceFromSnapshot(input: {
       markerCommitSha,
       snapshotGitTreeSha1: input.manifest.gitRootTreeSha1,
     });
-    input.onProgress?.({
-      phase: "marker-pending",
-      uploadedBlobs: input.manifest.fileCount,
-      totalBlobs: input.manifest.fileCount,
-    });
+
+    try {
+      const pushTimeoutMs = resolveGitPushTimeoutMs();
+      const workspaceUploadStartedAt = performance.now();
+      const pushResult = await withPhaseTimeout(
+        "workspace-uploading",
+        pushTimeoutMs,
+        () =>
+          input.provider.pushHarnessSnapshotCommits!({
+            owner,
+            repo,
+            defaultBranch: resolvedDefaultBranch,
+            expectedHeadSha,
+            initializedCommitSha: initializedCommitSha!,
+            snapshotRoot: input.snapshotRoot,
+            manifest: input.manifest,
+            operationId: input.operationId,
+            packageVersion: input.packageVersion,
+            existingSnapshotCommitSha: snapshotCommitSha,
+            timeoutMs: pushTimeoutMs,
+            buildMarkerContent: (resolvedSnapshotCommitSha) => {
+              const marker = buildHarnessSnapshotManagedRepoMarker({
+                repository: `${owner}/${input.repoName}`,
+                repositoryId: repositoryId!,
+                manifest: input.manifest,
+                snapshotCommitSha: resolvedSnapshotCommitSha,
+                operationId: input.operationId,
+                createdByGithubUserId: input.user.id,
+                createdByLogin: input.user.login,
+                pDevVersion: input.packageVersion,
+                defaultBranch: resolvedDefaultBranch,
+              });
+              return `${JSON.stringify(marker, null, 2)}\n`;
+            },
+            onProgress: (progress) => {
+              input.onProgress?.({
+                phase: progress.phase,
+                uploadedBlobs: progress.completed ?? 0,
+                totalBlobs: progress.total ?? input.manifest.fileCount,
+                completed: progress.completed,
+                total: progress.total ?? input.manifest.fileCount,
+                lastSafeCheckpoint,
+              });
+            },
+          }),
+      );
+      timings.workspaceUploadMs = elapsedProvisioningMs(workspaceUploadStartedAt);
+      timings.gitTransport = pushResult.timings;
+
+      snapshotCommitSha = pushResult.snapshotCommitSha;
+      markerCommitSha = pushResult.markerCommitSha;
+
+      await input.onCheckpoint?.({
+        phase: "snapshot-commit-created",
+        repositoryId,
+        defaultBranch: resolvedDefaultBranch,
+        initializedCommitSha,
+        snapshotCommitSha,
+        snapshotGitTreeSha1: input.manifest.gitRootTreeSha1,
+      });
+      await input.onCheckpoint?.({
+        phase: "marker-pending",
+        repositoryId,
+        defaultBranch: resolvedDefaultBranch,
+        initializedCommitSha,
+        snapshotCommitSha,
+        markerCommitSha,
+        snapshotGitTreeSha1: input.manifest.gitRootTreeSha1,
+      });
+      input.onProgress?.({
+        phase: "verifying",
+        uploadedBlobs: input.manifest.fileCount,
+        totalBlobs: input.manifest.fileCount,
+        completed: input.manifest.fileCount,
+        total: input.manifest.fileCount,
+        lastSafeCheckpoint: "marker-pending",
+      });
+    } catch (error) {
+      if (
+        error instanceof SnapshotProvisioningError &&
+        (error.code === "marker-commit-failed" ||
+          error.code === "workspace-upload-failed" ||
+          error.code === "workspace-upload-timeout" ||
+          error.code === "remote-phase-timeout" ||
+          error.code === "ref-update-unexpected-head" ||
+          error.code === "snapshot-tree-mismatch")
+      ) {
+        return {
+          ok: false,
+          message: error.message,
+          recoverable: error.recoverable,
+          code: error.code,
+        };
+      }
+      throw error;
+    }
+  } else if (!usesBulkPush) {
+    // Legacy per-file REST path for providers without bulk git push (e.g. unit mocks).
+    if (!snapshotCommitSha) {
+      const blobShaByPath = await uploadSnapshotBlobs({
+        provider: input.provider,
+        owner,
+        repo,
+        snapshotRoot: input.snapshotRoot,
+        manifest: input.manifest,
+        retryContext,
+        onProgress: input.onProgress,
+      });
+      snapshotCommitSha = await createSnapshotCommit({
+        provider: input.provider,
+        owner,
+        repo,
+        manifest: input.manifest,
+        parentCommitSha: initializedCommitSha!,
+        operationId: input.operationId,
+        blobShaByPath,
+        retryContext,
+      });
+      const currentRef = await input.provider.getGitRef(owner, repo, resolvedDefaultBranch);
+      if (currentRef.object.sha !== snapshotCommitSha) {
+        await withRetries(
+          () =>
+            input.provider.updateGitRef({
+              owner,
+              repo,
+              ref: resolvedDefaultBranch,
+              sha: snapshotCommitSha!,
+              force: false,
+              expectedSha: initializedCommitSha,
+            }),
+          retryContext,
+          "snapshot-commit-created",
+        );
+      }
+      await input.onCheckpoint?.({
+        phase: "snapshot-commit-created",
+        repositoryId,
+        defaultBranch: resolvedDefaultBranch,
+        initializedCommitSha,
+        snapshotCommitSha,
+        snapshotGitTreeSha1: input.manifest.gitRootTreeSha1,
+      });
+      input.onProgress?.({
+        phase: "snapshot-commit-created",
+        uploadedBlobs: input.manifest.fileCount,
+        totalBlobs: input.manifest.fileCount,
+      });
+    }
+
+    if (!markerCommitSha) {
+      const marker = buildHarnessSnapshotManagedRepoMarker({
+        repository: `${owner}/${input.repoName}`,
+        repositoryId: repositoryId!,
+        manifest: input.manifest,
+        snapshotCommitSha: snapshotCommitSha!,
+        operationId: input.operationId,
+        createdByGithubUserId: input.user.id,
+        createdByLogin: input.user.login,
+        pDevVersion: input.packageVersion,
+        defaultBranch: resolvedDefaultBranch,
+      });
+      try {
+        markerCommitSha = await createMarkerCommit({
+          provider: input.provider,
+          owner,
+          repo,
+          defaultBranch: resolvedDefaultBranch,
+          parentCommitSha: snapshotCommitSha!,
+          snapshotTreeSha: input.manifest.gitRootTreeSha1,
+          markerContent: `${JSON.stringify(marker, null, 2)}\n`,
+          operationId: input.operationId,
+          sourceCommit: input.manifest.sourceCommit,
+          retryContext,
+        });
+      } catch (error) {
+        if (error instanceof SnapshotProvisioningError && error.code === "marker-commit-failed") {
+          return {
+            ok: false,
+            message: error.message,
+            recoverable: true,
+            code: error.code,
+          };
+        }
+        throw error;
+      }
+      await input.onCheckpoint?.({
+        phase: "marker-pending",
+        repositoryId,
+        defaultBranch: resolvedDefaultBranch,
+        initializedCommitSha,
+        snapshotCommitSha,
+        markerCommitSha,
+        snapshotGitTreeSha1: input.manifest.gitRootTreeSha1,
+      });
+      input.onProgress?.({
+        phase: "marker-pending",
+        uploadedBlobs: input.manifest.fileCount,
+        totalBlobs: input.manifest.fileCount,
+      });
+    }
   }
 
   try {
+    const descriptionFinalizationStartedAt = performance.now();
     await finalizeProvisioningRepositoryDescription({
       provider: input.provider,
       owner,
@@ -861,6 +1128,9 @@ export async function provisionHarnessWorkspaceFromSnapshot(input: {
       markerCommitSha: markerCommitSha!,
       defaultBranch: resolvedDefaultBranch,
     });
+    timings.descriptionFinalizationMs = elapsedProvisioningMs(
+      descriptionFinalizationStartedAt,
+    );
   } catch (error) {
     if (
       error instanceof SnapshotProvisioningError &&
@@ -893,6 +1163,7 @@ export async function provisionHarnessWorkspaceFromSnapshot(input: {
     initializedCommitSha: initializedCommitSha!,
     snapshotCommitSha: snapshotCommitSha!,
     markerCommitSha: markerCommitSha!,
+    timings,
   };
 }
 

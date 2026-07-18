@@ -36,7 +36,7 @@ describe("observability sentry transport", () => {
       workspaceDir,
       env: {
         P_DEV_RUNTIME_MODE: "packaged",
-        P_DEV_PACKAGE_VERSION: "0.3.1",
+        P_DEV_PACKAGE_VERSION: "0.4.0",
       },
       fakeRecorder: recorder,
     });
@@ -66,7 +66,7 @@ describe("observability sentry transport", () => {
       workspaceDir,
       env: {
         P_DEV_RUNTIME_MODE: "packaged",
-        P_DEV_PACKAGE_VERSION: "0.3.1",
+        P_DEV_PACKAGE_VERSION: "0.4.0",
       },
       fakeRecorder: recorder,
     });

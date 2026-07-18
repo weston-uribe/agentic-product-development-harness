@@ -24,7 +24,7 @@ vi.mock("server-only", () => ({}));
 
 const packagedEnv = {
   P_DEV_RUNTIME_MODE: "packaged",
-  P_DEV_PACKAGE_VERSION: "0.3.1",
+  P_DEV_PACKAGE_VERSION: "0.4.0",
 };
 
 function buildPreferencesRequest(

@@ -5,7 +5,12 @@ import type { RemoteTargetWorkflowApplyResult } from "@harness/setup/remote-acti
 import type { RemoteSetupSummary } from "@harness/setup/remote-setup-summary";
 import type { RemoteWorkflowStatus } from "@harness/setup/remote-actions";
 import type { TargetWorkflowFinalizationResult } from "@harness/setup/target-workflow-finalization-types";
-import { WORKFLOW_INSTALL_SHORT_POLL_INTERVAL_MS } from "@harness/setup/target-workflow-finalization-types";
+import {
+  WORKFLOW_INSTALL_BASE_RETRY_MS,
+  WORKFLOW_INSTALL_MAX_RETRY_MS,
+  WORKFLOW_INSTALL_MAX_TRANSIENT_RETRIES,
+  WORKFLOW_INSTALL_SHORT_POLL_INTERVAL_MS,
+} from "@harness/setup/target-workflow-finalization-types";
 
 import { SPACING } from "@/lib/constants";
 import { GUIDED_SETUP_STEP_COUNT } from "@/lib/guided-setup";
@@ -21,6 +26,8 @@ interface GuidedTargetWorkflowCardProps {
   onSummaryUpdated?: (summary: RemoteSetupSummary) => void;
   onWorkflowSetupComplete?: () => void;
   onWorkflowAwaitingMergeChange?: (awaiting: boolean) => void;
+  onStepCompleted?: () => void;
+  onContinue?: () => void;
   pendingInstallByRepo?: Record<string, RemoteTargetWorkflowApplyResult>;
   finalizationByRepo?: Record<string, TargetWorkflowFinalizationResult>;
   onPendingInstallChange?: (
@@ -52,6 +59,8 @@ function allTargetWorkflowsReady(summary: RemoteSetupSummary): boolean {
   );
 }
 
+export { allTargetWorkflowsReady };
+
 function isPendingInstallResult(
   result: RemoteTargetWorkflowApplyResult,
 ): boolean {
@@ -62,16 +71,25 @@ function isPendingInstallResult(
   );
 }
 
-function shouldContinuePolling(
+function isTerminalFinalization(
   finalization: TargetWorkflowFinalizationResult | undefined,
 ): boolean {
   if (!finalization) {
     return false;
   }
   if (finalization.lifecycle === "complete") {
+    return true;
+  }
+  return finalization.lifecycle === "blocked" && !finalization.retryable;
+}
+
+function shouldContinuePolling(
+  finalization: TargetWorkflowFinalizationResult | undefined,
+): boolean {
+  if (!finalization) {
     return false;
   }
-  if (finalization.lifecycle === "blocked" && !finalization.canRetry) {
+  if (isTerminalFinalization(finalization)) {
     return false;
   }
   return true;
@@ -109,13 +127,41 @@ function isNewerFinalization(
   return incoming.advancedThisRequest || !existing.lockContended;
 }
 
-function isTerminalFinalization(
-  finalization: TargetWorkflowFinalizationResult | undefined,
-): boolean {
-  return (
-    finalization?.lifecycle === "complete" ||
-    (finalization?.lifecycle === "blocked" && !finalization.canRetry)
+function backoffDelayMs(failureCount: number, retryAfterMs?: number): number {
+  const base = retryAfterMs ?? WORKFLOW_INSTALL_BASE_RETRY_MS;
+  const exponential = Math.min(
+    WORKFLOW_INSTALL_MAX_RETRY_MS,
+    base * 2 ** Math.max(0, failureCount - 1),
   );
+  const jitter = Math.floor(Math.random() * WORKFLOW_INSTALL_BASE_RETRY_MS);
+  return Math.min(WORKFLOW_INSTALL_MAX_RETRY_MS, exponential + jitter);
+}
+
+function createPreparingFinalization(
+  repo: RemoteSetupSummary["targetRepos"][number],
+  pending: RemoteTargetWorkflowApplyResult,
+): TargetWorkflowFinalizationResult {
+  return {
+    repoConfigId: repo.repoConfigId,
+    targetRepo: repo.targetRepo,
+    targetRepoSlug: repo.targetRepo,
+    productionBranch: repo.productionBranch,
+    branchName: pending.branchName,
+    lifecycle: "preparing",
+    phase: "preparing-workflow-installation",
+    operationId: crypto.randomUUID(),
+    message: "Starting automatic workflow install finalization.",
+    workflowStatus: repo.workflowStatus,
+    canRetry: true,
+    retryable: true,
+    retryAfterMs: WORKFLOW_INSTALL_SHORT_POLL_INTERVAL_MS,
+    lastSafeCheckpoint: "preparing",
+    errorCode: "none",
+    requiresGitHubIntervention: false,
+    advancedThisRequest: false,
+    lockContended: false,
+    updatedAt: new Date().toISOString(),
+  };
 }
 
 export function GuidedTargetWorkflowCard({
@@ -123,6 +169,8 @@ export function GuidedTargetWorkflowCard({
   onSummaryUpdated,
   onWorkflowSetupComplete,
   onWorkflowAwaitingMergeChange,
+  onStepCompleted,
+  onContinue,
   pendingInstallByRepo = {},
   finalizationByRepo = {},
   onPendingInstallChange,
@@ -133,7 +181,14 @@ export function GuidedTargetWorkflowCard({
   const [localFinalizationByRepo, setLocalFinalizationByRepo] = useState(
     finalizationByRepo,
   );
+  const [transientByRepo, setTransientByRepo] = useState<
+    Record<string, string | null>
+  >({});
+  const [hideApplyByRepo, setHideApplyByRepo] = useState<Record<string, boolean>>(
+    {},
+  );
   const pollGenerationRef = useRef(0);
+  const failureCountRef = useRef<Record<string, number>>({});
   const mountedRef = useRef(true);
 
   useEffect(() => {
@@ -173,6 +228,7 @@ export function GuidedTargetWorkflowCard({
         return;
       }
 
+      const existing = localFinalizationByRepo[repoConfigId];
       const response = await fetch("/api/setup/finalize-target-workflow", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -180,13 +236,22 @@ export function GuidedTargetWorkflowCard({
           repoConfigId: repo.repoConfigId,
           targetRepo: repo.targetRepo,
           productionBranch: repo.productionBranch,
-          prUrl: apply?.prUrl,
-          branchName: apply?.branchName,
+          prUrl: apply?.prUrl ?? existing?.prUrl,
+          branchName: apply?.branchName ?? existing?.branchName,
+          operationId: existing?.operationId,
         }),
       });
       const data = await response.json();
       if (!response.ok) {
-        throw new Error(data.error ?? "Workflow finalization failed");
+        const error = new Error(data.error ?? "Workflow finalization failed") as Error & {
+          retryable?: boolean;
+          retryAfterMs?: number;
+          errorCode?: string;
+        };
+        error.retryable = data.retryable === true;
+        error.retryAfterMs = typeof data.retryAfterMs === "number" ? data.retryAfterMs : undefined;
+        error.errorCode = typeof data.errorCode === "string" ? data.errorCode : undefined;
+        throw error;
       }
 
       const finalization = data.finalization as TargetWorkflowFinalizationResult;
@@ -197,8 +262,8 @@ export function GuidedTargetWorkflowCard({
       }
 
       setLocalFinalizationByRepo((previous) => {
-        const existing = previous[repoConfigId];
-        if (!isNewerFinalization(existing, finalization)) {
+        const current = previous[repoConfigId];
+        if (!isNewerFinalization(current, finalization)) {
           return previous;
         }
         const next = { ...previous, [repoConfigId]: finalization };
@@ -213,22 +278,17 @@ export function GuidedTargetWorkflowCard({
         const nextPending = { ...pendingInstallByRepo };
         delete nextPending[repoConfigId];
         onPendingInstallChange?.(nextPending);
-      }
-
-      if (allTargetWorkflowsReady(nextSummary)) {
-        onPendingInstallChange?.({});
-        onWorkflowAwaitingMergeChange?.(false);
-        onWorkflowSetupComplete?.();
+        onStepCompleted?.();
       }
 
       return finalization;
     },
     [
+      localFinalizationByRepo,
       onFinalizationChange,
       onPendingInstallChange,
+      onStepCompleted,
       onSummaryUpdated,
-      onWorkflowAwaitingMergeChange,
-      onWorkflowSetupComplete,
       pendingInstallByRepo,
       summary.targetRepos,
     ],
@@ -238,33 +298,86 @@ export function GuidedTargetWorkflowCard({
     (repoConfigId: string, apply?: RemoteTargetWorkflowApplyResult) => {
       const generation = pollGenerationRef.current + 1;
       pollGenerationRef.current = generation;
+      failureCountRef.current[repoConfigId] = 0;
 
       const poll = async () => {
         while (pollGenerationRef.current === generation) {
           try {
             const finalization = await finalizeRepo(repoConfigId, apply);
+            if (!mountedRef.current || pollGenerationRef.current !== generation) {
+              break;
+            }
+            if (finalization?.lockContended) {
+              setTransientByRepo((prev) => ({ ...prev, [repoConfigId]: null }));
+              await new Promise((resolve) =>
+                setTimeout(
+                  resolve,
+                  finalization.retryAfterMs ?? WORKFLOW_INSTALL_SHORT_POLL_INTERVAL_MS,
+                ),
+              );
+              continue;
+            }
+            failureCountRef.current[repoConfigId] = 0;
+            setTransientByRepo((prev) => ({ ...prev, [repoConfigId]: null }));
             if (!shouldContinuePolling(finalization)) {
               break;
             }
-          } catch {
-            break;
+            await new Promise((resolve) =>
+              setTimeout(
+                resolve,
+                finalization?.retryAfterMs ?? WORKFLOW_INSTALL_SHORT_POLL_INTERVAL_MS,
+              ),
+            );
+          } catch (error) {
+            if (!mountedRef.current || pollGenerationRef.current !== generation) {
+              break;
+            }
+            const typed = error as Error & {
+              retryable?: boolean;
+              retryAfterMs?: number;
+            };
+            const failures = (failureCountRef.current[repoConfigId] ?? 0) + 1;
+            failureCountRef.current[repoConfigId] = failures;
+            const retryable = typed.retryable !== false;
+            if (!retryable || failures > WORKFLOW_INSTALL_MAX_TRANSIENT_RETRIES) {
+              setLocalFinalizationByRepo((previous) => {
+                const existing = previous[repoConfigId];
+                if (!existing) {
+                  return previous;
+                }
+                const terminal: TargetWorkflowFinalizationResult = {
+                  ...existing,
+                  lifecycle: "blocked",
+                  retryable: false,
+                  canRetry: true,
+                  errorCode: "retry_budget_exhausted",
+                  message:
+                    existing.message ||
+                    "Workflow install polling stopped after repeated refresh failures.",
+                  updatedAt: new Date().toISOString(),
+                };
+                const next = { ...previous, [repoConfigId]: terminal };
+                onFinalizationChange?.(next);
+                return next;
+              });
+              setTransientByRepo((prev) => ({ ...prev, [repoConfigId]: null }));
+              break;
+            }
+            setTransientByRepo((prev) => ({
+              ...prev,
+              [repoConfigId]: "Temporarily unable to refresh GitHub status.",
+            }));
+            await new Promise((resolve) =>
+              setTimeout(resolve, backoffDelayMs(failures, typed.retryAfterMs)),
+            );
           }
-          await new Promise((resolve) =>
-            setTimeout(resolve, WORKFLOW_INSTALL_SHORT_POLL_INTERVAL_MS),
-          );
         }
       };
 
       void poll();
     },
-    [finalizeRepo],
+    [finalizeRepo, onFinalizationChange],
   );
-
-  useEffect(() => {
-    if (allTargetWorkflowsReady(summary)) {
-      onWorkflowSetupComplete?.();
-    }
-  }, [onWorkflowSetupComplete, summary]);
 
   useEffect(() => {
     const awaiting = Object.entries(localFinalizationByRepo).some(([, state]) =>
@@ -294,12 +407,14 @@ export function GuidedTargetWorkflowCard({
       result: RemoteTargetWorkflowApplyResult,
       initialFinalization?: TargetWorkflowFinalizationResult,
     ) => {
+      setHideApplyByRepo((prev) => ({ ...prev, [repoConfigId]: true }));
       let nextPending = { ...pendingInstallByRepo };
 
       if (result.outcome === "already-installed") {
         delete nextPending[repoConfigId];
         onPendingInstallChange?.(nextPending);
         await refreshSummary();
+        onStepCompleted?.();
         return;
       }
 
@@ -326,6 +441,7 @@ export function GuidedTargetWorkflowCard({
       localFinalizationByRepo,
       onFinalizationChange,
       onPendingInstallChange,
+      onStepCompleted,
       pendingInstallByRepo,
       refreshSummary,
       startPolling,
@@ -335,13 +451,48 @@ export function GuidedTargetWorkflowCard({
   const awaitingFinalization = Object.values(localFinalizationByRepo).some(
     (state) => shouldContinuePolling(state),
   );
+  const allComplete =
+    allTargetWorkflowsReady(summary) ||
+    (summary.targetRepos.length > 0 &&
+      summary.targetRepos.every((repo) => {
+        const finalization = localFinalizationByRepo[repo.repoConfigId];
+        return (
+          repo.workflowStatus === "present" ||
+          finalization?.lifecycle === "complete"
+        );
+      }));
+
+  const handleContinueWhenAllComplete = useCallback(async () => {
+    if (!allComplete) {
+      return;
+    }
+
+    let authoritativeSummary: RemoteSetupSummary;
+    try {
+      authoritativeSummary = await refreshSummary();
+    } catch {
+      return;
+    }
+
+    if (!allTargetWorkflowsReady(authoritativeSummary)) {
+      return;
+    }
+
+    onWorkflowSetupComplete?.();
+    onContinue?.();
+  }, [
+    allComplete,
+    onContinue,
+    onWorkflowSetupComplete,
+    refreshSummary,
+  ]);
 
   return (
     <SectionCard
       title={`Step 7 of ${GUIDED_SETUP_STEP_COUNT} · Install target repo workflow`}
       description={
         awaitingFinalization
-          ? "Installing the harness workflow automatically. Setup will continue when production verification succeeds."
+          ? "Installing the harness workflow. Continue when production verification succeeds."
           : "The harness will create or reuse a workflow install PR, merge it automatically when GitHub permits, and verify the production workflow."
       }
     >
@@ -360,7 +511,13 @@ export function GuidedTargetWorkflowCard({
             {summary.targetRepos.map((repo) => {
               const pending = pendingInstallByRepo[repo.repoConfigId];
               const finalization = localFinalizationByRepo[repo.repoConfigId];
-              const workflowReady = repo.workflowStatus === "present";
+              const workflowReady =
+                repo.workflowStatus === "present" ||
+                finalization?.lifecycle === "complete";
+              const hideApply =
+                hideApplyByRepo[repo.repoConfigId] ||
+                Boolean(finalization) ||
+                Boolean(pending && isPendingInstallResult(pending));
 
               return (
                 <div
@@ -378,36 +535,43 @@ export function GuidedTargetWorkflowCard({
                   </div>
 
                   {workflowReady ? (
-                    <WorkflowInstallReadyPanel repoConfigId={repo.repoConfigId} />
+                    <WorkflowInstallReadyPanel
+                      repoConfigId={repo.repoConfigId}
+                      onContinue={
+                        allComplete
+                          ? () => {
+                              void handleContinueWhenAllComplete();
+                            }
+                          : undefined
+                      }
+                    />
                   ) : finalization ? (
                     <WorkflowInstallProgressPanel
                       variant="guided"
                       finalization={finalization}
+                      transientMessage={transientByRepo[repo.repoConfigId]}
+                      onContinue={
+                        allComplete && finalization.lifecycle === "complete"
+                          ? () => {
+                              void handleContinueWhenAllComplete();
+                            }
+                          : undefined
+                      }
                       onRetry={
-                        finalization.canRetry
-                          ? () => void finalizeRepo(repo.repoConfigId, pending)
+                        finalization.canRetry || finalization.retryable
+                          ? () => {
+                              failureCountRef.current[repo.repoConfigId] = 0;
+                              startPolling(repo.repoConfigId, pending);
+                            }
                           : undefined
                       }
                     />
                   ) : pending && isPendingInstallResult(pending) ? (
                     <WorkflowInstallProgressPanel
                       variant="guided"
-                      finalization={{
-                        repoConfigId: repo.repoConfigId,
-                        targetRepo: repo.targetRepo,
-                        targetRepoSlug: repo.targetRepo,
-                        productionBranch: repo.productionBranch,
-                        branchName: pending.branchName,
-                        lifecycle: "preparing",
-                        message: "Starting automatic workflow install finalization.",
-                        workflowStatus: repo.workflowStatus,
-                        canRetry: false,
-                        requiresGitHubIntervention: false,
-                        advancedThisRequest: false,
-                        lockContended: false,
-                      }}
+                      finalization={createPreparingFinalization(repo, pending)}
                     />
-                  ) : (
+                  ) : hideApply ? null : (
                     <>
                       <p className="text-sm text-muted-foreground">
                         Confirm to create or update the workflow install PR.
@@ -417,11 +581,11 @@ export function GuidedTargetWorkflowCard({
                         repo={repo}
                         variant="guided"
                         onApplied={() => undefined}
-                        onGuidedApplySuccess={(result, finalization) =>
+                        onGuidedApplySuccess={(result, nextFinalization) =>
                           void handleGuidedApplySuccess(
                             repo.repoConfigId,
                             result,
-                            finalization,
+                            nextFinalization,
                           )
                         }
                         blockedByUpstream={blockedByUpstream}

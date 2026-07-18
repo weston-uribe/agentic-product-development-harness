@@ -1,6 +1,6 @@
 {
   "name": "p-dev-harness",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "type": "module",
   "description": "Launch the Product Development Harness guided Configure GUI without cloning the source repository.",
   "license": "MIT",

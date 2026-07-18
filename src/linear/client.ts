@@ -9,8 +9,15 @@ export interface LinearIssueSnapshot {
   projectId: string | null;
   projectName: string | null;
   teamName: string | null;
+  teamKey: string | null;
   teamId: string | null;
   url: string | null;
+}
+
+/** Derive Linear team key from issue identifier (e.g. FRE-1 → FRE). */
+export function teamKeyFromIssueIdentifier(identifier: string): string | null {
+  const match = identifier.trim().match(/^([A-Za-z][A-Za-z0-9]*)-\d+$/);
+  return match?.[1] ?? null;
 }
 
 export async function fetchLinearIssue(
@@ -39,6 +46,7 @@ export async function fetchLinearIssue(
     projectId: project?.id ?? null,
     projectName: project?.name ?? null,
     teamName: team?.name ?? null,
+    teamKey: team?.key ?? teamKeyFromIssueIdentifier(issue.identifier),
     teamId: team?.id ?? null,
     url: issue.url ?? null,
   };

@@ -31,6 +31,8 @@ import { manifestModelEvidence } from "../../cursor/model.js";
 import { buildPlanningPrompt } from "../../prompts/builder.js";
 import { PlanningError } from "../errors.js";
 import { runPreflight } from "../preflight.js";
+import { resolveRunGeneration } from "../run-generation.js";
+import { updateRunStatusPhase } from "../../linear/run-status-comment.js";
 import {
   assertPlanningEligibleStatus,
   checkPlanningIdempotency,
@@ -114,6 +116,8 @@ export async function executePlanningPhase(
   });
 
   if (!preflight.success) {
+    const isDuplicateDelivery =
+      preflight.errorClassification === "duplicate_delivery";
     const manifest: RunManifest = {
       runId: preflight.runId,
       issueKey: options.issueKey,
@@ -125,7 +129,7 @@ export async function executePlanningPhase(
       baseBranch: preflight.resolved?.baseBranch ?? null,
       resolutionSource: preflight.resolved?.resolutionSource ?? null,
       dryRun: false,
-      finalOutcome: "failed",
+      finalOutcome: isDuplicateDelivery ? "duplicate" : "failed",
       errorClassification: preflight.errorClassification,
       startedAt: preflight.startedAt.toISOString(),
       finishedAt: new Date().toISOString(),
@@ -150,6 +154,9 @@ export async function executePlanningPhase(
       modelParams: preflight.config
         ? manifestModelEvidence(preflight.config, "planner").modelParams
         : null,
+      deliveryId: process.env.LINEAR_DELIVERY_ID ?? null,
+      runGeneration: resolveRunGeneration(),
+      runOwnedStatuses: preflight.issue?.status ? [preflight.issue.status] : null,
     };
     return writeFinalManifest(
       manifest,
@@ -157,14 +164,14 @@ export async function executePlanningPhase(
       preflight.parsed,
       preflight.resolved,
       preflight.events,
-      "failed",
+      isDuplicateDelivery ? "duplicate" : "failed",
       preflight.errorClassification,
     );
   }
 
   const {
     config,
-    issue,
+    issue: preflightIssue,
     parsed,
     resolved,
     productInitialization,
@@ -176,6 +183,7 @@ export async function executePlanningPhase(
     startedAt,
   } = preflight.context;
 
+  let issue = preflightIssue;
   const linearStatusBefore = issue.status;
   let linearStatusAfter = issue.status;
   let finalOutcome: FinalOutcome = "failed";
@@ -198,11 +206,20 @@ export async function executePlanningPhase(
     baseBranch: resolved.baseBranch,
   };
 
+  const deliveryId = process.env.LINEAR_DELIVERY_ID ?? null;
+  const runGeneration = resolveRunGeneration();
+  let runOwnedStatuses = [linearStatusBefore].filter(Boolean) as string[];
+
   const client = createLinearClient(linearApiKey);
 
   try {
+    const freshIssue = await fetchLinearIssue(options.issueKey, linearApiKey);
+    issue = freshIssue;
+    linearStatusAfter = freshIssue.status;
+    runOwnedStatuses = [linearStatusBefore, freshIssue.status].filter(Boolean) as string[];
+
     try {
-      assertPlanningEligibleStatus(config, issue, Boolean(options.force));
+      assertPlanningEligibleStatus(config, freshIssue, Boolean(options.force));
     } catch (error) {
       throw new PlanningError(
         "wrong_status",
@@ -251,6 +268,9 @@ export async function executePlanningPhase(
       pmFeedbackCommentId: null,
         ...emptyMergeManifestFields(),
         model,
+        deliveryId,
+        runGeneration,
+        runOwnedStatuses,
       };
       return writeFinalManifest(
         manifest,
@@ -267,9 +287,18 @@ export async function executePlanningPhase(
     await transitionIssueStatus(client, issue, planningStatus);
     enteredPlanning = true;
     linearStatusAfter = planningStatus;
+    runOwnedStatuses = [...runOwnedStatuses, planningStatus];
     await events.log("linear_status_changed", "info", {
       from: linearStatusBefore,
       to: planningStatus,
+    });
+
+    await updateRunStatusPhase(client, issue.id, {
+      phase: planningStatus,
+      headline: "Planning in progress",
+      runId,
+      deliveryId,
+      generation: runGeneration,
     });
 
     const { prompt, promptVersion: version } = await buildPlanningPrompt(
@@ -453,6 +482,9 @@ export async function executePlanningPhase(
     model,
     modelRole: "planner",
     modelParams: plannerModel.modelParams,
+    deliveryId,
+    runGeneration,
+    runOwnedStatuses,
   };
 
   return writeFinalManifest(

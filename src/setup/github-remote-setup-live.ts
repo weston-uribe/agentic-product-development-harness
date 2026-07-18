@@ -34,6 +34,8 @@ import {
   type GitHubTokenCapabilitySummary,
   type HarnessSecretWriteRequest,
   type HarnessSecretWriteResultEntry,
+  type HarnessVariableWriteRequest,
+  type HarnessVariableWriteResultEntry,
   type RepositoryFileWriteInput,
   type TargetWorkflowApplyInput,
   type TargetWorkflowApplyResult,
@@ -43,6 +45,11 @@ import {
   classicPatHasWorkflowScope,
   resolveGitHubTokenType,
 } from "./github-workflow-permissions.js";
+import {
+  buildGitHubHttpsRemoteUrl,
+  pushHarnessSnapshotViaGit,
+} from "./harness-snapshot-git-transport.js";
+import type { WorkspaceSnapshotManifest } from "../p-dev/workspace-snapshot-types.js";
 
 export function parseRepoSlug(slug: string): { owner: string; repo: string } {
   const [owner, repo] = slug.split("/");
@@ -150,6 +157,16 @@ export function preserveGitHubSetupError(error: unknown): Error {
       },
     );
   }
+  // Preserve typed provisioning errors (timeouts, FF conflicts, tree mismatch).
+  if (
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    "recoverable" in error &&
+    error instanceof Error
+  ) {
+    return error;
+  }
   return new Error(sanitizeGitHubSetupError(error));
 }
 
@@ -253,6 +270,24 @@ export class LiveGitHubRemoteSetupProvider implements GitHubRemoteSetupProvider 
         name: secret.name,
         status: existingNames.has(secret.name) ? "updated" : "created",
       });
+    }
+    return results;
+  }
+
+  async writeHarnessVariables(
+    harnessDispatchRepo: string,
+    variables: HarnessVariableWriteRequest[],
+  ): Promise<HarnessVariableWriteResultEntry[]> {
+    const { owner, repo } = parseRepoSlug(harnessDispatchRepo);
+    const results: HarnessVariableWriteResultEntry[] = [];
+    for (const variable of variables) {
+      const status = await this.client.upsertActionsVariable(
+        owner,
+        repo,
+        variable.name,
+        variable.value,
+      );
+      results.push({ name: variable.name, status });
     }
     return results;
   }
@@ -459,12 +494,17 @@ export class LiveGitHubHarnessProvisioningProvider
   implements GitHubHarnessProvisioningProvider
 {
   private readonly client: GitHubClient;
+  private readonly token: string;
 
   constructor(options: GitHubClientOptions | GitHubClient) {
-    this.client =
-      options instanceof GitHubClient
-        ? options
-        : new GitHubClient(options);
+    if (options instanceof GitHubClient) {
+      this.client = options;
+      // Token is private on GitHubClient; live push requires explicit token options.
+      this.token = "";
+    } else {
+      this.client = new GitHubClient(options);
+      this.token = options.token;
+    }
   }
 
   private mapRepositoryToMetadata(
@@ -763,6 +803,67 @@ export class LiveGitHubHarnessProvisioningProvider
         content: input.content,
         sha: input.sha,
       });
+    } catch (error) {
+      throw preserveGitHubSetupError(error);
+    }
+  }
+
+  async pushHarnessSnapshotCommits(input: {
+    owner: string;
+    repo: string;
+    defaultBranch: string;
+    expectedHeadSha: string;
+    initializedCommitSha: string;
+    snapshotRoot: string;
+    manifest: WorkspaceSnapshotManifest;
+    operationId: string;
+    packageVersion: string;
+    buildMarkerContent: (snapshotCommitSha: string) => string;
+    existingSnapshotCommitSha?: string;
+    timeoutMs?: number;
+    onProgress?: (progress: {
+      phase: "preparing-snapshot" | "workspace-uploading" | "verifying";
+      completed?: number;
+      total?: number;
+    }) => void;
+  }): Promise<{
+    snapshotCommitSha: string;
+    markerCommitSha: string;
+    snapshotGitTreeSha1: string;
+    pushCount: number;
+    timings: import("./harness-snapshot-git-transport.js").HarnessGitTransportTimings;
+  }> {
+    if (!this.token) {
+      throw new Error(
+        "Live GitHub provisioning provider is missing a token for authenticated git push.",
+      );
+    }
+    try {
+      const result = await pushHarnessSnapshotViaGit({
+        auth: {
+          remoteUrl: buildGitHubHttpsRemoteUrl(input.owner, input.repo),
+          token: this.token,
+        },
+        owner: input.owner,
+        repo: input.repo,
+        defaultBranch: input.defaultBranch,
+        expectedHeadSha: input.expectedHeadSha,
+        initializedCommitSha: input.initializedCommitSha,
+        snapshotRoot: input.snapshotRoot,
+        manifest: input.manifest,
+        operationId: input.operationId,
+        buildMarkerContent: input.buildMarkerContent,
+        existingSnapshotCommitSha: input.existingSnapshotCommitSha,
+        timeoutMs: input.timeoutMs,
+        onProgress: input.onProgress,
+      });
+      return {
+        snapshotCommitSha: result.snapshotCommitSha,
+        markerCommitSha: result.markerCommitSha,
+        snapshotGitTreeSha1: result.snapshotGitTreeSha1,
+        pushCount: result.pushCount,
+        timings: result.timings,
+      };
     } catch (error) {
       throw preserveGitHubSetupError(error);
     }

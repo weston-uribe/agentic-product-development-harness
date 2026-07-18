@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { performance } from "node:perf_hooks";
 import { resolveHarnessPackageVersion } from "../p-dev/package-version.js";
 import { isPackagedPDevRuntime } from "../p-dev/runtime-mode.js";
 import { GitHubApiError } from "../github/client.js";
@@ -32,6 +33,13 @@ import {
   type HarnessProvisioningPendingState,
   type HarnessProvisioningPhase,
 } from "./harness-provisioning-pending-state.js";
+import {
+  clearHarnessProvisioningProgress,
+  mapProvisioningPhaseToUiPhase,
+  uiPhaseLabel,
+  writeHarnessProvisioningProgressAtomic,
+} from "./harness-provisioning-progress.js";
+import { persistHarnessProvisioningLastRun } from "./harness-provisioning-last-run.js";
 import { parseRepoSlug } from "./github-remote-setup-live.js";
 import type { GitHubHarnessProvisioningProvider } from "./github-remote-provider.js";
 import {
@@ -50,6 +58,7 @@ import {
 } from "./harness-snapshot-provisioning-helpers.js";
 import {
   provisionHarnessWorkspaceFromSnapshot,
+  type SnapshotProvisioningTimings,
   verifyProvisionedHarnessWorkspace,
 } from "./harness-snapshot-provisioning.js";
 import { loadEmbeddedWorkspaceSnapshot } from "./harness-workspace-snapshot-loader.js";
@@ -133,6 +142,21 @@ export interface HarnessRepoProvisioningApplyResult {
   message: string;
   recoverable: boolean;
   persisted: boolean;
+  operationId?: string;
+  phase?: string;
+  uiPhaseLabel?: string;
+  timings?: HarnessRepoProvisioningTimings;
+}
+
+export interface HarnessRepoProvisioningTimings {
+  authenticationMs?: number;
+  snapshotProvisioning?: SnapshotProvisioningTimings;
+  remoteVerificationMs?: number;
+  localPersistenceMs?: number;
+}
+
+function elapsedHarnessProvisioningMs(startedAt: number): number {
+  return Math.round(performance.now() - startedAt);
 }
 
 function buildFingerprint(input: Record<string, unknown>): string {
@@ -1222,7 +1246,11 @@ async function applyHarnessRepoProvisioningLocked(options: {
     };
   }
 
+  const authenticationStartedAt = performance.now();
   const user = await options.provider.resolveAuthenticatedUser();
+  const applyTimings: HarnessRepoProvisioningTimings = {
+    authenticationMs: elapsedHarnessProvisioningMs(authenticationStartedAt),
+  };
   const pDevVersion = resolveHarnessPackageVersion();
   const paths = resolveLocalFilePaths(options.cwd);
   const existingEnv = await readExistingEnvFile(paths);
@@ -1434,6 +1462,10 @@ async function applyHarnessRepoProvisioningLocked(options: {
         | Awaited<ReturnType<typeof provisionHarnessWorkspaceFromSnapshot>>
         | undefined;
       try {
+        const progressStartedAt =
+          activePending?.startedAt ?? new Date().toISOString();
+        let phaseStartedAt = new Date().toISOString();
+        let lastProgressPhase: string | undefined;
         provisionResult = await provisionHarnessWorkspaceFromSnapshot({
           provider: options.provider,
           user,
@@ -1444,6 +1476,28 @@ async function applyHarnessRepoProvisioningLocked(options: {
           packageVersion: snapshotPreview.packageVersion,
           operationId: options.operationId,
           pending: activePending,
+          onProgress: (progress) => {
+            if (progress.phase !== lastProgressPhase) {
+              phaseStartedAt = new Date().toISOString();
+              lastProgressPhase = progress.phase;
+            }
+            void writeHarnessProvisioningProgressAtomic(
+              {
+                operationId: options.operationId,
+                phase: progress.phase,
+                phaseStartedAt,
+                startedAt: progressStartedAt,
+                completed: progress.completed ?? progress.uploadedBlobs,
+                total: progress.total ?? progress.totalBlobs,
+                rateLimitPauseSeconds: progress.rateLimitPauseSeconds,
+                lastSafeCheckpoint:
+                  progress.lastSafeCheckpoint ?? activePending?.phase,
+              },
+              options.cwd,
+            ).catch(() => {
+              // Progress persistence is best-effort; never fail provisioning on it.
+            });
+          },
           onCheckpoint: async (checkpoint) => {
             await writeHarnessProvisioningPendingStateAtomic(
               buildSnapshotPendingState({
@@ -1462,8 +1516,23 @@ async function applyHarnessRepoProvisioningLocked(options: {
               options.cwd,
             );
             activePending = await readHarnessProvisioningPendingState(options.cwd);
+            phaseStartedAt = new Date().toISOString();
+            lastProgressPhase = checkpoint.phase;
+            await writeHarnessProvisioningProgressAtomic(
+              {
+                operationId: options.operationId,
+                phase: checkpoint.phase,
+                phaseStartedAt,
+                startedAt: progressStartedAt,
+                lastSafeCheckpoint: checkpoint.phase,
+              },
+              options.cwd,
+            );
           },
         });
+        if (provisionResult.ok) {
+          applyTimings.snapshotProvisioning = provisionResult.timings;
+        }
       } catch (error) {
         const message =
           error instanceof Error
@@ -1573,22 +1642,35 @@ async function applyHarnessRepoProvisioningLocked(options: {
             activePending?.phase === "marker-pending" ||
             activePending?.phase === "description-pending" ||
             Boolean(activePending?.snapshotCommitSha);
+          const timedOut =
+            provisionResult.code === "remote-phase-timeout" ||
+            provisionResult.code === "workspace-upload-timeout";
+          const phase = activePending?.phase ?? "repository-created";
+          const uiPhase = mapProvisioningPhaseToUiPhase(phase);
           return {
-            state: markerPending
-              ? "marker-write-pending"
-              : provisionResult.recoverable
-                ? "repo-created-pending-verification"
-                : "api-timeout-unknown",
+            state: timedOut
+              ? "repo-created-pending-verification"
+              : markerPending
+                ? "marker-write-pending"
+                : provisionResult.recoverable
+                  ? "repo-created-pending-verification"
+                  : "api-timeout-unknown",
             harnessDispatchRepo: destinationSlug(user.login),
-            message: provisionResult.message,
+            message: timedOut
+              ? `${provisionResult.message} Operation ID: ${options.operationId}. Retry will resume or reconcile from the last safe checkpoint.`
+              : provisionResult.message,
             recoverable: provisionResult.recoverable,
             persisted: false,
+            operationId: options.operationId,
+            phase,
+            uiPhaseLabel: uiPhaseLabel(uiPhase),
           };
         }
 
         targetRepo = provisionResult.fullName;
         targetRepositoryId = provisionResult.repositoryId;
         requiresSnapshotVerification = true;
+        applyTimings.snapshotProvisioning = provisionResult.timings;
         await writeHarnessProvisioningPendingStateAtomic(
           buildSnapshotPendingState({
             operationId: options.operationId,
@@ -1633,12 +1715,17 @@ async function applyHarnessRepoProvisioningLocked(options: {
   }
 
   if (requiresSnapshotVerification) {
+    const remoteVerificationStartedAt = performance.now();
     const verification = await verifyProvisionedHarnessWorkspace({
       provider: options.provider,
       repoSlug: targetRepo,
       repositoryId: targetRepositoryId,
       manifest: snapshotPreview.manifest,
     });
+    const remoteVerificationMs = elapsedHarnessProvisioningMs(
+      remoteVerificationStartedAt,
+    );
+    applyTimings.remoteVerificationMs = remoteVerificationMs;
     if (!verification.ok) {
       return {
         state: "repo-created-pending-verification",
@@ -1646,31 +1733,53 @@ async function applyHarnessRepoProvisioningLocked(options: {
         message: verification.message,
         recoverable: true,
         persisted: false,
+        timings: applyTimings,
       };
     }
   }
 
+  const localPersistenceStartedAt = performance.now();
   const persist = await persistGithubDispatchRepository({
     cwd: options.cwd,
     githubDispatchRepository: targetRepo,
     githubDispatchRepositoryId: targetRepositoryId,
   });
   if (persist.outcome !== "changed" && persist.outcome !== "skipped") {
+    applyTimings.localPersistenceMs = elapsedHarnessProvisioningMs(
+      localPersistenceStartedAt,
+    );
     return {
       state: "created-but-persistence-failed",
       harnessDispatchRepo: targetRepo,
       message: persist.reason ?? "Failed to persist GITHUB_DISPATCH_REPOSITORY.",
       recoverable: true,
       persisted: false,
+      timings: applyTimings,
     };
   }
 
   await clearHarnessProvisioningPendingState(options.cwd);
+  await clearHarnessProvisioningProgress(options.cwd);
+  applyTimings.localPersistenceMs = elapsedHarnessProvisioningMs(
+    localPersistenceStartedAt,
+  );
+  await persistHarnessProvisioningLastRun({
+    cwd: options.cwd,
+    operationId: options.operationId,
+    outcome: "success",
+    timings: applyTimings,
+  }).catch(() => {
+    // Last-run persistence is best-effort; never fail provisioning on it.
+  });
   return {
     state: "verified-and-persisted",
     harnessDispatchRepo: targetRepo,
     message: `Private harness workspace ${targetRepo} is connected.`,
     recoverable: false,
     persisted: true,
+    operationId: options.operationId,
+    phase: "persistence-pending",
+    uiPhaseLabel: uiPhaseLabel("saving-configuration"),
+    timings: applyTimings,
   };
 }

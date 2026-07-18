@@ -6,41 +6,47 @@ V0.3.0 is a **GitHub source release** plus a **public npm CLI package** (`p-dev-
 
 ## Unreleased
 
+_(none reserved for post-0.4.0 work yet)_
+
+## [0.4.0] — 2026-07-18
+
+Minor release: authoritative Linear associations + cloud config fingerprint gate, faster Step 1 provisioning, operator `release:sync-managed-runner`, and managed-runner upgrade plumbing with the in-app Update card **disabled by default**.
+
+**Release type:** GitHub source release plus public npm package `p-dev-harness@0.4.0` (publish/tag gated on operator approval after release-prep PR).
+
+**Release contract:** [`docs/releases/v0.4.0.md`](docs/releases/v0.4.0.md)
+
 ### Added
 
-- Configure GUI data-sharing onboarding gate with server-seeded first paint, unified local preference choice, and a dedicated Settings **Data sharing** route.
-- Source GUI launchers (`harness:gui`, `harness:configure:stable`) now supply a process-scoped observability nonce for local preference writes without beginning an observability session.
-- Expanded Configure browser matrix coverage for the data-sharing gate, settings re-entry, keyboard operation, dark theme, and horizontal overflow checks.
-- **Builder thread continuity** — one canonical Cursor Builder conversation per implementation lineage, resumed across revision and agent-based integration repair via `Agent.get` / `Agent.unarchive` / `Agent.resume` with per-send `model`, `mode`, and stable `idempotencyKey` values derived from durable triggering events (not harness `run_id`). Lineage resolution fails closed on malformed generations and conflicting highest-generation agent IDs; revision/repair replacements attach to the existing PR branch via a dedicated factory (`autoCreatePR: false`).
-- Hidden Linear metadata fields for Builder lineage: `builder_agent_id`, `builder_thread_generation`, `builder_thread_action`, `builder_origin_run_id`, `builder_thread_idempotency_key`, `previous_builder_agent_id`, and `builder_thread_replacement_reason`.
-- Builder acquisition durability before first `send()` via phase-start comments; run-start evidence records `cursor_run_id` after `send()` returns.
-- Canonical product-development workflow descriptor (`src/workflow/canonical-product-development-workflow.ts`) with executable audit alignment, repository-specific merge paths, and optional Duplicate status contract.
-- Fail-closed canonical Linear workflow preflight before authoritative runner side effects, plus noncanonical status-name override detection in doctor/readiness paths.
-- Production Workflow page at `/workflow` with role-based Planner/Builder model configuration, local+cloud autosave via `PUT /api/workflow/models`, and trimmed bootstrap payload (`GET /api/workflow/bootstrap`).
-- `roleModels` harness config schema with durable-shape Zod validation at load time and Cursor catalog validation on save.
-- Setup-aware launcher default route (`/`) with fail-safe redirect to Configure or Workflow based on durable local evidence only.
-- Configure completion handoff: **Continue to Workflow** button after setup completes.
-- Doctor diagnostics for Planner/Builder model resolution, workflow cloud sync fingerprint, and sync evidence bookkeeping.
+- Authoritative Linear→repo associations for issue routing; Configure Step 2 reuses Settings associations
+- Paired `HARNESS_CONFIG_JSON_B64` + `HARNESS_CONFIG_FINGERPRINT` cloud config check (`cloud_config_stale` fail-closed), including `run-merge`
+- Configuration canary diagnostics (expected/computed fingerprint, decode + association success) and `canary_operation_id` run location after workflow_dispatch 204
+- Operator CLI `release:sync-managed-runner` for known managed harness runner sync + required canary
+- Update PDev runner upgrade flow (Settings Deployments card) behind `P_DEV_RUNNER_UPGRADE_UI_ENABLED` (off by default for 0.4)
+- Step 1 bulk authenticated git push / packaged Git object pack provisioning path
 
 ### Fixed
 
-- Workflow revision success path visualization returns to **PM Review** (matching runtime revision behavior).
-- Configure GUI Step 3 dispatch resolution in linked and detached Git worktrees by reading repository-local `remote.origin.url` through `git config --local`, preserving precedence and fail-closed invalid explicit/env/process values.
-- Configure GUI Step 3 back-navigation regression coverage with browser-backed tests for desktop and mobile viewports.
-- Workflow model autosave: compare-and-swap fingerprints, sequence-id stale response protection, confirmed-failure rollback only, and post-transaction sync evidence.
+- Guided Configure hold-on-success UX (Steps 1–6) and Step 7 server-authoritative finalization / branch recovery
+- Runner status comments and conditional Blocked finalization during upgrade sync windows
+- Runner-upgrade status deadlocks and false Deployments progress; release sync monorepo snapshot load for source checkouts
 
 ### Changed
 
-- Configure GUI telemetry controls: replaced the persistent privacy card with a first-run data-sharing gate and Settings edit route; removed separate analytics/error checkboxes and reset-local-identity controls from Configure.
-- Revision and agent-based integration repair no longer create separate Cursor cloud agents; they acquire and resume the canonical Builder from Linear metadata lineage.
-- Workflow GUI is cards-only (health panel + expandable workflow cards); removed Operations canvas, draft persistence, sidebar/toolbar, and `@xyflow/react` dependency.
-- Runtime agents resolve Planner vs Builder models from `roleModels` with truthful manifest evidence (Builder model recorded only when integration-repair agent actually runs).
-- Linear status contract, dispatch triggers, setup planning, and Workflow bootstrap derive required statuses and triggers from the canonical descriptor.
-- Configure GUI application header: compact `PDev Harness` brand lockup, sticky background-matched header, and Settings dropdown with theme toggle and Configure navigation.
-- Guided Configure flow: seven-stage display-only progress indicator and refined Step 1 service setup copy and workspace button labels.
-- Configure GUI copy: page title `Initial Harness Configuration`, simplified Cursor/Vercel connected-account status messages, and updated Step 3 Vercel settings description.
-- Guided Configure flow: animated progress check marks and viewport-relative directional card transitions with reduced-motion fallbacks.
-- Vercel bridge setup: autonomous post-redeploy verification with bounded retries, filesystem-backed orchestration state, resume-after-reload GUI status, and removal of manual dispatch-token override plus Retry verification UI.
+- Create-new Vercel bridge auto-deploy before probe; Configure header/select layout polish
+- In-app runner update experience deferred — flag-gated only for 0.4
+
+### Compatibility
+
+- Existing valid 0.3.0 / 0.3.1 managed workspaces reconnect; operator sync CLI available for the known release test harness
+- `weston-uribe/p-dev-harness-template` remains frozen legacy artifact for 0.3.0
+
+### Also included since 0.3.1 (already on `main` before this cut)
+
+- Configure GUI data-sharing onboarding gate and Settings **Data sharing** route; observability nonce for local preference writes
+- Builder thread continuity (canonical Cursor Builder lineage across revision/repair) with hidden Linear lineage metadata
+- Canonical product-development workflow descriptor, fail-closed Linear workflow preflight, Workflow page + `roleModels`
+- Guided Configure header/progress/motion polish and autonomous Vercel bridge verification
 
 ## [0.3.1] — 2026-07-14
 

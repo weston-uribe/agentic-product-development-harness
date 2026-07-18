@@ -29,6 +29,7 @@ export interface VercelProjectSummary {
   id: string;
   name: string;
   accountId?: string;
+  gitRepository?: VercelGitRepository;
 }
 
 export interface VercelEnvVarSummary {
@@ -48,6 +49,17 @@ export interface VercelDeploymentSummary {
 }
 
 export type VercelProductionUrlSource = "stable_alias" | "latest_ready_deployment";
+
+export interface VercelGitRepository {
+  type: "github";
+  repo: string;
+}
+
+export interface VercelDeploymentFile {
+  file: string;
+  data: string;
+  encoding?: "utf-8" | "base64";
+}
 
 export interface VercelProductionTarget {
   productionUrl: string;
@@ -293,17 +305,19 @@ export async function listVercelProjects(
 
 export async function createVercelProject(
   token: string,
-  input: { name: string; teamId?: string },
+  input: { name: string; teamId?: string; gitRepository?: VercelGitRepository },
 ): Promise<VercelProjectSummary> {
   const data = await vercelFetch<{
     id: string;
     name: string;
     accountId?: string;
+    gitRepository?: VercelGitRepository;
   }>(token, "/v11/projects", {
     method: "POST",
     teamId: input.teamId,
     body: JSON.stringify({
       name: input.name.trim(),
+      ...(input.gitRepository ? { gitRepository: input.gitRepository } : {}),
     }),
   });
 
@@ -311,6 +325,78 @@ export async function createVercelProject(
     id: data.id,
     name: data.name,
     accountId: data.accountId,
+    gitRepository: data.gitRepository,
+  };
+}
+
+export async function probeVercelGitRepositoryAccess(
+  token: string,
+  input: { repository: string; teamId?: string },
+): Promise<{ accessible: boolean; reason?: string }> {
+  const [owner] = input.repository.split("/");
+  if (!owner) {
+    return { accessible: false, reason: "invalid_repository" };
+  }
+
+  try {
+    const data = await vercelFetch<{
+      gitNamespaces?: Array<{ slug?: string; name?: string }>;
+      namespaces?: Array<{ slug?: string; name?: string }>;
+    }>(
+      token,
+      `/v1/integrations/git-namespaces?provider=github`,
+      { teamId: input.teamId },
+    );
+    const namespaces = data.gitNamespaces ?? data.namespaces ?? [];
+    const accessible = namespaces.some(
+      (namespace) =>
+        namespace.slug?.toLowerCase() === owner.toLowerCase() ||
+        namespace.name?.toLowerCase() === owner.toLowerCase(),
+    );
+    return accessible
+      ? { accessible: true }
+      : { accessible: false, reason: "github_namespace_not_available_to_vercel" };
+  } catch (error) {
+    return {
+      accessible: false,
+      reason: error instanceof Error ? error.message : "git_access_probe_failed",
+    };
+  }
+}
+
+export async function createVercelDeployment(
+  token: string,
+  input: {
+    projectName: string;
+    teamId?: string;
+    target?: "production";
+    files?: VercelDeploymentFile[];
+    projectSettings?: Record<string, unknown>;
+  },
+): Promise<VercelDeploymentSummary> {
+  const data = await vercelFetch<{
+    uid?: string;
+    id?: string;
+    url: string;
+    state: string;
+    readyState?: string;
+    alias?: string[];
+  }>(token, "/v13/deployments", {
+    method: "POST",
+    teamId: input.teamId,
+    body: JSON.stringify({
+      name: input.projectName.trim(),
+      target: input.target ?? "production",
+      ...(input.files ? { files: input.files } : {}),
+      ...(input.projectSettings ? { projectSettings: input.projectSettings } : {}),
+    }),
+  });
+  return {
+    id: data.uid ?? data.id ?? "",
+    url: data.url,
+    state: data.state,
+    readyState: data.readyState,
+    aliases: data.alias ?? [],
   };
 }
 
@@ -534,7 +620,7 @@ export async function upsertVercelProjectEnvVar(
   input: {
     projectId: string;
     teamId?: string;
-    key: VercelBridgeEnvVarName | OptionalVercelBridgeEnvVarName;
+    key: VercelBridgeEnvVarName | OptionalVercelBridgeEnvVarName | string;
     value: string;
     existingEnv?: VercelEnvVarSummary;
     existingEnvId?: string;
@@ -542,7 +628,15 @@ export async function upsertVercelProjectEnvVar(
 ): Promise<void> {
   const existingEnvId = input.existingEnv?.id ?? input.existingEnvId;
   const existingType = input.existingEnv?.type;
-  const createType = getDefaultEnvVarType(input.key);
+  const createType =
+    input.key === "LINEAR_WEBHOOK_SECRET" ||
+    input.key === "GITHUB_DISPATCH_TOKEN" ||
+    input.key === "HARNESS_TEAM_KEY" ||
+    input.key === "GITHUB_DISPATCH_REPOSITORY" ||
+    input.key === "GITHUB_DISPATCH_EVENT_TYPE" ||
+    input.key === "LINEAR_WEBHOOK_TIMESTAMP_TOLERANCE_MS"
+      ? getDefaultEnvVarType(input.key)
+      : "plain";
 
   if (existingEnvId) {
     const updateType = (existingType ?? "encrypted") as VercelEnvVarType;

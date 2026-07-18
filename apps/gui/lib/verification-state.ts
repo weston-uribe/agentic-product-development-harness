@@ -1,5 +1,69 @@
-import type { ServiceVerificationUi } from "@/components/custom/environment-config-form";
+import {
+  INITIAL_SERVICE_VERIFICATION,
+  type ServiceKey,
+  type ServiceVerificationMap,
+  type ServiceVerificationUi,
+} from "@/components/custom/environment-config-form";
 import type { RepoVerificationUi } from "@/components/custom/target-repo-config-form";
+import type { ServiceConnectionSummaryMap } from "@/lib/setup-server";
+
+const SERVICE_KEYS: ServiceKey[] = [
+  "LINEAR_API_KEY",
+  "CURSOR_API_KEY",
+  "GITHUB_TOKEN",
+  "VERCEL_TOKEN",
+];
+
+export function serviceVerificationFromSummaries(
+  summaries: ServiceConnectionSummaryMap,
+): ServiceVerificationMap {
+  return SERVICE_KEYS.reduce(
+    (next, key) => {
+      const summary = summaries[key];
+      if (summary.status === "connected") {
+        next[key] = {
+          state: "connected",
+          message: summary.message,
+          limitation: summary.limitation,
+          label: summary.label,
+        };
+      } else if (summary.status === "failed") {
+        next[key] = {
+          state: "failed",
+          message: summary.message,
+          limitation: summary.limitation,
+          label: summary.label,
+        };
+      } else {
+        next[key] = {
+          state: "unchecked",
+          message: summary.message,
+          limitation: summary.limitation,
+          label: summary.label,
+        };
+      }
+      return next;
+    },
+    { ...INITIAL_SERVICE_VERIFICATION },
+  );
+}
+
+/** Presence-only summaries for Settings — no live remote verify on mount. */
+export function loadDurableServiceConnectionSummaries(
+  presence: Record<ServiceKey, boolean>,
+): ServiceConnectionSummaryMap {
+  return Object.fromEntries(
+    SERVICE_KEYS.map((key) => [
+      key,
+      presence[key]
+        ? {
+            status: "connected" as const,
+            message: "Saved credential configured.",
+          }
+        : { status: "missing" as const },
+    ]),
+  ) as ServiceConnectionSummaryMap;
+}
 
 /** Non-secret in-memory fingerprint for comparing typed secret values. */
 export function valueFingerprint(value: string): string {

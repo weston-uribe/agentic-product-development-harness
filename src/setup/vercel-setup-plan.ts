@@ -23,6 +23,7 @@ import { summarizeLinearWebhookReadiness } from "./linear-setup-plan.js";
 import { planLinearWebhookSecret } from "./linear-webhook-secret.js";
 import { SETUP_PERMISSIONS } from "./permission-model.js";
 import { tokenizeSecretInput } from "./secret-change-token.js";
+import { validateVercelProjectName } from "./vercel-project-name.js";
 
 export const VERCEL_SETUP_ACTIONS = {
   preview: {
@@ -77,6 +78,8 @@ export interface VercelBridgePlanInput {
   preserveGeneratedWebhookSecretFingerprint?: boolean;
   /** When set, resolve production URL from this READY deployment (post-redeploy verify). */
   preferredProductionDeploymentId?: string;
+  /** Allows installing the bridge into an existing project without a PDev marker. */
+  allowExistingProjectBridgeInstall?: boolean;
 }
 
 export interface VercelEnvWritePlanEntry {
@@ -146,6 +149,7 @@ export function buildVercelBridgePreviewFingerprintInput(input: {
   harnessTeamKey?: string;
   derivedHarnessTeamKey?: string;
   vercelToken: string;
+  allowExistingProjectBridgeInstall?: boolean;
 }): import("./control-plane-types.js").VercelBridgePreviewFingerprintInputs {
   return {
     actionId: VERCEL_SETUP_ACTIONS.preview.id,
@@ -170,6 +174,7 @@ export function buildVercelBridgePreviewFingerprintInput(input: {
     ),
     harnessTeamKey: input.harnessTeamKey ?? input.derivedHarnessTeamKey ?? "",
     vercelTokenToken: tokenizeSecretInput(input.vercelToken),
+    allowExistingProjectBridgeInstall: input.allowExistingProjectBridgeInstall,
   };
 }
 
@@ -266,8 +271,11 @@ function validateTeamProjectSelection(input: VercelBridgePlanInput): string | un
   }
 
   if (normalized.project?.mode === "create") {
-    if (!normalized.project.projectName?.trim()) {
-      return "New Vercel project requires a project name.";
+    const nameValidation = validateVercelProjectName(
+      normalized.project.projectName ?? normalized.projectName,
+    );
+    if (!nameValidation.valid) {
+      return nameValidation.error;
     }
   } else if (!normalized.projectId?.trim()) {
     return "Vercel project is required.";
@@ -541,6 +549,8 @@ export async function previewVercelBridgeSetup(
       harnessTeamKey: normalized.envInput?.HARNESS_TEAM_KEY,
       derivedHarnessTeamKey: normalized.derivedHarnessTeamKey,
       vercelToken: normalized.vercelToken,
+      allowExistingProjectBridgeInstall:
+        normalized.allowExistingProjectBridgeInstall,
     });
     return {
       actionId: VERCEL_SETUP_ACTIONS.preview.id,
@@ -699,6 +709,8 @@ export async function previewVercelBridgeSetup(
     harnessTeamKey: normalized.envInput?.HARNESS_TEAM_KEY,
     derivedHarnessTeamKey: normalized.derivedHarnessTeamKey,
     vercelToken: normalized.vercelToken,
+    allowExistingProjectBridgeInstall:
+      normalized.allowExistingProjectBridgeInstall,
   });
   const fingerprint = hashVercelBridgePreviewFingerprint(fingerprintInputs);
 

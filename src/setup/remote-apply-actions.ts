@@ -240,8 +240,19 @@ export async function applyRemoteHarnessSecrets(
         (entry.status === "created" || entry.status === "updated"),
     );
     if (wroteHarnessConfigB64) {
+      const { hash } = await readValidatedConfigLocalBytes(options.cwd);
+      const {
+        HARNESS_CONFIG_FINGERPRINT_VARIABLE,
+      } = await import("../config/cloud-config-fingerprint.js");
+      if (!options.provider.writeHarnessVariables) {
+        throw new Error(
+          "GitHub provider must support repository variable writes for HARNESS_CONFIG_FINGERPRINT",
+        );
+      }
+      await options.provider.writeHarnessVariables(preview.harnessDispatchRepo, [
+        { name: HARNESS_CONFIG_FINGERPRINT_VARIABLE, value: hash },
+      ]);
       try {
-        const { hash } = await readValidatedConfigLocalBytes(options.cwd);
         await recordWorkflowModelsSyncEvidence(
           {
             configFingerprint: hash,

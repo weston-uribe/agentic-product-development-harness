@@ -75,6 +75,7 @@ function baseResult(input: {
   requiresGitHubIntervention?: boolean;
   advancedThisRequest?: boolean;
 }): TargetWorkflowFinalizationResult {
+  const canRetry = input.canRetry ?? false;
   return {
     repoConfigId: input.input.repoConfigId,
     targetRepo: input.input.targetRepo,
@@ -82,16 +83,34 @@ function baseResult(input: {
     productionBranch: input.input.productionBranch,
     branchName: input.branchName,
     lifecycle: input.lifecycle,
+    phase:
+      input.lifecycle === "complete"
+        ? "verifying-production-workflow"
+        : input.lifecycle === "waiting-for-checks"
+          ? "waiting-for-github-checks"
+          : input.lifecycle === "updating-branch"
+            ? "creating-or-refreshing-install-branch"
+            : input.lifecycle === "merging"
+              ? "merging-workflow-installation"
+              : input.lifecycle === "verifying"
+                ? "verifying-production-workflow"
+                : "preparing-workflow-installation",
+    operationId: input.input.operationId ?? "mock-workflow-install",
     blockedCategory: input.blockedCategory,
     message: input.message,
     prUrl: input.prUrl,
     prNumber: input.prNumber,
     validatedHeadSha: input.validatedHeadSha,
     workflowStatus: input.workflowStatus,
-    canRetry: input.canRetry ?? false,
+    canRetry,
+    retryable: canRetry || input.lifecycle !== "blocked",
+    retryAfterMs: canRetry ? 2000 : undefined,
+    lastSafeCheckpoint: input.lifecycle,
+    errorCode: "none",
     requiresGitHubIntervention: input.requiresGitHubIntervention ?? false,
     advancedThisRequest: input.advancedThisRequest ?? true,
     lockContended: false,
+    updatedAt: new Date().toISOString(),
   };
 }
 

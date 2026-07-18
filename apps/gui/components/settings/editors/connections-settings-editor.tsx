@@ -3,7 +3,6 @@
 import { useCallback, useState } from "react";
 import {
   EnvironmentConfigForm,
-  INITIAL_SERVICE_VERIFICATION,
   type EnvironmentFormPresence,
   type EnvironmentFormValues,
   type ServiceKey,
@@ -20,9 +19,12 @@ import {
   previewConnectServices,
   verifyService,
 } from "@/lib/settings/settings-setup-client";
+import type { ServiceConnectionSummaryMap } from "@/lib/setup-server";
+import { loadDurableServiceConnectionSummaries } from "@/lib/verification-state";
 import {
   isServiceFailedForValue,
   isServiceVerifiedForValue,
+  serviceVerificationFromSummaries,
   valueFingerprint,
 } from "@/lib/verification-state";
 
@@ -48,6 +50,7 @@ const SERVICE_VALUE_KEY: Record<
 
 type ConnectionsSettingsEditorProps = {
   initialPresence: EnvironmentFormPresence;
+  initialServiceConnectionSummaries: ServiceConnectionSummaryMap;
   envDefaults: {
     harnessConfigPath: string;
     githubDispatchRepository: string;
@@ -56,6 +59,7 @@ type ConnectionsSettingsEditorProps = {
 
 export function ConnectionsSettingsEditor({
   initialPresence,
+  initialServiceConnectionSummaries,
   envDefaults,
 }: ConnectionsSettingsEditorProps) {
   const [presence, setPresence] = useState(initialPresence);
@@ -67,8 +71,9 @@ export function ConnectionsSettingsEditor({
     githubToken: "",
     vercelToken: "",
   });
-  const [verification, setVerification] =
-    useState<ServiceVerificationMap>(INITIAL_SERVICE_VERIFICATION);
+  const [verification, setVerification] = useState<ServiceVerificationMap>(() =>
+    serviceVerificationFromSummaries(initialServiceConnectionSummaries),
+  );
   const [verifyingKey, setVerifyingKey] = useState<ServiceKey | null>(null);
   const [mutation, setMutation] =
     useState<SettingsMutationState<{ fingerprint: string }>>(initialSettingsMutationState());
@@ -177,7 +182,11 @@ export function ConnectionsSettingsEditor({
         ...current,
         [SERVICE_VALUE_KEY[activeKey]]: "",
       }));
-      setVerification(INITIAL_SERVICE_VERIFICATION);
+      setVerification(
+        serviceVerificationFromSummaries(
+          loadDurableServiceConnectionSummaries(summary.envKeyPresence),
+        ),
+      );
       setMutation({
         phase: "success",
         preview: null,

@@ -47,6 +47,14 @@ export interface WorkspaceSnapshotManifest {
     modeSource: string;
     byteSource: string;
   };
+  gitObjectPack?: {
+    packPath: string;
+    indexPath: string;
+    packSha1: string;
+    packSha256: string;
+    objectCount: number;
+    packSizeBytes: number;
+  };
   files: WorkspaceSnapshotManifestFile[];
 }
 

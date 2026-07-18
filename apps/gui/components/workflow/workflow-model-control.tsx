@@ -1,6 +1,7 @@
 "use client";
 
 import type { WorkflowBootstrapPayload } from "@harness/workflow-page/types";
+import { GuidedSelect } from "@/components/ui/guided-select";
 import type { WorkflowModelPhaseKey } from "@/lib/workflow/use-model-autosave";
 
 export type WorkflowModelControlProps = {
@@ -61,8 +62,7 @@ export function WorkflowModelControl({
       ) : null}
       <label className="flex flex-col gap-1">
         <span className="text-xs text-muted-foreground">Model</span>
-        <select
-          className="rounded-md border border-input bg-background px-2 py-1.5 text-sm"
+        <GuidedSelect
           disabled={disabled}
           value={modelId}
           onChange={(event) => onSelectModel(phaseKey, event.target.value)}
@@ -74,7 +74,7 @@ export function WorkflowModelControl({
                 {model.displayName}
               </option>
             ))}
-        </select>
+        </GuidedSelect>
       </label>
       {selectedModel
         ? selectedModel.supportedParameters

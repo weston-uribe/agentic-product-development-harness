@@ -18,6 +18,8 @@ export type LinearAssociationGateResult =
 export function runLinearAssociationGate(input: {
   config: HarnessConfig;
   teamId?: string | null;
+  teamKey?: string | null;
+  teamName?: string | null;
   projectId?: string | null;
 }): LinearAssociationGateResult {
   if (!hasLinearAssociationsInConfig(input.config)) {
@@ -26,19 +28,23 @@ export function runLinearAssociationGate(input: {
 
   const teamId = input.teamId?.trim();
   const projectId = input.projectId?.trim();
+  const teamKey = input.teamKey?.trim();
+  const teamName = input.teamName?.trim();
 
-  if (!teamId || !projectId) {
+  if (!projectId || (!teamId && !teamKey && !teamName)) {
     return {
       ok: false,
       code: "linear_team_project_not_configured",
       message:
-        "linear_team_project_not_configured: issue teamId and projectId are required when linearAssociations are configured",
+        "linear_team_project_not_configured: issue team and project identity are required when linearAssociations are configured",
       errorClassification: "linear_team_project_not_configured",
     };
   }
 
   const result = assertLinearAssociationConfigured(input.config, {
     teamId,
+    teamKey,
+    teamName,
     projectId,
   });
 
@@ -46,7 +52,7 @@ export function runLinearAssociationGate(input: {
     return {
       ok: false,
       code: result.code,
-      message: `${result.code}: no harness association matches team ${teamId} and project ${projectId}`,
+      message: `${result.code}: no harness association matches team ${teamId ?? teamKey ?? teamName} and project ${projectId}`,
       errorClassification: result.code,
     };
   }
@@ -57,12 +63,18 @@ export function runLinearAssociationGate(input: {
 export function resolveAssociationTargetRepo(input: {
   config: HarnessConfig;
   teamId?: string | null;
+  teamKey?: string | null;
+  teamName?: string | null;
   projectId?: string | null;
 }): ReturnType<typeof resolveLinearAssociationForIssue> {
-  const teamId = input.teamId?.trim();
   const projectId = input.projectId?.trim();
-  if (!teamId || !projectId) {
+  if (!projectId) {
     return null;
   }
-  return resolveLinearAssociationForIssue(input.config, { teamId, projectId });
+  return resolveLinearAssociationForIssue(input.config, {
+    teamId: input.teamId,
+    teamKey: input.teamKey,
+    teamName: input.teamName,
+    projectId,
+  });
 }

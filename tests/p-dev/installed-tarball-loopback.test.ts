@@ -319,7 +319,7 @@ process.exit(0);
       }
       env.NODE_ENV = "production";
       env.P_DEV_RUNTIME_MODE = "packaged";
-      env.P_DEV_PACKAGE_VERSION = "0.3.1";
+      env.P_DEV_PACKAGE_VERSION = "0.4.0";
       env.P_DEV_HOME = workspaceDir;
       env.P_DEV_SENTRY_DSN = `http://public@127.0.0.1:${sentryPort}/1`;
       env.P_DEV_POSTHOG_PROJECT_TOKEN = "phc_installed_facade_test";
@@ -382,7 +382,7 @@ process.exit(0);
       }
       env.NODE_ENV = "production";
       env.P_DEV_RUNTIME_MODE = "packaged";
-      env.P_DEV_PACKAGE_VERSION = "0.3.1";
+      env.P_DEV_PACKAGE_VERSION = "0.4.0";
       env.P_DEV_HOME = workspaceDir;
 
       const { stdout } = await execFileAsync(process.execPath, [scriptPath], {

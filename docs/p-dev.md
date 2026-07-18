@@ -4,7 +4,7 @@
 
 The operator product is still called **p-dev**. The npm package is published as **`p-dev-harness`** because the registry rejected `p-dev` as too similar to the existing [`pdev`](https://www.npmjs.com/package/pdev) package.
 
-`p-dev` launches the guided **Configure GUI** without cloning the harness source repository. It is the primary product-manager path for **v0.3.1**.
+`p-dev` launches the guided **Configure GUI** without cloning the harness source repository. It is the primary product-manager path for **v0.4.0**.
 
 ## What p-dev is
 
@@ -34,7 +34,7 @@ On non-macOS platforms, use `--no-open` and open the printed Configure URL manua
 Pinned release:
 
 ```bash
-npx --yes p-dev-harness@0.3.1
+npx --yes p-dev-harness@0.4.0
 ```
 
 Latest channel:
@@ -46,20 +46,20 @@ npx --yes p-dev-harness
 Do not open a browser automatically:
 
 ```bash
-npx --yes p-dev-harness@0.3.1 --no-open
+npx --yes p-dev-harness@0.4.0 --no-open
 ```
 
 Use a custom workspace directory:
 
 ```bash
-npx --yes p-dev-harness@0.3.1 --workspace /path/to/workspace
+npx --yes p-dev-harness@0.4.0 --workspace /path/to/workspace
 ```
 
 Or set `P_DEV_HOME`:
 
 ```bash
 export P_DEV_HOME=/path/to/workspace
-npx --yes p-dev-harness@0.3.1
+npx --yes p-dev-harness@0.4.0
 ```
 
 Default workspace when neither flag nor env is set: `~/.p-dev`.
@@ -119,7 +119,7 @@ Optional advanced override: `HARNESS_SNAPSHOT_UPLOAD_CONCURRENCY` (integer `1`�
 
 ### Legacy 0.3.0 reconnect
 
-Valid existing managed workspaces created by `p-dev-harness@0.3.0` from `weston-uribe/p-dev-harness-template` reconnect without content rewrite. The public template is a **frozen legacy compatibility artifact** for 0.3.0 only — it is not used for 0.3.1+ fresh provisioning and does not need to remain available for new 0.3.1 installs.
+Valid existing managed workspaces created by `p-dev-harness@0.3.0` from `weston-uribe/p-dev-harness-template` reconnect without content rewrite. The public template is a **frozen legacy compatibility artifact** for 0.3.0 only — it is not used for 0.3.1+ fresh provisioning and does not need to remain available for new 0.4.0 installs.
 
 ## Seven guided setup stages
 
@@ -213,7 +213,7 @@ Operator workspace files under `P_DEV_HOME` or `~/.p-dev` are separate from npm 
 - **Linear / GitHub / GitHub Actions / Vercel** stack only
 - **macOS validated** for packaged browser auto-launch; other platforms use `--no-open`
 - **No full real issue lifecycle** has been run from an isolated npm-installed workspace — setup completion is validated; end-to-end issue runs from a fresh npm install are not
-- **No automatic upgrade/sync** of an already-created private harness workspace to a newer package snapshot
+- **No automatic silent upgrade** of an already-created private harness workspace — use **Settings → Deployments → Update PDev runner** for an operator-initiated upgrade (three-way conflict blocking + GitHub Actions config canary). Automatic background upgrade/sync remains unsupported.
 - **Not production-grade SaaS** or provider-agnostic
 - Manual eval rubrics remain where automation is not implemented
 
@@ -240,7 +240,7 @@ Canonical contract: [`docs/observability-and-privacy.md`](observability-and-priv
 
 ## Related docs
 
-- Release contract: [`docs/releases/v0.3.1.md`](releases/v0.3.1.md)
+- Release contract: [`docs/releases/v0.4.0.md`](releases/v0.4.0.md)
 - Local GUI (source): [`docs/gui-local.md`](gui-local.md)
 - Remote setup: [`docs/gui-remote-setup.md`](gui-remote-setup.md)
 - Security: [`docs/security.md`](security.md)

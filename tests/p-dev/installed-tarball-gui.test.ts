@@ -399,6 +399,16 @@ describe.skipIf(!isCleanEnoughForPackagePack())(
           `http://127.0.0.1:${port}/settings/configure`,
         );
         expect(configureResponse.status).toBe(200);
+
+        const deploymentsResponse = await fetch(
+          `http://127.0.0.1:${port}/settings/deployments`,
+        );
+        expect(deploymentsResponse.status).toBe(200);
+        const deploymentsHtml = await deploymentsResponse.text();
+        // Runner upgrade card is disabled by default for 0.4.
+        expect(deploymentsHtml).toContain("Deployments");
+        expect(deploymentsHtml).not.toContain("Update PDev runner");
+        expect(deploymentsHtml).toMatch(/Vercel|deployment bridge|Deployments/i);
       } finally {
         if (child) {
           await stopChild(child);

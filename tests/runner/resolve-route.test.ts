@@ -95,6 +95,7 @@ describe("resolveRoute", () => {
       status: "Ready to Merge",
       projectName: "Example Target App",
       teamName: "WES",
+      teamKey: null,
       teamId: "team-1",
       url: "https://linear.app/example/issue/WES-21",
     });
@@ -121,6 +122,7 @@ describe("resolveRoute", () => {
       status: "Merging",
       projectName: "Example Target App",
       teamName: "WES",
+      teamKey: null,
       teamId: "team-1",
       url: "https://linear.app/example/issue/WES-21",
     });
@@ -145,6 +147,7 @@ describe("resolveRoute", () => {
       status: "Needs Revision",
       projectName: "Example Target App",
       teamName: "WES",
+      teamKey: null,
       teamId: "team-1",
       url: "https://linear.app/example/issue/WES-24",
     });
@@ -169,6 +172,7 @@ describe("resolveRoute", () => {
       status: "Building",
       projectName: "Example Target App",
       teamName: "WES",
+      teamKey: null,
       teamId: "team-1",
       url: "https://linear.app/example/issue/WES-22",
     });
@@ -202,6 +206,7 @@ describe("resolveRoute", () => {
       status: "Building",
       projectName: "Example Target App",
       teamName: "WES",
+      teamKey: null,
       teamId: "team-1",
       url: "https://linear.app/example/issue/WES-22",
     });
@@ -233,6 +238,7 @@ describe("resolveRoute", () => {
       status: "Backlog",
       projectName: "Example Target App",
       teamName: "WES",
+      teamKey: null,
       teamId: "team-1",
       url: "https://linear.app/example/issue/WES-21",
     });

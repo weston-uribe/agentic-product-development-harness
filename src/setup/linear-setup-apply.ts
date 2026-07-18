@@ -30,6 +30,10 @@ import {
   type LinearSetupPlanInput,
   type LinearSetupPreview,
 } from "./linear-setup-plan.js";
+import {
+  writeLinearSetupProgress,
+  type LinearSetupProgressPhase,
+} from "./linear-setup-progress.js";
 import { executeWorkflowStatusRepairs } from "./linear-workflow-status-repair.js";
 import {
   assertRemoteSetupConfirmed,
@@ -55,8 +59,14 @@ export interface LinearSetupApplyResult {
 
 async function updateHarnessConfigLinearMapping(input: {
   cwd?: string;
+  workspaceId?: string;
+  teamId: string;
   teamKey: string;
+  teamName: string;
+  projectId: string;
   projectName: string;
+  targetRepo?: string;
+  repoConfigId?: string;
 }): Promise<boolean> {
   const paths = resolveLocalFilePaths(input.cwd);
   try {
@@ -67,21 +77,39 @@ async function updateHarnessConfigLinearMapping(input: {
 
   const raw = await readFile(paths.configLocal, "utf8");
   const parsed = harnessConfigSchema.parse(JSON.parse(raw));
-  const next = harnessConfigSchema.parse({
-    ...parsed,
-    linear: {
-      ...parsed.linear,
-      teamKey: input.teamKey,
-    },
-    repos: parsed.repos.map((repo, index) =>
-      index === 0
-        ? {
-            ...repo,
-            linearProjects: [input.projectName],
-            linearTeams: [input.teamKey],
-          }
-        : repo,
-    ),
+  const targetRepo =
+    input.targetRepo ??
+    parsed.repos[0]?.targetRepo;
+  const repoConfigId =
+    input.repoConfigId ??
+    parsed.repos.find((repo) => repo.targetRepo === targetRepo)?.id ??
+    parsed.repos[0]?.id;
+
+  if (!targetRepo || !repoConfigId) {
+    return false;
+  }
+
+  const workspaceId =
+    input.workspaceId?.trim() ||
+    parsed.linear?.workspaceId?.trim() ||
+    "unknown-workspace";
+
+  const { buildRequestedHarnessConfig } = await import("./linear-workspace-plan.js");
+  const next = buildRequestedHarnessConfig({
+    current: parsed,
+    workspaceId,
+    requestedAssociations: [
+      {
+        workspaceId,
+        teamId: input.teamId,
+        teamKey: input.teamKey,
+        teamName: input.teamName,
+        projectId: input.projectId,
+        projectName: input.projectName,
+        targetRepo,
+        repoConfigId,
+      },
+    ],
   });
 
   const { writeConfigLocal } = await import("./config-writer.js");
@@ -154,12 +182,28 @@ export async function applyLinearSetup(input: {
   fingerprint: string;
   cwd?: string;
 }): Promise<LinearSetupApplyResult> {
+  const progressStartedAt = new Date().toISOString();
+  const writeProgress = (
+    phase: LinearSetupProgressPhase,
+    completed = false,
+  ) =>
+    writeLinearSetupProgress(
+      {
+        actionId: LINEAR_SETUP_ACTIONS.apply.id,
+        phase,
+        startedAt: progressStartedAt,
+        completed,
+      },
+      input.cwd,
+    );
+
   assertRemoteSetupConfirmed(input.confirmed);
   assertRemoteSetupPermissionScope(
     LINEAR_SETUP_ACTIONS.apply.permission.scope,
     SETUP_PERMISSIONS.linearWrite.scope,
   );
 
+  await writeProgress("validate");
   const preview = await previewLinearSetup(input.plan);
   assertRemoteSetupFingerprint(input.fingerprint, preview.fingerprint);
   if (preview.validationError) {
@@ -172,6 +216,7 @@ export async function applyLinearSetup(input: {
   const repaired: string[] = [];
 
   let team: LinearTeamSummary;
+  await writeProgress("team");
   if (input.plan.team.mode === "create") {
     if (!input.plan.team.teamName || !input.plan.team.teamKey) {
       throw new Error("New Linear team requires name and key.");
@@ -201,6 +246,7 @@ export async function applyLinearSetup(input: {
   }
 
   let project: LinearProjectSummary;
+  await writeProgress("project");
   if (input.plan.project.mode === "create") {
     if (!input.plan.project.projectName) {
       throw new Error("New Linear project requires a name.");
@@ -237,6 +283,7 @@ export async function applyLinearSetup(input: {
     skipped.push(`project:${project.name}`);
   }
 
+  await writeProgress("statuses");
   let statusCoverageComplete = await ensureWorkflowStatesForTeam({
     client,
     teamId: team.id,
@@ -260,6 +307,7 @@ export async function applyLinearSetup(input: {
     );
   }
 
+  await writeProgress("verify");
   const selection: LinearWorkspaceSelection = {
     teamMode: input.plan.team.mode,
     teamId: team.id,
@@ -276,9 +324,13 @@ export async function applyLinearSetup(input: {
   await updateControlPlaneSetupState({ linear: selection }, input.cwd);
   const configUpdated = await updateHarnessConfigLinearMapping({
     cwd: input.cwd,
+    teamId: team.id,
     teamKey: team.key,
+    teamName: team.name,
+    projectId: project.id,
     projectName: project.name,
   });
+  await writeProgress("verify", true);
 
   return {
     actionId: LINEAR_SETUP_ACTIONS.apply.id,

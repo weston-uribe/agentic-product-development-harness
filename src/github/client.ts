@@ -44,6 +44,8 @@ function createGitHubApiError(
 
 export interface GitHubClientOptions {
   token: string;
+  /** Optional per-request timeout for REST/GraphQL fetch calls. */
+  timeoutMs?: number;
 }
 
 export interface GitHubPullRequest {
@@ -185,6 +187,8 @@ export interface GitHubPullRequestListItem {
   html_url: string;
   state: string;
   created_at: string;
+  body?: string | null;
+  merged_at?: string | null;
   head: { ref: string; sha: string };
   base: { ref: string };
 }
@@ -194,6 +198,7 @@ export interface GitHubCompareResult {
   ahead_by: number;
   behind_by: number;
   commits: Array<{ sha: string; commit: { message: string } }>;
+  files?: Array<{ filename: string; status?: string }>;
 }
 
 export interface GitHubGitRef {
@@ -231,18 +236,61 @@ export interface GitHubCreatePullRequestResponse {
   base: { ref: string };
 }
 
+export interface GitHubWorkflowRun {
+  id: number;
+  status: "queued" | "in_progress" | "completed" | "waiting" | "requested" | "pending";
+  conclusion: "success" | "failure" | "cancelled" | "skipped" | "timed_out" | "action_required" | "neutral" | "stale" | null;
+  html_url: string;
+  created_at: string;
+  event?: string;
+  name?: string;
+  display_title?: string;
+}
+
+export interface GitHubGitBlobContent {
+  sha: string;
+  content: string;
+  encoding: string;
+}
+
 const GITHUB_API = "https://api.github.com";
 
 export class GitHubClient {
   private readonly token: string;
+  private readonly timeoutMs?: number;
 
   constructor(options: GitHubClientOptions) {
     this.token = options.token;
+    this.timeoutMs = options.timeoutMs;
+  }
+
+  private requestSignal(external?: AbortSignal): AbortSignal | undefined {
+    const signals: AbortSignal[] = [];
+    if (
+      typeof this.timeoutMs === "number" &&
+      Number.isFinite(this.timeoutMs) &&
+      this.timeoutMs > 0
+    ) {
+      signals.push(AbortSignal.timeout(this.timeoutMs));
+    }
+    if (external) {
+      signals.push(external);
+    }
+    if (signals.length === 0) {
+      return undefined;
+    }
+    if (signals.length === 1) {
+      return signals[0];
+    }
+    if (typeof AbortSignal.any === "function") {
+      return AbortSignal.any(signals);
+    }
+    return signals[0];
   }
 
   private async request<T>(
     path: string,
-    init?: { method?: string; body?: unknown },
+    init?: { method?: string; body?: unknown; signal?: AbortSignal },
   ): Promise<T> {
     const response = await fetch(`${GITHUB_API}${path}`, {
       method: init?.method ?? "GET",
@@ -253,6 +301,7 @@ export class GitHubClient {
         ...(init?.body ? { "Content-Type": "application/json" } : {}),
       },
       body: init?.body ? JSON.stringify(init.body) : undefined,
+      signal: this.requestSignal(init?.signal),
     });
 
     if (!response.ok) {
@@ -281,6 +330,7 @@ export class GitHubClient {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ query, variables }),
+      signal: this.requestSignal(),
     });
 
     if (!response.ok) {
@@ -349,14 +399,22 @@ export class GitHubClient {
     owner: string,
     repo: string,
     branch: string,
+    options?: { signal?: AbortSignal },
   ): Promise<GitHubGitRef> {
     return this.request<GitHubGitRef>(
       `/repos/${owner}/${repo}/git/ref/heads/${encodeURIComponent(branch)}`,
+      { signal: options?.signal },
     );
   }
 
-  async getRepository(owner: string, repo: string): Promise<GitHubRepository> {
-    return this.request<GitHubRepository>(`/repos/${owner}/${repo}`);
+  async getRepository(
+    owner: string,
+    repo: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<GitHubRepository> {
+    return this.request<GitHubRepository>(`/repos/${owner}/${repo}`, {
+      signal: options?.signal,
+    });
   }
 
   async getRepositoryById(repositoryId: number): Promise<GitHubRepository> {
@@ -524,15 +582,58 @@ export class GitHubClient {
     });
   }
 
+  async getActionsVariable(
+    owner: string,
+    repo: string,
+    name: string,
+  ): Promise<{ name: string; value: string } | null> {
+    try {
+      return await this.request<{ name: string; value: string }>(
+        `/repos/${owner}/${repo}/actions/variables/${encodeURIComponent(name)}`,
+      );
+    } catch (error) {
+      if (error instanceof GitHubApiError && error.status === 404) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  async upsertActionsVariable(
+    owner: string,
+    repo: string,
+    name: string,
+    value: string,
+  ): Promise<"created" | "updated"> {
+    const existing = await this.getActionsVariable(owner, repo, name);
+    if (existing) {
+      await this.request(
+        `/repos/${owner}/${repo}/actions/variables/${encodeURIComponent(name)}`,
+        {
+          method: "PATCH",
+          body: { name, value },
+        },
+      );
+      return "updated";
+    }
+    await this.request(`/repos/${owner}/${repo}/actions/variables`, {
+      method: "POST",
+      body: { name, value },
+    });
+    return "created";
+  }
+
   async getRepositoryContent(
     owner: string,
     repo: string,
     path: string,
     ref: string,
+    options?: { signal?: AbortSignal },
   ): Promise<GitHubRepositoryContent | null> {
     try {
       return await this.request<GitHubRepositoryContent>(
         `/repos/${owner}/${repo}/contents/${path}?ref=${encodeURIComponent(ref)}`,
+        { signal: options?.signal },
       );
     } catch (error) {
       if (error instanceof GitHubApiError && error.status === 404) {
@@ -789,6 +890,100 @@ export class GitHubClient {
     params.set("direction", options.direction ?? "desc");
     return this.request<GitHubPullRequestListItem[]>(
       `/repos/${owner}/${repo}/pulls?${params.toString()}`,
+    );
+  }
+
+  async updatePullRequest(
+    owner: string,
+    repo: string,
+    pullNumber: number,
+    patch: { title?: string; body?: string },
+  ): Promise<void> {
+    await this.request(`/repos/${owner}/${repo}/pulls/${pullNumber}`, {
+      method: "PATCH",
+      body: patch,
+    });
+  }
+
+  async createWorkflowDispatch(
+    owner: string,
+    repo: string,
+    workflowIdOrFileName: string,
+    ref: string,
+    inputs?: Record<string, string>,
+  ): Promise<void> {
+    const workflowId = encodeURIComponent(workflowIdOrFileName);
+    await this.request(
+      `/repos/${owner}/${repo}/actions/workflows/${workflowId}/dispatches`,
+      {
+        method: "POST",
+        body: {
+          ref,
+          ...(inputs ? { inputs } : {}),
+        },
+      },
+    );
+  }
+
+  async getWorkflowRun(
+    owner: string,
+    repo: string,
+    runId: number,
+  ): Promise<GitHubWorkflowRun> {
+    const response = await this.request<{
+      id: number;
+      status: GitHubWorkflowRun["status"];
+      conclusion: GitHubWorkflowRun["conclusion"];
+      html_url: string;
+      created_at: string;
+      event?: string;
+      name?: string;
+      display_title?: string;
+    }>(`/repos/${owner}/${repo}/actions/runs/${runId}`);
+    return {
+      id: response.id,
+      status: response.status,
+      conclusion: response.conclusion,
+      html_url: response.html_url,
+      created_at: response.created_at,
+      event: response.event,
+      name: response.name,
+      display_title: response.display_title,
+    };
+  }
+
+  async listWorkflowRuns(
+    owner: string,
+    repo: string,
+    workflowIdOrFileName: string,
+    options: {
+      branch?: string;
+      event?: string;
+      perPage?: number;
+    } = {},
+  ): Promise<GitHubWorkflowRun[]> {
+    const params = new URLSearchParams();
+    params.set("per_page", String(options.perPage ?? 10));
+    if (options.branch) {
+      params.set("branch", options.branch);
+    }
+    if (options.event) {
+      params.set("event", options.event);
+    }
+    const workflowId = encodeURIComponent(workflowIdOrFileName);
+    const response = await this.request<{ workflow_runs: GitHubWorkflowRun[] }>(
+      `/repos/${owner}/${repo}/actions/workflows/${workflowId}/runs?${params.toString()}`,
+    );
+    return response.workflow_runs ?? [];
+  }
+
+  async getGitBlob(
+    owner: string,
+    repo: string,
+    blobSha: string,
+  ): Promise<GitHubGitBlobContent> {
+    return this.request<GitHubGitBlobContent>(
+      `/repos/${owner}/${repo}/git/blobs/${blobSha}`,
     );
   }
 }

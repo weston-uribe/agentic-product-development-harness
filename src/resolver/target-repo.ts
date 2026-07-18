@@ -12,6 +12,7 @@ import { runLinearAssociationGate } from "../config/linear-association-gate.js";
 export interface IssueContext {
   projectName?: string;
   teamName?: string;
+  teamKey?: string;
   teamId?: string;
   projectId?: string;
 }
@@ -63,6 +64,8 @@ export function resolveTargetRepo(
     const gate = runLinearAssociationGate({
       config,
       teamId: context.teamId,
+      teamKey: context.teamKey,
+      teamName: context.teamName,
       projectId: context.projectId,
     });
     if (!gate.ok) {
@@ -73,8 +76,10 @@ export function resolveTargetRepo(
     }
 
     const association = resolveLinearAssociationForIssue(config, {
-      teamId: context.teamId!,
-      projectId: context.projectId!,
+      teamId: context.teamId,
+      teamKey: context.teamKey,
+      teamName: context.teamName,
+      projectId: context.projectId,
     });
     if (!association) {
       throw new ResolverError(

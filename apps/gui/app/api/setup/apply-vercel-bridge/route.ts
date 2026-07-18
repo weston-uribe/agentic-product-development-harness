@@ -21,6 +21,7 @@ export async function POST(request: Request) {
       confirmed: body.confirmed,
       fingerprint: body.fingerprint,
       manualComplete: body.manualComplete,
+      verifyOnly: body.verifyOnly,
     });
     return NextResponse.json(result);
   } catch (error) {

@@ -10,6 +10,7 @@ For shipped history, see [CHANGELOG.md](CHANGELOG.md).
 - Validate a full issue lifecycle from an isolated npm-installed workspace
 - Improve cross-platform packaged launch policy beyond macOS browser auto-open
 - Continue validating the Linear → GitHub → Cursor workflow on real but private target repos
+- Operator-initiated **Update PDev runner** from Settings → Deployments (implemented on debug branch; not yet a published release milestone)
 
 ## Next
 
@@ -24,7 +25,15 @@ For shipped history, see [CHANGELOG.md](CHANGELOG.md).
 - Add additional agent providers after proving a second adapter end to end
 - Support more preview/deployment providers
 - Improve multi-repo and team workflows
-- Automatic upgrade/synchronization of already-created private harness workspaces
+- Automatic background upgrade/synchronization of already-created private harness workspaces (operator-initiated Update PDev runner is separate and already implemented in-tree)
+
+## Shipped in v0.4.0
+
+- Authoritative Linear→repo associations with paired cloud config fingerprint (`HARNESS_CONFIG_JSON_B64` + `HARNESS_CONFIG_FINGERPRINT`)
+- Faster Step 1 provisioning via bulk authenticated git push / packaged object pack
+- Operator release CLI `release:sync-managed-runner` for managed harness runner sync + configuration canary
+- In-app Update PDev runner path exists but is **disabled by default** for 0.4 (`P_DEV_RUNNER_UPGRADE_UI_ENABLED`)
+- FRE end-to-end release gate completed on the test workspace (FRE-1)
 
 ## Shipped in v0.3.1
 

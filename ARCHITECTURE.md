@@ -4,7 +4,7 @@ Modular design for an agentic product development harness. The architecture is *
 
 ## p-dev packaged operator shell
 
-**Status:** **Implemented** in v0.3.1 — public npm package `p-dev-harness@0.3.1`.
+**Status:** **Implemented** in v0.4.0 — public npm package `p-dev-harness@0.4.0`.
 
 **Purpose:** Launch the guided Configure GUI without cloning the source repository. Operators use a durable workspace (`~/.p-dev`, `P_DEV_HOME`, or `--workspace`) separate from the npm install directory.
 
@@ -43,7 +43,7 @@ Details: [`docs/provider-portability.md`](docs/provider-portability.md) and [`do
 
 **Inputs:** Structured setup state, committed example templates, operator-provided target repo mapping.
 
-**Outputs:** Dry-run previews, confirmation-gated local file writes via GUI (`preview-local-files` / `apply-local-files` API routes), confirmation-gated remote harness secret writes and target workflow branch/PR installs via GUI (`preview-harness-secrets` / `apply-harness-secrets` / `preview-target-workflow` / `apply-target-workflow` API routes), confirmation-gated Linear workspace setup and Vercel bridge configuration via the seven-step Configure GUI (Steps 2–3, 6–7), CLI scaffold apply, copy-paste setup instructions.
+**Outputs:** Dry-run previews, confirmation-gated local file writes via GUI (`preview-local-files` / `apply-local-files` API routes), confirmation-gated remote harness secret writes and target workflow branch/PR installs via GUI (`preview-harness-secrets` / `apply-harness-secrets` / `preview-target-workflow` / `apply-target-workflow` API routes), confirmation-gated Linear workspace setup and Vercel bridge configuration via the seven-step Configure GUI (Steps 2–3, 6–7), operator-initiated managed runner upgrades via Settings → Deployments (`runner-upgrade-status` / `preview-runner-upgrade` / `apply-runner-upgrade` with three-way snapshot safety and a GitHub Actions config canary), CLI scaffold apply, copy-paste setup instructions.
 
 **Seven-step Configure GUI (implemented):**
 

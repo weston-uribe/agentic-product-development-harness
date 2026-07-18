@@ -1,4 +1,5 @@
 import { EXIT_CONFIG, EXIT_PLANNING_FAILURE, EXIT_RUN_FAILURE } from "../exit-codes.js";
+import { CloudConfigStaleError } from "../../config/assert-cloud-config-fingerprint.js";
 import { isDispatchPhase } from "../../runner/phase-args.js";
 import { resolveRoute, type ResolveRoutePhaseArg, LinearAuthError } from "../../runner/resolve-route.js";
 import { ResolverError } from "../../resolver/errors.js";
@@ -67,6 +68,10 @@ export async function runResolveRouteCommand(
 
     return 0;
   } catch (error) {
+    if (error instanceof CloudConfigStaleError) {
+      console.error(error.message);
+      return EXIT_CONFIG;
+    }
     if (error instanceof LinearAuthError) {
       console.error(error.message);
       return EXIT_PLANNING_FAILURE;

@@ -15,10 +15,22 @@ export type LinearAssociationKey = {
   projectId: string;
 };
 
+export type ResolveLinearAssociationInput = {
+  workspaceId?: string;
+  teamId?: string | null;
+  teamKey?: string | null;
+  teamName?: string | null;
+  projectId?: string | null;
+};
+
 export function linearAssociationKey(
   association: LinearAssociationKey,
 ): string {
   return `${association.workspaceId}:${association.teamId}:${association.projectId}`;
+}
+
+function normalizeIdentity(value: string): string {
+  return value.trim().toLowerCase();
 }
 
 export function resolveLinearAssociationsFromConfig(
@@ -39,25 +51,87 @@ export function resolveLinearAssociationsFromConfig(
   return resolved;
 }
 
+/**
+ * Resolve an issue association using:
+ * 1. Exact teamId + projectId
+ * 2. Exact teamId with a uniquely configured project
+ * 3. Exact normalized teamKey + projectId
+ * 4. Exact normalized full teamName + projectId
+ * 5. null when ambiguous or unconfigured
+ *
+ * Never compares a full team name against a team key.
+ */
 export function resolveLinearAssociationForIssue(
   config: HarnessConfig,
-  input: { workspaceId?: string; teamId: string; projectId: string },
+  input: ResolveLinearAssociationInput,
 ): ResolvedLinearAssociation | null {
   const associations = resolveLinearAssociationsFromConfig(config);
-  const teamId = input.teamId.trim();
-  const projectId = input.projectId.trim();
+  if (associations.length === 0) {
+    return null;
+  }
 
-  return (
-    associations.find((association) => {
-      if (association.teamId !== teamId || association.projectId !== projectId) {
-        return false;
-      }
-      if (input.workspaceId?.trim()) {
-        return association.workspaceId === input.workspaceId.trim();
-      }
-      return true;
-    }) ?? null
-  );
+  const teamId = input.teamId?.trim() || undefined;
+  const projectId = input.projectId?.trim() || undefined;
+  const teamKey = input.teamKey?.trim() || undefined;
+  const teamName = input.teamName?.trim() || undefined;
+  const workspaceId = input.workspaceId?.trim() || undefined;
+
+  const workspaceFilter = (association: ResolvedLinearAssociation): boolean => {
+    if (!workspaceId) return true;
+    return association.workspaceId === workspaceId;
+  };
+
+  // 1. Exact teamId + projectId
+  if (teamId && projectId) {
+    const exact = associations.filter(
+      (association) =>
+        workspaceFilter(association) &&
+        association.teamId === teamId &&
+        association.projectId === projectId,
+    );
+    if (exact.length === 1) return exact[0]!;
+    if (exact.length > 1) return null;
+    // Explicit wrong projectId must fail closed — do not fall through to unique-project.
+  }
+
+  // 2. Exact teamId with a uniquely configured project (only when projectId omitted)
+  if (teamId && !projectId) {
+    const byTeam = associations.filter(
+      (association) =>
+        workspaceFilter(association) && association.teamId === teamId,
+    );
+    if (byTeam.length === 1) return byTeam[0]!;
+    return null;
+  }
+
+  // 3. Exact normalized teamKey + projectId
+  if (teamKey && projectId) {
+    const key = normalizeIdentity(teamKey);
+    const byKey = associations.filter(
+      (association) =>
+        workspaceFilter(association) &&
+        association.projectId === projectId &&
+        normalizeIdentity(association.teamKey) === key,
+    );
+    if (byKey.length === 1) return byKey[0]!;
+    if (byKey.length > 1) return null;
+  }
+
+  // 4. Exact normalized full teamName + projectId (never match against teamKey)
+  if (teamName && projectId) {
+    const name = normalizeIdentity(teamName);
+    const byName = associations.filter(
+      (association) =>
+        workspaceFilter(association) &&
+        association.projectId === projectId &&
+        Boolean(association.teamName?.trim()) &&
+        normalizeIdentity(association.teamName!) === name,
+    );
+    if (byName.length === 1) return byName[0]!;
+    if (byName.length > 1) return null;
+  }
+
+  return null;
 }
 
 export type LinearAssociationAssertResult =
@@ -66,7 +140,7 @@ export type LinearAssociationAssertResult =
 
 export function assertLinearAssociationConfigured(
   config: HarnessConfig,
-  input: { workspaceId?: string; teamId: string; projectId: string },
+  input: ResolveLinearAssociationInput,
 ): LinearAssociationAssertResult {
   const association = resolveLinearAssociationForIssue(config, input);
   if (!association) {
@@ -155,7 +229,24 @@ export function getLinearWorkspaceIdFromConfig(
   }
 
   const associations = resolveLinearAssociationsFromConfig(config);
-  return associations[0]?.workspaceId;
+  const workspaceIds = [
+    ...new Set(associations.map((association) => association.workspaceId)),
+  ];
+  return workspaceIds.length === 1 ? workspaceIds[0] : undefined;
+}
+
+export function formatLinearTeamLabel(association: {
+  teamName?: string;
+  teamKey: string;
+}): string {
+  const name = association.teamName?.trim();
+  if (name && name !== association.teamKey) {
+    return `${name} (${association.teamKey})`;
+  }
+  if (name) {
+    return name;
+  }
+  return association.teamKey;
 }
 
 export function evidenceFromAssociations(input: {
@@ -179,14 +270,20 @@ export function evidenceFromAssociations(input: {
   >();
 
   for (const association of input.associations) {
+    // Never copy teamKey into teamName — legacy associations without a name stay unnamed.
+    const teamName = association.teamName?.trim() || "(unnamed team)";
     const team =
       teams.get(association.teamId) ??
       {
         teamId: association.teamId,
         teamKey: association.teamKey,
-        teamName: association.teamKey,
+        teamName,
         projects: [],
       };
+
+    if (association.teamName?.trim()) {
+      team.teamName = association.teamName.trim();
+    }
 
     if (!team.projects.some((project) => project.projectId === association.projectId)) {
       team.projects.push({

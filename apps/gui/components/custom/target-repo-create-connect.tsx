@@ -9,6 +9,7 @@ import { FORM } from "@/lib/constants";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { GuidedSelect } from "@/components/ui/guided-select";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge } from "@/components/custom/status-badge";
@@ -31,9 +32,6 @@ interface TargetRepoCreateConnectProps {
   onInvalidatePreview: () => void;
   connectContent: React.ReactNode;
 }
-
-const selectClassName =
-  "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
 
 export function TargetRepoCreateConnect({
   mode,
@@ -235,9 +233,8 @@ export function TargetRepoCreateConnect({
     <div className="space-y-6">
       <div className={FORM.fieldStack}>
         <Label htmlFor="target-repo-selection-mode">Target repository</Label>
-        <select
+        <GuidedSelect
           id="target-repo-selection-mode"
-          className={selectClassName}
           value={mode}
           onChange={(event) => {
             onModeChange(event.target.value as TargetRepoSelectionMode);
@@ -246,7 +243,7 @@ export function TargetRepoCreateConnect({
         >
           <option value="create">Create new product repository</option>
           <option value="connect">Connect existing repository</option>
-        </select>
+        </GuidedSelect>
         <p className={FORM.secretHint}>
           Create provisions a technology-neutral GitHub repository with `main`,
           `dev`, `README.md`, and `.p-dev/product.json`. Connect uses an
@@ -293,9 +290,8 @@ export function TargetRepoCreateConnect({
             </div>
             <div className={FORM.fieldStack}>
               <Label htmlFor="target-repo-visibility">Visibility</Label>
-              <select
+              <GuidedSelect
                 id="target-repo-visibility"
-                className={selectClassName}
                 value={visibility}
                 onChange={(event) =>
                   setVisibility(event.target.value as "private" | "public")
@@ -303,7 +299,7 @@ export function TargetRepoCreateConnect({
               >
                 <option value="private">Private</option>
                 <option value="public">Public</option>
-              </select>
+              </GuidedSelect>
             </div>
           </div>
 

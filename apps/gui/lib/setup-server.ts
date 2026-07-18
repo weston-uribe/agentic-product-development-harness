@@ -54,6 +54,11 @@ import {
   type HarnessRepoProvisioningPreview,
   type HarnessRepoProvisioningSummary,
 } from "@harness/setup/harness-repo-provisioning";
+import {
+  loadHarnessProvisioningDiagnosticReport,
+  type HarnessProvisioningDiagnosticReport,
+} from "@harness/setup/harness-provisioning-progress";
+import { readHarnessProvisioningPendingState } from "@harness/setup/harness-provisioning-pending-state";
 import { loadEmbeddedWorkspaceSnapshot } from "@harness/setup/harness-workspace-snapshot-loader.js";
 import {
   captureAnalyticsEvent,
@@ -103,10 +108,36 @@ import type {
   TargetWorkflowFinalizationResult,
 } from "@harness/setup/target-workflow-finalization-types";
 import { collectRemoteSecretInputs } from "@harness/setup/redact-secrets";
-import {
-  loadGithubTokenFromEnvLocal,
+import { loadGithubTokenFromEnvLocal,
   hasGithubTokenConfigured,
 } from "@harness/setup/setup-github-auth";
+import { createLiveRunnerUpgradeProvider } from "@harness/setup/runner-upgrade-provider-live";
+import { tryCreateHarnessTestRunnerUpgradeProvider } from "@harness/setup/test-only-runner-upgrade-provider";
+import {
+  acceptRunnerUpgrade,
+  executeRunnerUpgradeOperation,
+  loadRunnerUpgradeStatus,
+  previewRunnerUpgrade,
+} from "@harness/setup/runner-upgrade";
+import {
+  configureRunnerUpgradeWorker,
+  ensureRunnerUpgradeWorkerStarted,
+} from "@harness/setup/runner-upgrade-worker";
+import {
+  readRunnerUpgradeProgress,
+  type RunnerUpgradeProgressState,
+} from "@harness/setup/runner-upgrade-progress";
+import type {
+  RunnerUpgradeAcceptResult,
+  RunnerUpgradePreviewResult,
+  RunnerUpgradeStatusResult,
+} from "@harness/setup/runner-upgrade-types";
+import { runnerUpgradeStatusLabel } from "@harness/setup/runner-upgrade-types";
+import type { RunnerUpgradeGitHubProvider } from "@harness/setup/runner-upgrade-provider";
+import {
+  RUNNER_UPGRADE_STATUS_PROVIDER_TIMEOUT_MS,
+  RUNNER_UPGRADE_WORKER_PROVIDER_TIMEOUT_MS,
+} from "@harness/setup/runner-upgrade-timeouts";
 import {
   loadControlPlaneReadinessContext,
 } from "@harness/setup/control-plane-readiness-server";
@@ -116,6 +147,10 @@ import {
   type LinearSetupPlanInput,
   type LinearSetupPreview,
 } from "@harness/setup/linear-setup-apply";
+import {
+  loadLinearSetupProgressReport,
+  type LinearSetupProgressReport,
+} from "@harness/setup/linear-setup-progress";
 import { buildLinearSetupSummary } from "@harness/setup/linear-setup-summary";
 import {
   createLinearSetupClient,
@@ -219,6 +254,134 @@ async function resolveRemoteProvider(): Promise<
     return undefined;
   }
   return createLiveGitHubRemoteSetupProvider(token!);
+}
+
+async function resolveRunnerUpgradeProvider(): Promise<
+  RunnerUpgradeGitHubProvider | undefined
+> {
+  const testProvider = await tryCreateHarnessTestRunnerUpgradeProvider();
+  if (testProvider) {
+    return testProvider;
+  }
+  const token = await loadGithubTokenFromEnvLocal({ cwd: resolveCwd() });
+  if (!hasGithubTokenConfigured(token)) {
+    return undefined;
+  }
+  return createLiveRunnerUpgradeProvider(token!, {
+    timeoutMs: RUNNER_UPGRADE_WORKER_PROVIDER_TIMEOUT_MS,
+  });
+}
+
+async function resolveRunnerUpgradeStatusProvider(): Promise<
+  RunnerUpgradeGitHubProvider | undefined
+> {
+  const testProvider = await tryCreateHarnessTestRunnerUpgradeProvider();
+  if (testProvider) {
+    return testProvider;
+  }
+  const token = await loadGithubTokenFromEnvLocal({ cwd: resolveCwd() });
+  if (!hasGithubTokenConfigured(token)) {
+    return undefined;
+  }
+  return createLiveRunnerUpgradeProvider(token!, {
+    timeoutMs: RUNNER_UPGRADE_STATUS_PROVIDER_TIMEOUT_MS,
+  });
+}
+
+export async function loadRunnerUpgradeStatusForGui(options?: {
+  debugTimings?: boolean;
+  testHangAfterStage?: import("@harness/setup/runner-upgrade-timeouts").RunnerUpgradeStatusStage;
+  overallDeadlineMs?: number;
+}): Promise<RunnerUpgradeStatusResult> {
+  // Status must not start or await the upgrade worker. Worker starts on apply
+  // and via instrumentation.ts only.
+  const cwd = resolveCwd();
+  const provider = await resolveRunnerUpgradeStatusProvider();
+  if (!provider) {
+    return {
+      status: "failed",
+      statusLabel: runnerUpgradeStatusLabel("failed"),
+      blockedReason:
+        "GITHUB_TOKEN is required to check or update the managed p-dev runner.",
+      retryAvailable: true,
+    };
+  }
+  return loadRunnerUpgradeStatus(cwd, provider, {
+    debugTimings: options?.debugTimings === true,
+    testHangAfterStage: options?.testHangAfterStage,
+    overallDeadlineMs: options?.overallDeadlineMs,
+    workspaceKey: cwd,
+  });
+}
+
+function ensureRunnerUpgradeGuiWorkerConfigured(): void {
+  configureRunnerUpgradeWorker({
+    resolveProvider: async () => resolveRunnerUpgradeProvider(),
+    execute: async (cwd, provider) =>
+      executeRunnerUpgradeOperation(cwd, provider, {}),
+  });
+  ensureRunnerUpgradeWorkerStarted();
+}
+
+export async function previewRunnerUpgradeForGui(): Promise<RunnerUpgradePreviewResult> {
+  const provider = await resolveRunnerUpgradeProvider();
+  if (!provider) {
+    return {
+      previewFingerprint: "",
+      targetSnapshotContentId: "",
+      phases: [],
+      blocked: true,
+      blockedStatus: "failed",
+      message:
+        "GITHUB_TOKEN is required to preview a managed p-dev runner upgrade.",
+      impact: {
+        replacePathCount: 0,
+        deletePathCount: 0,
+        sampleReplacePaths: [],
+        sampleDeletePaths: [],
+      },
+    };
+  }
+  return previewRunnerUpgrade(resolveCwd(), provider);
+}
+
+export async function applyRunnerUpgradeForGui(options: {
+  confirmed: boolean;
+  previewFingerprint?: string;
+  resume?: boolean;
+}): Promise<{
+  apply: RunnerUpgradeAcceptResult;
+  progress: RunnerUpgradeProgressState;
+  status: RunnerUpgradeStatusResult;
+}> {
+  if (!options.confirmed) {
+    throw new Error("Confirmed apply is required.");
+  }
+  ensureRunnerUpgradeGuiWorkerConfigured();
+  const tokenPresent = await resolveRunnerUpgradeProvider();
+  if (!tokenPresent) {
+    throw new Error(
+      "GITHUB_TOKEN is required to apply a managed p-dev runner upgrade.",
+    );
+  }
+  const accepted = await acceptRunnerUpgrade(resolveCwd(), {
+    previewFingerprint: options.previewFingerprint,
+    resume: options.resume === true,
+  });
+  return {
+    apply: accepted.apply,
+    progress: accepted.progress,
+    status: {
+      status: "updating",
+      statusLabel: runnerUpgradeStatusLabel("updating"),
+      pendingOperationId: accepted.apply.operationId,
+      pendingPhase: accepted.apply.phase,
+    },
+  };
+}
+
+export async function loadRunnerUpgradeProgressForGui(): Promise<RunnerUpgradeProgressState | null> {
+  return readRunnerUpgradeProgress(resolveCwd());
 }
 
 function toOperatorInput(
@@ -544,6 +707,7 @@ export async function finalizeTargetWorkflowRemoteAction(
   payload: RemoteTargetWorkflowFormPayload & {
     prUrl?: string;
     branchName?: string;
+    operationId?: string;
   },
 ): Promise<{
   finalization: TargetWorkflowFinalizationResult;
@@ -563,6 +727,7 @@ export async function finalizeTargetWorkflowRemoteAction(
       manualHarnessDispatchRepo: payload.manualHarnessDispatchRepo,
       prUrl: payload.prUrl,
       branchName: payload.branchName,
+      operationId: payload.operationId,
     },
   });
   const summary = await loadRemoteSetupSummary();
@@ -656,6 +821,8 @@ export async function loadLinearSetupSummary() {
 }
 
 export async function loadLinearWorkspaceOptions(): Promise<{
+  workspaceId: string;
+  workspaceName: string;
   teams: Awaited<ReturnType<typeof listLinearTeams>>;
   projects: Awaited<ReturnType<typeof listLinearProjects>>;
 }> {
@@ -665,11 +832,17 @@ export async function loadLinearWorkspaceOptions(): Promise<{
     throw new Error("LINEAR_API_KEY is required to load Linear workspace options.");
   }
   const client = createLinearSetupClient(linearApiKey);
-  const [teams, projects] = await Promise.all([
+  const [organization, teams, projects] = await Promise.all([
+    getLinearOrganizationSummary(client),
     listLinearTeams(client),
     listLinearProjects(client),
   ]);
-  return { teams, projects };
+  return {
+    workspaceId: organization.id,
+    workspaceName: organization.name,
+    teams,
+    projects,
+  };
 }
 
 export async function loadVercelSetupSummary() {
@@ -709,6 +882,10 @@ export async function applyLinearSetupRemote(options: {
   });
   const summary = await buildLinearSetupSummary(cwd);
   return { apply, summary };
+}
+
+export async function loadLinearSetupProgressRemote(): Promise<LinearSetupProgressReport> {
+  return loadLinearSetupProgressReport(resolveCwd());
 }
 
 export async function ensureLinearWorkspaceMigrated(cwd = resolveCwd()) {
@@ -924,6 +1101,12 @@ export async function loadHarnessRepoProvisioningSummaryRemote(): Promise<Harnes
     cwd: resolveCwd(),
     provider,
   });
+}
+
+export async function loadHarnessProvisioningDiagnosticRemote(): Promise<HarnessProvisioningDiagnosticReport> {
+  const cwd = resolveCwd();
+  const pending = await readHarnessProvisioningPendingState(cwd);
+  return loadHarnessProvisioningDiagnosticReport({ cwd, pending });
 }
 
 export async function previewHarnessRepoProvisioningRemote(options?: {

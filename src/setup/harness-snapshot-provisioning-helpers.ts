@@ -74,7 +74,10 @@ export type SnapshotProvisioningErrorCode =
   | "commit-create-ambiguous"
   | "marker-commit-failed"
   | "description-finalization-failed"
-  | "snapshot-tree-mismatch";
+  | "snapshot-tree-mismatch"
+  | "workspace-upload-failed"
+  | "workspace-upload-timeout"
+  | "remote-phase-timeout";
 
 export class SnapshotProvisioningError extends Error {
   readonly code: SnapshotProvisioningErrorCode;

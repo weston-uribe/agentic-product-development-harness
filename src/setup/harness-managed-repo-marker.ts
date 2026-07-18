@@ -35,6 +35,7 @@ export interface HarnessPackageSnapshotProvenance {
   snapshotCommitSha: string;
   generationFormatVersion: number;
   defaultBranch?: string;
+  fileHashes?: Record<string, string>;
 }
 
 export interface HarnessManagedRepoMarker {
@@ -290,6 +291,25 @@ export function parseHarnessManagedRepoMarkerJson(
       };
     }
 
+    let fileHashes: Record<string, string> | undefined;
+    const rawFileHashes = snapshot.fileHashes;
+    if (rawFileHashes && typeof rawFileHashes === "object") {
+      const parsedHashes: Record<string, string> = {};
+      for (const [filePath, hash] of Object.entries(rawFileHashes)) {
+        if (
+          typeof filePath === "string" &&
+          filePath.length > 0 &&
+          typeof hash === "string" &&
+          hash.length > 0
+        ) {
+          parsedHashes[filePath] = hash;
+        }
+      }
+      if (Object.keys(parsedHashes).length > 0) {
+        fileHashes = parsedHashes;
+      }
+    }
+
     return {
       ok: true,
       marker: {
@@ -321,6 +341,7 @@ export function parseHarnessManagedRepoMarkerJson(
           snapshotGitTreeSha1: snapshotGitTreeSha1.value,
           snapshotCommitSha: snapshotCommitSha.value,
           generationFormatVersion: generationFormatVersion.value,
+          ...(fileHashes ? { fileHashes } : {}),
         },
       },
     };
@@ -567,6 +588,9 @@ export function buildHarnessSnapshotManagedRepoMarker(input: {
       snapshotCommitSha: input.snapshotCommitSha,
       generationFormatVersion: input.manifest.generation.version,
       defaultBranch: input.defaultBranch,
+      fileHashes: Object.fromEntries(
+        input.manifest.files.map((file) => [file.path, file.sha256]),
+      ),
     },
   };
 }

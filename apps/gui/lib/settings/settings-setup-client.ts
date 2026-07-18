@@ -4,10 +4,14 @@ import type {
   AutomationSettingsPatch,
   SettingsConfigPatch,
 } from "@harness/setup/settings-config-patch";
-import type { LinearWorkspacePlanInput } from "@harness/setup/linear-workspace-apply";
+import type {
+  LinearWorkspaceApplyResult,
+  LinearWorkspacePlanInput,
+} from "@harness/setup/linear-workspace-apply";
 import type {
   LinearSetupPlanInput,
   LinearSetupPreview,
+  LinearSetupApplyResult,
 } from "@harness/setup/linear-setup-apply";
 import type { VercelBridgePreview } from "@harness/setup/vercel-setup-apply";
 import type { LocalEnvFormInput } from "@harness/setup/local-apply-actions";
@@ -90,7 +94,7 @@ export async function applyLinearWorkspace(input: {
     }),
   });
   return readSetupJsonResponse<{
-    apply: { verified: boolean };
+    apply: LinearWorkspaceApplyResult;
     summary: unknown;
     expectedCommittedFingerprint: string;
   }>(response, "POST /api/setup/apply-linear-workspace");
@@ -125,7 +129,7 @@ export async function applyLinearSetup(input: {
       fingerprint: input.fingerprint,
     }),
   });
-  return readSetupJsonResponse<{ apply: { verified: boolean }; summary: unknown }>(
+  return readSetupJsonResponse<{ apply: LinearSetupApplyResult; summary: unknown }>(
     response,
     "POST /api/setup/apply-linear-setup",
   );
@@ -159,6 +163,107 @@ export async function applyVercelBridge(input: {
   return readSetupJsonResponse<{ apply: { verified?: boolean }; summary: unknown }>(
     response,
     "POST /api/setup/apply-vercel-bridge",
+  );
+}
+
+let runnerUpgradeStatusAbort: AbortController | null = null;
+
+export function abortInFlightRunnerUpgradeStatusFetch(): void {
+  if (runnerUpgradeStatusAbort) {
+    runnerUpgradeStatusAbort.abort();
+    runnerUpgradeStatusAbort = null;
+  }
+}
+
+export async function fetchRunnerUpgradeStatus(options?: {
+  signal?: AbortSignal;
+}): Promise<
+  import("@harness/setup/runner-upgrade-types").RunnerUpgradeStatusResult
+> {
+  abortInFlightRunnerUpgradeStatusFetch();
+  const controller = new AbortController();
+  runnerUpgradeStatusAbort = controller;
+  if (options?.signal) {
+    if (options.signal.aborted) {
+      controller.abort();
+    } else {
+      options.signal.addEventListener(
+        "abort",
+        () => {
+          controller.abort();
+        },
+        { once: true },
+      );
+    }
+  }
+  try {
+    const response = await fetch("/api/setup/runner-upgrade-status", {
+      signal: controller.signal,
+    });
+    return await readSetupJsonResponse<
+      import("@harness/setup/runner-upgrade-types").RunnerUpgradeStatusResult
+    >(response, "GET /api/setup/runner-upgrade-status");
+  } finally {
+    if (runnerUpgradeStatusAbort === controller) {
+      runnerUpgradeStatusAbort = null;
+    }
+  }
+}
+
+export async function previewRunnerUpgrade() {
+  const response = await fetch("/api/setup/preview-runner-upgrade", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+  return readSetupJsonResponse<
+    import("@harness/setup/runner-upgrade-types").RunnerUpgradePreviewResult
+  >(response, "POST /api/setup/preview-runner-upgrade");
+}
+
+export async function applyRunnerUpgrade(input: {
+  previewFingerprint?: string;
+  resume?: boolean;
+}) {
+  const response = await fetch("/api/setup/apply-runner-upgrade", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      confirmed: true,
+      previewFingerprint: input.previewFingerprint,
+      resume: input.resume === true,
+    }),
+  });
+  const bodyText = await response.text();
+  if (response.status !== 202) {
+    let message = `Setup request failed: POST /api/setup/apply-runner-upgrade returned HTTP ${response.status}`;
+    try {
+      const parsed = JSON.parse(bodyText) as { error?: string };
+      if (parsed.error) {
+        message = parsed.error;
+      }
+    } catch {
+      // keep default message
+    }
+    throw new Error(message);
+  }
+  if (!bodyText.trim()) {
+    throw new Error(
+      "Setup request failed: POST /api/setup/apply-runner-upgrade returned an empty response body",
+    );
+  }
+  return JSON.parse(bodyText) as {
+    apply: import("@harness/setup/runner-upgrade-types").RunnerUpgradeAcceptResult;
+    progress: import("@harness/setup/runner-upgrade-progress").RunnerUpgradeProgressState;
+    status: import("@harness/setup/runner-upgrade-types").RunnerUpgradeStatusResult;
+  };
+}
+
+export async function fetchRunnerUpgradeProgress() {
+  const response = await fetch("/api/setup/runner-upgrade-progress");
+  return readSetupJsonResponse<{
+    progress: import("@harness/setup/runner-upgrade-progress").RunnerUpgradeProgressState | null;
+  }>(response, "GET /api/setup/runner-upgrade-progress").then(
+    (payload) => payload.progress,
   );
 }
 

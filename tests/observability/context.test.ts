@@ -45,7 +45,7 @@ describe("resolveReleaseSha", () => {
     await mkdir(path.join(packageRoot, "workspace-snapshot"), { recursive: true });
     await writeFile(
       path.join(packageRoot, "package.json"),
-      JSON.stringify({ name: "p-dev-harness", version: "0.3.1" }),
+      JSON.stringify({ name: "p-dev-harness", version: "0.4.0" }),
       "utf8",
     );
     await writeFile(
@@ -96,14 +96,14 @@ describe("buildObservabilityContext", () => {
       sessionId: "session-1",
       firstLaunchForPDevHome: true,
       env: {
-        P_DEV_PACKAGE_VERSION: "0.3.1",
+        P_DEV_PACKAGE_VERSION: "0.4.0",
         [P_DEV_RELEASE_SHA_ENV]: VALID_SHA,
       },
       moduleUrl: "file:///tmp/gui/.next/server/chunks/preferences-route.js",
     });
 
     expect(context.releaseSha).toBe(VALID_SHA);
-    expect(context.packageVersion).toBe("0.3.1");
+    expect(context.packageVersion).toBe("0.4.0");
   });
 });
 

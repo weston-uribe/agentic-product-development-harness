@@ -1,3 +1,4 @@
+import { assertCloudConfigFingerprintFromEnv } from "../config/assert-cloud-config-fingerprint.js";
 import { loadHarnessConfig } from "../config/load-config.js";
 import type { HarnessConfig } from "../config/types.js";
 import { getTransitionalStatus } from "../config/status-names.js";
@@ -13,6 +14,8 @@ import { inferPhaseFromStatus } from "./phase-infer.js";
 import { runLinearAssociationGate } from "../config/linear-association-gate.js";
 import type { RunPhase } from "../types/run.js";
 import type { DispatchPhaseArg } from "./phase-args.js";
+
+export { CloudConfigStaleError } from "../config/assert-cloud-config-fingerprint.js";
 
 export type ResolveRoutePhaseArg = DispatchPhaseArg;
 
@@ -108,6 +111,7 @@ export class LinearAuthError extends Error {
 export async function resolveRoute(
   options: ResolveRouteOptions,
 ): Promise<ResolveRouteResult> {
+  assertCloudConfigFingerprintFromEnv();
   const { config } = await loadHarnessConfig({ configPath: options.configPath });
   const apiKey = options.linearApiKey ?? process.env.LINEAR_API_KEY ?? "";
   if (!apiKey) {
@@ -120,6 +124,8 @@ export async function resolveRoute(
   const associationGate = runLinearAssociationGate({
     config,
     teamId: issue.teamId,
+    teamKey: issue.teamKey,
+    teamName: issue.teamName,
     projectId: issue.projectId,
   });
   if (!associationGate.ok) {
@@ -141,6 +147,7 @@ export async function resolveRoute(
     {
       projectName: issue.projectName ?? undefined,
       teamName: issue.teamName ?? undefined,
+      teamKey: issue.teamKey ?? undefined,
       teamId: issue.teamId ?? undefined,
       projectId: issue.projectId ?? undefined,
     },

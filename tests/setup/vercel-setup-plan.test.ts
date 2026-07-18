@@ -37,9 +37,11 @@ import {
   previewVercelBridgeSetup,
   resolveVercelBridgeEnvValue,
 } from "../../src/setup/vercel-setup-plan.js";
+import { validateVercelProjectName } from "../../src/setup/vercel-project-name.js";
 
 describe("vercel-setup-plan", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     vi.mocked(listVercelTeams).mockResolvedValue([]);
     vi.mocked(listVercelProjects).mockResolvedValue([
       { id: "proj-1", name: "harness-gui", accountId: "acct-1" },
@@ -182,6 +184,29 @@ describe("vercel-setup-plan", () => {
       ]),
     );
     expect(preview.manualSteps.join(" ")).toMatch(/will be created during apply/i);
+  });
+
+  it("validates Vercel project names with shared lowercase rules", async () => {
+    expect(validateVercelProjectName("valid.name_123-test")).toMatchObject({
+      valid: true,
+      normalized: "valid.name_123-test",
+    });
+    expect(validateVercelProjectName("InvalidName").valid).toBe(false);
+    expect(validateVercelProjectName("bad/name").valid).toBe(false);
+    expect(validateVercelProjectName("").valid).toBe(false);
+    expect(validateVercelProjectName("a".repeat(101)).valid).toBe(false);
+  });
+
+  it("rejects invalid create-new project names in preview", async () => {
+    const preview = await previewVercelBridgeSetup({
+      vercelToken: "vercel-token",
+      team: { mode: "existing", teamId: "" },
+      project: { mode: "create", projectName: "InvalidName" },
+      derivedHarnessTeamKey: "WES",
+    });
+
+    expect(preview.validationError).toMatch(/lowercase/i);
+    expect(listVercelProjects).not.toHaveBeenCalled();
   });
 
   it("reports missing deployment for existing projects without production URL", async () => {

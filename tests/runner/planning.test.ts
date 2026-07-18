@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   transitionIssueStatus: vi.fn(),
   postPlanningComment: vi.fn(),
+  postIssueComment: vi.fn(),
+  updateIssueComment: vi.fn(),
   listIssueComments: vi.fn(),
   createLinearClient: vi.fn(),
   createPlanningAgent: vi.fn(),
@@ -17,8 +19,11 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../../src/linear/writer.js", () => ({
   transitionIssueStatus: mocks.transitionIssueStatus,
   postPlanningComment: mocks.postPlanningComment,
+  postIssueComment: mocks.postIssueComment,
+  updateIssueComment: mocks.updateIssueComment,
   listIssueComments: mocks.listIssueComments,
   postErrorComment: vi.fn(),
+  postPhaseStartCommentIfNeeded: vi.fn(),
   createLinearClient: mocks.createLinearClient,
 }));
 
@@ -90,6 +95,8 @@ describe("executePlanningPhase", () => {
     process.env.CURSOR_API_KEY = "test-cursor-key";
 
     mocks.listIssueComments.mockResolvedValue([]);
+    mocks.postIssueComment.mockResolvedValue("status-comment-1");
+    mocks.updateIssueComment.mockResolvedValue(undefined);
     mocks.transitionIssueStatus.mockResolvedValue(undefined);
     mocks.postPlanningComment.mockResolvedValue("comment-1");
     mocks.createLinearClient.mockReturnValue({});
@@ -114,6 +121,7 @@ describe("executePlanningPhase", () => {
           status: "Ready for Planning",
           projectName: "Example Target App",
           teamName: "WES",
+          teamKey: null,
           teamId: "team-1",
           url: null,
         };
@@ -126,6 +134,7 @@ describe("executePlanningPhase", () => {
         status: "Ready for Build",
         projectName: "Example Target App",
         teamName: "WES",
+        teamKey: null,
         teamId: "team-1",
         url: null,
       };

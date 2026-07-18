@@ -37,6 +37,7 @@ const baseIssue: LinearIssueSnapshot = {
   status: "Ready for Planning",
   projectName: null,
   teamName: null,
+  teamKey: null,
   teamId: "team-1",
   url: null,
 };

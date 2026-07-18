@@ -67,6 +67,7 @@ export function toIssueSnapshot(item: LinearIssueListItem): LinearIssueSnapshot 
     projectId: item.projectId,
     projectName: item.projectName,
     teamName: null,
+    teamKey: null,
     teamId: item.teamId,
     url: item.url,
   };

@@ -171,9 +171,25 @@ export function ConfigureExperience({
   const [workflowAwaitingMerge, setWorkflowAwaitingMerge] = useState(false);
   const previousReadinessStepRef = useRef<FirstRunStepId | null>(null);
   const pinnedGuidedDisplayStepRef = useRef<GuidedDisplayStepId | null>(null);
+  const [awaitingContinueStep, setAwaitingContinueStep] = useState<
+    | "connect-services"
+    | "linear-workspace"
+    | "vercel-bridge"
+    | "choose-target-repos"
+    | "local-readiness"
+    | "cloud-secrets"
+    | "target-workflow"
+    | null
+  >(null);
 
   const clearPinnedGuidedDisplayStep = useCallback(() => {
     pinnedGuidedDisplayStepRef.current = null;
+  }, []);
+
+  type AwaitingContinueStep = NonNullable<typeof awaitingContinueStep>;
+
+  const holdGuidedStepForContinue = useCallback((step: AwaitingContinueStep) => {
+    setAwaitingContinueStep(step);
   }, []);
   const stepVisitCountsRef = useRef<Partial<Record<GuidedDisplayStepId, number>>>(
     {},
@@ -262,6 +278,10 @@ export function ConfigureExperience({
       previousReadinessStepRef.current = nextStepId;
       return;
     }
+    if (awaitingContinueStep !== null) {
+      previousReadinessStepRef.current = nextStepId;
+      return;
+    }
     if (shouldReadinessAdvanceGuidedDisplay(previousStepId, nextStepId)) {
       if (pinnedGuidedDisplayStepRef.current === null) {
         setDisplayedGuidedStep(
@@ -273,9 +293,12 @@ export function ConfigureExperience({
       }
     }
     previousReadinessStepRef.current = nextStepId;
-  }, [readiness.currentStepId, summary]);
+  }, [awaitingContinueStep, readiness.currentStepId, summary]);
 
   useEffect(() => {
+    if (awaitingContinueStep !== null) {
+      return;
+    }
     const clamped = clampGuidedDisplayStep({
       target: displayedGuidedStep,
       currentStepId: readiness.currentStepId,
@@ -284,13 +307,16 @@ export function ConfigureExperience({
       setDisplayedGuidedStep(clamped);
       pinnedGuidedDisplayStepRef.current = clamped;
     }
-  }, [displayedGuidedStep, readiness.currentStepId]);
+  }, [awaitingContinueStep, displayedGuidedStep, readiness.currentStepId]);
 
   useEffect(() => {
+    if (awaitingContinueStep !== null) {
+      return;
+    }
     if (readiness.readyForFirstRun) {
       setDisplayedGuidedStep("ready-for-first-run");
     }
-  }, [readiness.readyForFirstRun]);
+  }, [awaitingContinueStep, readiness.readyForFirstRun]);
 
   useEffect(() => {
     if (
@@ -436,6 +462,7 @@ export function ConfigureExperience({
 
   const handleConnectServicesComplete = useCallback(async () => {
     clearPinnedGuidedDisplayStep();
+    setAwaitingContinueStep(null);
     recordStepCompleted("connect-services");
     setDisplayedGuidedStep(GUIDED_DISPLAY_STEP_AFTER_CONNECT_SERVICES);
     try {
@@ -458,18 +485,21 @@ export function ConfigureExperience({
 
   const handleLinearWorkspaceContinue = useCallback(() => {
     clearPinnedGuidedDisplayStep();
+    setAwaitingContinueStep(null);
     recordStepCompleted("linear-workspace");
     setDisplayedGuidedStep("vercel-bridge");
   }, [clearPinnedGuidedDisplayStep, recordStepCompleted]);
 
   const handleVercelBridgeContinue = useCallback(() => {
     clearPinnedGuidedDisplayStep();
+    setAwaitingContinueStep(null);
     recordStepCompleted("vercel-bridge");
     setDisplayedGuidedStep("choose-target-repos");
   }, [clearPinnedGuidedDisplayStep, recordStepCompleted]);
 
   const handleLocalReadinessReviewed = useCallback(() => {
     clearPinnedGuidedDisplayStep();
+    setAwaitingContinueStep(null);
     recordStepCompleted("local-readiness");
     setUiState((current) => ({
       ...current,
@@ -480,6 +510,7 @@ export function ConfigureExperience({
 
   const handleCloudSecretsReviewed = useCallback(() => {
     clearPinnedGuidedDisplayStep();
+    setAwaitingContinueStep(null);
     recordStepCompleted("cloud-secrets");
     setUiState((current) => ({
       ...current,
@@ -536,7 +567,7 @@ export function ConfigureExperience({
         }
         const payload = (await response.json()) as { completed?: boolean };
         if (payload.completed) {
-          window.location.assign("/settings");
+          window.location.assign("/workflow");
         }
       })
       .catch(() => undefined);
@@ -546,14 +577,9 @@ export function ConfigureExperience({
         observabilityNonce,
       );
     }
-    setWorkflowAwaitingMerge(false);
-    setWorkflowInstallPendingByRepo({});
-    setWorkflowFinalizationByRepo({});
   }, [observabilityNonce, recordStepCompleted]);
 
   const handleGuidedLocalApplySuccess = useCallback(() => {
-    clearPinnedGuidedDisplayStep();
-    recordStepCompleted("choose-target-repos");
     setUiState((current) => ({
       ...current,
       localReadinessReviewed: false,
@@ -564,8 +590,23 @@ export function ConfigureExperience({
         : false,
       localPreviewStale: false,
     }));
+  }, []);
+
+  const handleChooseTargetReposContinue = useCallback(() => {
+    clearPinnedGuidedDisplayStep();
+    setAwaitingContinueStep(null);
+    recordStepCompleted("choose-target-repos");
     setDisplayedGuidedStep(GUIDED_DISPLAY_STEP_AFTER_LOCAL_APPLY);
   }, [clearPinnedGuidedDisplayStep, recordStepCompleted]);
+
+  const handleTargetWorkflowContinue = useCallback(() => {
+    clearPinnedGuidedDisplayStep();
+    setAwaitingContinueStep(null);
+    setWorkflowAwaitingMerge(false);
+    setWorkflowInstallPendingByRepo({});
+    setWorkflowFinalizationByRepo({});
+    setDisplayedGuidedStep(GUIDED_DISPLAY_STEP_AFTER_WORKFLOW_READY);
+  }, [clearPinnedGuidedDisplayStep]);
 
   const handleGuidedLocalStepChange = useCallback((step: GuidedLocalSetupStep) => {
     setDisplayedGuidedStep(step);
@@ -680,6 +721,9 @@ export function ConfigureExperience({
               handleHarnessProvisioningSummaryUpdated
             }
             onConnectServicesComplete={handleConnectServicesComplete}
+            onConnectServicesSucceeded={() =>
+              holdGuidedStepForContinue("connect-services")
+            }
           />
         );
       case "linear-workspace":
@@ -688,9 +732,16 @@ export function ConfigureExperience({
             readiness={readiness}
             initialSummary={linearSummary}
             linearApiKeyConfigured={summary.envKeyPresence.LINEAR_API_KEY}
+            availableRepos={formDefaults.config.repos
+              .filter((repo) => repo.id.trim() && repo.targetRepo.trim())
+              .map((repo) => ({
+                id: repo.id.trim(),
+                targetRepo: repo.targetRepo.trim(),
+              }))}
             onSummaryUpdated={setLinearSummary}
             onUiStateChange={handleLinearUiStateChange}
             onContinue={handleLinearWorkspaceContinue}
+            onStepCompleted={() => holdGuidedStepForContinue("linear-workspace")}
           />
         );
       case "vercel-bridge":
@@ -701,6 +752,7 @@ export function ConfigureExperience({
             onSummaryUpdated={setVercelSummary}
             onUiStateChange={handleVercelUiStateChange}
             onContinue={handleVercelBridgeContinue}
+            onStepCompleted={() => holdGuidedStepForContinue("vercel-bridge")}
           />
         );
       case "choose-target-repos":
@@ -720,6 +772,10 @@ export function ConfigureExperience({
             }
             onUiStateChange={handleLocalUiStateChange}
             onGuidedLocalApplySuccess={handleGuidedLocalApplySuccess}
+            onContinue={handleChooseTargetReposContinue}
+            onStepCompleted={() =>
+              holdGuidedStepForContinue("choose-target-repos")
+            }
             localSetupFilesExist={localSetupFilesExist(summary)}
           />
         );
@@ -728,6 +784,7 @@ export function ConfigureExperience({
           <GuidedLocalReadinessCard
             readiness={readiness}
             onContinue={handleLocalReadinessReviewed}
+            onStepCompleted={() => holdGuidedStepForContinue("local-readiness")}
           />
         );
       case "cloud-secrets":
@@ -743,6 +800,7 @@ export function ConfigureExperience({
             onSummaryUpdated={setRemoteSummary}
             onUiStateChange={handleRemoteUiStateChange}
             onContinue={handleCloudSecretsReviewed}
+            onStepCompleted={() => holdGuidedStepForContinue("cloud-secrets")}
             blockedByUpstream={readiness.remoteSetupBlockedByUpstream}
             onGoToHarnessRepo={() => setDisplayedGuidedStep("choose-target-repos")}
             onGoToConnectServices={() =>
@@ -761,6 +819,8 @@ export function ConfigureExperience({
             finalizationByRepo={workflowFinalizationByRepo}
             onPendingInstallChange={setWorkflowInstallPendingByRepo}
             onFinalizationChange={setWorkflowFinalizationByRepo}
+            onStepCompleted={() => holdGuidedStepForContinue("target-workflow")}
+            onContinue={handleTargetWorkflowContinue}
             blockedByUpstream={readiness.remoteSetupBlockedByUpstream}
           />
         );
@@ -808,17 +868,19 @@ export function ConfigureExperience({
 
   if (!setupDisclosureComplete) {
     return (
-      <DataSharingPreferences
-        mode="onboarding"
-        nonce={observabilityNonce}
-        initialPreferences={observabilityPreferences}
-        onOnboardingComplete={handleDataSharingOnboardingComplete}
-      />
+      <div className={LAYOUT.configureContent}>
+        <DataSharingPreferences
+          mode="onboarding"
+          nonce={observabilityNonce}
+          initialPreferences={observabilityPreferences}
+          onOnboardingComplete={handleDataSharingOnboardingComplete}
+        />
+      </div>
     );
   }
 
   return (
-    <div className={LAYOUT.sectionStack}>
+    <div className={`${LAYOUT.configureContent} ${LAYOUT.sectionStack}`}>
       <section className={SPACING.section}>
         <div className={SPACING.stackSm}>
           <h2 className={RESPONSIVE.pageTitle}>Initial Harness Configuration</h2>

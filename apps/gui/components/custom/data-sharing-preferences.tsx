@@ -48,12 +48,17 @@ export function DataSharingPreferences({
   initialPreferences,
   onOnboardingComplete,
 }: DataSharingPreferencesProps) {
+  const [baselineEnabled, setBaselineEnabled] = useState(() =>
+    isUnifiedDataSharingEnabled(initialPreferences),
+  );
   const [checked, setChecked] = useState(() =>
     isUnifiedDataSharingEnabled(initialPreferences),
   );
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+
+  const isDirty = checked !== baselineEnabled;
 
   const persist = useCallback(
     async (nextChecked: boolean) => {
@@ -76,6 +81,7 @@ export function DataSharingPreferences({
         );
         if (mode === "settings") {
           setSaved(true);
+          setBaselineEnabled(nextChecked);
         }
         return next;
       } catch (saveError: unknown) {
@@ -112,10 +118,10 @@ export function DataSharingPreferences({
       description="These preferences are stored locally only."
     >
       <div className={SPACING.stackSm}>
-        <label className="flex items-start gap-2 text-sm">
+        <label className="flex cursor-pointer items-start gap-2 text-sm disabled:cursor-not-allowed has-[:disabled]:cursor-not-allowed">
           <input
             type="checkbox"
-            className="mt-0.5"
+            className="mt-0.5 cursor-pointer disabled:cursor-not-allowed"
             checked={checked}
             disabled={saving}
             onChange={(event) => {
@@ -137,7 +143,7 @@ export function DataSharingPreferences({
         <div className="flex flex-wrap items-center gap-2">
           <Button
             type="button"
-            disabled={saving || !nonce}
+            disabled={saving || !nonce || (mode === "settings" && !isDirty)}
             onClick={() => void handleSubmit()}
           >
             {mode === "onboarding" ? "Continue setup" : "Save changes"}

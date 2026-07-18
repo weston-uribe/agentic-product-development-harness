@@ -2,9 +2,9 @@
 
 Launch the Product Development Harness GUI for guided Settings / Configure setup.
 
-**v0.3.1 paths:**
+**v0.4.0 paths:**
 
-- **Product managers (packaged):** `npx --yes p-dev-harness@0.3.1` — see [`docs/p-dev.md`](p-dev.md)
+- **Product managers (packaged):** `npx --yes p-dev-harness@0.4.0` — see [`docs/p-dev.md`](p-dev.md)
 - **Contributors (source):** `npm run harness:configure` — this document
 
 The guided Configure flow has **seven steps** before the completion screen. Fresh Configure visits first show a **Data sharing** gate; after you continue, the guided stepper appears at the derived current step. Change the choice later from **Settings → Data sharing**. See [`docs/gui-remote-setup.md`](gui-remote-setup.md) for remote setup and Step 7 workflow finalization.

@@ -8,6 +8,11 @@ import {
   loadSetupSummary,
   loadVercelSetupSummary,
 } from "@/lib/setup-server";
+import { loadDurableServiceConnectionSummaries } from "@/lib/verification-state";
+import { createRunnerUpgradeCheckingSkeleton } from "@/lib/settings/runner-upgrade-ssr";
+
+export { loadDurableServiceConnectionSummaries };
+export { createRunnerUpgradeCheckingSkeleton } from "@/lib/settings/runner-upgrade-ssr";
 
 export async function loadConnectionsEditorData() {
   const summary = await loadSetupSummary();
@@ -15,6 +20,9 @@ export async function loadConnectionsEditorData() {
   return {
     presence: summary.envKeyPresence,
     envDefaults: formDefaults.env,
+    serviceConnectionSummaries: loadDurableServiceConnectionSummaries(
+      summary.envKeyPresence,
+    ),
   };
 }
 
@@ -24,7 +32,10 @@ export async function loadLinearEditorData() {
 
 export async function loadDeploymentsEditorData() {
   const summary = await loadVercelSetupSummary();
-  return { summary };
+  return {
+    summary,
+    runnerUpgradeStatus: createRunnerUpgradeCheckingSkeleton(),
+  };
 }
 
 export async function loadRepositoriesEditorData() {

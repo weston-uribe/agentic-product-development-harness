@@ -17,6 +17,8 @@ export const linearAssociationSchema = z.object({
   workspaceId: z.string().min(1),
   teamId: z.string().min(1),
   teamKey: z.string().min(1),
+  /** Full Linear team display name. Optional only for legacy configs; write paths must set it. */
+  teamName: z.string().min(1).optional(),
   projectId: z.string().min(1),
   projectName: z.string().min(1),
 });

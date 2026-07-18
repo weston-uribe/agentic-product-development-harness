@@ -84,9 +84,12 @@ describe("workflow shell safety", () => {
       }
     });
 
-    it(`${label} uses redaction helper`, () => {
+    it(`${label} uses json-out or redaction helper for harness output`, () => {
       const workflow = readFileSync(workflowPath, "utf8");
-      expect(workflow).toContain("harness:redact-output");
+      expect(
+        workflow.includes("--json-out harness-run-output.json") ||
+          workflow.includes("harness:redact-output"),
+      ).toBe(true);
     });
   }
 });

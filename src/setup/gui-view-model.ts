@@ -65,6 +65,11 @@ export interface RepoConfigSummary {
   productionBranch: string;
   previewProvider?: string;
   linearProjects?: string[];
+  linearAssociations?: Array<{
+    workspaceId: string;
+    teamId: string;
+    projectId: string;
+  }>;
 }
 
 export interface ConfigSummary {
@@ -179,6 +184,11 @@ function buildConfigSummary(config: HarnessConfig): ConfigSummary {
       productionBranch: repo.productionBranch,
       previewProvider: repo.previewProvider,
       linearProjects: repo.linearProjects,
+      linearAssociations: (repo.linearAssociations ?? []).map((association) => ({
+        workspaceId: association.workspaceId,
+        teamId: association.teamId,
+        projectId: association.projectId,
+      })),
     })),
     linearTeamKey: config.linear?.teamKey,
     allowedTargetRepos: config.allowedTargetRepos,

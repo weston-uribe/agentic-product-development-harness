@@ -79,6 +79,17 @@ export async function postIssueComment(
   return comment?.id ?? "unknown";
 }
 
+export async function updateIssueComment(
+  client: LinearClient,
+  commentId: string,
+  body: string,
+): Promise<void> {
+  const payload = await client.updateComment(commentId, { body });
+  if (!payload.success) {
+    throw new Error("Failed to update Linear comment");
+  }
+}
+
 export async function postPlanningComment(
   client: LinearClient,
   issueId: string,

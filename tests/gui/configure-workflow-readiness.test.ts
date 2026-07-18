@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   isServiceConnectionReady,
-  serviceVerificationFromSummaries,
   shouldAutoReverifySavedService,
 } from "../../apps/gui/components/custom/configure-workflow";
+import { serviceVerificationFromSummaries } from "../../apps/gui/lib/verification-state.js";
 import type {
   EnvironmentFormPresence,
   EnvironmentFormValues,

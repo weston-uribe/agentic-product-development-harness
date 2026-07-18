@@ -26,7 +26,7 @@ describe("p-dev package manifest", () => {
     };
 
     expect(manifest.name).toBe("p-dev-harness");
-    expect(manifest.version).toBe("0.3.1");
+    expect(manifest.version).toBe("0.4.0");
     expect(manifest.private).toBeUndefined();
     expect(manifest.license).toBe("MIT");
     expect(manifest.bin["p-dev-harness"]).toBe("./bin/p-dev.js");

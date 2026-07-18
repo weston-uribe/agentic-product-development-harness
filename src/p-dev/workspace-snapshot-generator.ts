@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { writeGitObjectPackFromManifestFiles } from "./git-object-plumbing.js";
 import {
   assertNoForbiddenSnapshotPaths,
   assertRequiredSnapshotPaths,
@@ -67,6 +68,26 @@ export async function generateWorkspaceSnapshot(
       content: entry.content,
     });
   }
+
+  const blobContentsBySha = new Map(
+    snapshotEntries.map((entry) => [entry.gitBlobSha1, entry.content] as const),
+  );
+  const pack = writeGitObjectPackFromManifestFiles({
+    outputDir: path.join(input.outputDir, "object-pack"),
+    files: manifest.files,
+    blobContentsBySha,
+    expectedRootTreeSha: manifest.gitRootTreeSha1,
+  });
+  const packPath = path.relative(input.outputDir, pack.packPath);
+  const indexPath = path.relative(input.outputDir, pack.indexPath);
+  manifest.gitObjectPack = {
+    packPath,
+    indexPath,
+    packSha1: pack.packSha1,
+    packSha256: computeSnapshotFileSha256(await readFile(pack.packPath)),
+    objectCount: pack.objectCount,
+    packSizeBytes: pack.packSizeBytes,
+  };
 
   const manifestPath = path.join(input.outputDir, "manifest.json");
   await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");

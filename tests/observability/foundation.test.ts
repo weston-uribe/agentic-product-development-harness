@@ -68,7 +68,7 @@ describe("observability consent and identity", () => {
       workspaceDir,
       env: {
         P_DEV_RUNTIME_MODE: "packaged",
-        P_DEV_PACKAGE_VERSION: "0.3.1",
+        P_DEV_PACKAGE_VERSION: "0.4.0",
       },
       fakeRecorder: recorder,
     });
@@ -110,7 +110,7 @@ describe("observability consent and identity", () => {
       workspaceDir,
       env: {
         P_DEV_RUNTIME_MODE: "packaged",
-        P_DEV_PACKAGE_VERSION: "0.3.1",
+        P_DEV_PACKAGE_VERSION: "0.4.0",
       },
       fakeRecorder: analyticsRecorder,
     });
@@ -144,7 +144,7 @@ describe("observability consent and identity", () => {
       workspaceDir: errorWorkspaceDir,
       env: {
         P_DEV_RUNTIME_MODE: "packaged",
-        P_DEV_PACKAGE_VERSION: "0.3.1",
+        P_DEV_PACKAGE_VERSION: "0.4.0",
       },
       fakeRecorder: errorRecorder,
     });
@@ -177,7 +177,7 @@ describe("observability consent and identity", () => {
       workspaceDir,
       env: {
         P_DEV_RUNTIME_MODE: "packaged",
-        P_DEV_PACKAGE_VERSION: "0.3.1",
+        P_DEV_PACKAGE_VERSION: "0.4.0",
         DO_NOT_TRACK: "1",
       },
       fakeRecorder: recorder,
