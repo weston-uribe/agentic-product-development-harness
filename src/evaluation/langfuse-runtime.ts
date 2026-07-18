@@ -49,7 +49,35 @@ type LangfuseObservation = {
     attributes?: Record<string, unknown>,
     options?: Record<string, unknown>,
   ) => LangfuseObservation;
+  otelSpan?: {
+    setAttributes: (attributes: Record<string, string>) => void;
+  };
 };
+
+/** OTEL attribute keys Langfuse maps to trace session / name. */
+const LANGFUSE_TRACE_SESSION_ID = "session.id";
+const LANGFUSE_TRACE_NAME = "langfuse.trace.name";
+
+/**
+ * Apply session/trace-name attributes directly on the span.
+ *
+ * `propagateAttributes` alone is insufficient when the evaluation runtime uses an
+ * isolated `NodeTracerProvider` without a registered OTEL context manager — the
+ * context callback becomes a no-op and Langfuse never receives `sessionId`.
+ */
+export function applyTraceCorrelationAttributes(
+  observation: LangfuseObservation,
+  params: { sessionId: string; traceName: string },
+): void {
+  const span = observation.otelSpan;
+  if (!span?.setAttributes) {
+    return;
+  }
+  span.setAttributes({
+    [LANGFUSE_TRACE_SESSION_ID]: params.sessionId,
+    [LANGFUSE_TRACE_NAME]: params.traceName,
+  });
+}
 
 async function loadLangfuseModules(): Promise<LangfuseModules> {
   const [tracing, otel, sdkTraceNode] = await Promise.all([
@@ -99,6 +127,7 @@ function createChildHandle(
   parent: LangfuseObservation,
   name: string,
   kind: ObservationKind,
+  correlation: { sessionId: string; traceName: string },
 ): NestedObservationHandle {
   let child: LangfuseObservation | null = null;
   try {
@@ -107,6 +136,9 @@ function createChildHandle(
         ? undefined
         : { asType: kind };
     child = parent.startObservation(name, {}, options);
+    if (child) {
+      applyTraceCorrelationAttributes(child, correlation);
+    }
   } catch (error) {
     warnOnce(
       "start-child",
@@ -206,6 +238,8 @@ export async function createLangfuseRuntime(
           ...(input.metadata ?? {}),
         });
 
+        // Best-effort context propagation (works only if a global context manager
+        // is registered). Always also set attributes directly on the span below.
         const root = mods.propagateAttributes(
           {
             sessionId,
@@ -225,6 +259,7 @@ export async function createLangfuseRuntime(
               },
             ),
         );
+        applyTraceCorrelationAttributes(root, { sessionId, traceName });
 
         let finished = false;
 
@@ -240,7 +275,7 @@ export async function createLangfuseRuntime(
             if (finished || demoted) {
               return { update() {}, end() {} };
             }
-            return createChildHandle(root, name, kind);
+            return createChildHandle(root, name, kind, { sessionId, traceName });
           },
           finish(summary: PhaseFinishSummary, metadata) {
             if (finished) return;
