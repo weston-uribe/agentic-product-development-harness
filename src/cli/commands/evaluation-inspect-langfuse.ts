@@ -22,7 +22,7 @@ export async function runEvaluationInspectLangfuse(options: {
       options.out ??
       path.join(
         logDirectory,
-        ".evaluation-reports",
+        "evaluation-reports",
         `${options.issueKey}-langfuse-inspect.json`,
       );
 

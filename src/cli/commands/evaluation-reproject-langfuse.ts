@@ -24,7 +24,7 @@ export async function runEvaluationReprojectLangfuse(options: {
       options.out ??
       path.join(
         logDirectory,
-        ".evaluation-reports",
+        "evaluation-reports",
         `${options.issueKey}-langfuse-reproject.json`,
       );
 

@@ -27,9 +27,13 @@ describe("langfuse inspect report", () => {
     expect(report.gaps.some((g) => g.code === "missing_planning_trace")).toBe(
       true,
     );
-    expect(report.gaps.some((g) => g.code === "missing_visible_issue_key")).toBe(
-      true,
-    );
+    // Legacy p-dev.* names are warnings; human-readable contract gaps are errors.
+    expect(
+      report.gaps.some(
+        (g) =>
+          g.code === "missing_visible_issue_key" && g.severity === "warning",
+      ),
+    ).toBe(true);
   });
 
   it("passes planner gates when human-readable planning entities exist", () => {

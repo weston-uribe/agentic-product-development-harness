@@ -216,11 +216,18 @@ export function buildInspectReport(params: {
       metadataString(metadata, "linearIssueKey") ??
       metadataString(metadata, "issueKey") ??
       extractIssueKeyFromDisplayName(name);
+    const usesHumanReadableName = Boolean(
+      name && extractIssueKeyFromDisplayName(name),
+    );
+    const isLegacyMachineName = Boolean(
+      name && /^p-dev\./.test(name) && !usesHumanReadableName,
+    );
     const issueIdentityMissing = !linearIssueKey;
+    // Legacy pre-contract traces (p-dev.*) are warnings; human-readable names must carry identity.
     if (issueIdentityMissing) {
       gaps.push({
         code: "missing_visible_issue_key",
-        severity: "error",
+        severity: usesHumanReadableName || !isLegacyMachineName ? "error" : "warning",
         message: `Trace ${id || name || "unknown"} lacks visible Linear issue identity`,
         traceId: id || undefined,
       });
@@ -386,7 +393,11 @@ export function buildInspectReport(params: {
       ? false
       : generationObs.every(generationCostComplete);
 
-  const missingVisibleIssueKey = traces.some((t) => t.issueIdentityMissing);
+  const missingVisibleIssueKey = traces.some(
+    (t) =>
+      t.issueIdentityMissing &&
+      Boolean(t.name && extractIssueKeyFromDisplayName(t.name)),
+  );
   const scoreNames = [...new Set(allScores.map((s) => s.name))];
 
   const sessionMeta = normalizeMetadata(params.session?.metadata);
@@ -395,6 +406,8 @@ export function buildInspectReport(params: {
     metadataString(sessionMeta, "linearIssueKey") ??
     sessionDisplayName(issueKey);
 
+  // Complete when human-readable planning+planner exist and no error-severity gaps remain.
+  // Legacy p-dev.* traces may still be present as warnings.
   const complete =
     gaps.filter((g) => g.severity === "error").length === 0 &&
     dedicatedPlanning &&

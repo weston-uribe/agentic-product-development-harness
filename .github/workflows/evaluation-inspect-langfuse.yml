@@ -48,13 +48,13 @@ jobs:
           LANGFUSE_BASE_URL: ${{ vars.LANGFUSE_BASE_URL }}
           LANGFUSE_TRACING_ENVIRONMENT: ${{ vars.LANGFUSE_TRACING_ENVIRONMENT }}
         run: |
-          mkdir -p runs/.evaluation-reports
+          mkdir -p runs/evaluation-reports
           npm run evaluation:inspect-langfuse -- \
             --issue "${{ inputs.issue_key }}" \
             --namespace "${{ inputs.namespace }}" \
-            --out "runs/.evaluation-reports/${{ inputs.issue_key }}-langfuse-inspect.json" \
+            --out "runs/evaluation-reports/${{ inputs.issue_key }}-langfuse-inspect.json" \
             --safe-content \
-            --json > "runs/.evaluation-reports/${{ inputs.issue_key }}-langfuse-inspect.stdout.json" || true
+            --json > "runs/evaluation-reports/${{ inputs.issue_key }}-langfuse-inspect.stdout.json" || true
       - name: Download FRE-3 run artifacts for reprojection
         if: ${{ inputs.mode == 'reproject-dry-run' || inputs.mode == 'reproject-apply' }}
         env:
@@ -83,12 +83,12 @@ jobs:
           LANGFUSE_BASE_URL: ${{ vars.LANGFUSE_BASE_URL }}
           LANGFUSE_TRACING_ENVIRONMENT: ${{ vars.LANGFUSE_TRACING_ENVIRONMENT }}
         run: |
-          mkdir -p runs/.evaluation-reports
+          mkdir -p runs/evaluation-reports
           npm run evaluation:reproject-langfuse -- \
             --issue "${{ inputs.issue_key }}" \
             --namespace "${{ inputs.namespace }}" \
             --artifact-cache runs/.fre3-artifact-cache \
-            --out "runs/.evaluation-reports/${{ inputs.issue_key }}-langfuse-reproject.json" \
+            --out "runs/evaluation-reports/${{ inputs.issue_key }}-langfuse-reproject.json" \
             --json
       - name: Run Langfuse reproject apply
         if: ${{ inputs.mode == 'reproject-apply' }}
@@ -101,24 +101,24 @@ jobs:
           LANGFUSE_BASE_URL: ${{ vars.LANGFUSE_BASE_URL }}
           LANGFUSE_TRACING_ENVIRONMENT: ${{ vars.LANGFUSE_TRACING_ENVIRONMENT }}
         run: |
-          mkdir -p runs/.evaluation-reports
+          mkdir -p runs/evaluation-reports
           npm run evaluation:reproject-langfuse -- \
             --issue "${{ inputs.issue_key }}" \
             --namespace "${{ inputs.namespace }}" \
             --artifact-cache runs/.fre3-artifact-cache \
             --apply \
-            --out "runs/.evaluation-reports/${{ inputs.issue_key }}-langfuse-reproject-apply.json" \
+            --out "runs/evaluation-reports/${{ inputs.issue_key }}-langfuse-reproject-apply.json" \
             --json
           npm run evaluation:inspect-langfuse -- \
             --issue "${{ inputs.issue_key }}" \
             --namespace "${{ inputs.namespace }}" \
-            --out "runs/.evaluation-reports/${{ inputs.issue_key }}-langfuse-inspect-post.json" \
+            --out "runs/evaluation-reports/${{ inputs.issue_key }}-langfuse-inspect-post.json" \
             --safe-content \
-            --json > "runs/.evaluation-reports/${{ inputs.issue_key }}-langfuse-inspect-post.stdout.json" || true
+            --json > "runs/evaluation-reports/${{ inputs.issue_key }}-langfuse-inspect-post.stdout.json" || true
       - name: Upload redacted report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: langfuse-inspect-${{ inputs.issue_key }}
-          path: runs/.evaluation-reports/
+          path: runs/evaluation-reports/
           if-no-files-found: warn

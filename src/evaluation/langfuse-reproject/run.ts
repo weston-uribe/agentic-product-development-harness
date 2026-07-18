@@ -378,11 +378,16 @@ export async function runLangfuseReproject(options: {
           continue;
         }
 
+        // Use a stable reproject seed so we never collide with legacy p-dev.* traces
+        // that share the original harness runId / Langfuse trace seed.
+        const reprojectRunId = `reproject-v1-${run.runId}`;
+        validationProjectionUsed = true;
         const handle = await runtime.startPhaseTrace({
           phase,
           issueKey,
-          runId: `reproject-${run.runId}`,
+          runId: reprojectRunId,
           revisionCycleIndex: run.revisionCycleIndex,
+          linearTeamKey: null,
           metadata: {
             reprojected: true,
             reprojectionSchemaVersion: REPROJECTION_SCHEMA_VERSION,
@@ -394,9 +399,9 @@ export async function runLangfuseReproject(options: {
           },
         });
         if (!handle) {
-          validationProjectionUsed = true;
           continue;
         }
+        existingTraceNames.add(displayName);
 
         if (role) {
           const agent = handle.startChild(
