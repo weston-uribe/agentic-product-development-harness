@@ -362,3 +362,242 @@ export async function runEvalAnnotationExport(options: {
     return EXIT_CONFIG;
   }
 }
+
+export async function runEvalEvaluatorsList(options: {
+  configPath?: string;
+  json?: boolean;
+}): Promise<number> {
+  try {
+    const { ensureEvaluatorsRegistered, listRegisteredEvaluators } =
+      await import("../../evaluation/evaluators/index.js");
+    await ensureEvaluatorsRegistered();
+    const evaluators = listRegisteredEvaluators().map((e) => ({
+      evaluatorId: e.evaluatorId,
+      evaluatorVersion: e.evaluatorVersion,
+      implementationVersion: e.implementationVersion,
+      implementationHash: e.implementationHash,
+      rubricId: e.rubricId,
+      rubricVersion: e.rubricVersion,
+      dimensionId: e.dimensionId,
+      applicableSubjectTypes: e.applicableSubjectTypes,
+      applicablePhases: e.applicablePhases,
+      requiredEvidence: e.requiredEvidence,
+      optionalEvidence: e.optionalEvidence,
+      dependencies: e.dependencies,
+    }));
+    if (options.json) {
+      printJson({ count: evaluators.length, evaluators });
+    } else {
+      console.log(`Registered evaluators: ${evaluators.length}`);
+      for (const e of evaluators) {
+        console.log(
+          `- ${e.evaluatorId}@${e.evaluatorVersion} → ${e.rubricId}.${e.dimensionId}`,
+        );
+      }
+    }
+    return EXIT_SUCCESS;
+  } catch (error) {
+    console.error(
+      `eval evaluators-list failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return EXIT_CONFIG;
+  }
+}
+
+export async function runEvalEvaluatorPlan(options: {
+  configPath?: string;
+  logDirectory?: string;
+  issueKey: string;
+  namespace?: string;
+  subjectId?: string;
+  subjectType?: string;
+  phase?: string;
+  evaluatorId?: string;
+  rubricId?: string;
+  json?: boolean;
+}): Promise<number> {
+  try {
+    const { planEvaluations } = await import(
+      "../../evaluation/evaluators/index.js"
+    );
+    const logDirectory = await resolveLogDirectory(options);
+    const evaluationDirectory = resolveEvaluationDirectory(
+      logDirectory,
+      options.issueKey,
+    );
+    const result = await planEvaluations({
+      evaluationDirectory,
+      issueKey: options.issueKey,
+      namespace: resolveNamespace(options.namespace),
+      subjectId: options.subjectId,
+      subjectType: options.subjectType,
+      phase: options.phase,
+      evaluatorId: options.evaluatorId,
+      rubricId: options.rubricId,
+    });
+    if (options.json) {
+      printJson(result);
+    } else {
+      console.log(
+        `Plan: ${result.plan.length} checks (policy ${result.policyVersion})`,
+      );
+      for (const entry of result.plan) {
+        console.log(
+          `- ${entry.evaluationSubjectId.slice(0, 12)}… ${entry.evaluatorId} / ${entry.dimensionId}`,
+        );
+      }
+    }
+    return EXIT_SUCCESS;
+  } catch (error) {
+    console.error(
+      `eval evaluator-plan failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return EXIT_CONFIG;
+  }
+}
+
+export async function runEvalEvaluate(options: {
+  configPath?: string;
+  logDirectory?: string;
+  issueKey: string;
+  namespace?: string;
+  subjectId?: string;
+  subjectType?: string;
+  phase?: string;
+  evaluatorId?: string;
+  rubricId?: string;
+  dryRun?: boolean;
+  force?: boolean;
+  concurrency?: number;
+  failOnEvaluatorError?: boolean;
+  failOnContractFailure?: boolean;
+  json?: boolean;
+}): Promise<number> {
+  try {
+    const { runEvaluations } = await import(
+      "../../evaluation/evaluators/index.js"
+    );
+    const logDirectory = await resolveLogDirectory(options);
+    const evaluationDirectory = resolveEvaluationDirectory(
+      logDirectory,
+      options.issueKey,
+    );
+    const report = await runEvaluations({
+      logDirectory,
+      evaluationDirectory,
+      issueKey: options.issueKey,
+      namespace: resolveNamespace(options.namespace),
+      subjectId: options.subjectId,
+      subjectType: options.subjectType,
+      phase: options.phase,
+      evaluatorId: options.evaluatorId,
+      rubricId: options.rubricId,
+      dryRun: options.dryRun === true,
+      force: options.force === true,
+      concurrency: options.concurrency,
+    });
+
+    if (options.json) {
+      printJson(report);
+    } else {
+      console.log(
+        `Evaluator run complete (appended=${report.resultsAppended}, reused=${report.resultsReused})`,
+      );
+      console.log(
+        `Counts: pass=${report.counts.pass} fail=${report.counts.fail} skipped=${report.counts.skipped} error=${report.counts.error}`,
+      );
+      console.log(
+        `Report: ${path.join(evaluationDirectory, "evaluator-run-report.json")}`,
+      );
+    }
+
+    if (options.failOnEvaluatorError && report.counts.error > 0) {
+      return EXIT_CONFIG;
+    }
+    if (options.failOnContractFailure && report.counts.fail > 0) {
+      return EXIT_CONFIG;
+    }
+    return EXIT_SUCCESS;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`eval evaluate failed: ${message}`);
+    // Structural / orchestration failures
+    return EXIT_CONFIG;
+  }
+}
+
+export async function runEvalEvaluatorValidate(options: {
+  configPath?: string;
+  logDirectory?: string;
+  issueKey: string;
+  json?: boolean;
+}): Promise<number> {
+  try {
+    const { validateEvaluatorResultsStore } = await import(
+      "../../evaluation/evaluators/index.js"
+    );
+    const logDirectory = await resolveLogDirectory(options);
+    const evaluationDirectory = resolveEvaluationDirectory(
+      logDirectory,
+      options.issueKey,
+    );
+    const result = await validateEvaluatorResultsStore(evaluationDirectory);
+    if (options.json) {
+      printJson(result);
+    } else {
+      console.log(
+        result.ok
+          ? `Evaluator results store OK (${result.count} records)`
+          : `Evaluator results store invalid: ${result.errors.join("; ")}`,
+      );
+    }
+    return result.ok ? EXIT_SUCCESS : EXIT_CONFIG;
+  } catch (error) {
+    console.error(
+      `eval evaluator-validate failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return EXIT_CONFIG;
+  }
+}
+
+export async function runEvalEvaluatorSummary(options: {
+  configPath?: string;
+  logDirectory?: string;
+  issueKey: string;
+  namespace?: string;
+  json?: boolean;
+}): Promise<number> {
+  try {
+    const { computeEvaluatorSummary, writeEvaluatorSummary } = await import(
+      "../../evaluation/evaluators/index.js"
+    );
+    const logDirectory = await resolveLogDirectory(options);
+    const evaluationDirectory = resolveEvaluationDirectory(
+      logDirectory,
+      options.issueKey,
+    );
+    const artifact = await computeEvaluatorSummary({
+      evaluationDirectory,
+      issueKey: options.issueKey,
+      namespace: resolveNamespace(options.namespace),
+    });
+    const outputPath = await writeEvaluatorSummary(
+      evaluationDirectory,
+      artifact,
+    );
+    if (options.json) {
+      printJson({ outputPath, artifact });
+    } else {
+      console.log(`Wrote evaluator summary: ${outputPath}`);
+      console.log(
+        `Totals: pass=${artifact.totals.pass} fail=${artifact.totals.fail} skipped=${artifact.totals.skipped} error=${artifact.totals.error}`,
+      );
+    }
+    return EXIT_SUCCESS;
+  } catch (error) {
+    console.error(
+      `eval evaluator-summary failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return EXIT_CONFIG;
+  }
+}

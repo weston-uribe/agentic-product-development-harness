@@ -37,7 +37,7 @@ remain valid for lightweight human review.
 | Revision/merge traces + deterministic outcome scores | Milestone 2 (maintainer-only) |
 | Scores / score configs | M2 scores implemented; Langfuse score configs deferred |
 | Evaluation subjects + human annotation foundation | Implemented (v1 contract) |
-| Deterministic evaluator execution engine | Deferred |
+| Deterministic evaluator execution engine | Implemented (v1; offline CLI) |
 | LLM judges | Deferred |
 | Datasets / offline experiments / benchmark runners | Deferred (readiness fields prepared) |
 | Release gates tied to eval scores | Deferred |

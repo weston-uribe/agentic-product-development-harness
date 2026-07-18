@@ -3,11 +3,11 @@
 Provider-neutral evaluation layer that turns captured executions into stable
 reviewable subjects with versioned rubrics and durable human annotations.
 
-This contract supports manual review first, later deterministic evaluators,
-dataset promotion, experiment comparison, Langfuse annotation import/export,
-and re-evaluation when rubrics change.
+This contract supports manual review, deterministic evaluator results,
+dataset readiness preparation, experiment comparison, Langfuse annotation
+import/export, and re-evaluation when rubrics change.
 
-It does **not** define an LLM judge in v1.
+It does **not** define an LLM judge in this slice.
 
 ## Concept separation
 
@@ -46,6 +46,9 @@ runs/<issueKey>/evaluation/
   annotations.jsonl
   annotation-coverage.json
   dataset-readiness.json
+  evaluator-results.jsonl
+  evaluator-run-report.json
+  evaluator-summary.json
   annotation-bundles/
   corrected-outputs/
 ```
@@ -174,9 +177,26 @@ npm run harness:eval:annotation-validate -- --issue WES-123
 npm run harness:eval:annotation-coverage -- --issue WES-123
 npm run harness:eval:dataset-readiness -- --issue WES-123
 npm run harness:eval:annotation-export -- --issue WES-123
+npm run harness:eval:evaluators-list
+npm run harness:eval:evaluator-plan -- --issue WES-123
+npm run harness:eval:evaluate -- --issue WES-123
+npm run harness:eval:evaluator-validate -- --issue WES-123
+npm run harness:eval:evaluator-summary -- --issue WES-123
 ```
 
 Offline only. Failures in these commands do not affect harness phase execution.
+
+### Deterministic evaluator engine (implemented)
+
+- Machine-check rubrics use `judgmentChannel: "machine"` (required; never defaulted).
+- Human-quality rubrics use `judgmentChannel: "human"` explicitly.
+- Results are append-only in `evaluator-results.jsonl` with pass/fail/error/skipped,
+  `skipReason`, and `reasonCode`.
+- Required evaluators for dataset readiness come from
+  `src/evaluation/evaluators/policies/dataset-readiness.v1.json` (version + content hash),
+  not “all evaluators in the registry.”
+- Writes are allowed only under `runs/<issueKey>/evaluation/`. Run evidence remains read-only.
+- Implementation hashes come from `implementations.manifest.json` (never `Function.prototype.toString()`).
 
 ## Checkpoint item (later)
 
@@ -185,5 +205,5 @@ from the published package is deferred.
 
 ## Next slice
 
-Deterministic evaluator execution engine that writes `EvaluatorResult` records,
-reuses rubric/dimension identity, and remains distinct from human annotations.
+LLM judges using the same orchestration framework without sharing deterministic
+evaluator identity; dataset promotion; live Langfuse score sync.

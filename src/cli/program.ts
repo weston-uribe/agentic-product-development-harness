@@ -21,6 +21,11 @@ import {
   runEvalAnnotationExport,
   runEvalAnnotationValidate,
   runEvalDatasetReadiness,
+  runEvalEvaluate,
+  runEvalEvaluatorPlan,
+  runEvalEvaluatorSummary,
+  runEvalEvaluatorValidate,
+  runEvalEvaluatorsList,
   runEvalSubjects,
   runEvalSubjectsList,
 } from "./commands/eval.js";
@@ -255,7 +260,9 @@ export function createProgram(): Command {
 
   const evalCmd = program
     .command("eval")
-    .description("Offline evaluation subjects, rubrics, and human annotations");
+    .description(
+      "Offline evaluation subjects, rubrics, human annotations, and deterministic evaluators",
+    );
 
   evalCmd
     .command("subjects")
@@ -459,6 +466,170 @@ export function createProgram(): Command {
           configPath,
           issueKey: opts.issue,
           outputPath: opts.output,
+          logDirectory: opts.logDirectory,
+          namespace: opts.namespace,
+          json: opts.json === true,
+        });
+      },
+    );
+
+  evalCmd
+    .command("evaluators-list")
+    .description("List registered deterministic evaluators")
+    .option("--json", "Print JSON", false)
+    .action(async (opts: { json?: boolean }) => {
+      process.exitCode = await runEvalEvaluatorsList({
+        json: opts.json === true,
+      });
+    });
+
+  evalCmd
+    .command("evaluator-plan")
+    .description("Dry-run plan of applicable deterministic evaluators")
+    .requiredOption("--issue <key>", "Linear issue key")
+    .option("--subject <id>", "Limit to evaluationSubjectId")
+    .option("--subject-type <type>", "Limit to subject type")
+    .option("--phase <phase>", "Limit to phase")
+    .option("--evaluator <id>", "Limit to evaluatorId")
+    .option("--rubric <id>", "Limit to rubricId")
+    .option("--log-directory <path>", "Override harness logDirectory")
+    .option("--namespace <namespace>", "Evaluation namespace")
+    .option("--json", "Print JSON", false)
+    .action(
+      async (opts: {
+        issue: string;
+        subject?: string;
+        subjectType?: string;
+        phase?: string;
+        evaluator?: string;
+        rubric?: string;
+        logDirectory?: string;
+        namespace?: string;
+        json?: boolean;
+      }) => {
+        const configPath = program.opts<{ config: string }>().config;
+        process.exitCode = await runEvalEvaluatorPlan({
+          configPath,
+          issueKey: opts.issue,
+          subjectId: opts.subject,
+          subjectType: opts.subjectType,
+          phase: opts.phase,
+          evaluatorId: opts.evaluator,
+          rubricId: opts.rubric,
+          logDirectory: opts.logDirectory,
+          namespace: opts.namespace,
+          json: opts.json === true,
+        });
+      },
+    );
+
+  evalCmd
+    .command("evaluate")
+    .description("Run deterministic evaluators and append immutable results")
+    .requiredOption("--issue <key>", "Linear issue key")
+    .option("--subject <id>", "Limit to evaluationSubjectId")
+    .option("--subject-type <type>", "Limit to subject type")
+    .option("--phase <phase>", "Limit to phase")
+    .option("--evaluator <id>", "Limit to evaluatorId")
+    .option("--rubric <id>", "Limit to rubricId")
+    .option("--dry-run", "Plan only; do not write results", false)
+    .option(
+      "--force",
+      "Re-execute even when identical result ID exists (no duplicate append)",
+      false,
+    )
+    .option("--concurrency <n>", "Max concurrent evaluators", "1")
+    .option(
+      "--fail-on-evaluator-error",
+      "Exit non-zero when any evaluator status is error",
+      false,
+    )
+    .option(
+      "--fail-on-contract-failure",
+      "Exit non-zero when any evaluator status is fail",
+      false,
+    )
+    .option("--log-directory <path>", "Override harness logDirectory")
+    .option("--namespace <namespace>", "Evaluation namespace")
+    .option("--json", "Print JSON", false)
+    .action(
+      async (opts: {
+        issue: string;
+        subject?: string;
+        subjectType?: string;
+        phase?: string;
+        evaluator?: string;
+        rubric?: string;
+        dryRun?: boolean;
+        force?: boolean;
+        concurrency?: string;
+        failOnEvaluatorError?: boolean;
+        failOnContractFailure?: boolean;
+        logDirectory?: string;
+        namespace?: string;
+        json?: boolean;
+      }) => {
+        const configPath = program.opts<{ config: string }>().config;
+        process.exitCode = await runEvalEvaluate({
+          configPath,
+          issueKey: opts.issue,
+          subjectId: opts.subject,
+          subjectType: opts.subjectType,
+          phase: opts.phase,
+          evaluatorId: opts.evaluator,
+          rubricId: opts.rubric,
+          dryRun: opts.dryRun === true,
+          force: opts.force === true,
+          concurrency: Number.parseInt(opts.concurrency ?? "1", 10) || 1,
+          failOnEvaluatorError: opts.failOnEvaluatorError === true,
+          failOnContractFailure: opts.failOnContractFailure === true,
+          logDirectory: opts.logDirectory,
+          namespace: opts.namespace,
+          json: opts.json === true,
+        });
+      },
+    );
+
+  evalCmd
+    .command("evaluator-validate")
+    .description("Validate the local evaluator-results store")
+    .requiredOption("--issue <key>", "Linear issue key")
+    .option("--log-directory <path>", "Override harness logDirectory")
+    .option("--json", "Print JSON", false)
+    .action(
+      async (opts: {
+        issue: string;
+        logDirectory?: string;
+        json?: boolean;
+      }) => {
+        const configPath = program.opts<{ config: string }>().config;
+        process.exitCode = await runEvalEvaluatorValidate({
+          configPath,
+          issueKey: opts.issue,
+          logDirectory: opts.logDirectory,
+          json: opts.json === true,
+        });
+      },
+    );
+
+  evalCmd
+    .command("evaluator-summary")
+    .description("Regenerate derived evaluator-summary.json")
+    .requiredOption("--issue <key>", "Linear issue key")
+    .option("--log-directory <path>", "Override harness logDirectory")
+    .option("--namespace <namespace>", "Evaluation namespace")
+    .option("--json", "Print JSON", false)
+    .action(
+      async (opts: {
+        issue: string;
+        logDirectory?: string;
+        namespace?: string;
+        json?: boolean;
+      }) => {
+        const configPath = program.opts<{ config: string }>().config;
+        process.exitCode = await runEvalEvaluatorSummary({
+          configPath,
+          issueKey: opts.issue,
           logDirectory: opts.logDirectory,
           namespace: opts.namespace,
           json: opts.json === true,

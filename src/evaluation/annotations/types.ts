@@ -1,7 +1,8 @@
 import type { ArtifactRef } from "../telemetry/types.js";
 
 export const ANNOTATION_SCHEMA_VERSION = 1 as const;
-export const DATASET_READINESS_POLICY_VERSION = "dataset-readiness-v1" as const;
+/** Combined human+machine readiness computation version. */
+export const DATASET_READINESS_POLICY_VERSION = "dataset-readiness-v2" as const;
 export const ANNOTATION_COVERAGE_SCHEMA_VERSION = 1 as const;
 
 export type HumanAnnotationSource = "human_local" | "human_langfuse";
@@ -72,6 +73,24 @@ export type PrivacyReviewStatus =
   | "rejected"
   | "needs_redaction";
 
+export type DeterministicEvaluatorReadinessState =
+  | "passed"
+  | "failed"
+  | "skipped_not_applicable"
+  | "skipped_insufficient_evidence"
+  | "skipped_dependency_unavailable"
+  | "error"
+  | "no_current_policy_result"
+  | "non_current_for_policy";
+
+export interface DeterministicEvaluatorReadinessEntry {
+  evaluatorId: string;
+  evaluatorVersion: string;
+  state: DeterministicEvaluatorReadinessState;
+  evaluatorResultId: string | null;
+  reasonCode: string | null;
+}
+
 export interface DatasetReadinessRecord {
   evaluationSubjectId: string;
   evidenceComplete: boolean;
@@ -79,15 +98,24 @@ export interface DatasetReadinessRecord {
   requiredRubricsComplete: boolean;
   hasPreferredOutput: boolean;
   privacyReviewStatus: PrivacyReviewStatus;
+  deterministicEvaluatorsComplete: boolean;
+  deterministicEvaluatorErrors: boolean;
+  unresolvedContractFailures: boolean;
+  deterministicEvaluatorStates: DeterministicEvaluatorReadinessEntry[];
   datasetEligible: boolean;
   datasetIneligibilityReasons: string[];
   computedAt: string;
   readinessPolicyVersion: typeof DATASET_READINESS_POLICY_VERSION;
+  /** Applied versioned evaluator readiness policy (from policies/*.json). */
+  evaluationPolicyVersion: string | null;
+  evaluationPolicyHash: string | null;
 }
 
 export interface DatasetReadinessArtifact {
   schemaVersion: 1;
   readinessPolicyVersion: typeof DATASET_READINESS_POLICY_VERSION;
+  evaluationPolicyVersion: string | null;
+  evaluationPolicyHash: string | null;
   evaluationSessionId: string;
   issueKey: string;
   computedAt: string;
