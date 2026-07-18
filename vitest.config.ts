@@ -14,6 +14,7 @@ export default defineConfig({
     environment: "node",
     hookTimeout: 300_000,
     testTimeout: 120_000,
+    teardownTimeout: 60_000,
     maxWorkers: process.env.CI ? 1 : undefined,
     fileParallelism: process.env.CI ? false : undefined,
   },
