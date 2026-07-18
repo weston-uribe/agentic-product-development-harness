@@ -201,3 +201,15 @@ export function getCorrectedOutputsDirectory(
 ): string {
   return path.join(evaluationDirectory, "corrected-outputs");
 }
+
+export function getEvaluatorResultsPath(evaluationDirectory: string): string {
+  return path.join(evaluationDirectory, "evaluator-results.jsonl");
+}
+
+export function getEvaluatorRunReportPath(evaluationDirectory: string): string {
+  return path.join(evaluationDirectory, "evaluator-run-report.json");
+}
+
+export function getEvaluatorSummaryPath(evaluationDirectory: string): string {
+  return path.join(evaluationDirectory, "evaluator-summary.json");
+}
