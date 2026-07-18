@@ -36,9 +36,11 @@ describe("settings mutation editors", () => {
       ),
       "utf8",
     );
-    expect(connectionsEditor).toContain("verifyService");
-    expect(connectionsEditor).toContain('[SERVICE_VALUE_KEY[activeKey]]: ""');
-    expect(connectionsEditor).toContain("Previous value was preserved on failure paths");
+    expect(connectionsEditor).toContain("/api/setup/patch-credential");
+    expect(connectionsEditor).toContain("[SERVICE_VALUE_KEY[key]]: \"\"");
+    expect(connectionsEditor).toContain(
+      "The previous value was preserved.",
+    );
   });
 
   it("detaches repositories in config only", async () => {

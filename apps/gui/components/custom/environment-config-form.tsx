@@ -1,5 +1,7 @@
 "use client";
 
+import type { ReactNode } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { FORM } from "@/lib/constants";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -74,6 +76,7 @@ interface EnvironmentConfigFormProps {
   emphasizeKey?: ServiceKey | null;
   verifyButtonLabel?: (key: ServiceKey) => string;
   helperTextOverride?: Partial<Record<ServiceKey, string>>;
+  expandedContent?: Partial<Record<ServiceKey, ReactNode>>;
   onChange: (values: EnvironmentFormValues) => void;
   onVerifyService?: (key: ServiceKey) => void;
   onServiceBlur?: (key: ServiceKey) => void;
@@ -156,6 +159,7 @@ export function EnvironmentConfigForm({
   emphasizeKey = null,
   verifyButtonLabel,
   helperTextOverride,
+  expandedContent,
   onChange,
   onVerifyService,
   onServiceBlur,
@@ -190,6 +194,7 @@ export function EnvironmentConfigForm({
             emphasized={emphasizeKey === service.key}
             verifyLabel={verifyButtonLabel?.(service.key)}
             autoFocus={emphasizeKey === service.key}
+            expandedContent={expandedContent?.[service.key]}
             onChange={(value) => update({ [service.valueKey]: value })}
             onVerify={
               onVerifyService ? () => onVerifyService(service.key) : undefined
@@ -268,6 +273,7 @@ function ServiceConnectionCard({
   emphasized = false,
   verifyLabel,
   autoFocus = false,
+  expandedContent,
   onChange,
   onVerify,
   onBlur,
@@ -284,10 +290,12 @@ function ServiceConnectionCard({
   emphasized?: boolean;
   verifyLabel?: string;
   autoFocus?: boolean;
+  expandedContent?: ReactNode;
   onChange: (value: string) => void;
   onVerify?: () => void;
   onBlur?: () => void;
 }) {
+  const prefersReducedMotion = useReducedMotion() ?? false;
   const badgeState = resolveServiceConnectionBadgeState(
     present,
     verification,
@@ -324,13 +332,15 @@ function ServiceConnectionCard({
     (!trimmedValue && !present);
 
   return (
-    <div
+    <motion.div
+      layout={!prefersReducedMotion}
       className={
         emphasized
           ? "rounded-lg border-2 border-amber-500/70 bg-card p-4 space-y-3 ring-2 ring-amber-500/20"
           : "rounded-lg border border-border bg-card p-4 space-y-3"
       }
       data-emphasized={emphasized ? "true" : undefined}
+      data-service-key={serviceKey}
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="space-y-1">
@@ -397,7 +407,33 @@ function ServiceConnectionCard({
           </Button>
         ) : null}
       </div>
-    </div>
+
+      <AnimatePresence initial={false}>
+        {expandedContent ? (
+          <motion.div
+            key={`${serviceKey}-expanded`}
+            initial={
+              prefersReducedMotion ? false : { height: 0, opacity: 0 }
+            }
+            animate={{ height: "auto", opacity: 1 }}
+            exit={
+              prefersReducedMotion
+                ? undefined
+                : { height: 0, opacity: 0 }
+            }
+            transition={
+              prefersReducedMotion
+                ? { duration: 0 }
+                : { duration: 0.28, ease: [0.2, 0, 0, 1] }
+            }
+            className="overflow-hidden"
+            data-expanded-content={serviceKey}
+          >
+            {expandedContent}
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    </motion.div>
   );
 }
 

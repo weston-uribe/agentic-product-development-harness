@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import {
   EnvironmentConfigForm,
   type EnvironmentFormPresence,
@@ -9,10 +8,7 @@ import {
   type ServiceKey,
   type ServiceVerificationMap,
 } from "@/components/custom/environment-config-form";
-import {
-  startVercelRecoveryAfterTokenSave,
-  VercelRecoveryPanel,
-} from "@/components/settings/vercel-recovery-panel";
+import { VercelRecoveryPanel } from "@/components/settings/vercel-recovery-panel";
 import { readSetupJsonResponse } from "@/lib/setup-json-response";
 import type { ServiceConnectionSummaryMap } from "@/lib/setup-server";
 import {
@@ -23,7 +19,6 @@ import {
 } from "@/lib/verification-state";
 import type { SavedCredentialHealthMap } from "@harness/setup/credential-health";
 import type { CredentialPatchResult } from "@harness/setup/credential-patch";
-import { WORKFLOW_ROUTE } from "@harness/setup/gui-routes";
 
 const SERVICE_VALUE_KEY: Record<
   ServiceKey,
@@ -56,7 +51,6 @@ export function ConnectionsSettingsEditor({
   repairVercel = false,
   envContentFingerprint,
 }: ConnectionsSettingsEditorProps) {
-  const router = useRouter();
   const [presence, setPresence] = useState(initialPresence);
   const [fingerprint, setFingerprint] = useState(envContentFingerprint);
   const [values, setValues] = useState<EnvironmentFormValues>({
@@ -72,7 +66,10 @@ export function ConnectionsSettingsEditor({
   );
   const [verifyingKey, setVerifyingKey] = useState<ServiceKey | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [vercelSuccessMessage, setVercelSuccessMessage] = useState<string | null>(
+    null,
+  );
+  /** Recovery UI active when durable nonterminal op exists or after Vercel save. */
   const [recoveryActive, setRecoveryActive] = useState(false);
 
   const refreshSavedHealth = useCallback(async () => {
@@ -98,6 +95,33 @@ export function ConnectionsSettingsEditor({
     void refreshSavedHealth().catch(() => undefined);
   }, [refreshSavedHealth]);
 
+  // Resume durable recovery on load (independent of React session).
+  useEffect(() => {
+    void (async () => {
+      try {
+        const response = await fetch(
+          "/api/setup/vercel-connection-recovery/status",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({}),
+          },
+        );
+        if (!response.ok) {
+          return;
+        }
+        const body = (await response.json()) as {
+          operation?: { stage?: string } | null;
+        };
+        if (body.operation && body.operation.stage !== "ready") {
+          setRecoveryActive(true);
+        }
+      } catch {
+        // Non-blocking.
+      }
+    })();
+  }, []);
+
   const reconnectCredential = useCallback(
     async (key: ServiceKey) => {
       const token = values[SERVICE_VALUE_KEY[key]].trim();
@@ -107,7 +131,9 @@ export function ConnectionsSettingsEditor({
 
       setVerifyingKey(key);
       setError(null);
-      setSuccessMessage(null);
+      if (key === "VERCEL_TOKEN") {
+        setVercelSuccessMessage(null);
+      }
 
       try {
         const response = await fetch("/api/setup/patch-credential", {
@@ -166,15 +192,11 @@ export function ConnectionsSettingsEditor({
             label: result.verification.label,
           },
         }));
-        setSuccessMessage("Credential updated.");
 
         if (key === "VERCEL_TOKEN") {
+          setVercelSuccessMessage("Credential updated.");
+          // Activate embedded controller only — do not start recovery here.
           setRecoveryActive(true);
-          const recovery = await startVercelRecoveryAfterTokenSave();
-          if (recovery.redirectToWorkflow || recovery.operation?.stage === "ready") {
-            await refreshSavedHealth();
-            router.push(WORKFLOW_ROUTE);
-          }
         } else {
           await refreshSavedHealth();
         }
@@ -186,8 +208,10 @@ export function ConnectionsSettingsEditor({
         setVerifyingKey(null);
       }
     },
-    [fingerprint, refreshSavedHealth, router, values],
+    [fingerprint, refreshSavedHealth, values],
   );
+
+  const showRecovery = recoveryActive || repairVercel;
 
   return (
     <div className="space-y-6">
@@ -206,41 +230,45 @@ export function ConnectionsSettingsEditor({
         variant="guided-services"
         verification={verification}
         verifyingKey={verifyingKey}
-        emphasizeKey={repairVercel ? "VERCEL_TOKEN" : null}
+        emphasizeKey={repairVercel || recoveryActive ? "VERCEL_TOKEN" : null}
         verifyButtonLabel={(key) =>
-          key === "VERCEL_TOKEN" && repairVercel
+          key === "VERCEL_TOKEN" && (repairVercel || recoveryActive)
             ? "Reconnect Vercel"
             : "Verify and save"
         }
         helperTextOverride={
-          repairVercel
+          repairVercel || recoveryActive
             ? {
                 VERCEL_TOKEN:
                   "Paste a replacement Vercel token. PDev verifies it before saving, then repairs the automation bridge automatically.",
               }
             : undefined
         }
+        expandedContent={
+          showRecovery
+            ? {
+                VERCEL_TOKEN: (
+                  <VercelRecoveryPanel
+                    active
+                    variant="embedded"
+                    credentialSuccessMessage={vercelSuccessMessage}
+                    onCredentialHealthRefresh={() => void refreshSavedHealth()}
+                    onActiveChange={(active) => {
+                      if (active) {
+                        setRecoveryActive(true);
+                      }
+                    }}
+                  />
+                ),
+              }
+            : undefined
+        }
         onChange={setValues}
         onVerifyService={(key) => void reconnectCredential(key)}
-        onServiceBlur={(key) => {
-          const token = values[SERVICE_VALUE_KEY[key]].trim();
-          if (!token) {
-            return;
-          }
-        }}
+        onServiceBlur={() => undefined}
       />
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
-      {successMessage ? (
-        <p className="text-sm text-muted-foreground">{successMessage}</p>
-      ) : null}
-
-      {recoveryActive ? (
-        <VercelRecoveryPanel
-          active
-          onCredentialHealthRefresh={() => void refreshSavedHealth()}
-        />
-      ) : null}
     </div>
   );
 }

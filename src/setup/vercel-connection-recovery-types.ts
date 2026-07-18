@@ -8,11 +8,13 @@ export type VercelRecoveryStage =
   | "connecting_linear"
   | "ready"
   | "needs_scope"
+  | "needs_bridge"
   | "failed";
 
 export type VercelRecoveryNextAction =
   | "enter_different_token"
   | "select_scope"
+  | "select_bridge"
   | "retry_deployment"
   | "retry_verification"
   | "retry_linear_connection"
@@ -24,11 +26,24 @@ export type VercelRecoveryScopeOption = {
   teamName: string;
 };
 
+export type VercelRecoveryBridgeCandidate = {
+  projectId: string;
+  projectName: string;
+  teamId?: string;
+  teamName?: string;
+};
+
 export type VercelRecoveryOperation = {
   operationId: string;
+  /** Monotonic revision for optimistic concurrency. */
+  revision: number;
   stage: VercelRecoveryStage;
-  lastSuccessfulStage?: Exclude<VercelRecoveryStage, "failed" | "needs_scope">;
+  lastSuccessfulStage?: Exclude<
+    VercelRecoveryStage,
+    "failed" | "needs_scope" | "needs_bridge"
+  >;
   selectedScope?: { teamId?: string; teamName: string };
+  selectedBridgeProjectId?: string;
   intendedBridgeProjectName: string;
   projectId?: string;
   deploymentId?: string;
@@ -39,10 +54,14 @@ export type VercelRecoveryOperation = {
   nextAction: VercelRecoveryNextAction;
   humanProblem?: string;
   scopeOptions?: VercelRecoveryScopeOption[];
+  bridgeCandidates?: VercelRecoveryBridgeCandidate[];
   pollActionId?: string;
+  /** Create vs reuse once discovery finishes. */
+  prepareMode?: "create" | "reuse";
   createdAt: string;
   updatedAt: string;
   completedAt?: string;
+  leaseHolder?: string;
   leaseExpiresAt?: string;
 };
 
@@ -51,6 +70,7 @@ export type VercelRecoveryPublicStatus = {
   bridgeHealth: "missing" | "deploying" | "unhealthy" | "verified";
   initialSetupComplete: boolean;
   redirectToWorkflow: boolean;
+  conflict?: boolean;
   completionEvidence?: {
     localConfigPresent: true;
     linearConfigured: true;
@@ -76,7 +96,13 @@ export function vercelRecoveryStageLabel(stage: VercelRecoveryStage): string {
       return "Ready";
     case "needs_scope":
       return "Select Vercel scope";
+    case "needs_bridge":
+      return "Select bridge project";
     case "failed":
       return "Needs attention";
   }
+}
+
+export function isNonterminalRecoveryStage(stage: VercelRecoveryStage): boolean {
+  return stage !== "ready";
 }

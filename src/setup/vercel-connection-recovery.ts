@@ -6,15 +6,14 @@ import {
   updateControlPlaneSetupState,
 } from "./control-plane-setup-state.js";
 import { reconcileInitialSetupCompletion } from "./initial-setup-lifecycle.js";
-import { loadSecretFromEnvLocal } from "./service-verification.js";
+import {
+  loadSecretFromEnvLocal,
+  verifySetupService,
+} from "./service-verification.js";
 import { resolveLocalFilePaths } from "./setup-state.js";
-import { verifySetupService } from "./service-verification.js";
 import { classifyVerificationFailure } from "./credential-health.js";
 import { deterministicBridgeProjectName } from "./vercel-bridge-identity.js";
-import {
-  reconcileVercelControlPlaneFromRemote,
-  type VercelBridgeReconcileResult,
-} from "./vercel-bridge-reconcile.js";
+import { hasPDevBridgeProjectMarker } from "./vercel-bridge-project-marker.js";
 import {
   previewVercelBridgeSetup,
   type VercelBridgePlanInput,
@@ -24,11 +23,17 @@ import {
   type VercelBridgeApplyResult,
 } from "./vercel-setup-apply.js";
 import { pollVercelBridgeRedeployVerification } from "./vercel-bridge-redeploy-poll.js";
-import { listVercelTeams, type VercelTeamSummary } from "./vercel-setup-client.js";
+import {
+  listVercelProjectEnvVars,
+  listVercelProjects,
+  listVercelTeams,
+  type VercelTeamSummary,
+} from "./vercel-setup-client.js";
 import { assessDurableBridgeHealth } from "./workspace-entry.js";
 import type { SetupGuiViewModel } from "./gui-view-model.js";
 import type { RemoteSetupSummary } from "./remote-setup-summary.js";
 import type {
+  VercelRecoveryBridgeCandidate,
   VercelRecoveryNextAction,
   VercelRecoveryOperation,
   VercelRecoveryPublicStatus,
@@ -37,38 +42,21 @@ import type {
 } from "./vercel-connection-recovery-types.js";
 
 export type {
+  VercelRecoveryBridgeCandidate,
   VercelRecoveryNextAction,
   VercelRecoveryOperation,
   VercelRecoveryPublicStatus,
   VercelRecoveryScopeOption,
   VercelRecoveryStage,
 } from "./vercel-connection-recovery-types.js";
-export { vercelRecoveryStageLabel } from "./vercel-connection-recovery-types.js";
-
-function applyResultProblem(result: VercelBridgeApplyResult): string {
-  return (
-    result.setupBlocked?.message ??
-    result.orchestrationStatusMessage ??
-    result.signedProbeReason ??
-    result.signedProbe?.reason ??
-    "Bridge apply finished without full verification."
-  );
-}
-
-function applyLinearWebhookOk(result: VercelBridgeApplyResult): boolean {
-  return result.linearWebhookSetup?.mode === "automated";
-}
+export {
+  isNonterminalRecoveryStage,
+  vercelRecoveryStageLabel,
+} from "./vercel-connection-recovery-types.js";
 
 const OPERATION_FILE = "vercel-connection-recovery.json";
 const STALE_MS = 30 * 60 * 1000;
-const STAGE_ORDER: VercelRecoveryStage[] = [
-  "verifying_vercel",
-  "preparing_bridge",
-  "deploying_bridge",
-  "verifying_webhook",
-  "connecting_linear",
-  "ready",
-];
+const LEASE_MS = 45_000;
 
 function operationPath(cwd?: string): string {
   const paths = resolveLocalFilePaths(cwd);
@@ -86,10 +74,48 @@ async function readOperation(
     if (!parsed.operationId || !parsed.stage) {
       return null;
     }
-    return parsed;
+    return normalizeOperation(parsed);
   } catch {
     return null;
   }
+}
+
+function normalizeOperation(
+  operation: VercelRecoveryOperation,
+): VercelRecoveryOperation {
+  return {
+    ...operation,
+    revision: typeof operation.revision === "number" ? operation.revision : 0,
+  };
+}
+
+/**
+ * Migrate malformed live ops without changing operationId.
+ * Live dead-end: needs_scope + selectedScope + ambiguous multi-bridge message
+ * → preparing_bridge for scoped rediscovery.
+ */
+export function migrateRecoveryOperation(
+  operation: VercelRecoveryOperation,
+): VercelRecoveryOperation {
+  const ambiguous =
+    /multiple pdev-marked bridge projects/i.test(
+      operation.humanProblem ?? operation.failureReason ?? "",
+    );
+  if (
+    operation.stage === "needs_scope" &&
+    operation.selectedScope &&
+    ambiguous
+  ) {
+    return {
+      ...operation,
+      stage: "preparing_bridge",
+      nextAction: "none",
+      humanProblem: undefined,
+      failureReason: undefined,
+      retrySafe: true,
+    };
+  }
+  return operation;
 }
 
 async function writeOperation(
@@ -99,7 +125,11 @@ async function writeOperation(
   const paths = resolveLocalFilePaths(cwd);
   await mkdir(paths.harnessDir, { recursive: true });
   const filePath = operationPath(cwd);
-  const next = { ...operation, updatedAt: new Date().toISOString() };
+  const next = {
+    ...operation,
+    revision: (operation.revision ?? 0) + 1,
+    updatedAt: new Date().toISOString(),
+  };
   const tempPath = `${filePath}.tmp-${process.pid}-${randomUUID()}`;
   await writeFile(tempPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
   await rename(tempPath, filePath);
@@ -110,25 +140,60 @@ function isComplete(operation: VercelRecoveryOperation): boolean {
   return operation.stage === "ready" && Boolean(operation.completedAt);
 }
 
-function isStale(operation: VercelRecoveryOperation): boolean {
-  if (isComplete(operation)) {
+function leaseActive(operation: VercelRecoveryOperation): boolean {
+  if (!operation.leaseHolder || !operation.leaseExpiresAt) {
     return false;
   }
-  // Failed ops are reusable for retry; only in-flight ops become stale.
-  if (operation.stage === "failed" || operation.stage === "needs_scope") {
-    return false;
+  const expires = Date.parse(operation.leaseExpiresAt);
+  return !Number.isNaN(expires) && expires > Date.now();
+}
+
+async function acquireLease(
+  operation: VercelRecoveryOperation,
+  cwd: string | undefined,
+  holder: string,
+  expectedRevision?: number,
+): Promise<
+  | { ok: true; operation: VercelRecoveryOperation }
+  | { ok: false; conflict: true; operation: VercelRecoveryOperation }
+> {
+  if (
+    expectedRevision !== undefined &&
+    operation.revision !== expectedRevision
+  ) {
+    return { ok: false, conflict: true, operation };
   }
-  const updated = Date.parse(operation.updatedAt);
-  if (Number.isNaN(updated)) {
-    return true;
+  if (leaseActive(operation) && operation.leaseHolder !== holder) {
+    return { ok: false, conflict: true, operation };
   }
-  return Date.now() - updated > STALE_MS;
+  const leased = await writeOperation(
+    {
+      ...operation,
+      leaseHolder: holder,
+      leaseExpiresAt: new Date(Date.now() + LEASE_MS).toISOString(),
+    },
+    cwd,
+  );
+  return { ok: true, operation: leased };
+}
+
+async function releaseLease(
+  operation: VercelRecoveryOperation,
+  cwd: string | undefined,
+): Promise<VercelRecoveryOperation> {
+  return writeOperation(
+    {
+      ...operation,
+      leaseHolder: undefined,
+      leaseExpiresAt: new Date(Date.now() + STALE_MS).toISOString(),
+    },
+    cwd,
+  );
 }
 
 function failOperation(
   operation: VercelRecoveryOperation,
   input: {
-    stage: VercelRecoveryStage;
     humanProblem: string;
     nextAction: VercelRecoveryNextAction;
     retrySafe: boolean;
@@ -149,19 +214,32 @@ function failOperation(
 
 function markSuccess(
   operation: VercelRecoveryOperation,
-  stage: Exclude<VercelRecoveryStage, "failed" | "needs_scope">,
+  lastSuccessfulStage: Exclude<
+    VercelRecoveryStage,
+    "failed" | "needs_scope" | "needs_bridge"
+  >,
   patch?: Partial<VercelRecoveryOperation>,
 ): VercelRecoveryOperation {
   return {
     ...operation,
+    stage: lastSuccessfulStage,
     ...patch,
-    stage,
-    lastSuccessfulStage: stage,
+    lastSuccessfulStage,
     failureReason: undefined,
     humanProblem: undefined,
-    nextAction: "none",
+    nextAction: patch?.nextAction ?? "none",
     retrySafe: true,
   };
+}
+
+function applyResultProblem(result: VercelBridgeApplyResult): string {
+  return (
+    result.setupBlocked?.message ??
+    result.orchestrationStatusMessage ??
+    result.signedProbeReason ??
+    result.signedProbe?.reason ??
+    "Bridge apply finished without full verification."
+  );
 }
 
 async function listScopeOptions(
@@ -178,13 +256,39 @@ async function listScopeOptions(
   ];
 }
 
+async function listMarkedBridgesInScope(input: {
+  vercelToken: string;
+  teamId?: string;
+  teamName?: string;
+}): Promise<VercelRecoveryBridgeCandidate[]> {
+  const projects = await listVercelProjects(input.vercelToken, input.teamId);
+  const candidates: VercelRecoveryBridgeCandidate[] = [];
+  for (const project of projects) {
+    const envVars = await listVercelProjectEnvVars(
+      input.vercelToken,
+      project.id,
+      input.teamId,
+    );
+    if (!hasPDevBridgeProjectMarker(envVars)) {
+      continue;
+    }
+    candidates.push({
+      projectId: project.id,
+      projectName: project.name,
+      teamId: input.teamId,
+      teamName: input.teamName,
+    });
+  }
+  return candidates;
+}
+
 export type VercelRecoveryDependencies = {
   verifyToken?: typeof verifySetupService;
-  reconcile?: typeof reconcileVercelControlPlaneFromRemote;
   preview?: typeof previewVercelBridgeSetup;
   apply?: typeof applyVercelBridgeSetup;
   poll?: typeof pollVercelBridgeRedeployVerification;
   listTeams?: typeof listVercelTeams;
+  listMarkedInScope?: typeof listMarkedBridgesInScope;
   loadVercelToken?: (cwd?: string) => Promise<string | undefined>;
   loadLinearApiKey?: (cwd?: string) => Promise<string | undefined>;
   loadSetupSummary?: (cwd?: string) => Promise<SetupGuiViewModel>;
@@ -192,9 +296,147 @@ export type VercelRecoveryDependencies = {
   reconcileCompletion?: typeof reconcileInitialSetupCompletion;
 };
 
+async function toPublicStatus(
+  operation: VercelRecoveryOperation | null,
+  cwd?: string,
+  conflict?: boolean,
+): Promise<VercelRecoveryPublicStatus> {
+  const state = await readControlPlaneSetupState(cwd);
+  const bridgeHealth =
+    operation?.stage === "deploying_bridge"
+      ? "deploying"
+      : assessDurableBridgeHealth(state);
+  return {
+    operation,
+    bridgeHealth,
+    conflict,
+    initialSetupComplete: state?.initialSetup?.status === "complete",
+    redirectToWorkflow:
+      operation?.stage === "ready" &&
+      (state?.initialSetup?.status === "complete" ||
+        Boolean(
+          state?.vercel?.signedProbeVerified &&
+            state?.vercel?.linearWebhookVerified,
+        )),
+    completionEvidence: state?.initialSetup?.completionEvidence,
+  };
+}
+
+export async function getVercelConnectionRecoveryStatus(input: {
+  cwd?: string;
+  operationId?: string;
+}): Promise<VercelRecoveryPublicStatus> {
+  let operation = await readOperation(input.cwd);
+  if (
+    input.operationId &&
+    operation &&
+    operation.operationId !== input.operationId
+  ) {
+    throw new Error("Recovery operation ID does not match the active operation.");
+  }
+  if (operation) {
+    const migrated = migrateRecoveryOperation(operation);
+    if (migrated.stage !== operation.stage) {
+      operation = await writeOperation(migrated, input.cwd);
+    } else {
+      operation = migrated;
+    }
+  }
+  return toPublicStatus(operation, input.cwd);
+}
+
 /**
- * Start or resume the single active Vercel recovery operation for a workspace.
- * Duplicate starts reuse the same operation when still active.
+ * Persist selected Vercel scope and return preparing_bridge immediately.
+ * Does not create projects or deploy.
+ */
+export async function selectVercelRecoveryScope(input: {
+  cwd?: string;
+  operationId: string;
+  selectedScope: { teamId?: string; teamName: string };
+  expectedRevision?: number;
+  deps?: VercelRecoveryDependencies;
+}): Promise<VercelRecoveryPublicStatus> {
+  const holder = `select-${randomUUID()}`;
+  let operation = await readOperation(input.cwd);
+  if (!operation || operation.operationId !== input.operationId) {
+    throw new Error("Recovery operation ID does not match the active operation.");
+  }
+  operation = migrateRecoveryOperation(operation);
+  const leased = await acquireLease(
+    operation,
+    input.cwd,
+    holder,
+    input.expectedRevision,
+  );
+  if (!leased.ok) {
+    return toPublicStatus(leased.operation, input.cwd, true);
+  }
+  operation = await writeOperation(
+    {
+      ...leased.operation,
+      selectedScope: input.selectedScope,
+      stage: "preparing_bridge",
+      nextAction: "none",
+      humanProblem: undefined,
+      failureReason: undefined,
+      bridgeCandidates: undefined,
+      prepareMode: undefined,
+      selectedBridgeProjectId: undefined,
+      retrySafe: true,
+    },
+    input.cwd,
+  );
+  operation = await releaseLease(operation, input.cwd);
+  return toPublicStatus(operation, input.cwd);
+}
+
+export async function selectVercelRecoveryBridge(input: {
+  cwd?: string;
+  operationId: string;
+  projectId: string;
+  expectedRevision?: number;
+}): Promise<VercelRecoveryPublicStatus> {
+  const holder = `bridge-${randomUUID()}`;
+  let operation = await readOperation(input.cwd);
+  if (!operation || operation.operationId !== input.operationId) {
+    throw new Error("Recovery operation ID does not match the active operation.");
+  }
+  const match = operation.bridgeCandidates?.find(
+    (candidate) => candidate.projectId === input.projectId,
+  );
+  if (!match) {
+    throw new Error("Selected bridge project is not in the candidate list.");
+  }
+  const leased = await acquireLease(
+    operation,
+    input.cwd,
+    holder,
+    input.expectedRevision,
+  );
+  if (!leased.ok) {
+    return toPublicStatus(leased.operation, input.cwd, true);
+  }
+  operation = await writeOperation(
+    {
+      ...leased.operation,
+      selectedBridgeProjectId: match.projectId,
+      projectId: match.projectId,
+      prepareMode: "reuse",
+      stage: "preparing_bridge",
+      nextAction: "none",
+      humanProblem: undefined,
+      failureReason: undefined,
+      retrySafe: true,
+    },
+    input.cwd,
+  );
+  operation = await releaseLease(operation, input.cwd);
+  return toPublicStatus(operation, input.cwd);
+}
+
+/**
+ * Start recovery only when no nonterminal operation exists.
+ * Never creates a second op while one is active.
  */
 export async function startVercelConnectionRecovery(input: {
   cwd?: string;
@@ -202,20 +444,20 @@ export async function startVercelConnectionRecovery(input: {
   deps?: VercelRecoveryDependencies;
 }): Promise<VercelRecoveryPublicStatus> {
   const existing = await readOperation(input.cwd);
-  // Reuse the active (or failed/retryable) operation. Only a completed ready
-  // operation starts fresh — duplicate starts must not create another op.
-  if (existing && !isComplete(existing) && !isStale(existing)) {
-    return advanceVercelConnectionRecovery({
-      cwd: input.cwd,
-      operationId: existing.operationId,
-      selectedScope: input.selectedScope ?? existing.selectedScope,
-      deps: input.deps,
-    });
+  if (existing && !isComplete(existing)) {
+    const migrated = migrateRecoveryOperation(existing);
+    const operation =
+      migrated.stage !== existing.stage
+        ? await writeOperation(migrated, input.cwd)
+        : migrated;
+    // Resume only — bounded advance is owned by the client controller.
+    return toPublicStatus(operation, input.cwd);
   }
 
   const now = new Date().toISOString();
   const operation: VercelRecoveryOperation = {
     operationId: randomUUID(),
+    revision: 0,
     stage: "verifying_vercel",
     intendedBridgeProjectName: deterministicBridgeProjectName(input.cwd),
     selectedScope: input.selectedScope,
@@ -224,136 +466,95 @@ export async function startVercelConnectionRecovery(input: {
     nextAction: "none",
     createdAt: now,
     updatedAt: now,
-    leaseExpiresAt: new Date(Date.now() + STALE_MS).toISOString(),
   };
   await writeOperation(operation, input.cwd);
   return advanceVercelConnectionRecovery({
     cwd: input.cwd,
     operationId: operation.operationId,
-    selectedScope: input.selectedScope,
     deps: input.deps,
   });
 }
 
-export async function getVercelConnectionRecoveryStatus(input: {
-  cwd?: string;
-  operationId?: string;
-}): Promise<VercelRecoveryPublicStatus> {
-  const operation = await readOperation(input.cwd);
-  if (
-    input.operationId &&
-    operation &&
-    operation.operationId !== input.operationId
-  ) {
-    throw new Error("Recovery operation ID does not match the active operation.");
-  }
-  const state = await readControlPlaneSetupState(input.cwd);
-  const bridgeHealth = assessDurableBridgeHealth(state);
-  return {
-    operation,
-    bridgeHealth,
-    initialSetupComplete: state?.initialSetup?.status === "complete",
-    redirectToWorkflow:
-      operation?.stage === "ready" &&
-      state?.initialSetup?.status === "complete",
-    completionEvidence: state?.initialSetup?.completionEvidence,
-  };
-}
-
+/**
+ * Perform one durable transition or one bounded poll attempt.
+ */
 export async function advanceVercelConnectionRecovery(input: {
   cwd?: string;
   operationId: string;
-  selectedScope?: { teamId?: string; teamName: string };
+  expectedRevision?: number;
   deps?: VercelRecoveryDependencies;
 }): Promise<VercelRecoveryPublicStatus> {
   const deps = input.deps ?? {};
   const verifyToken = deps.verifyToken ?? verifySetupService;
-  const reconcile = deps.reconcile ?? reconcileVercelControlPlaneFromRemote;
   const preview = deps.preview ?? previewVercelBridgeSetup;
   const apply = deps.apply ?? applyVercelBridgeSetup;
   const poll = deps.poll ?? pollVercelBridgeRedeployVerification;
+  const listTeamsFn = deps.listTeams ?? listVercelTeams;
+  const listMarked =
+    deps.listMarkedInScope ?? listMarkedBridgesInScope;
   const loadVercelToken =
     deps.loadVercelToken ??
     ((cwd?: string) => loadSecretFromEnvLocal({ cwd, key: "VERCEL_TOKEN" }));
   const loadLinearApiKey =
     deps.loadLinearApiKey ??
     ((cwd?: string) => loadSecretFromEnvLocal({ cwd, key: "LINEAR_API_KEY" }));
-  const listTeamsFn = deps.listTeams ?? listVercelTeams;
 
+  const holder = `advance-${randomUUID()}`;
   let operation = await readOperation(input.cwd);
   if (!operation || operation.operationId !== input.operationId) {
     throw new Error("Recovery operation ID does not match the active operation.");
   }
+  operation = migrateRecoveryOperation(operation);
 
-  if (input.selectedScope) {
-    operation = await writeOperation(
-      {
-        ...operation,
-        selectedScope: input.selectedScope,
-        stage:
-          operation.stage === "needs_scope" || operation.stage === "failed"
-            ? "preparing_bridge"
-            : operation.stage,
-        nextAction: "none",
-        failureReason: undefined,
-        humanProblem: undefined,
-      },
-      input.cwd,
-    );
+  if (
+    operation.stage === "needs_scope" ||
+    operation.stage === "needs_bridge" ||
+    operation.stage === "ready"
+  ) {
+    return toPublicStatus(operation, input.cwd);
   }
 
-  // Resume from last verified stage on retry after failure.
-  if (operation.stage === "failed" && operation.lastSuccessfulStage) {
-    const resumeIndex = STAGE_ORDER.indexOf(operation.lastSuccessfulStage);
-    const nextStage =
-      resumeIndex >= 0 && resumeIndex < STAGE_ORDER.length - 1
-        ? STAGE_ORDER[resumeIndex + 1]!
-        : operation.lastSuccessfulStage;
-    operation = await writeOperation(
-      {
-        ...operation,
-        stage: nextStage === "ready" ? "verifying_webhook" : nextStage,
-        failureReason: undefined,
-        humanProblem: undefined,
-        nextAction: "none",
-        retrySafe: true,
-      },
-      input.cwd,
-    );
-  } else if (operation.stage === "failed") {
-    operation = await writeOperation(
-      {
-        ...operation,
-        stage: "verifying_vercel",
-        failureReason: undefined,
-        humanProblem: undefined,
-        nextAction: "none",
-      },
-      input.cwd,
-    );
+  if (operation.stage === "failed") {
+    const resume =
+      operation.lastSuccessfulStage === "verifying_vercel"
+        ? "preparing_bridge"
+        : operation.lastSuccessfulStage ?? "verifying_vercel";
+    operation = {
+      ...operation,
+      stage: resume === "ready" ? "verifying_webhook" : resume,
+      failureReason: undefined,
+      humanProblem: undefined,
+      nextAction: "none",
+      retrySafe: true,
+    };
   }
+
+  const leased = await acquireLease(
+    operation,
+    input.cwd,
+    holder,
+    input.expectedRevision,
+  );
+  if (!leased.ok) {
+    return toPublicStatus(leased.operation, input.cwd, true);
+  }
+  operation = leased.operation;
 
   try {
-    // Stage: verifying_vercel
-    if (
-      operation.stage === "verifying_vercel" ||
-      !operation.lastSuccessfulStage
-    ) {
-      operation = await writeOperation(
-        { ...operation, stage: "verifying_vercel" },
-        input.cwd,
-      );
+    // Step: verifying_vercel
+    if (operation.stage === "verifying_vercel") {
       const token = (await loadVercelToken(input.cwd))?.trim();
       if (!token) {
         operation = await writeOperation(
           failOperation(operation, {
-            stage: "verifying_vercel",
-            humanProblem: "Vercel token is missing. Paste a valid token to reconnect.",
+            humanProblem:
+              "Vercel token is missing. Paste a valid token to reconnect.",
             nextAction: "enter_different_token",
             retrySafe: true,
           }),
           input.cwd,
         );
+        operation = await releaseLease(operation, input.cwd);
         return toPublicStatus(operation, input.cwd);
       }
       const verified = await verifyToken({
@@ -365,7 +566,6 @@ export async function advanceVercelConnectionRecovery(input: {
         const health = classifyVerificationFailure(verified);
         operation = await writeOperation(
           failOperation(operation, {
-            stage: "verifying_vercel",
             humanProblem: verified.message,
             nextAction:
               health === "unauthorized"
@@ -375,356 +575,275 @@ export async function advanceVercelConnectionRecovery(input: {
           }),
           input.cwd,
         );
+        operation = await releaseLease(operation, input.cwd);
         return toPublicStatus(operation, input.cwd);
       }
-      operation = await writeOperation(
-        markSuccess(operation, "verifying_vercel"),
-        input.cwd,
-      );
-    }
 
-    // Scope selection before creating anything
-    const token = (await loadVercelToken(input.cwd))?.trim() ?? "";
-    const scopes = await listScopeOptions(token, listTeamsFn);
-    if (!operation.selectedScope && scopes.length > 1) {
-      // Personal + teams — require explicit choice when more than personal alone
-      // with at least one team, or when multiple teams exist.
+      const scopes = await listScopeOptions(token, listTeamsFn);
       const teamScopes = scopes.filter((scope) => scope.teamId);
-      if (teamScopes.length >= 1) {
+      if (!operation.selectedScope && teamScopes.length >= 1) {
         operation = await writeOperation(
           {
-            ...operation,
+            ...markSuccess(operation, "verifying_vercel"),
             stage: "needs_scope",
             scopeOptions: scopes,
             nextAction: "select_scope",
             humanProblem:
               "Select a Vercel scope before PDev prepares the automation bridge.",
-            retrySafe: true,
           },
           input.cwd,
         );
+        operation = await releaseLease(operation, input.cwd);
         return toPublicStatus(operation, input.cwd);
       }
-    }
-    if (!operation.selectedScope) {
-      operation = await writeOperation(
-        {
+      if (!operation.selectedScope) {
+        operation = {
           ...operation,
           selectedScope: { teamName: "Personal account" },
-        },
-        input.cwd,
-      );
-    }
-
-    // Stage: preparing_bridge — discover marked bridge or create dedicated
-    if (
-      operation.stage === "preparing_bridge" ||
-      operation.lastSuccessfulStage === "verifying_vercel" ||
-      operation.stage === "needs_scope"
-    ) {
-      if (operation.stage === "needs_scope") {
-        return toPublicStatus(operation, input.cwd);
+        };
       }
       operation = await writeOperation(
-        { ...operation, stage: "preparing_bridge" },
+        markSuccess(operation, "verifying_vercel", {
+          stage: "preparing_bridge",
+          selectedScope: operation.selectedScope,
+        }),
         input.cwd,
       );
+      operation = await releaseLease(operation, input.cwd);
+      return toPublicStatus(operation, input.cwd);
+    }
 
-      const state = await readControlPlaneSetupState(input.cwd);
-      let reconcileResult: VercelBridgeReconcileResult | null = null;
+    // Step: preparing_bridge — scoped discovery OR one apply transition
+    if (operation.stage === "preparing_bridge") {
+      const token = (await loadVercelToken(input.cwd))?.trim() ?? "";
+      if (!token) {
+        operation = await writeOperation(
+          failOperation(operation, {
+            humanProblem: "Vercel token is missing.",
+            nextAction: "enter_different_token",
+            retrySafe: true,
+          }),
+          input.cwd,
+        );
+        operation = await releaseLease(operation, input.cwd);
+        return toPublicStatus(operation, input.cwd);
+      }
 
-      if (!state?.vercel?.projectId?.trim()) {
-        reconcileResult = await reconcile({ cwd: input.cwd });
-        if (reconcileResult.status === "ambiguous") {
-          operation = await writeOperation(
-            failOperation(operation, {
-              stage: "preparing_bridge",
-              humanProblem:
-                "Multiple PDev-marked bridge projects were found. Choose the correct scope or remove extras in Vercel, then retry.",
-              nextAction: "select_scope",
-              retrySafe: true,
-            }),
-            input.cwd,
-          );
+      if (!operation.prepareMode && !operation.projectId) {
+        const marked = await listMarked({
+          vercelToken: token,
+          teamId: operation.selectedScope?.teamId,
+          teamName: operation.selectedScope?.teamName,
+        });
+        if (marked.length > 1) {
           operation = await writeOperation(
             {
               ...operation,
-              stage: "needs_scope",
-              scopeOptions: scopes,
-              nextAction: "select_scope",
+              stage: "needs_bridge",
+              bridgeCandidates: marked,
+              nextAction: "select_bridge",
+              humanProblem:
+                "Multiple PDev-marked bridge projects exist in this Vercel scope. Choose which one to reuse.",
+              retrySafe: true,
             },
             input.cwd,
           );
+          operation = await releaseLease(operation, input.cwd);
           return toPublicStatus(operation, input.cwd);
         }
+        if (marked.length === 1) {
+          operation = await writeOperation(
+            {
+              ...operation,
+              prepareMode: "reuse",
+              projectId: marked[0]!.projectId,
+              selectedBridgeProjectId: marked[0]!.projectId,
+            },
+            input.cwd,
+          );
+        } else {
+          operation = await writeOperation(
+            {
+              ...operation,
+              prepareMode: "create",
+            },
+            input.cwd,
+          );
+        }
+        operation = await releaseLease(operation, input.cwd);
+        return toPublicStatus(operation, input.cwd);
       }
 
-      const afterReconcile = await readControlPlaneSetupState(input.cwd);
-      if (
-        afterReconcile?.vercel?.projectId?.trim() &&
-        afterReconcile.vercel.signedProbeVerified &&
-        afterReconcile.vercel.linearWebhookVerified
-      ) {
+      // One apply transition (create or reuse)
+      const linearApiKey = (await loadLinearApiKey(input.cwd))?.trim();
+      const controlPlane = await readControlPlaneSetupState(input.cwd);
+      const reuseProjectId = operation.projectId;
+      const plan: VercelBridgePlanInput =
+        operation.prepareMode === "reuse" && reuseProjectId
+          ? {
+              vercelToken: token,
+              team: {
+                mode: "existing",
+                teamId: operation.selectedScope?.teamId,
+              },
+              project: {
+                mode: "existing",
+                projectId: reuseProjectId,
+                projectName:
+                  operation.bridgeCandidates?.find(
+                    (c) => c.projectId === reuseProjectId,
+                  )?.projectName ?? operation.intendedBridgeProjectName,
+              },
+              teamId: operation.selectedScope?.teamId,
+              projectId: reuseProjectId,
+              linearApiKey,
+              linearTeamId:
+                controlPlane?.linearWorkspace?.teams[0]?.teamId ??
+                controlPlane?.linear?.teamId,
+              derivedHarnessTeamKey:
+                controlPlane?.linearWorkspace?.teams[0]?.teamKey ??
+                controlPlane?.linear?.teamKey,
+              allowExistingProjectBridgeInstall: true,
+            }
+          : {
+              vercelToken: token,
+              team: {
+                mode: "existing",
+                teamId: operation.selectedScope?.teamId,
+              },
+              project: {
+                mode: "create",
+                projectName: operation.intendedBridgeProjectName,
+              },
+              teamId: operation.selectedScope?.teamId,
+              projectName: operation.intendedBridgeProjectName,
+              linearApiKey,
+              linearTeamId:
+                controlPlane?.linearWorkspace?.teams[0]?.teamId ??
+                controlPlane?.linear?.teamId,
+              derivedHarnessTeamKey:
+                controlPlane?.linearWorkspace?.teams[0]?.teamKey ??
+                controlPlane?.linear?.teamKey,
+            };
+
+      const previewResult = await preview(plan);
+      if (previewResult.validationError || !previewResult.readiness.ready) {
         operation = await writeOperation(
-          markSuccess(operation, "ready", {
-            projectId: afterReconcile.vercel.projectId,
-            stage: "ready",
-            completedAt: new Date().toISOString(),
+          failOperation(operation, {
+            humanProblem:
+              previewResult.validationError ??
+              (previewResult.readiness.blockers.join(" ") ||
+                "Unable to prepare the automation bridge."),
+            nextAction: "retry_recovery",
+            retrySafe: true,
           }),
           input.cwd,
         );
-        return finalizeIfReady(operation, input.cwd, deps);
+        operation = await releaseLease(operation, input.cwd);
+        return toPublicStatus(operation, input.cwd);
       }
 
-      // Create dedicated bridge when none marked
-      if (
-        !afterReconcile?.vercel?.projectId?.trim() ||
-        reconcileResult?.status === "not_found" ||
-        reconcileResult?.status === "unhealthy" ||
-        reconcileResult?.status === "verification_failed"
-      ) {
-        const linearApiKey = (await loadLinearApiKey(input.cwd))?.trim();
-        const plan: VercelBridgePlanInput = {
-          vercelToken: token,
-          team: {
-            mode: "existing",
-            teamId: operation.selectedScope?.teamId,
-          },
-          project: {
-            mode: "create",
-            projectName: operation.intendedBridgeProjectName,
-          },
-          teamId: operation.selectedScope?.teamId,
-          projectName: operation.intendedBridgeProjectName,
-          linearApiKey,
-          linearTeamId:
-            afterReconcile?.linearWorkspace?.teams[0]?.teamId ??
-            afterReconcile?.linear?.teamId,
-          derivedHarnessTeamKey:
-            afterReconcile?.linearWorkspace?.teams[0]?.teamKey ??
-            afterReconcile?.linear?.teamKey,
-        };
+      const applyResult = await apply({
+        plan,
+        confirmed: true,
+        fingerprint: previewResult.fingerprint,
+        cwd: input.cwd,
+      });
 
-        const previewResult = await preview(plan);
-        if (previewResult.validationError || !previewResult.readiness.ready) {
-          operation = await writeOperation(
-            failOperation(operation, {
-              stage: "preparing_bridge",
-              humanProblem:
-                previewResult.validationError ??
-                (previewResult.readiness.blockers.join(" ") ||
-                  "Unable to prepare the automation bridge."),
-              nextAction: "retry_recovery",
-              retrySafe: true,
-            }),
-            input.cwd,
-          );
-          return toPublicStatus(operation, input.cwd);
-        }
+      operation = {
+        ...operation,
+        remoteMutationsOccurred: true,
+        projectId: applyResult.projectId ?? operation.projectId,
+        pollActionId: applyResult.pollActionId,
+      };
 
+      if (applyResult.setupBlocked) {
+        operation = await writeOperation(
+          failOperation(operation, {
+            humanProblem: applyResult.setupBlocked.message,
+            nextAction: "retry_deployment",
+            retrySafe: true,
+            remoteMutationsOccurred: true,
+          }),
+          input.cwd,
+        );
+        operation = await releaseLease(operation, input.cwd);
+        return toPublicStatus(operation, input.cwd);
+      }
+
+      if (applyResult.setupPending && applyResult.pollActionId) {
         operation = await writeOperation(
           markSuccess(operation, "preparing_bridge", {
             stage: "deploying_bridge",
+            pollActionId: applyResult.pollActionId,
+            projectId: applyResult.projectId,
+            remoteMutationsOccurred: true,
           }),
           input.cwd,
         );
+        operation = await releaseLease(operation, input.cwd);
+        return toPublicStatus(operation, input.cwd);
+      }
 
-        const applyResult = await apply({
-          plan,
-          confirmed: true,
-          fingerprint: previewResult.fingerprint,
-          cwd: input.cwd,
-        });
-
+      if (!applyResult.verified) {
         operation = await writeOperation(
-          {
-            ...operation,
-            remoteMutationsOccurred: true,
-            projectId: applyResult.projectId ?? operation.projectId,
-            pollActionId: applyResult.pollActionId,
-            linearWebhookId: undefined,
-          },
-          input.cwd,
-        );
-
-        if (applyResult.setupBlocked) {
-          operation = await writeOperation(
-            failOperation(operation, {
-              stage: "deploying_bridge",
-              humanProblem: applyResult.setupBlocked.message,
-              nextAction: "retry_deployment",
-              retrySafe: true,
-              remoteMutationsOccurred: true,
-            }),
-            input.cwd,
-          );
-          return toPublicStatus(operation, input.cwd);
-        }
-
-        if (applyResult.setupPending && applyResult.pollActionId) {
-          operation = await writeOperation(
-            markSuccess(operation, "deploying_bridge", {
-              stage: "verifying_webhook",
+          failOperation(
+            {
+              ...operation,
+              projectId: applyResult.projectId ?? operation.projectId,
               pollActionId: applyResult.pollActionId,
-            }),
-            input.cwd,
-          );
-          const polled = await poll({
-            actionId: applyResult.pollActionId,
-            cwd: input.cwd,
-          });
-          if (!polled.verified) {
-            operation = await writeOperation(
-              failOperation(operation, {
-                stage: "verifying_webhook",
-                humanProblem:
-                  applyResultProblem(polled) ||
-                  "Webhook verification did not complete after deployment.",
-                nextAction: "retry_verification",
-                retrySafe: true,
-                remoteMutationsOccurred: true,
-              }),
-              input.cwd,
-            );
-            return toPublicStatus(operation, input.cwd);
-          }
-        } else if (!applyResult.verified) {
-          operation = await writeOperation(
-            failOperation(operation, {
-              stage: applyResult.signedProbeVerified
-                ? "connecting_linear"
-                : "verifying_webhook",
+            },
+            {
               humanProblem: applyResultProblem(applyResult),
-              nextAction: applyLinearWebhookOk(applyResult)
-                ? "retry_verification"
-                : "retry_linear_connection",
+              nextAction: applyResult.signedProbeVerified
+                ? "retry_linear_connection"
+                : "retry_verification",
               retrySafe: true,
               remoteMutationsOccurred: true,
-            }),
-            input.cwd,
-          );
-          return toPublicStatus(operation, input.cwd);
-        }
-
-        operation = await writeOperation(
-          markSuccess(operation, "connecting_linear", {
-            stage: "ready",
-            projectId: applyResult.projectId ?? operation.projectId,
-            completedAt: new Date().toISOString(),
-          }),
+            },
+          ),
           input.cwd,
         );
-        return finalizeIfReady(operation, input.cwd, deps);
+        operation = await releaseLease(operation, input.cwd);
+        return toPublicStatus(operation, input.cwd);
       }
 
-      // Reconcile path: existing marked bridge, may need redeploy/verify
-      if (afterReconcile?.vercel?.projectId?.trim()) {
-        operation = await writeOperation(
-          markSuccess(operation, "preparing_bridge", {
-            projectId: afterReconcile.vercel.projectId,
-            stage: "deploying_bridge",
-          }),
-          input.cwd,
-        );
-
-        const linearApiKey = (await loadLinearApiKey(input.cwd))?.trim();
-        const plan: VercelBridgePlanInput = {
-          vercelToken: token,
-          team: {
-            mode: "existing",
-            teamId: afterReconcile.vercel.teamId ?? operation.selectedScope?.teamId,
-          },
-          project: {
-            mode: "existing",
-            projectId: afterReconcile.vercel.projectId,
-            projectName: afterReconcile.vercel.projectName,
-          },
-          teamId: afterReconcile.vercel.teamId ?? operation.selectedScope?.teamId,
-          projectId: afterReconcile.vercel.projectId,
-          projectName: afterReconcile.vercel.projectName,
-          linearApiKey,
-          linearTeamId:
-            afterReconcile.linearWorkspace?.teams[0]?.teamId ??
-            afterReconcile.linear?.teamId,
-          derivedHarnessTeamKey:
-            afterReconcile.linearWorkspace?.teams[0]?.teamKey ??
-            afterReconcile.linear?.teamKey,
-          allowExistingProjectBridgeInstall: true,
-        };
-        const previewResult = await preview(plan);
-        const applyResult = await apply({
-          plan,
-          confirmed: true,
-          fingerprint: previewResult.fingerprint,
-          cwd: input.cwd,
-        });
-        operation = await writeOperation(
-          {
-            ...operation,
-            remoteMutationsOccurred: true,
-            pollActionId: applyResult.pollActionId,
-          },
-          input.cwd,
-        );
-
-        if (applyResult.setupPending && applyResult.pollActionId) {
-          const polled = await poll({
-            actionId: applyResult.pollActionId,
-            cwd: input.cwd,
-          });
-          if (!polled.verified) {
-            operation = await writeOperation(
-              failOperation(operation, {
-                stage: "verifying_webhook",
-                humanProblem:
-                  applyResultProblem(polled) ||
-                  "Webhook verification failed after redeploy.",
-                nextAction: "retry_verification",
-                retrySafe: true,
-                remoteMutationsOccurred: true,
-              }),
-              input.cwd,
-            );
-            return toPublicStatus(operation, input.cwd);
-          }
-        } else if (!applyResult.verified) {
-          operation = await writeOperation(
-            failOperation(operation, {
-              stage: "verifying_webhook",
-              humanProblem:
-                applyResultProblem(applyResult) ||
-                "Bridge verification incomplete.",
-              nextAction: "retry_verification",
-              retrySafe: true,
-              remoteMutationsOccurred: true,
-            }),
-            input.cwd,
-          );
-          return toPublicStatus(operation, input.cwd);
-        }
-
-        operation = await writeOperation(
-          markSuccess(operation, "ready", {
-            stage: "ready",
-            projectId: afterReconcile.vercel.projectId,
-            completedAt: new Date().toISOString(),
-          }),
-          input.cwd,
-        );
-        return finalizeIfReady(operation, input.cwd, deps);
-      }
+      operation = await writeOperation(
+        markSuccess(operation, "connecting_linear", {
+          stage: "ready",
+          projectId: applyResult.projectId,
+          completedAt: new Date().toISOString(),
+          remoteMutationsOccurred: true,
+        }),
+        input.cwd,
+      );
+      operation = await releaseLease(operation, input.cwd);
+      return finalizeIfReady(operation, input.cwd, deps);
     }
 
-    // Poll pending redeploy if mid-flight
+    // Step: deploying_bridge / verifying_webhook — one poll attempt
     if (
-      operation.pollActionId &&
-      (operation.stage === "deploying_bridge" ||
-        operation.stage === "verifying_webhook")
+      operation.stage === "deploying_bridge" ||
+      operation.stage === "verifying_webhook"
     ) {
+      if (!operation.pollActionId) {
+        operation = await writeOperation(
+          failOperation(operation, {
+            humanProblem: "Missing deployment poll action. Retry deployment.",
+            nextAction: "retry_deployment",
+            retrySafe: true,
+          }),
+          input.cwd,
+        );
+        operation = await releaseLease(operation, input.cwd);
+        return toPublicStatus(operation, input.cwd);
+      }
+
       const polled = await poll({
         actionId: operation.pollActionId,
         cwd: input.cwd,
       });
+
       if (polled.verified) {
         operation = await writeOperation(
           markSuccess(operation, "ready", {
@@ -733,43 +852,66 @@ export async function advanceVercelConnectionRecovery(input: {
           }),
           input.cwd,
         );
+        operation = await releaseLease(operation, input.cwd);
         return finalizeIfReady(operation, input.cwd, deps);
       }
+
+      if (polled.setupPending) {
+        operation = await writeOperation(
+          {
+            ...operation,
+            stage: "deploying_bridge",
+            humanProblem: undefined,
+            nextAction: "none",
+          },
+          input.cwd,
+        );
+        operation = await releaseLease(operation, input.cwd);
+        return toPublicStatus(operation, input.cwd);
+      }
+
       operation = await writeOperation(
         failOperation(operation, {
-          stage: "verifying_webhook",
-          humanProblem:
-            applyResultProblem(polled) ||
-            "Deployment verification incomplete.",
+          humanProblem: applyResultProblem(polled),
           nextAction: "retry_verification",
           retrySafe: true,
         }),
         input.cwd,
       );
+      operation = await releaseLease(operation, input.cwd);
       return toPublicStatus(operation, input.cwd);
     }
 
-    if (operation.stage === "ready") {
+    // Step: connecting_linear — finalize via completion reconcile
+    if (operation.stage === "connecting_linear") {
+      operation = await writeOperation(
+        markSuccess(operation, "ready", {
+          stage: "ready",
+          completedAt: new Date().toISOString(),
+        }),
+        input.cwd,
+      );
+      operation = await releaseLease(operation, input.cwd);
       return finalizeIfReady(operation, input.cwd, deps);
     }
 
+    operation = await releaseLease(operation, input.cwd);
     return toPublicStatus(operation, input.cwd);
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Vercel recovery failed.";
-    // Never instruct the operator to edit .env.local manually.
     const sanitized = message
       .replace(/\.env\.local/gi, "saved credentials")
       .replace(/vercel cli/gi, "PDev");
     operation = await writeOperation(
       failOperation(operation, {
-        stage: operation.stage,
         humanProblem: sanitized,
         nextAction: "retry_recovery",
         retrySafe: true,
       }),
       input.cwd,
     );
+    operation = await releaseLease(operation, input.cwd);
     return toPublicStatus(operation, input.cwd);
   }
 }
@@ -781,9 +923,6 @@ async function finalizeIfReady(
 ): Promise<VercelRecoveryPublicStatus> {
   const reconcileCompletion =
     deps.reconcileCompletion ?? reconcileInitialSetupCompletion;
-
-  // Persist authoritative control-plane vercel is already done by apply/reconcile.
-  // Run canonical initial-setup reconciliation when summary loaders are provided.
   if (deps.loadSetupSummary && deps.loadRemoteSummary) {
     const setupSummary = await deps.loadSetupSummary(cwd);
     const remoteSummary = await deps.loadRemoteSummary(cwd);
@@ -794,19 +933,8 @@ async function finalizeIfReady(
       completedByVersion: "v0.4-vercel-connection-recovery",
     });
   } else {
-    // Best-effort: mark vercel evidence from current control plane when summaries unavailable
-    const state = await readControlPlaneSetupState(cwd);
-    if (
-      state?.vercel?.projectId &&
-      state.vercel.signedProbeVerified &&
-      state.vercel.linearWebhookVerified &&
-      state.initialSetup?.status !== "complete"
-    ) {
-      // Leave completion to GUI which has summary loaders; still report ready.
-      await updateControlPlaneSetupState({}, cwd);
-    }
+    await updateControlPlaneSetupState({}, cwd);
   }
-
   const ready = await writeOperation(
     {
       ...operation,
@@ -820,28 +948,3 @@ async function finalizeIfReady(
   );
   return toPublicStatus(ready, cwd);
 }
-
-async function toPublicStatus(
-  operation: VercelRecoveryOperation,
-  cwd?: string,
-): Promise<VercelRecoveryPublicStatus> {
-  const state = await readControlPlaneSetupState(cwd);
-  const bridgeHealth =
-    operation.stage === "deploying_bridge"
-      ? "deploying"
-      : assessDurableBridgeHealth(state);
-  return {
-    operation,
-    bridgeHealth,
-    initialSetupComplete: state?.initialSetup?.status === "complete",
-    redirectToWorkflow:
-      operation.stage === "ready" &&
-      (state?.initialSetup?.status === "complete" ||
-        Boolean(
-          state?.vercel?.signedProbeVerified &&
-            state?.vercel?.linearWebhookVerified,
-        )),
-    completionEvidence: state?.initialSetup?.completionEvidence,
-  };
-}
-
