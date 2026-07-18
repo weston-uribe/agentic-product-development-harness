@@ -84,7 +84,10 @@ npx vitest run tests/evaluation
 4. Confirm one session with implementation + handoff traces, expected children, correlation IDs matching run artifacts, and no forbidden content.
 5. Duplicate handoff attempts (webhook races) may appear labeled `duplicate`.
 
-Checkpoint-deferred: invalid key/endpoint live runs; provider-disabled confirmation.
+Checkpoint-deferred:
+
+- Invalid key/endpoint live runs; provider-disabled confirmation.
+- Investigate and remove `legacy-peer-deps` by resolving Langfuse / OpenTelemetry / Sentry peer dependency compatibility so managed installs no longer require that npm setting.
 
 ## How to disable
 

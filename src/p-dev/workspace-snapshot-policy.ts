@@ -14,6 +14,7 @@ const REQUIRED_PATHS = [
   ".github",
   ".harness/config.example.json",
   ".env.example",
+  ".npmrc",
   "AGENTS.md",
   "ARCHITECTURE.md",
   "CHANGELOG.md",
@@ -63,6 +64,7 @@ const INCLUDE_PREFIXES = [
 
 const INCLUDE_FILES = [
   ".env.example",
+  ".npmrc",
   "AGENTS.md",
   "ARCHITECTURE.md",
   "CHANGELOG.md",
