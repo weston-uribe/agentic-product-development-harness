@@ -5,6 +5,7 @@ import {
   verifyAllSavedCredentialHealth,
   verifySavedCredentialHealth,
 } from "@harness/setup/credential-health";
+import { toPublicApiError } from "@harness/gui/public-client-payload";
 
 export const dynamic = "force-dynamic";
 
@@ -30,10 +31,13 @@ export async function POST(request: Request) {
     const health = await verifyAllSavedCredentialHealth({ cwd });
     return NextResponse.json({ health });
   } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Saved connection verification failed";
-    return NextResponse.json({ error: message }, { status: 400 });
+    const publicError = toPublicApiError(error, {
+      fallbackCode: "saved_connection_verify_failed",
+      fallbackMessage: "Saved connection verification failed.",
+    });
+    return NextResponse.json(
+      { error: publicError.message, code: publicError.code },
+      { status: 400 },
+    );
   }
 }

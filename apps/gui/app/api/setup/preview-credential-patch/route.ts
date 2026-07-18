@@ -4,6 +4,7 @@ import {
   previewCredentialPatch,
   type PatchableCredentialKey,
 } from "@harness/setup/credential-patch";
+import { toPublicApiError } from "@harness/gui/public-client-payload";
 
 export const dynamic = "force-dynamic";
 
@@ -29,8 +30,13 @@ export async function POST(request: Request) {
     });
     return NextResponse.json(preview);
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Credential preview failed";
-    return NextResponse.json({ error: message }, { status: 400 });
+    const publicError = toPublicApiError(error, {
+      fallbackCode: "credential_preview_failed",
+      fallbackMessage: "Credential preview failed.",
+    });
+    return NextResponse.json(
+      { error: publicError.message, code: publicError.code },
+      { status: 400 },
+    );
   }
 }

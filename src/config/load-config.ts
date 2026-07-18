@@ -1,5 +1,4 @@
 import path from "node:path";
-import { readFile } from "node:fs/promises";
 import { harnessConfigSchema, type HarnessConfig } from "./schema.js";
 import { normalizeRepoUrl } from "../resolver/normalize-repo.js";
 import {
@@ -7,6 +6,7 @@ import {
   resolveConfigSource,
   type ResolvedConfigSource,
 } from "./resolve-config.js";
+import { readTextFileSyncIfExists } from "../setup/rsc-safe-fs.js";
 
 export class ConfigError extends Error {
   constructor(message: string) {
@@ -53,11 +53,8 @@ export async function loadHarnessConfig(options?: {
 /** Load config from an explicit file path (tests and direct file reads). */
 export async function loadConfig(configPath: string): Promise<HarnessConfig> {
   const absolutePath = path.resolve(configPath);
-  let raw: string;
-
-  try {
-    raw = await readFile(absolutePath, "utf8");
-  } catch {
+  const raw = readTextFileSyncIfExists(absolutePath);
+  if (raw === null) {
     throw new ConfigError(`Config file not found: ${absolutePath}`);
   }
 

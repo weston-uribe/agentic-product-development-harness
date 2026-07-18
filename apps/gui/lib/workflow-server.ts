@@ -37,6 +37,7 @@ import {
   readWorkflowModelsSyncEvidence,
 } from "@harness/setup/workflow-models-sync-evidence";
 import { isRoleModelRole } from "@harness/config/role-models";
+import { toPublicWorkflowBootstrap } from "@harness/gui/public-client-payload";
 
 function isDebugEnabled(): boolean {
   return (
@@ -111,10 +112,11 @@ export async function loadWorkflowBootstrap(
         statusCatalog: result.loadState,
       };
       if (debugEnabled && result.warning) {
-        warnings.push(result.warning);
+        // Public warnings must never include provider error bodies.
+        warnings.push("Linear status load reported a non-fatal warning.");
       }
       if (debugEnabled && result.error) {
-        warnings.push(`Linear status load failed: ${result.error}`);
+        warnings.push("Linear status load failed.");
       }
     }
 
@@ -193,7 +195,18 @@ export async function loadWorkflowBootstrap(
     }
   }
 
-  return payload;
+  const knownSecrets = (
+    await Promise.all([
+      loadSecretFromEnvLocal({ cwd, key: "LINEAR_API_KEY" }),
+      loadSecretFromEnvLocal({ cwd, key: "CURSOR_API_KEY" }),
+      loadSecretFromEnvLocal({ cwd, key: "GITHUB_TOKEN" }),
+      loadSecretFromEnvLocal({ cwd, key: "VERCEL_TOKEN" }),
+      loadSecretFromEnvLocal({ cwd, key: "LINEAR_WEBHOOK_SECRET" }),
+    ])
+  ).filter((value): value is string => Boolean(value));
+
+  // Explicit public DTO boundary — never return internal loader state.
+  return toPublicWorkflowBootstrap(payload, { knownSecrets });
 }
 
 export async function saveWorkflowModel(

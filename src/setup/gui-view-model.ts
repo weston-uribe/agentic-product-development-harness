@@ -417,7 +417,9 @@ export function sanitizeSetupViewModel(
       envLocal: viewModel.generatedPreviews.envLocal
         ? redactText(viewModel.generatedPreviews.envLocal)
         : undefined,
-      configLocal: viewModel.generatedPreviews.configLocal,
+      configLocal: viewModel.generatedPreviews.configLocal
+        ? redactText(viewModel.generatedPreviews.configLocal)
+        : undefined,
     },
     missingSteps: viewModel.missingSteps.map((step) => ({
       ...step,

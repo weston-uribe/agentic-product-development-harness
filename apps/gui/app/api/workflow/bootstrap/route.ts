@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { loadWorkflowBootstrap } from "@/lib/workflow-server";
+import { toPublicApiError } from "@harness/gui/public-client-payload";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -11,12 +12,14 @@ export async function GET(request: Request) {
     const payload = await loadWorkflowBootstrap({ source, fixture, scope });
     return NextResponse.json(payload);
   } catch (error) {
+    const publicError = toPublicApiError(error, {
+      fallbackCode: "workflow_bootstrap_failed",
+      fallbackMessage: "Workflow bootstrap failed.",
+    });
     return NextResponse.json(
       {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Workflow bootstrap failed.",
+        error: publicError.message,
+        code: publicError.code,
       },
       { status: 500 },
     );

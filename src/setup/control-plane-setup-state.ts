@@ -1,13 +1,8 @@
-import {
-  access,
-  readFile,
-  writeFile,
-  mkdir,
-  rename,
-} from "node:fs/promises";
+import { writeFile, mkdir, rename } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { resolveLocalFilePaths } from "./setup-state.js";
+import { readTextFileSyncIfExists } from "./rsc-safe-fs.js";
 import type {
   ControlPlaneSetupState,
   VercelBridgeSelection,
@@ -35,8 +30,11 @@ export async function readControlPlaneSetupState(
 ): Promise<ControlPlaneSetupState | null> {
   const filePath = statePath(cwd);
   try {
-    await access(filePath);
-    const raw = await readFile(filePath, "utf8");
+    // Sync read: avoids Next.js Flight async-debug serializing control-plane JSON.
+    const raw = readTextFileSyncIfExists(filePath);
+    if (raw === null) {
+      return null;
+    }
     const parsed = JSON.parse(raw) as ControlPlaneSetupState;
     if (parsed.version !== 1) {
       return null;

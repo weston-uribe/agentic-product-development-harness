@@ -547,14 +547,20 @@ async function loadServiceConnectionSummaries(
             },
           ] as const;
         } catch (error) {
+          const raw =
+            error instanceof Error
+              ? error.message
+              : "Saved credential could not be verified.";
           return [
             key,
             {
               status: "unknown" as const,
               message:
-                error instanceof Error
-                  ? error.message
-                  : "Saved credential could not be verified.",
+                /LINEAR_API_KEY=|CURSOR_API_KEY=|GITHUB_TOKEN=|VERCEL_TOKEN=|\.env\.local/i.test(
+                  raw,
+                )
+                  ? "Saved credential could not be verified."
+                  : raw,
               checkedAt: new Date().toISOString(),
             },
           ] as const;

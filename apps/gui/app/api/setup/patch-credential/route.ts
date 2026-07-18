@@ -4,6 +4,7 @@ import {
   applyCredentialPatch,
   type PatchableCredentialKey,
 } from "@harness/setup/credential-patch";
+import { toPublicApiError } from "@harness/gui/public-client-payload";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,7 @@ const ALLOWED = new Set<PatchableCredentialKey>([
 ]);
 
 export async function POST(request: Request) {
+  let submittedValue = "";
   try {
     const body = (await request.json()) as {
       key?: PatchableCredentialKey;
@@ -34,6 +36,7 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
+    submittedValue = body.value;
     if (!body.expectedConfigFingerprint?.trim()) {
       return NextResponse.json(
         { error: "expectedConfigFingerprint is required." },
@@ -53,8 +56,14 @@ export async function POST(request: Request) {
     // Never return saved token values.
     return NextResponse.json(result, { status: result.ok ? 200 : 400 });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Credential patch failed";
-    return NextResponse.json({ error: message }, { status: 400 });
+    const publicError = toPublicApiError(error, {
+      fallbackCode: "credential_patch_failed",
+      fallbackMessage: "Credential patch failed.",
+      knownSecrets: submittedValue ? [submittedValue] : [],
+    });
+    return NextResponse.json(
+      { error: publicError.message, code: publicError.code },
+      { status: 400 },
+    );
   }
 }

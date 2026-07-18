@@ -1,9 +1,12 @@
-import { readFile, stat } from "node:fs/promises";
-import { access } from "node:fs/promises";
+import { stat } from "node:fs/promises";
 import {
   collectEnvInputSecrets,
   redactSecretEnvContent,
 } from "./redact-secrets.js";
+import {
+  pathExistsSync,
+  readTextFileSyncIfExists,
+} from "./rsc-safe-fs.js";
 import {
   DEFAULT_HARNESS_CONFIG_PATH,
   type LocalFilePaths,
@@ -39,15 +42,6 @@ export interface EnvKeyPresence {
 export interface ParsedEnvFile {
   values: Record<string, string>;
   presence: EnvKeyPresence;
-}
-
-async function fileExists(filePath: string): Promise<boolean> {
-  try {
-    await access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function isManagedKey(key: string): key is ManagedKey {
@@ -93,10 +87,11 @@ export function parseEnvFileContent(content: string): ParsedEnvFile {
 export async function readExistingEnvFileContent(
   paths: LocalFilePaths,
 ): Promise<string | null> {
-  if (!(await fileExists(paths.envLocal))) {
+  // Sync read: avoids Next.js Flight async-debug serializing .env.local bytes.
+  if (!pathExistsSync(paths.envLocal)) {
     return null;
   }
-  return readFile(paths.envLocal, "utf8");
+  return readTextFileSyncIfExists(paths.envLocal);
 }
 
 export async function readExistingEnvFile(

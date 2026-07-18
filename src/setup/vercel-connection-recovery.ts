@@ -338,6 +338,102 @@ export type VercelRecoveryDependencies = {
   reconcileCompletion?: typeof reconcileInitialSetupCompletion;
 };
 
+function sanitizePublicRecoveryText(text: string | undefined): string | undefined {
+  if (!text) {
+    return undefined;
+  }
+  let sanitized = text;
+  if (
+    /LINEAR_API_KEY=|CURSOR_API_KEY=|GITHUB_TOKEN=|VERCEL_TOKEN=|LINEAR_WEBHOOK_SECRET=/i.test(
+      sanitized,
+    ) ||
+    sanitized.includes("# Operator local setup") ||
+    /do not commit \.env\.local/i.test(sanitized)
+  ) {
+    return "Recovery failed. Reconnect Vercel in Settings and try again.";
+  }
+  sanitized = sanitized.replace(/\.env\.local/gi, "local environment file");
+  sanitized = sanitized.replace(/vercel cli/gi, "Vercel");
+  return sanitized;
+}
+
+function toPublicRecoveryOperation(
+  operation: VercelRecoveryOperation | null,
+): VercelRecoveryOperation | null {
+  if (!operation) {
+    return null;
+  }
+  // Fresh public object — never spread internal durable state blindly.
+  // Omit leaseHolder/leaseExpiresAt (server-only concurrency fields).
+  return {
+    operationId: operation.operationId,
+    revision: operation.revision,
+    stage: operation.stage,
+    ...(operation.lastSuccessfulStage !== undefined
+      ? { lastSuccessfulStage: operation.lastSuccessfulStage }
+      : {}),
+    ...(operation.selectedScope
+      ? {
+          selectedScope: {
+            ...(operation.selectedScope.teamId
+              ? { teamId: operation.selectedScope.teamId }
+              : {}),
+            teamName: operation.selectedScope.teamName,
+          },
+        }
+      : {}),
+    ...(operation.selectedBridgeProjectId !== undefined
+      ? { selectedBridgeProjectId: operation.selectedBridgeProjectId }
+      : {}),
+    intendedBridgeProjectName: operation.intendedBridgeProjectName,
+    ...(operation.projectId !== undefined
+      ? { projectId: operation.projectId }
+      : {}),
+    ...(operation.deploymentId !== undefined
+      ? { deploymentId: operation.deploymentId }
+      : {}),
+    ...(operation.linearWebhookId !== undefined
+      ? { linearWebhookId: operation.linearWebhookId }
+      : {}),
+    ...(sanitizePublicRecoveryText(operation.failureReason)
+      ? {
+          failureReason: sanitizePublicRecoveryText(operation.failureReason),
+        }
+      : {}),
+    remoteMutationsOccurred: operation.remoteMutationsOccurred,
+    retrySafe: operation.retrySafe,
+    nextAction: operation.nextAction,
+    ...(sanitizePublicRecoveryText(operation.humanProblem)
+      ? {
+          humanProblem: sanitizePublicRecoveryText(operation.humanProblem),
+        }
+      : {}),
+    ...(operation.scopeOptions
+      ? {
+          scopeOptions: operation.scopeOptions.map((scope) => ({ ...scope })),
+        }
+      : {}),
+    ...(operation.bridgeCandidates
+      ? {
+          bridgeCandidates: operation.bridgeCandidates.map((candidate) => ({
+            ...candidate,
+          })),
+        }
+      : {}),
+    ...(operation.pollActionId !== undefined
+      ? { pollActionId: operation.pollActionId }
+      : {}),
+    ...(operation.prepareMode !== undefined
+      ? { prepareMode: operation.prepareMode }
+      : {}),
+    createdAt: operation.createdAt,
+    updatedAt: operation.updatedAt,
+    ...(operation.completedAt !== undefined
+      ? { completedAt: operation.completedAt }
+      : {}),
+  };
+}
+
 async function toPublicStatus(
   operation: VercelRecoveryOperation | null,
   cwd?: string,
@@ -349,7 +445,7 @@ async function toPublicStatus(
       ? "deploying"
       : assessDurableBridgeHealth(state);
   return {
-    operation,
+    operation: toPublicRecoveryOperation(operation),
     bridgeHealth,
     conflict,
     initialSetupComplete: state?.initialSetup?.status === "complete",

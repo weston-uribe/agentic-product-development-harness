@@ -1,6 +1,6 @@
-import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { ConfigError } from "./load-config.js";
+import { readTextFileSyncIfExists } from "../setup/rsc-safe-fs.js";
 
 export type ConfigSourceKind =
   | "cli-config"
@@ -119,9 +119,10 @@ export async function readConfigRaw(source: ResolvedConfigSource): Promise<strin
     return source.raw;
   }
 
-  try {
-    return await readFile(source.label, "utf8");
-  } catch {
+  // Sync read: avoids Next.js Flight async-debug serializing config file bytes.
+  const content = readTextFileSyncIfExists(source.label);
+  if (content === null) {
     throw new ConfigError(`Config file not found: ${source.label}`);
   }
+  return content;
 }

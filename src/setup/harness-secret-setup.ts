@@ -1,7 +1,7 @@
-import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { parseGitHubRepoUrl } from "../github/base-branch.js";
 import { readExistingEnvFile } from "./env-merge.js";
+import { readBinaryFileSync } from "./rsc-safe-fs.js";
 import {
   formatHarnessDispatchRepo,
   resolveHarnessDispatchRepo,
@@ -130,7 +130,8 @@ export async function readValidatedConfigLocalBytes(
   cwd?: string,
 ): Promise<{ bytes: Buffer; hash: string }> {
   const paths = resolveLocalFilePaths(cwd);
-  const bytes = await readFile(paths.configLocal);
+  // Sync read: avoids Next.js Flight async-debug serializing config bytes.
+  const bytes = readBinaryFileSync(paths.configLocal);
   const content = bytes.toString("utf8");
   JSON.parse(content);
   const hash = createHash("sha256").update(bytes).digest("hex");
