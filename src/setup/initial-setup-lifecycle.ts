@@ -14,6 +14,10 @@ import type { RemoteSetupSummary } from "./remote-setup-summary.js";
 import type { SetupGuiViewModel } from "./gui-view-model.js";
 import { resolveLocalFilePaths } from "./setup-state.js";
 import { HARNESS_ACTIONS_SECRET_NAMES } from "./remote-actions.js";
+import {
+  reconcileVercelControlPlaneFromRemote,
+  type VercelBridgeReconcileResult,
+} from "./vercel-bridge-reconcile.js";
 
 export type InitialSetupCompletionEvidence = {
   localConfigPresent: boolean;
@@ -29,6 +33,10 @@ export type InitialSetupEvidenceReasonCode =
   | "local_config_incomplete"
   | "linear_control_plane_missing"
   | "vercel_project_missing"
+  | "vercel_token_missing"
+  | "vercel_bridge_not_found"
+  | "vercel_bridge_ambiguous"
+  | "vercel_bridge_unhealthy"
   | "cloud_secrets_unverified"
   | "target_workflows_unverified";
 
@@ -126,9 +134,49 @@ export function isCompletionEvidenceSatisfied(
   );
 }
 
+function vercelReasonFromReconcile(
+  vercelReconcile?: VercelBridgeReconcileResult,
+): InitialSetupEvidenceReason {
+  switch (vercelReconcile?.status) {
+    case "token_missing":
+      return {
+        field: "vercelConfigured",
+        code: "vercel_token_missing",
+        message: vercelReconcile.message,
+      };
+    case "not_found":
+      return {
+        field: "vercelConfigured",
+        code: "vercel_bridge_not_found",
+        message: vercelReconcile.message,
+      };
+    case "ambiguous":
+      return {
+        field: "vercelConfigured",
+        code: "vercel_bridge_ambiguous",
+        message: vercelReconcile.message,
+      };
+    case "unhealthy":
+    case "verification_failed":
+      return {
+        field: "vercelConfigured",
+        code: "vercel_bridge_unhealthy",
+        message: vercelReconcile.message,
+      };
+    default:
+      return {
+        field: "vercelConfigured",
+        code: "vercel_project_missing",
+        message:
+          "Vercel bridge project is not recorded in control-plane setup state. Complete the Vercel bridge step so a projectId is persisted.",
+      };
+  }
+}
+
 export function buildCompletionEvidenceReasons(input: {
   evidence: InitialSetupCompletionEvidence;
   remoteSummary: RemoteSetupSummary;
+  vercelReconcile?: VercelBridgeReconcileResult;
 }): InitialSetupEvidenceReason[] {
   const { evidence, remoteSummary } = input;
   const reasons: InitialSetupEvidenceReason[] = [];
@@ -152,12 +200,7 @@ export function buildCompletionEvidenceReasons(input: {
   }
 
   if (!evidence.vercelConfigured) {
-    reasons.push({
-      field: "vercelConfigured",
-      code: "vercel_project_missing",
-      message:
-        "Vercel bridge project is not recorded in control-plane setup state. Complete the Vercel bridge step so a projectId is persisted.",
-    });
+    reasons.push(vercelReasonFromReconcile(input.vercelReconcile));
   }
 
   if (!evidence.cloudSecretsVerified) {
@@ -318,6 +361,11 @@ export async function reconcileInitialSetupCompletion(input: {
   }
 
   controlPlane = await reconcileLinearControlPlaneFromConfig(cwd, controlPlane);
+  const vercelReconcile = await reconcileVercelControlPlaneFromRemote({
+    cwd,
+    controlPlane,
+  });
+  controlPlane = vercelReconcile.state;
 
   const evidence = assessCompletionEvidence({
     setupSummary: input.setupSummary,
@@ -327,6 +375,7 @@ export async function reconcileInitialSetupCompletion(input: {
   const reasons = buildCompletionEvidenceReasons({
     evidence,
     remoteSummary: input.remoteSummary,
+    vercelReconcile,
   });
 
   if (!isCompletionEvidenceSatisfied(evidence)) {

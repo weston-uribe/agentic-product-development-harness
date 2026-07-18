@@ -166,6 +166,8 @@ export interface VercelBridgeSelection {
   deploymentRedeployRequired?: boolean;
   appliedFingerprint?: string;
   appliedAt?: string;
+  /** Set when control-plane vercel was restored from an existing verified deployment. */
+  reconciledFromExistingDeployment?: boolean;
   manualComplete?: boolean;
   redeployVerification?: VercelBridgeRedeployVerification;
 }
