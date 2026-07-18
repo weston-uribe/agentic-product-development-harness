@@ -2,10 +2,17 @@ import type { FinalOutcome } from "../types/run.js";
 import type { EvaluationPhase } from "./phases.js";
 
 export const EVALUATION_SCHEMA_VERSION = 1 as const;
-export const EVALUATION_CAPTURE_PROFILE = "metadata-v1" as const;
+/** Default Langfuse projection profile (hashes/refs/metadata only). */
+export const EVALUATION_CAPTURE_PROFILE_METADATA = "metadata-v1" as const;
+/** Opt-in Langfuse projection with bounded redacted human-readable content. */
+export const EVALUATION_CAPTURE_PROFILE_CONTENT = "content-v1" as const;
+/** @deprecated Prefer EVALUATION_CAPTURE_PROFILE_METADATA — kept for import compatibility. */
+export const EVALUATION_CAPTURE_PROFILE = EVALUATION_CAPTURE_PROFILE_METADATA;
 export const EVALUATION_PROVIDER_LANGFUSE = "langfuse" as const;
 
-export type EvaluationCaptureProfile = typeof EVALUATION_CAPTURE_PROFILE;
+export type EvaluationCaptureProfile =
+  | typeof EVALUATION_CAPTURE_PROFILE_METADATA
+  | typeof EVALUATION_CAPTURE_PROFILE_CONTENT;
 export type EvaluationProviderName = typeof EVALUATION_PROVIDER_LANGFUSE;
 
 export type EvaluationScoreName =
@@ -37,7 +44,23 @@ export interface EvaluationCorrelation {
   traceId: string;
 }
 
-export type ObservationKind = "span" | "event" | "agent";
+export type ObservationKind =
+  | "span"
+  | "event"
+  | "agent"
+  | "generation"
+  | "tool";
+
+/** Rich observation attributes (Langfuse projection; content gated by capture profile). */
+export interface ObservationUpdateAttrs {
+  metadata?: Record<string, unknown>;
+  input?: unknown;
+  output?: unknown;
+  model?: string;
+  modelParameters?: Record<string, string | number>;
+  usageDetails?: Record<string, number>;
+  costDetails?: Record<string, number>;
+}
 
 export interface PhaseFinishSummary {
   finalOutcome: FinalOutcome;
@@ -49,17 +72,22 @@ export interface PhaseFinishSummary {
 }
 
 export interface NestedObservationHandle {
-  update(metadata?: Record<string, unknown>): void;
-  end(metadata?: Record<string, unknown>): void;
+  update(attrs?: ObservationUpdateAttrs | Record<string, unknown>): void;
+  end(attrs?: ObservationUpdateAttrs | Record<string, unknown>): void;
+  startChild(name: string, kind?: ObservationKind): NestedObservationHandle;
 }
 
 export interface PhaseTraceHandle {
   readonly correlation: EvaluationCorrelation;
   startChild(name: string, kind?: ObservationKind): NestedObservationHandle;
+  /** Set root trace input/output (content projection gated by capture profile). */
+  setIO?(input?: unknown, output?: unknown): void;
   finish(
     summary: PhaseFinishSummary,
     metadata?: Record<string, unknown>,
   ): void;
+  /** Forward a canonical telemetry event into Langfuse nested observations. */
+  onTelemetryEvent?(event: import("./telemetry/types.js").AgentTelemetryEvent): void;
 }
 
 export interface StartPhaseTraceInput {

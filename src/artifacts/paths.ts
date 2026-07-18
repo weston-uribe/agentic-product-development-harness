@@ -144,6 +144,14 @@ export function getEvaluationOutcomesPath(runDirectory: string): string {
   return path.join(runDirectory, "evaluation", "outcomes.json");
 }
 
+export function getAgentTelemetryPath(runDirectory: string): string {
+  return path.join(runDirectory, "evaluation", "agent-telemetry.jsonl");
+}
+
+export function getTelemetryCompletenessPath(runDirectory: string): string {
+  return path.join(runDirectory, "evaluation", "telemetry-completeness.json");
+}
+
 export function getErrorPath(runDirectory: string): string {
   return path.join(runDirectory, "errors", "error.json");
 }

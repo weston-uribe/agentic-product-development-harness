@@ -1,11 +1,13 @@
 import {
-  EVALUATION_CAPTURE_PROFILE,
+  EVALUATION_CAPTURE_PROFILE_METADATA,
   EVALUATION_PROVIDER_LANGFUSE,
+  type EvaluationCaptureProfile,
   type EvaluationRuntime,
   type EvaluationRuntimeConfig,
   type PhaseTraceHandle,
   type StartPhaseTraceInput,
 } from "./types.js";
+import { isKnownCaptureProfile } from "./telemetry/profiles.js";
 import { warnOnce } from "./warn.js";
 
 export {
@@ -59,16 +61,17 @@ export function resolveEvaluationConfig(
     };
   }
 
-  const captureProfile =
+  const captureProfileRaw =
     readEnv(env, "P_DEV_EVALUATION_CAPTURE_PROFILE") ??
-    EVALUATION_CAPTURE_PROFILE;
-  if (captureProfile !== EVALUATION_CAPTURE_PROFILE) {
+    EVALUATION_CAPTURE_PROFILE_METADATA;
+  if (!isKnownCaptureProfile(captureProfileRaw)) {
     return {
       ok: false,
       reason: "invalid",
-      message: `Unknown evaluation capture profile "${captureProfile}"; falling back to no-op`,
+      message: `Unknown evaluation capture profile "${captureProfileRaw}"; falling back to no-op`,
     };
   }
+  const captureProfile: EvaluationCaptureProfile = captureProfileRaw;
 
   const publicKey = readEnv(env, "LANGFUSE_PUBLIC_KEY");
   const secretKey = readEnv(env, "LANGFUSE_SECRET_KEY");
@@ -92,7 +95,7 @@ export function resolveEvaluationConfig(
     ok: true,
     config: {
       provider: EVALUATION_PROVIDER_LANGFUSE,
-      captureProfile: EVALUATION_CAPTURE_PROFILE,
+      captureProfile,
       namespace,
       publicKey,
       secretKey,

@@ -125,7 +125,7 @@ export interface RunManifest {
   evaluation?: {
     schemaVersion: 1;
     provider: "langfuse";
-    captureProfile: "metadata-v1";
+    captureProfile: "metadata-v1" | "content-v1";
     sessionId: string;
     traceId: string;
   } | null;

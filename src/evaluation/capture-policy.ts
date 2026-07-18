@@ -53,6 +53,35 @@ export const METADATA_V1_ALLOWED_KEYS = [
   "integrationRepairAttempted",
   "integrationRepairMode",
   "integrationRepairOutcome",
+  // Telemetry completeness + artifact refs (hashes/counts only; no bodies)
+  "telemetryCompletenessTraceInput",
+  "telemetryCompletenessTraceOutput",
+  "telemetryCompletenessAgentInput",
+  "telemetryCompletenessAgentOutput",
+  "telemetryCompletenessModel",
+  "telemetryCompletenessUsage",
+  "telemetryCompletenessToolEvents",
+  "telemetryCompletenessToolCompletionRate",
+  "telemetryCompletenessPromptProvenance",
+  "telemetryCompletenessSkillProvenance",
+  "telemetryCompletenessPmFeedback",
+  "promptTemplateSha256",
+  "renderedPromptSha256",
+  "renderedPromptByteCount",
+  "agentOutputSha256",
+  "agentOutputByteCount",
+  "pmFeedbackCommentId",
+  "pmFeedbackWordCount",
+  "pmFeedbackSha256",
+  "pmFeedbackByteCount",
+  "timeSinceHandoffMs",
+  "usageAggregation",
+  "costSource",
+  "cursorUsageCacheReadTokens",
+  "cursorUsageCacheWriteTokens",
+  "cursorUsageReasoningTokens",
+  "toolEventCount",
+  "telemetryEventCount",
 ] as const;
 
 export type MetadataV1Key = (typeof METADATA_V1_ALLOWED_KEYS)[number];
@@ -138,7 +167,10 @@ export interface CursorUsageInput {
   inputTokens?: unknown;
   outputTokens?: unknown;
   totalTokens?: unknown;
-  [key: string]: unknown;
+  cacheReadTokens?: unknown;
+  cacheWriteTokens?: unknown;
+  reasoningTokens?: unknown;
+  cost?: unknown;
 }
 
 function boundString(value: unknown, max = MAX_STRING_LENGTH): string | null {
@@ -214,7 +246,18 @@ export function buildMetadataV1(
       case "cursorUsageInputTokens":
       case "cursorUsageOutputTokens":
       case "cursorUsageTotalTokens":
+      case "cursorUsageCacheReadTokens":
+      case "cursorUsageCacheWriteTokens":
+      case "cursorUsageReasoningTokens":
       case "cursorDurationMs":
+      case "telemetryCompletenessToolCompletionRate":
+      case "renderedPromptByteCount":
+      case "agentOutputByteCount":
+      case "pmFeedbackWordCount":
+      case "pmFeedbackByteCount":
+      case "timeSinceHandoffMs":
+      case "toolEventCount":
+      case "telemetryEventCount":
         raw[key] = boundNumber(value);
         break;
       case "prCreated":
@@ -223,6 +266,16 @@ export function buildMetadataV1(
       case "mergeCompleted":
       case "deploymentRequired":
       case "integrationRepairAttempted":
+      case "telemetryCompletenessTraceInput":
+      case "telemetryCompletenessTraceOutput":
+      case "telemetryCompletenessAgentInput":
+      case "telemetryCompletenessAgentOutput":
+      case "telemetryCompletenessModel":
+      case "telemetryCompletenessUsage":
+      case "telemetryCompletenessToolEvents":
+      case "telemetryCompletenessPromptProvenance":
+      case "telemetryCompletenessSkillProvenance":
+      case "telemetryCompletenessPmFeedback":
         raw[key] = boundBoolean(value);
         break;
       case "reviewOutcome":
@@ -279,6 +332,10 @@ export function extractAllowlistedCursorUsage(
   cursorUsageInputTokens?: number;
   cursorUsageOutputTokens?: number;
   cursorUsageTotalTokens?: number;
+  cursorUsageCacheReadTokens?: number;
+  cursorUsageCacheWriteTokens?: number;
+  cursorUsageReasoningTokens?: number;
+  costSource?: string;
 } {
   if (!usage || typeof usage !== "object") {
     return {};
@@ -287,13 +344,27 @@ export function extractAllowlistedCursorUsage(
     cursorUsageInputTokens?: number;
     cursorUsageOutputTokens?: number;
     cursorUsageTotalTokens?: number;
+    cursorUsageCacheReadTokens?: number;
+    cursorUsageCacheWriteTokens?: number;
+    cursorUsageReasoningTokens?: number;
+    costSource?: string;
   } = {};
   const inputTokens = boundNumber(usage.inputTokens);
   const outputTokens = boundNumber(usage.outputTokens);
   const totalTokens = boundNumber(usage.totalTokens);
+  const cacheRead = boundNumber(usage.cacheReadTokens);
+  const cacheWrite = boundNumber(usage.cacheWriteTokens);
+  const reasoning = boundNumber(usage.reasoningTokens);
   if (inputTokens !== null) out.cursorUsageInputTokens = inputTokens;
   if (outputTokens !== null) out.cursorUsageOutputTokens = outputTokens;
   if (totalTokens !== null) out.cursorUsageTotalTokens = totalTokens;
+  if (cacheRead !== null) out.cursorUsageCacheReadTokens = cacheRead;
+  if (cacheWrite !== null) out.cursorUsageCacheWriteTokens = cacheWrite;
+  if (reasoning !== null) out.cursorUsageReasoningTokens = reasoning;
+  const cost = usage.cost as { costSource?: string } | undefined;
+  if (cost?.costSource === "provider" || cost?.costSource === "pricing_registry" || cost?.costSource === "unavailable") {
+    out.costSource = cost.costSource;
+  }
   return out;
 }
 
