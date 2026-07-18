@@ -82,6 +82,7 @@ const INCLUDE_FILES = [
 
 const FORBIDDEN_PREFIXES = [
   ".vercel/",
+  "_packaged/",
   "runs/",
   "node_modules/",
   "dist/",
@@ -186,12 +187,64 @@ export function assertNoForbiddenSnapshotPaths(selectedPaths: string[]): void {
   }
 }
 
-export function resolveSnapshotOutputPath(
+export const PACKAGED_STORAGE_PREFIX = "_packaged/";
+
+const NPM_PACK_ENCODED_PATHS: Readonly<Record<string, string>> = {
+  ".npmrc": `${PACKAGED_STORAGE_PREFIX}npmrc`,
+};
+
+export const ALLOWED_NPMRC_SNAPSHOT_BYTES = Buffer.from(
+  "legacy-peer-deps=true\n",
+  "utf8",
+);
+
+export function isNpmPackEncodedSnapshotPath(logicalPath: string): boolean {
+  const normalized = normalizeSnapshotPath(logicalPath);
+  return Object.prototype.hasOwnProperty.call(NPM_PACK_ENCODED_PATHS, normalized);
+}
+
+export function resolveSnapshotStoragePath(logicalPath: string): string {
+  const normalized = normalizeSnapshotPath(logicalPath);
+  return NPM_PACK_ENCODED_PATHS[normalized] ?? normalized;
+}
+
+export function assertAllowedNpmrcSnapshotEntry(entry: {
+  type: string;
+  mode: string;
+  content: Buffer;
+}): void {
+  if (entry.type !== "file") {
+    throw new Error("Workspace snapshot .npmrc must be a file.");
+  }
+  if (entry.mode !== "100644") {
+    throw new Error("Workspace snapshot .npmrc must use mode 100644.");
+  }
+  if (!entry.content.equals(ALLOWED_NPMRC_SNAPSHOT_BYTES)) {
+    throw new Error(
+      "Workspace snapshot .npmrc must contain exactly legacy-peer-deps=true with a trailing newline.",
+    );
+  }
+}
+
+export function resolveSnapshotLegacyOutputPath(
   snapshotRoot: string,
   snapshotPath: string,
 ): string {
   const normalized = normalizeSnapshotPath(snapshotPath);
   const absolute = path.resolve(snapshotRoot, "files", normalized);
+  const filesRoot = path.resolve(snapshotRoot, "files");
+  if (!absolute.startsWith(`${filesRoot}${path.sep}`) && absolute !== filesRoot) {
+    throw new Error(`Snapshot output path escapes files root: ${snapshotPath}`);
+  }
+  return absolute;
+}
+
+export function resolveSnapshotOutputPath(
+  snapshotRoot: string,
+  snapshotPath: string,
+): string {
+  const storagePath = resolveSnapshotStoragePath(snapshotPath);
+  const absolute = path.resolve(snapshotRoot, "files", storagePath);
   const filesRoot = path.resolve(snapshotRoot, "files");
   if (!absolute.startsWith(`${filesRoot}${path.sep}`) && absolute !== filesRoot) {
     throw new Error(`Snapshot output path escapes files root: ${snapshotPath}`);

@@ -41,4 +41,10 @@ describe("workspace snapshot policy", () => {
       isForbiddenSnapshotPath(".harness/operations-workflow-draft.local.json"),
     ).toBe(true);
   });
+
+  it("rejects _packaged/ logical snapshot paths and storage collisions", () => {
+    expect(isForbiddenSnapshotPath("_packaged/npmrc")).toBe(true);
+    expect(isIncludedSnapshotPath("_packaged/npmrc")).toBe(false);
+    expect(isIncludedSnapshotPath("_packaged/other")).toBe(false);
+  });
 });

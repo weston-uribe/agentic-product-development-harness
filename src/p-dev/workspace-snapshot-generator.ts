@@ -1,9 +1,12 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { writeGitObjectPackFromManifestFiles } from "./git-object-plumbing.js";
 import {
+  assertAllowedNpmrcSnapshotEntry,
   assertNoForbiddenSnapshotPaths,
   assertRequiredSnapshotPaths,
+  isNpmPackEncodedSnapshotPath,
+  resolveSnapshotLegacyOutputPath,
   resolveSnapshotOutputPath,
 } from "./workspace-snapshot-policy.js";
 import {
@@ -54,6 +57,9 @@ export async function generateWorkspaceSnapshot(
   const snapshotEntries: WorkspaceSnapshotTreeEntry[] = [];
 
   for (const entry of objectEntries) {
+    if (entry.path === ".npmrc") {
+      assertAllowedNpmrcSnapshotEntry(entry);
+    }
     const sha256 = computeSnapshotFileSha256(entry.content);
     const destination = resolveSnapshotOutputPath(input.outputDir, entry.path);
     await mkdir(path.dirname(destination), { recursive: true });
@@ -121,8 +127,10 @@ export async function loadWorkspaceSnapshotEntryContent(input: {
   path: string;
   expectedSha256: string;
 }): Promise<Buffer> {
-  const destination = resolveSnapshotOutputPath(input.snapshotRoot, input.path);
-  const content = await readFile(destination);
+  const content = await readWorkspaceSnapshotEntryBytes(
+    input.snapshotRoot,
+    input.path,
+  );
   const sha256 = computeSnapshotFileSha256(content);
   if (sha256 !== input.expectedSha256) {
     throw new Error(
@@ -130,4 +138,49 @@ export async function loadWorkspaceSnapshotEntryContent(input: {
     );
   }
   return content;
+}
+
+async function pathExists(filePath: string): Promise<boolean> {
+  try {
+    await access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function readWorkspaceSnapshotEntryBytes(
+  snapshotRoot: string,
+  logicalPath: string,
+): Promise<Buffer> {
+  const encodedPath = resolveSnapshotOutputPath(snapshotRoot, logicalPath);
+  if (!isNpmPackEncodedSnapshotPath(logicalPath)) {
+    return readFile(encodedPath);
+  }
+
+  const legacyPath = resolveSnapshotLegacyOutputPath(snapshotRoot, logicalPath);
+  const hasEncoded = await pathExists(encodedPath);
+  const hasLegacy = await pathExists(legacyPath);
+
+  if (hasEncoded && hasLegacy) {
+    const [encodedContent, legacyContent] = await Promise.all([
+      readFile(encodedPath),
+      readFile(legacyPath),
+    ]);
+    if (!encodedContent.equals(legacyContent)) {
+      throw new Error(
+        `Ambiguous workspace snapshot representations for ${logicalPath}.`,
+      );
+    }
+    return encodedContent;
+  }
+  if (hasEncoded) {
+    return readFile(encodedPath);
+  }
+  if (hasLegacy) {
+    return readFile(legacyPath);
+  }
+  throw new Error(
+    `ENOENT: no such file or directory, open '${encodedPath}'`,
+  );
 }

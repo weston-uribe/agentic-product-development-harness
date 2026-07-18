@@ -126,6 +126,12 @@ describe.skipIf(!isCleanEnoughForPackagePack())("p-dev packed artifact", () => {
     expect(listing).not.toMatch(/config\.local\.json/);
     expect(listing).not.toMatch(/operations-workflow-draft\.local\.json/);
     expect(listing).not.toMatch(/\.tgz$/);
+    expect(listing).toContain(
+      "package/workspace-snapshot/files/_packaged/npmrc",
+    );
+    expect(listing).not.toContain(
+      "package/workspace-snapshot/files/.npmrc",
+    );
   });
 
   it("declares the current package version in packed package.json", () => {
