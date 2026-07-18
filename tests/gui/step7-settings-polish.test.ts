@@ -40,6 +40,9 @@ describe("Step 7 atomic completion and finish redirect", () => {
 
     expect(experience).toContain("handleGuidedWorkflowSetupComplete");
     expect(experience).toContain('window.location.assign("/workflow")');
+    expect(experience).toContain("Could not finish initial setup");
+    expect(experience).toContain("setInitialSetupCompletionError");
+    expect(experience).toContain("unmet");
     expect(experience).not.toMatch(
       /handleGuidedWorkflowSetupComplete[\s\S]*?window\.location\.assign\("\/settings"\)/,
     );

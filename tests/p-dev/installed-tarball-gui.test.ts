@@ -143,6 +143,35 @@ async function waitForHttpOk(url: string, timeoutMs: number): Promise<Response> 
   );
 }
 
+async function followRedirectChain(
+  startUrl: string,
+  maxHops = 10,
+): Promise<{
+  chain: Array<{ url: string; status: number; location: string | null }>;
+  finalUrl: string;
+  finalStatus: number;
+}> {
+  const chain: Array<{ url: string; status: number; location: string | null }> =
+    [];
+  let url = startUrl;
+
+  for (let hop = 0; hop < maxHops; hop += 1) {
+    const response = await fetch(url, { redirect: "manual" });
+    const location = response.headers.get("location");
+    chain.push({ url, status: response.status, location });
+    if (![301, 302, 303, 307, 308].includes(response.status) || !location) {
+      return {
+        chain,
+        finalUrl: url,
+        finalStatus: response.status,
+      };
+    }
+    url = new URL(location, url).href;
+  }
+
+  throw new Error(`Exceeded redirect hop limit for ${startUrl}`);
+}
+
 async function stopChild(child: ChildProcessWithoutNullStreams): Promise<void> {
   if (child.exitCode !== null || child.killed) {
     return;
@@ -321,11 +350,11 @@ describe.skipIf(!isCleanEnoughForPackagePack())(
           port,
         });
 
-        const rootResponse = await fetch(`http://127.0.0.1:${port}/`, {
-          redirect: "manual",
-        });
-        expect([307, 308]).toContain(rootResponse.status);
-        expect(rootResponse.headers.get("location")).toMatch(/\/settings\/configure$/);
+        const followed = await followRedirectChain(`http://127.0.0.1:${port}/`);
+        expect(followed.chain[0]?.status).toBeGreaterThanOrEqual(307);
+        expect(followed.chain[0]?.location).toMatch(/\/settings\/configure$/);
+        expect(followed.finalUrl).toMatch(/\/settings\/configure$/);
+        expect(followed.finalStatus).toBe(200);
 
         const configureResponse = await fetch(
           `http://127.0.0.1:${port}/settings/configure`,
@@ -355,11 +384,10 @@ describe.skipIf(!isCleanEnoughForPackagePack())(
           port,
         });
 
-        const rootResponse = await fetch(`http://127.0.0.1:${port}/`, {
-          redirect: "manual",
-        });
-        expect([307, 308]).toContain(rootResponse.status);
-        expect(rootResponse.headers.get("location")).toMatch(/\/workflow$/);
+        const followed = await followRedirectChain(`http://127.0.0.1:${port}/`);
+        expect(followed.chain[0]?.status).toBeGreaterThanOrEqual(307);
+        expect(followed.finalUrl).toMatch(/\/workflow$/);
+        expect(followed.finalStatus).toBe(200);
 
         const workflowResponse = await fetch(`http://127.0.0.1:${port}/workflow`);
         expect(workflowResponse.status).toBe(200);
