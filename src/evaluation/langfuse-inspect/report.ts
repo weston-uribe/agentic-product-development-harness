@@ -252,9 +252,6 @@ export function buildInspectReport(params: {
     }
 
     for (const obs of observations) {
-      const obsLegacy = Boolean(
-        obs.name && /^p-dev\./.test(obs.name) && !extractIssueKeyFromDisplayName(obs.name),
-      );
       const obsHuman = Boolean(
         obs.name && extractIssueKeyFromDisplayName(obs.name),
       );
