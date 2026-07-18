@@ -14,6 +14,7 @@ import { inferPhaseFromStatus } from "./phase-infer.js";
 import { runLinearAssociationGate } from "../config/linear-association-gate.js";
 import type { RunPhase } from "../types/run.js";
 import type { DispatchPhaseArg } from "./phase-args.js";
+import { evaluateRevisionReconcile } from "./revision-reconcile.js";
 
 export { CloudConfigStaleError } from "../config/assert-cloud-config-fingerprint.js";
 
@@ -28,6 +29,8 @@ export interface ResolveRouteResult {
   linearStatus: string | null;
   mergeConcurrencyGroup: string;
   shouldRun: boolean;
+  reconcileReason?: string | null;
+  pmFeedbackCommentId?: string | null;
 }
 
 export function buildMergeConcurrencyGroup(
@@ -94,11 +97,61 @@ async function applyBuildingRecoveryRouting(
   return { phase, shouldRun: phase !== "none" };
 }
 
+async function applyRevisionReconcileRouting(
+  issue: Awaited<ReturnType<typeof fetchLinearIssue>>,
+  config: HarnessConfig,
+  phase: RunPhase,
+  shouldRun: boolean,
+  linearApiKey: string,
+  force?: boolean,
+): Promise<{
+  phase: RunPhase;
+  shouldRun: boolean;
+  reconcileReason: string | null;
+  pmFeedbackCommentId: string | null;
+}> {
+  if (phase !== "revision") {
+    return {
+      phase,
+      shouldRun,
+      reconcileReason: null,
+      pmFeedbackCommentId: null,
+    };
+  }
+
+  const client = createLinearClient(linearApiKey);
+  const comments = await listIssueComments(client, issue.id);
+  const reconcile = evaluateRevisionReconcile({
+    config,
+    issue,
+    comments,
+    trigger: "issue_status",
+    force,
+  });
+
+  if (reconcile.action === "dispatch_revision") {
+    return {
+      phase: "revision",
+      shouldRun: true,
+      reconcileReason: reconcile.reason,
+      pmFeedbackCommentId: reconcile.pmFeedbackCommentId,
+    };
+  }
+
+  return {
+    phase: "revision",
+    shouldRun: false,
+    reconcileReason: reconcile.reason,
+    pmFeedbackCommentId: reconcile.pmFeedbackCommentId,
+  };
+}
+
 export interface ResolveRouteOptions {
   issueKey: string;
   configPath: string;
   phase?: ResolveRoutePhaseArg;
   linearApiKey?: string;
+  force?: boolean;
 }
 
 export class LinearAuthError extends Error {
@@ -167,9 +220,18 @@ export async function resolveRoute(
     apiKey,
   );
 
+  const revisionRouting = await applyRevisionReconcileRouting(
+    issue,
+    config,
+    recovery.phase,
+    recovery.shouldRun,
+    apiKey,
+    options.force,
+  );
+
   return {
     issueKey,
-    phase: recovery.phase,
+    phase: revisionRouting.phase,
     repoConfigId: resolved.repoConfigId,
     baseBranch: resolved.baseBranch,
     targetRepo: resolved.targetRepo,
@@ -178,6 +240,8 @@ export async function resolveRoute(
       resolved.repoConfigId,
       resolved.baseBranch,
     ),
-    shouldRun: recovery.shouldRun,
+    shouldRun: revisionRouting.shouldRun,
+    reconcileReason: revisionRouting.reconcileReason,
+    pmFeedbackCommentId: revisionRouting.pmFeedbackCommentId,
   };
 }

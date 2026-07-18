@@ -46,6 +46,8 @@ export async function runResolveRouteCommand(
           `linear_status=${result.linearStatus ?? ""}`,
           `merge_concurrency_group=${result.mergeConcurrencyGroup}`,
           `should_run=${result.shouldRun}`,
+          `reconcile_reason=${result.reconcileReason ?? ""}`,
+          `pm_feedback_comment_id=${result.pmFeedbackCommentId ?? ""}`,
         ];
         appendFileSync(outputPath, `${lines.join("\n")}\n`, "utf8");
       }

@@ -7,6 +7,8 @@ import {
   type LinearCommentRecord,
 } from "./writer.js";
 
+export type RevisionIntent = "pending_pm_feedback" | "ready";
+
 export interface RunStatusCommentBodyInput {
   issueId: string;
   headline: string;
@@ -16,6 +18,8 @@ export interface RunStatusCommentBodyInput {
   runId?: string | null;
   deliveryId?: string | null;
   generation: number;
+  pmFeedbackCommentId?: string | null;
+  revisionIntent?: RevisionIntent | null;
 }
 
 export interface UpsertRunStatusCommentResult {
@@ -27,6 +31,8 @@ export interface UpsertRunStatusCommentResult {
 const GENERATION_METADATA_PATTERN = /^generation:\s*(\d+)\s*$/m;
 const RUN_ID_METADATA_PATTERN = /^run_id:\s*(.+)\s*$/m;
 const DELIVERY_ID_METADATA_PATTERN = /^delivery_id:\s*(.+)\s*$/m;
+const PM_FEEDBACK_METADATA_PATTERN = /^pm_feedback_comment_id:\s*(.+)\s*$/m;
+const REVISION_INTENT_METADATA_PATTERN = /^revision_intent:\s*(.+)\s*$/m;
 
 export function buildRunStatusMarker(issueId: string): string {
   return `<!-- p-dev-run-status:${issueId} -->`;
@@ -50,6 +56,10 @@ export function buildRunStatusCommentBody(input: RunStatusCommentBodyInput): str
     `generation: ${input.generation}`,
     input.runId ? `run_id: ${input.runId}` : null,
     input.deliveryId ? `delivery_id: ${input.deliveryId}` : null,
+    input.pmFeedbackCommentId
+      ? `pm_feedback_comment_id: ${input.pmFeedbackCommentId}`
+      : null,
+    input.revisionIntent ? `revision_intent: ${input.revisionIntent}` : null,
     "-->",
   ]
     .filter(Boolean)
@@ -187,11 +197,46 @@ export function parseRunStatusMetadata(commentBody: string): {
   generation: number | null;
   runId: string | null;
   deliveryId: string | null;
+  pmFeedbackCommentId: string | null;
+  revisionIntent: RevisionIntent | null;
 } {
+  const intentRaw =
+    commentBody.match(REVISION_INTENT_METADATA_PATTERN)?.[1]?.trim() ?? null;
+  const revisionIntent: RevisionIntent | null =
+    intentRaw === "pending_pm_feedback" || intentRaw === "ready"
+      ? intentRaw
+      : null;
+
   return {
     generation: parseRunStatusGeneration(commentBody),
     runId: commentBody.match(RUN_ID_METADATA_PATTERN)?.[1]?.trim() ?? null,
     deliveryId:
       commentBody.match(DELIVERY_ID_METADATA_PATTERN)?.[1]?.trim() ?? null,
+    pmFeedbackCommentId:
+      commentBody.match(PM_FEEDBACK_METADATA_PATTERN)?.[1]?.trim() ?? null,
+    revisionIntent,
   };
+}
+
+/** Durable pending revision intent while Needs Revision awaits PM feedback. */
+export async function markRevisionPendingPmFeedback(
+  client: LinearClient,
+  issueId: string,
+  input?: {
+    runId?: string | null;
+    deliveryId?: string | null;
+    generation?: number;
+  },
+): Promise<UpsertRunStatusCommentResult> {
+  const generation = input?.generation ?? Date.now();
+  const body = buildRunStatusCommentBody({
+    issueId,
+    headline: "Revision pending — waiting for PM feedback",
+    phase: "Needs Revision (awaiting feedback)",
+    runId: input?.runId,
+    deliveryId: input?.deliveryId,
+    generation,
+    revisionIntent: "pending_pm_feedback",
+  });
+  return upsertRunStatusComment(client, issueId, body, { generation });
 }

@@ -43,6 +43,8 @@ jobs:
       linear_status: ${{ steps.route.outputs.linear_status }}
       merge_concurrency_group: ${{ steps.route.outputs.merge_concurrency_group }}
       should_run: ${{ steps.route.outputs.should_run }}
+      reconcile_reason: ${{ steps.route.outputs.reconcile_reason }}
+      pm_feedback_comment_id: ${{ steps.route.outputs.pm_feedback_comment_id }}
       trigger: ${{ steps.inputs.outputs.trigger }}
       linear_delivery_id: ${{ steps.inputs.outputs.linear_delivery_id }}
       input_phase: ${{ steps.inputs.outputs.phase }}
@@ -141,6 +143,19 @@ jobs:
             exit "$EXIT_CODE"
           fi
 
+      - name: Record revision pending intent
+        if: >-
+          steps.route.outputs.phase == 'revision' &&
+          steps.route.outputs.should_run == 'false' &&
+          steps.route.outputs.reconcile_reason == 'pending_pm_feedback'
+        env:
+          ISSUE_KEY: ${{ steps.inputs.outputs.issue_key }}
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+          HARNESS_CONFIG_JSON_B64: ${{ secrets.HARNESS_CONFIG_JSON_B64 }}
+          HARNESS_CONFIG_FINGERPRINT: ${{ vars.HARNESS_CONFIG_FINGERPRINT }}
+        run: |
+          npm run harness:reconcile-revision -- --issue "$ISSUE_KEY" --json
+
       - name: Write gate summary
         if: always()
         env:
@@ -148,6 +163,7 @@ jobs:
           INPUT_PHASE: ${{ steps.inputs.outputs.phase }}
           RESOLVED_PHASE: ${{ steps.route.outputs.phase }}
           SHOULD_RUN: ${{ steps.route.outputs.should_run }}
+          RECONCILE_REASON: ${{ steps.route.outputs.reconcile_reason }}
           REPO_CONFIG_ID: ${{ steps.route.outputs.repo_config_id }}
           BASE_BRANCH: ${{ steps.route.outputs.base_branch }}
           MERGE_GROUP: ${{ steps.route.outputs.merge_concurrency_group }}
@@ -159,6 +175,7 @@ jobs:
             echo "- Input phase: \`$INPUT_PHASE\`"
             echo "- Resolved phase: \`$RESOLVED_PHASE\`"
             echo "- Should run: \`$SHOULD_RUN\`"
+            echo "- Reconcile reason: \`$RECONCILE_REASON\`"
             echo "- Repo: \`$REPO_CONFIG_ID\`"
             echo "- Base branch: \`$BASE_BRANCH\`"
             echo "- Merge concurrency group: \`$MERGE_GROUP\`"

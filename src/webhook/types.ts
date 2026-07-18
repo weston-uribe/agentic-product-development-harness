@@ -21,6 +21,18 @@ export interface ParsedLinearIssueWebhook {
   eventType: string;
 }
 
+export interface ParsedLinearCommentWebhook {
+  issueKey: string | null;
+  issueId: string | null;
+  commentId: string | null;
+  commentBody: string | null;
+  action: string;
+  eventType: "Comment";
+  linearDeliveryId: string | null;
+  linearWebhookId: string | null;
+  actorSummary: string | null;
+}
+
 export type WebhookIgnoreReason =
   | "ignored_event"
   | "ignored_status"
@@ -56,6 +68,9 @@ export interface RepositoryDispatchPayload {
   linearDeliveryId: string | null;
   linearWebhookId: string | null;
   receivedAt: string;
+  triggerKind?: "issue_status" | "comment_create";
+  commentId?: string | null;
+  pmFeedbackCommentId?: string | null;
 }
 
 export interface ProductionPromotedDispatchPayload {

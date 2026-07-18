@@ -1,7 +1,11 @@
 import { isDispatchTriggerStatus } from "./dispatch-statuses.js";
 import type { HarnessConfig } from "../config/types.js";
 import { runLinearAssociationGate } from "../config/linear-association-gate.js";
-import type { ParsedLinearIssueWebhook } from "./types.js";
+import { isHarnessOrchestratorComment } from "../linear/comments.js";
+import type {
+  ParsedLinearCommentWebhook,
+  ParsedLinearIssueWebhook,
+} from "./types.js";
 
 export type FilterResult =
   | { dispatch: true }
@@ -46,6 +50,39 @@ export function shouldDispatchLinearIssueEvent(
         reason: "linear_team_project_not_configured",
       };
     }
+  }
+
+  return { dispatch: true };
+}
+
+/**
+ * Comment create may dispatch for revision reconciliation.
+ * Needs Revision / feedback eligibility is evaluated live in resolve-route.
+ */
+export function shouldDispatchLinearCommentEvent(
+  event: ParsedLinearCommentWebhook,
+  options?: { config?: HarnessConfig; orchestratorMarker?: string },
+): FilterResult {
+  if (event.eventType !== "Comment") {
+    return { dispatch: false, reason: "ignored_event" };
+  }
+
+  if (event.action !== "create") {
+    return { dispatch: false, reason: "ignored_event" };
+  }
+
+  if (!event.issueKey && !event.issueId) {
+    return { dispatch: false, reason: "ignored_event" };
+  }
+
+  const marker =
+    options?.orchestratorMarker ?? options?.config?.orchestratorMarker;
+  if (
+    marker &&
+    event.commentBody &&
+    isHarnessOrchestratorComment(event.commentBody, marker)
+  ) {
+    return { dispatch: false, reason: "ignored_event" };
   }
 
   return { dispatch: true };

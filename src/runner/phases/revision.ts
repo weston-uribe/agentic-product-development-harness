@@ -30,6 +30,7 @@ import { fetchLinearIssue } from "../../linear/client.js";
 import { findLatestHandoffComment } from "../../linear/handoff-comment.js";
 import { findLatestPmFeedbackAfterHandoff } from "../../linear/pm-feedback-comment.js";
 import { parseHarnessMarkers } from "../../linear/markers.js";
+import { markRevisionPendingPmFeedback } from "../../linear/run-status-comment.js";
 import {
   createLinearClient,
   listIssueComments,
@@ -193,7 +194,9 @@ async function writeFinalManifest(
   }
 
   const exitCode =
-    finalOutcome === "success" || finalOutcome === "duplicate"
+    finalOutcome === "success" ||
+    finalOutcome === "duplicate" ||
+    (finalOutcome === "skipped" && errorClassification === "missing_pm_feedback")
       ? 0
       : errorClassification &&
           [
@@ -395,9 +398,56 @@ export async function executeRevisionPhase(
       config.orchestratorMarker,
     );
     if (!pmFeedbackComment) {
-      throw new RevisionError(
-        "missing_pm_feedback",
-        "No PM feedback comment found after latest handoff marker",
+      // Status-before-comment: keep Needs Revision, durable pending intent, no Blocked.
+      await markRevisionPendingPmFeedback(client, issue.id, {
+        runId,
+        deliveryId: process.env.LINEAR_DELIVERY_ID ?? null,
+        generation: Date.now(),
+      });
+      await events.log("revision_pending_pm_feedback", "info", {
+        reason: "pending_pm_feedback",
+      });
+      finalOutcome = "skipped";
+      errorClassification = "missing_pm_feedback";
+      const manifest: RunManifest = {
+        runId,
+        issueKey: options.issueKey,
+        phase,
+        phaseInferredFromStatus,
+        linearStatusBefore,
+        linearStatusAfter,
+        targetRepo: resolved.targetRepo,
+        baseBranch: resolved.baseBranch,
+        resolutionSource: resolved.resolutionSource,
+        dryRun: false,
+        finalOutcome,
+        errorClassification,
+        startedAt: startedAt.toISOString(),
+        finishedAt: new Date().toISOString(),
+        milestone: MILESTONE,
+        promptVersion: REVISION_PROMPT_VERSION,
+        cursorAgentId,
+        cursorRunId,
+        branch,
+        prUrl,
+        previewUrl,
+        validationSummary,
+        changedFiles,
+        checkSummary,
+        previousImplementationRunId,
+        previousHandoffRunId,
+        pmFeedbackCommentId: null,
+        ...emptyMergeManifestFields(),
+        model,
+      };
+      return writeFinalManifest(
+        manifest,
+        runDirectory,
+        parsed,
+        resolved,
+        events,
+        finalOutcome,
+        errorClassification,
       );
     }
 

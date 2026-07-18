@@ -168,6 +168,7 @@ export type RunEventName =
   | "handoff_comment_posted"
   | "handoff_comment_loaded"
   | "pm_feedback_loaded"
+  | "revision_pending_pm_feedback"
   | "revision_comment_posted"
   | "revision_pr_validated"
   | "merge_source_comment_loaded"

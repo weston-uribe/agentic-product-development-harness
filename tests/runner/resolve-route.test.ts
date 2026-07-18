@@ -70,12 +70,19 @@ describe("resolveRoute", () => {
   let tempRoot = "";
   let configPath = "";
 
+  const previousConfigPath = process.env.HARNESS_CONFIG_PATH;
+  const previousConfigJsonB64 = process.env.HARNESS_CONFIG_JSON_B64;
+  const previousConfigJson = process.env.HARNESS_CONFIG_JSON;
+
   beforeEach(async () => {
     vi.clearAllMocks();
     mocks.listIssueComments.mockResolvedValue([]);
     mocks.findImplementationPullRequest.mockResolvedValue(null);
     process.env.GITHUB_TOKEN = "test-github-token";
     process.env.LINEAR_API_KEY = "test-key";
+    delete process.env.HARNESS_CONFIG_PATH;
+    delete process.env.HARNESS_CONFIG_JSON_B64;
+    delete process.env.HARNESS_CONFIG_JSON;
     tempRoot = await mkdtemp(path.join(tmpdir(), "harness-resolve-route-"));
     configPath = path.join(tempRoot, "harness.config.json");
     await writeFile(configPath, `${JSON.stringify(targetAppConfig, null, 2)}\n`, "utf8");
@@ -84,6 +91,21 @@ describe("resolveRoute", () => {
   afterEach(async () => {
     const { rm } = await import("node:fs/promises");
     await rm(tempRoot, { recursive: true, force: true });
+    if (previousConfigPath === undefined) {
+      delete process.env.HARNESS_CONFIG_PATH;
+    } else {
+      process.env.HARNESS_CONFIG_PATH = previousConfigPath;
+    }
+    if (previousConfigJsonB64 === undefined) {
+      delete process.env.HARNESS_CONFIG_JSON_B64;
+    } else {
+      process.env.HARNESS_CONFIG_JSON_B64 = previousConfigJsonB64;
+    }
+    if (previousConfigJson === undefined) {
+      delete process.env.HARNESS_CONFIG_JSON;
+    } else {
+      process.env.HARNESS_CONFIG_JSON = previousConfigJson;
+    }
   });
 
   it("resolves merge phase and integration branch merge group", async () => {
@@ -152,6 +174,19 @@ describe("resolveRoute", () => {
       url: "https://linear.app/example/issue/WES-24",
     });
 
+    mocks.listIssueComments.mockResolvedValue([
+      {
+        id: "handoff-1",
+        body: "---\nharness-orchestrator-v1\nphase: handoff\nrun_id: run-handoff\npr_url: https://github.com/o/r/pull/4\n---",
+        createdAt: "2026-07-18T18:15:00.000Z",
+      },
+      {
+        id: "pm-1",
+        body: "Please fix light mode contrast issues.",
+        createdAt: "2026-07-18T18:25:00.000Z",
+      },
+    ]);
+
     const result = await resolveRoute({
       issueKey: "WES-24",
       configPath,
@@ -161,6 +196,40 @@ describe("resolveRoute", () => {
     expect(result.phase).toBe("revision");
     expect(result.linearStatus).toBe("Needs Revision");
     expect(result.shouldRun).toBe(true);
+    expect(result.pmFeedbackCommentId).toBe("pm-1");
+    expect(result.reconcileReason).toBe("eligible_revision");
+  });
+
+  it("keeps Needs Revision pending when PM feedback is missing", async () => {
+    mocks.fetchLinearIssue.mockResolvedValue({
+      id: "issue-1",
+      identifier: "WES-24",
+      title: "Revision recovery",
+      description: `## Target repo\n\nowner/example-target-app\n\n## Task\n\nTest\n\n## Acceptance criteria\n\n- [ ] Done\n\n## Out of scope\n\n- [ ] N/A`,
+      status: "Needs Revision",
+      projectName: "Example Target App",
+      teamName: "WES",
+      teamKey: null,
+      teamId: "team-1",
+      url: "https://linear.app/example/issue/WES-24",
+    });
+    mocks.listIssueComments.mockResolvedValue([
+      {
+        id: "handoff-1",
+        body: "---\nharness-orchestrator-v1\nphase: handoff\nrun_id: run-handoff\npr_url: https://github.com/o/r/pull/4\n---",
+        createdAt: "2026-07-18T18:15:00.000Z",
+      },
+    ]);
+
+    const result = await resolveRoute({
+      issueKey: "WES-24",
+      configPath,
+      linearApiKey: "test-key",
+    });
+
+    expect(result.phase).toBe("revision");
+    expect(result.shouldRun).toBe(false);
+    expect(result.reconcileReason).toBe("pending_pm_feedback");
   });
 
   it("routes Building issues with an open PR to handoff recovery", async () => {

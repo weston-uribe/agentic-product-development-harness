@@ -4,7 +4,11 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { HarnessConfig } from "../../src/config/types.js";
 import { DISPATCH_TRIGGER_STATUSES } from "../../src/webhook/dispatch-statuses.js";
-import { shouldDispatchLinearIssueEvent } from "../../src/webhook/filter.js";
+import {
+  shouldDispatchLinearCommentEvent,
+  shouldDispatchLinearIssueEvent,
+} from "../../src/webhook/filter.js";
+import { parseLinearCommentEvent } from "../../src/webhook/parse-linear-comment-event.js";
 import { parseLinearIssueEvent } from "../../src/webhook/parse-linear-issue-event.js";
 
 const fixturesDir = path.join(
@@ -183,5 +187,57 @@ describe("shouldDispatchLinearIssueEvent", () => {
       dispatch: false,
       reason: "linear_team_project_not_configured",
     });
+  });
+});
+
+describe("shouldDispatchLinearCommentEvent", () => {
+  it("dispatches PM feedback comment creates", () => {
+    const payload = JSON.parse(
+      readFileSync(path.join(fixturesDir, "comment-create-pm-feedback.json"), "utf8"),
+    );
+    const parsed = parseLinearCommentEvent(payload, {
+      signature: null,
+      deliveryId: "delivery-1",
+      eventType: "Comment",
+      timestamp: "1700000000000",
+    });
+    expect(parsed).not.toBeNull();
+    expect(shouldDispatchLinearCommentEvent(parsed!)).toEqual({ dispatch: true });
+  });
+
+  it("ignores comment updates", () => {
+    expect(
+      shouldDispatchLinearCommentEvent({
+        issueKey: "FRE-3",
+        issueId: "issue-1",
+        commentId: "c1",
+        commentBody: "updated",
+        action: "update",
+        eventType: "Comment",
+        linearDeliveryId: null,
+        linearWebhookId: null,
+        actorSummary: null,
+      }),
+    ).toEqual({ dispatch: false, reason: "ignored_event" });
+  });
+
+  it("ignores harness orchestrator comments", () => {
+    expect(
+      shouldDispatchLinearCommentEvent(
+        {
+          issueKey: "FRE-3",
+          issueId: "issue-1",
+          commentId: "c1",
+          commentBody:
+            "---\nharness-orchestrator-v1\nphase: handoff\nrun_id: run-1\n---",
+          action: "create",
+          eventType: "Comment",
+          linearDeliveryId: null,
+          linearWebhookId: null,
+          actorSummary: null,
+        },
+        { orchestratorMarker: "harness-orchestrator-v1" },
+      ),
+    ).toEqual({ dispatch: false, reason: "ignored_event" });
   });
 });

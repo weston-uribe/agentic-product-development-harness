@@ -4,7 +4,11 @@ import {
   getDispatchRepository,
 } from "./dispatch-github.js";
 import { loadHarnessConfig } from "../config/load-config.js";
-import { shouldDispatchLinearIssueEvent } from "./filter.js";
+import {
+  shouldDispatchLinearCommentEvent,
+  shouldDispatchLinearIssueEvent,
+} from "./filter.js";
+import { parseLinearCommentEvent } from "./parse-linear-comment-event.js";
 import {
   parseLinearIssueEvent,
   readWebhookHeaders,
@@ -62,6 +66,22 @@ async function loadHarnessConfigForWebhook() {
   }
 }
 
+function readPayloadEventType(
+  payload: unknown,
+  headersEventType: string | null,
+): string {
+  if (headersEventType?.trim()) {
+    return headersEventType.trim();
+  }
+  if (payload && typeof payload === "object") {
+    const type = (payload as { type?: unknown }).type;
+    if (typeof type === "string") {
+      return type;
+    }
+  }
+  return "";
+}
+
 export async function handleLinearWebhook(
   options: HandleLinearWebhookOptions,
 ): Promise<HandleLinearWebhookResult> {
@@ -113,70 +133,131 @@ export async function handleLinearWebhook(
 
   const teamKey =
     options.teamKey ?? process.env.HARNESS_TEAM_KEY ?? null;
-  const parsed = parseLinearIssueEvent(payload, headers, teamKey);
+  const eventType = readPayloadEventType(payload, headers.eventType);
+  const config = await loadHarnessConfigForWebhook();
 
-  if (!parsed) {
-    logWebhookEvent({ accepted: false, reason: "ignored_event" });
-    return jsonResponse(200, { accepted: false, reason: "ignored_event" });
-  }
+  let clientPayload: RepositoryDispatchPayload | null = null;
 
-  const filterResult = shouldDispatchLinearIssueEvent(parsed, {
-    config: await loadHarnessConfigForWebhook(),
-  });
-  if (!filterResult.dispatch) {
-    logWebhookEvent({
+  if (eventType === "Comment") {
+    const parsed = parseLinearCommentEvent(payload, headers, teamKey);
+    if (!parsed) {
+      logWebhookEvent({ accepted: false, reason: "ignored_event" });
+      return jsonResponse(200, { accepted: false, reason: "ignored_event" });
+    }
+
+    const filterResult = shouldDispatchLinearCommentEvent(parsed, {
+      config,
+      orchestratorMarker: config?.orchestratorMarker,
+    });
+    if (!filterResult.dispatch) {
+      logWebhookEvent({
+        linearDeliveryId: parsed.linearDeliveryId,
+        linearWebhookId: parsed.linearWebhookId,
+        issueKey: parsed.issueKey,
+        action: parsed.action,
+        accepted: false,
+        reason: filterResult.reason,
+      });
+      return jsonResponse(200, {
+        accepted: false,
+        reason: filterResult.reason,
+      });
+    }
+
+    if (!parsed.issueKey) {
+      logWebhookEvent({
+        linearDeliveryId: parsed.linearDeliveryId,
+        linearWebhookId: parsed.linearWebhookId,
+        action: parsed.action,
+        accepted: false,
+        reason: "missing_issue_key",
+      });
+      return jsonResponse(200, {
+        accepted: false,
+        reason: "missing_issue_key",
+      });
+    }
+
+    clientPayload = {
+      issueKey: parsed.issueKey,
+      issueId: parsed.issueId,
+      issueUrl: null,
+      action: parsed.action,
+      statusName: null,
+      previousStatusName: null,
       linearDeliveryId: parsed.linearDeliveryId,
       linearWebhookId: parsed.linearWebhookId,
+      receivedAt: new Date(options.nowMs ?? Date.now()).toISOString(),
+      triggerKind: "comment_create",
+      commentId: parsed.commentId,
+    };
+  } else {
+    const parsed = parseLinearIssueEvent(payload, headers, teamKey);
+
+    if (!parsed) {
+      logWebhookEvent({ accepted: false, reason: "ignored_event" });
+      return jsonResponse(200, { accepted: false, reason: "ignored_event" });
+    }
+
+    const filterResult = shouldDispatchLinearIssueEvent(parsed, {
+      config,
+    });
+    if (!filterResult.dispatch) {
+      logWebhookEvent({
+        linearDeliveryId: parsed.linearDeliveryId,
+        linearWebhookId: parsed.linearWebhookId,
+        issueKey: parsed.issueKey,
+        action: parsed.action,
+        statusName: parsed.statusName,
+        previousStatusName: parsed.previousStatusName,
+        accepted: false,
+        reason: filterResult.reason,
+      });
+      return jsonResponse(200, {
+        accepted: false,
+        reason: filterResult.reason,
+      });
+    }
+
+    if (!parsed.issueKey) {
+      logWebhookEvent({
+        linearDeliveryId: parsed.linearDeliveryId,
+        linearWebhookId: parsed.linearWebhookId,
+        action: parsed.action,
+        statusName: parsed.statusName,
+        accepted: false,
+        reason: "missing_issue_key",
+      });
+      return jsonResponse(200, {
+        accepted: false,
+        reason: "missing_issue_key",
+      });
+    }
+
+    clientPayload = {
       issueKey: parsed.issueKey,
+      issueId: parsed.issueId,
+      issueUrl: parsed.issueUrl,
       action: parsed.action,
       statusName: parsed.statusName,
       previousStatusName: parsed.previousStatusName,
-      accepted: false,
-      reason: filterResult.reason,
-    });
-    return jsonResponse(200, {
-      accepted: false,
-      reason: filterResult.reason,
-    });
-  }
-
-  if (!parsed.issueKey) {
-    logWebhookEvent({
       linearDeliveryId: parsed.linearDeliveryId,
       linearWebhookId: parsed.linearWebhookId,
-      action: parsed.action,
-      statusName: parsed.statusName,
-      accepted: false,
-      reason: "missing_issue_key",
-    });
-    return jsonResponse(200, {
-      accepted: false,
-      reason: "missing_issue_key",
-    });
+      receivedAt: new Date(options.nowMs ?? Date.now()).toISOString(),
+      triggerKind: "issue_status",
+    };
   }
 
   const dispatchToken =
     options.dispatchToken ?? process.env.GITHUB_DISPATCH_TOKEN;
   if (!dispatchToken) {
     logWebhookEvent({
-      issueKey: parsed.issueKey,
+      issueKey: clientPayload.issueKey,
       accepted: false,
       error: "dispatch_failed",
     });
     return jsonResponse(500, { error: "dispatch_failed" });
   }
-
-  const clientPayload: RepositoryDispatchPayload = {
-    issueKey: parsed.issueKey,
-    issueId: parsed.issueId,
-    issueUrl: parsed.issueUrl,
-    action: parsed.action,
-    statusName: parsed.statusName,
-    previousStatusName: parsed.previousStatusName,
-    linearDeliveryId: parsed.linearDeliveryId,
-    linearWebhookId: parsed.linearWebhookId,
-    receivedAt: new Date(options.nowMs ?? Date.now()).toISOString(),
-  };
 
   try {
     await dispatchRepositoryEvent({
@@ -188,7 +269,7 @@ export async function handleLinearWebhook(
     });
   } catch (error) {
     logWebhookEvent({
-      issueKey: parsed.issueKey,
+      issueKey: clientPayload.issueKey,
       accepted: false,
       error: "dispatch_failed",
       reason: error instanceof Error ? error.message : String(error),
@@ -197,12 +278,12 @@ export async function handleLinearWebhook(
   }
 
   logWebhookEvent({
-    linearDeliveryId: parsed.linearDeliveryId,
-    linearWebhookId: parsed.linearWebhookId,
-    issueKey: parsed.issueKey,
-    action: parsed.action,
-    statusName: parsed.statusName,
-    previousStatusName: parsed.previousStatusName,
+    linearDeliveryId: clientPayload.linearDeliveryId,
+    linearWebhookId: clientPayload.linearWebhookId,
+    issueKey: clientPayload.issueKey,
+    action: clientPayload.action,
+    statusName: clientPayload.statusName,
+    previousStatusName: clientPayload.previousStatusName,
     accepted: true,
     dispatched: true,
   });
@@ -210,6 +291,6 @@ export async function handleLinearWebhook(
   return jsonResponse(200, {
     accepted: true,
     dispatched: true,
-    issueKey: parsed.issueKey,
+    issueKey: clientPayload.issueKey,
   });
 }

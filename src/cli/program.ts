@@ -9,6 +9,7 @@ import { runRunCommand } from "./commands/run.js";
 import { runValidateIssue } from "./commands/validate-issue.js";
 import { runSyncProductionCommand } from "./commands/sync-production.js";
 import { runResolveRouteCommand } from "./commands/resolve-route.js";
+import { runReconcileRevisionCommand } from "./commands/reconcile-revision.js";
 import { runRedactOutputCommand } from "./commands/redact-output.js";
 import { runDiagnoseVercelBridgeCommand } from "./commands/diagnose-vercel-bridge.js";
 import { runOperatorInit } from "./commands/operator-init.js";
@@ -241,6 +242,33 @@ export function createProgram(): Command {
     .action(async (opts: { liveProbe?: boolean }) => {
       const exitCode = await runDiagnoseVercelBridgeCommand({
         liveProbe: opts.liveProbe === true,
+      });
+      process.exitCode = exitCode;
+    });
+
+  program
+    .command("reconcile-revision")
+    .description(
+      "Evaluate revision eligibility from Linear state; optionally dispatch or record pending intent",
+    )
+    .requiredOption("--issue <key>", "Linear issue key, e.g. FRE-3")
+    .option("--json", "Print reconcile JSON to stdout", false)
+    .option("--dry-run", "Evaluate only; no Linear writes or dispatch", false)
+    .option(
+      "--dispatch",
+      "When eligible, send repository_dispatch for a revision run",
+      false,
+    )
+    .option("--force", "Force revision even when a matching marker exists", false)
+    .action(async (opts) => {
+      const configPath = program.opts<{ config: string }>().config;
+      const exitCode = await runReconcileRevisionCommand({
+        issueKey: opts.issue,
+        configPath,
+        json: opts.json,
+        dryRun: opts.dryRun,
+        dispatch: opts.dispatch,
+        force: opts.force,
       });
       process.exitCode = exitCode;
     });

@@ -1,0 +1,65 @@
+name: Harness Reconcile Revisions
+
+# Recovers stranded Needs Revision issues when Comment/status webhooks were missed.
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: "Optional Linear issue key to reconcile (e.g. FRE-3)"
+        required: false
+      dispatch:
+        description: "When eligible, send repository_dispatch"
+        required: false
+        default: "true"
+
+permissions:
+  contents: read
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
+      GITHUB_TOKEN: ${{ secrets.HARNESS_GITHUB_TOKEN }}
+      GITHUB_DISPATCH_TOKEN: ${{ secrets.HARNESS_GITHUB_TOKEN }}
+      HARNESS_CONFIG_JSON_B64: ${{ secrets.HARNESS_CONFIG_JSON_B64 }}
+      HARNESS_CONFIG_FINGERPRINT: ${{ vars.HARNESS_CONFIG_FINGERPRINT }}
+      GITHUB_DISPATCH_REPOSITORY: ${{ github.repository }}
+
+    steps:
+      - name: Checkout harness repo
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Reconcile single issue
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.issue != '' }}
+        env:
+          ISSUE_KEY: ${{ github.event.inputs.issue }}
+          DO_DISPATCH: ${{ github.event.inputs.dispatch || 'true' }}
+        run: |
+          if [ "$DO_DISPATCH" = "true" ]; then
+            npm run harness:reconcile-revision -- --issue "$ISSUE_KEY" --dispatch --json
+          else
+            npm run harness:reconcile-revision -- --issue "$ISSUE_KEY" --json
+          fi
+
+      - name: Reconcile FRE-3 when scheduled (temporary recovery seed)
+        if: ${{ github.event_name == 'schedule' }}
+        run: |
+          # Bounded recovery: reconcile known stranded revision candidates.
+          # resolve-route/reconcile-revision are idempotent per pmFeedbackCommentId.
+          for ISSUE in FRE-3; do
+            echo "Reconciling $ISSUE"
+            npm run harness:reconcile-revision -- --issue "$ISSUE" --dispatch --json || true
+          done

@@ -114,42 +114,78 @@ module.exports = async function handler(req, res) {
     return json(res, 401, { error: "timestamp_out_of_tolerance" });
   }
 
-  if (payload.type !== "Issue" || !payload.data || !payload.data.identifier) {
+  function issueKeyAllowed(issueKey) {
+    const teamKeyRaw = process.env.HARNESS_TEAM_KEY || "";
+    const teamKeys = teamKeyRaw
+      .split(/[,\\s]+/)
+      .map((part) => part.trim().toUpperCase())
+      .filter(Boolean);
+    if (teamKeys.length === 0) {
+      return true;
+    }
+    const normalizedIssueKey = String(issueKey).toUpperCase();
+    return teamKeys.some((key) => normalizedIssueKey.startsWith(key + "-"));
+  }
+
+  function issueKeyFromUrl(url) {
+    if (!url || typeof url !== "string") {
+      return null;
+    }
+    const match = url.match(/\\/([A-Z]+-\\d+)(?:\\/|$|#)/);
+    return match ? match[1] : null;
+  }
+
+  let issueKey = null;
+  let issueId = null;
+  let issueUrl = null;
+  let action = payload.action || "";
+  let statusName = null;
+  let triggerKind = "issue_status";
+  let commentId = null;
+
+  if (payload.type === "Comment") {
+    const data = payload.data || {};
+    const issue = data.issue || {};
+    issueKey = issue.identifier || issueKeyFromUrl(payload.url) || issueKeyFromUrl(issue.url);
+    issueId = issue.id || data.issueId || null;
+    issueUrl = issue.url || payload.url || null;
+    action = payload.action || "";
+    triggerKind = "comment_create";
+    commentId = data.id || null;
+    if (action !== "create" || !issueKey) {
+      return json(res, 200, { accepted: false, reason: "ignored_event" });
+    }
+  } else if (payload.type === "Issue" && payload.data && payload.data.identifier) {
+    issueKey = payload.data.identifier;
+    issueId = payload.data.id || null;
+    issueUrl = payload.data.url || null;
+    statusName = payload.data.state && payload.data.state.name;
+  } else {
     return json(res, 200, { accepted: false, reason: "ignored_event" });
   }
 
-  const issueKey = payload.data.identifier;
-  // HARNESS_TEAM_KEY may be a single key or comma/space-separated allowlist
-  // (multi-association workspaces such as TT,FRE).
-  const teamKeyRaw = process.env.HARNESS_TEAM_KEY || "";
-  const teamKeys = teamKeyRaw
-    .split(/[,\s]+/)
-    .map((part) => part.trim().toUpperCase())
-    .filter(Boolean);
-  if (teamKeys.length > 0) {
-    const normalizedIssueKey = String(issueKey).toUpperCase();
-    const matches = teamKeys.some((key) => normalizedIssueKey.startsWith(key + "-"));
-    if (!matches) {
-      return json(res, 200, { accepted: false, reason: "team_key_mismatch" });
-    }
+  if (!issueKeyAllowed(issueKey)) {
+    return json(res, 200, { accepted: false, reason: "team_key_mismatch" });
   }
 
   try {
     await dispatchToGitHub({
-      issueKey,
-      issueId: payload.data.id,
-      issueUrl: payload.data.url,
-      action: payload.action,
-      statusName: payload.data.state && payload.data.state.name,
+      issueKey: issueKey,
+      issueId: issueId,
+      issueUrl: issueUrl,
+      action: action,
+      statusName: statusName,
       linearDeliveryId: getHeader(req, "linear-delivery"),
       linearWebhookId: getHeader(req, "linear-webhook-id"),
       receivedAt: new Date().toISOString(),
+      triggerKind: triggerKind,
+      commentId: commentId,
     });
   } catch {
     return json(res, 500, { error: "dispatch_failed" });
   }
 
-  return json(res, 200, { accepted: true, dispatched: true, issueKey });
+  return json(res, 200, { accepted: true, dispatched: true, issueKey: issueKey });
 };
 `.trimStart();
 
