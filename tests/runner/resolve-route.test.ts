@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   fetchLinearIssue: vi.fn(),
   listIssueComments: vi.fn(),
   findImplementationPullRequest: vi.fn(),
+  getPullRequest: vi.fn(),
 }));
 
 vi.mock("../../src/linear/client.js", () => ({
@@ -25,6 +26,12 @@ vi.mock("../../src/linear/writer.js", () => ({
 
 vi.mock("../../src/github/pr-discovery.js", () => ({
   findImplementationPullRequest: mocks.findImplementationPullRequest,
+}));
+
+vi.mock("../../src/github/client.js", () => ({
+  GitHubClient: class {
+    getPullRequest = mocks.getPullRequest;
+  },
 }));
 
 const targetAppConfig: HarnessConfig = {
@@ -121,6 +128,20 @@ describe("resolveRoute", () => {
       teamId: "team-1",
       url: "https://linear.app/example/issue/WES-21",
     });
+    mocks.listIssueComments.mockResolvedValue([
+      {
+        id: "rev-1",
+        body: "---\nharness-orchestrator-v1\nphase: revision\nrun_id: run-rev\npm_feedback_comment_id: pm-1\npr_url: https://github.com/owner/example-target-app/pull/39\n---",
+        createdAt: "2026-07-18T19:00:00.000Z",
+      },
+    ]);
+    mocks.getPullRequest.mockResolvedValue({
+      html_url: "https://github.com/owner/example-target-app/pull/39",
+      state: "open",
+      merged: false,
+      merged_at: null,
+      base: { ref: "dev" },
+    });
 
     const result = await resolveRoute({
       issueKey: "WES-21",
@@ -133,9 +154,38 @@ describe("resolveRoute", () => {
     expect(result.baseBranch).toBe("dev");
     expect(result.mergeConcurrencyGroup).toBe("target-app-dev");
     expect(result.shouldRun).toBe(true);
+    expect(result.reconcileReason).toBe("eligible_merge");
+    expect(result.mergePrUrl).toBe(
+      "https://github.com/owner/example-target-app/pull/39",
+    );
   });
 
-  it("honors explicit merge phase override", async () => {
+  it("short-circuits merge when merge-source marker is missing", async () => {
+    mocks.fetchLinearIssue.mockResolvedValue({
+      id: "issue-1",
+      identifier: "WES-21",
+      title: "Merge test",
+      description: `## Target repo\n\nowner/example-target-app\n\n## Task\n\nTest\n\n## Acceptance criteria\n\n- [ ] Done\n\n## Out of scope\n\n- [ ] N/A`,
+      status: "Ready to Merge",
+      projectName: "Example Target App",
+      teamName: "WES",
+      teamKey: null,
+      teamId: "team-1",
+      url: "https://linear.app/example/issue/WES-21",
+    });
+
+    const result = await resolveRoute({
+      issueKey: "WES-21",
+      configPath,
+      linearApiKey: "test-key",
+    });
+
+    expect(result.phase).toBe("merge");
+    expect(result.shouldRun).toBe(false);
+    expect(result.reconcileReason).toBe("missing_merge_source_marker");
+  });
+
+  it("honors explicit merge phase override with force while Merging", async () => {
     mocks.fetchLinearIssue.mockResolvedValue({
       id: "issue-1",
       identifier: "WES-21",
@@ -148,12 +198,27 @@ describe("resolveRoute", () => {
       teamId: "team-1",
       url: "https://linear.app/example/issue/WES-21",
     });
+    mocks.listIssueComments.mockResolvedValue([
+      {
+        id: "rev-1",
+        body: "---\nharness-orchestrator-v1\nphase: revision\nrun_id: run-rev\npm_feedback_comment_id: pm-1\npr_url: https://github.com/owner/example-target-app/pull/39\n---",
+        createdAt: "2026-07-18T19:00:00.000Z",
+      },
+    ]);
+    mocks.getPullRequest.mockResolvedValue({
+      html_url: "https://github.com/owner/example-target-app/pull/39",
+      state: "open",
+      merged: false,
+      merged_at: null,
+      base: { ref: "dev" },
+    });
 
     const result = await resolveRoute({
       issueKey: "WES-21",
       configPath,
       phase: "merge",
       linearApiKey: "test-key",
+      force: true,
     });
 
     expect(result.phase).toBe("merge");

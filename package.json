@@ -40,6 +40,7 @@
     "harness:validate-issue": "tsx src/index.ts validate-issue",
     "harness:resolve-route": "tsx src/index.ts resolve-route",
     "harness:reconcile-revision": "tsx src/index.ts reconcile-revision",
+    "harness:reconcile-merge": "tsx src/index.ts reconcile-merge",
     "harness:sync-production": "tsx src/index.ts sync-production",
     "harness:canary-runner-config": "tsx src/index.ts canary-runner-config",
     "release:sync-managed-runner": "tsx src/index.ts sync-managed-runner",

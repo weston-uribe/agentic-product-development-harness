@@ -1,6 +1,6 @@
-name: Harness Reconcile Revisions
+name: Harness Reconcile Stranded Issues
 
-# Recovers stranded Needs Revision issues when Comment/status webhooks were missed.
+# Recovers stranded Needs Revision / Ready to Merge issues when webhooks were missed.
 on:
   schedule:
     - cron: "*/15 * * * *"
@@ -9,6 +9,10 @@ on:
       issue:
         description: "Optional Linear issue key to reconcile (e.g. FRE-3)"
         required: false
+      mode:
+        description: "revision | merge | both"
+        required: false
+        default: "both"
       dispatch:
         description: "When eligible, send repository_dispatch"
         required: false
@@ -46,20 +50,40 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.issue != '' }}
         env:
           ISSUE_KEY: ${{ github.event.inputs.issue }}
+          MODE: ${{ github.event.inputs.mode || 'both' }}
           DO_DISPATCH: ${{ github.event.inputs.dispatch || 'true' }}
         run: |
-          if [ "$DO_DISPATCH" = "true" ]; then
-            npm run harness:reconcile-revision -- --issue "$ISSUE_KEY" --dispatch --json
-          else
-            npm run harness:reconcile-revision -- --issue "$ISSUE_KEY" --json
-          fi
+          run_rev() {
+            if [ "$DO_DISPATCH" = "true" ]; then
+              npm run harness:reconcile-revision -- --issue "$ISSUE_KEY" --dispatch --json
+            else
+              npm run harness:reconcile-revision -- --issue "$ISSUE_KEY" --json
+            fi
+          }
+          run_merge() {
+            if [ "$DO_DISPATCH" = "true" ]; then
+              npm run harness:reconcile-merge -- --issue "$ISSUE_KEY" --dispatch --json
+            else
+              npm run harness:reconcile-merge -- --issue "$ISSUE_KEY" --json
+            fi
+          }
+          case "$MODE" in
+            revision) run_rev ;;
+            merge) run_merge ;;
+            both|*)
+              run_rev || true
+              run_merge || true
+              ;;
+          esac
 
       - name: Reconcile FRE-3 when scheduled (temporary recovery seed)
         if: ${{ github.event_name == 'schedule' }}
         run: |
-          # Bounded recovery: reconcile known stranded revision candidates.
-          # resolve-route/reconcile-revision are idempotent per pmFeedbackCommentId.
+          # Bounded recovery: reconcile known stranded revision/merge candidates.
+          # Idempotent per pmFeedbackCommentId (revision) and issueKey+prUrl (merge).
           for ISSUE in FRE-3; do
-            echo "Reconciling $ISSUE"
+            echo "Reconciling revision for $ISSUE"
             npm run harness:reconcile-revision -- --issue "$ISSUE" --dispatch --json || true
+            echo "Reconciling merge for $ISSUE"
+            npm run harness:reconcile-merge -- --issue "$ISSUE" --dispatch --json || true
           done

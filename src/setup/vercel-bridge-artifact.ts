@@ -117,7 +117,7 @@ module.exports = async function handler(req, res) {
   function issueKeyAllowed(issueKey) {
     const teamKeyRaw = process.env.HARNESS_TEAM_KEY || "";
     const teamKeys = teamKeyRaw
-      .split(/[,\\s]+/)
+      .split(/[,\s]+/)
       .map((part) => part.trim().toUpperCase())
       .filter(Boolean);
     if (teamKeys.length === 0) {
@@ -131,7 +131,8 @@ module.exports = async function handler(req, res) {
     if (!url || typeof url !== "string") {
       return null;
     }
-    const match = url.match(/\\/([A-Z]+-\\d+)(?:\\/|$|#)/);
+    // Concatenate "\\d" so String.raw does not double-escape digit class.
+    const match = url.match(new RegExp("/([A-Z]+-" + "\\d+" + ")(?:/|$|#)"));
     return match ? match[1] : null;
   }
 

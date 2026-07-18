@@ -15,6 +15,9 @@ import { runLinearAssociationGate } from "../config/linear-association-gate.js";
 import type { RunPhase } from "../types/run.js";
 import type { DispatchPhaseArg } from "./phase-args.js";
 import { evaluateRevisionReconcile } from "./revision-reconcile.js";
+import { evaluateMergeReconcile } from "./merge-reconcile.js";
+import { parsePrUrl } from "../github/pr-url.js";
+import { findLatestMergeSourceComment } from "../linear/merge-source-comment.js";
 
 export { CloudConfigStaleError } from "../config/assert-cloud-config-fingerprint.js";
 
@@ -31,6 +34,7 @@ export interface ResolveRouteResult {
   shouldRun: boolean;
   reconcileReason?: string | null;
   pmFeedbackCommentId?: string | null;
+  mergePrUrl?: string | null;
 }
 
 export function buildMergeConcurrencyGroup(
@@ -146,6 +150,95 @@ async function applyRevisionReconcileRouting(
   };
 }
 
+async function applyMergeReconcileRouting(
+  issue: Awaited<ReturnType<typeof fetchLinearIssue>>,
+  config: HarnessConfig,
+  phase: RunPhase,
+  shouldRun: boolean,
+  baseBranch: string,
+  linearApiKey: string,
+  force?: boolean,
+): Promise<{
+  phase: RunPhase;
+  shouldRun: boolean;
+  reconcileReason: string | null;
+  mergePrUrl: string | null;
+}> {
+  if (phase !== "merge") {
+    return {
+      phase,
+      shouldRun,
+      reconcileReason: null,
+      mergePrUrl: null,
+    };
+  }
+
+  const client = createLinearClient(linearApiKey);
+  const comments = await listIssueComments(client, issue.id);
+  const mergeSource = findLatestMergeSourceComment(
+    comments,
+    config.orchestratorMarker,
+  );
+  const markerPrUrl = mergeSource?.markers.prUrl?.trim() ?? null;
+
+  let pullRequest = null as
+    | {
+        url: string;
+        state: string;
+        merged: boolean;
+        baseBranch: string;
+      }
+    | null;
+  const githubToken = process.env.GITHUB_TOKEN;
+  if (githubToken && markerPrUrl) {
+    const parsed = parsePrUrl(markerPrUrl);
+    if (parsed) {
+      try {
+        const github = new GitHubClient({ token: githubToken });
+        const pull = await github.getPullRequest(
+          parsed.owner,
+          parsed.repo,
+          parsed.pullNumber,
+        );
+        pullRequest = {
+          url: pull.html_url ?? markerPrUrl,
+          state: pull.merged_at ? "closed" : pull.state,
+          merged: Boolean(pull.merged_at ?? pull.merged),
+          baseBranch: pull.base?.ref ?? "",
+        };
+      } catch {
+        pullRequest = null;
+      }
+    }
+  }
+
+  const reconcile = evaluateMergeReconcile({
+    config,
+    issue,
+    comments,
+    trigger: "issue_status",
+    expectedBaseBranch: baseBranch,
+    pullRequest,
+    force,
+  });
+
+  if (reconcile.action === "dispatch_merge") {
+    return {
+      phase: "merge",
+      shouldRun: true,
+      reconcileReason: reconcile.reason,
+      mergePrUrl: reconcile.prUrl,
+    };
+  }
+
+  return {
+    phase: "merge",
+    shouldRun: false,
+    reconcileReason: reconcile.reason,
+    mergePrUrl: reconcile.prUrl,
+  };
+}
+
 export interface ResolveRouteOptions {
   issueKey: string;
   configPath: string;
@@ -229,9 +322,19 @@ export async function resolveRoute(
     options.force,
   );
 
+  const mergeRouting = await applyMergeReconcileRouting(
+    issue,
+    config,
+    revisionRouting.phase,
+    revisionRouting.shouldRun,
+    resolved.baseBranch,
+    apiKey,
+    options.force,
+  );
+
   return {
     issueKey,
-    phase: revisionRouting.phase,
+    phase: mergeRouting.phase,
     repoConfigId: resolved.repoConfigId,
     baseBranch: resolved.baseBranch,
     targetRepo: resolved.targetRepo,
@@ -240,8 +343,10 @@ export async function resolveRoute(
       resolved.repoConfigId,
       resolved.baseBranch,
     ),
-    shouldRun: revisionRouting.shouldRun,
-    reconcileReason: revisionRouting.reconcileReason,
+    shouldRun: mergeRouting.shouldRun,
+    reconcileReason:
+      mergeRouting.reconcileReason ?? revisionRouting.reconcileReason,
     pmFeedbackCommentId: revisionRouting.pmFeedbackCommentId,
+    mergePrUrl: mergeRouting.mergePrUrl,
   };
 }

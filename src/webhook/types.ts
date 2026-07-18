@@ -75,6 +75,8 @@ export interface RepositoryDispatchPayload {
     triggerKind?: "issue_status" | "comment_create";
     commentId?: string | null;
     pmFeedbackCommentId?: string | null;
+    prUrl?: string | null;
+    reconcile?: "revision" | "merge" | null;
   };
 }
 
