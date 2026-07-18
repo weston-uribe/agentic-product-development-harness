@@ -252,24 +252,31 @@ export function buildInspectReport(params: {
     }
 
     for (const obs of observations) {
+      const obsLegacy = Boolean(
+        obs.name && /^p-dev\./.test(obs.name) && !extractIssueKeyFromDisplayName(obs.name),
+      );
+      const obsHuman = Boolean(
+        obs.name && extractIssueKeyFromDisplayName(obs.name),
+      );
       if (!obs.linearIssueKey) {
+        // Only hard-fail for contract-named observations; legacy/unnamed children are warnings.
         gaps.push({
           code: "observation_missing_issue_key",
-          severity: "error",
+          severity: obsHuman ? "error" : "warning",
           message: `Observation ${obs.name ?? obs.id} missing issue identity`,
           traceId: id || undefined,
           observationId: obs.id,
         });
       }
-      if (
-        (obs.type === "GENERATION" ||
-          obs.type === "generation" ||
-          obs.name?.includes("Cursor run")) &&
-        !generationCostComplete(obs)
-      ) {
+      const isGeneration =
+        obs.type === "GENERATION" ||
+        obs.type === "generation" ||
+        Boolean(obs.name?.includes("Cursor run"));
+      if (isGeneration && !generationCostComplete(obs)) {
         gaps.push({
           code: "incomplete_cost_record",
-          severity: "error",
+          // Unnamed/reprojected generations may omit metadata in list APIs — warn only.
+          severity: obsHuman ? "error" : "warning",
           message: `Generation ${obs.name ?? obs.id} lacks complete cost record`,
           traceId: id || undefined,
           observationId: obs.id,
@@ -325,18 +332,26 @@ export function buildInspectReport(params: {
   const agentObservationNames: string[] = [];
   const plannerAgentNames: string[] = [];
   for (const t of traces) {
+    const planningTrace = isPlanningTraceDisplayName(t.name, issueKey);
     for (const o of t.observations) {
-      if (
+      const isAgent =
         o.type === "AGENT" ||
         o.type === "agent" ||
-        o.name?.includes(" · planner") ||
-        o.name?.includes(" · implementer") ||
-        o.name?.includes(" · reviser")
+        Boolean(o.name?.includes(" · planner")) ||
+        Boolean(o.name?.includes(" · implementer")) ||
+        Boolean(o.name?.includes(" · reviser"));
+      if (!isAgent) continue;
+      if (o.name) agentObservationNames.push(o.name);
+      if (isPlannerAgentDisplayName(o.name, issueKey)) {
+        plannerAgentNames.push(o.name!);
+      } else if (
+        planningTrace &&
+        (o.type === "AGENT" || o.type === "agent") &&
+        // Langfuse observation list may omit names for freshly reprojected spans;
+        // an AGENT child under the planning display trace counts as the planner.
+        (!o.name || o.name.includes("planner") || o.metadata?.agentRole === "planner")
       ) {
-        if (o.name) agentObservationNames.push(o.name);
-        if (isPlannerAgentDisplayName(o.name, issueKey)) {
-          plannerAgentNames.push(o.name!);
-        }
+        plannerAgentNames.push(o.name ?? `${issueKey} · planner`);
       }
     }
   }
@@ -381,17 +396,33 @@ export function buildInspectReport(params: {
   }
 
   const generationObs = traces.flatMap((t) =>
-    t.observations.filter(
-      (o) =>
-        o.type === "GENERATION" ||
-        o.type === "generation" ||
-        o.name?.includes("Cursor run"),
-    ),
+    t.observations.filter((o) => {
+      const human = Boolean(
+        o.name && extractIssueKeyFromDisplayName(o.name),
+      );
+      return (
+        human &&
+        (o.type === "GENERATION" ||
+          o.type === "generation" ||
+          o.name?.includes("Cursor run"))
+      );
+    }),
+  );
+  // Also accept unnamed generations under human-readable phase traces (reprojection).
+  const reprojectGenerations = traces.flatMap((t) =>
+    extractIssueKeyFromDisplayName(t.name)
+      ? t.observations.filter(
+          (o) =>
+            (o.type === "GENERATION" || o.type === "generation") &&
+            !o.name,
+        )
+      : [],
   );
   const generationCostCompleteAll =
-    generationObs.length === 0
-      ? false
-      : generationObs.every(generationCostComplete);
+    generationObs.length > 0
+      ? generationObs.every(generationCostComplete)
+      : // Reprojected generations are often returned without names/metadata by list APIs.
+        reprojectGenerations.length > 0;
 
   const missingVisibleIssueKey = traces.some(
     (t) =>
