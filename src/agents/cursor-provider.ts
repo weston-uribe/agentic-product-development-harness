@@ -41,9 +41,19 @@ function unwrapCursorAgent(handle: AgentHandle): CursorCloudAgent {
 function mapObservedRun(
   observed: Awaited<ReturnType<typeof cursorSendAndObserve>>,
 ): ObservedAgentRun {
-  const usageRaw = observed.result?.usage;
-  const usage = buildUsageRecord(usageRaw);
   const model = observed.result?.model;
+  const modelParams =
+    model && typeof model.id === "string" && Array.isArray(model.params)
+      ? model.params.map((p) => ({
+          id: String(p.id),
+          value: String(p.value),
+        }))
+      : undefined;
+  const modelId =
+    model && typeof model.id === "string" ? model.id : undefined;
+  const usageRaw = observed.result?.usage;
+  // Cost must use resolved model + params (Fast vs Standard), not base ID alone.
+  const usage = buildUsageRecord(usageRaw, modelId, modelParams);
   return {
     agentId: observed.agentId,
     runId: observed.runId,
@@ -57,12 +67,7 @@ function mapObservedRun(
       model && typeof model.id === "string"
         ? {
             id: model.id,
-            params: Array.isArray(model.params)
-              ? model.params.map((p) => ({
-                  id: String(p.id),
-                  value: String(p.value),
-                }))
-              : undefined,
+            params: modelParams,
           }
         : null,
     usage: usage ?? { cost: unavailableCost() },

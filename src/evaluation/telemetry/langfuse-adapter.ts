@@ -34,6 +34,7 @@ export function createLangfuseTelemetryForwarder(params: {
   let pendingAssistantOutput: string | null = null;
   let lastModelId: string | undefined;
   let lastCost: AgentCostRecord | undefined;
+  let lastEffectiveVariant: "standard" | "fast" | "none" | undefined;
 
   const role =
     params.agentRole ?? defaultAgentRoleForPhase(params.phase) ?? "agent";
@@ -54,6 +55,7 @@ export function createLangfuseTelemetryForwarder(params: {
       const name = aggregateGenerationDisplayName({
         issueKey: params.issueKey,
         role,
+        effectiveVariant: lastEffectiveVariant,
       });
       generationHandle = params.agentObservation.startChild(name, "generation");
       generationHandle.update({
@@ -61,6 +63,9 @@ export function createLangfuseTelemetryForwarder(params: {
           ...identityMeta(),
           usageAggregation: "cursor_run_aggregate",
           individualModelCallsAvailable: false,
+          ...(lastEffectiveVariant
+            ? { effectiveVariant: lastEffectiveVariant }
+            : {}),
         },
       });
       generationStarted = true;
@@ -274,6 +279,27 @@ export function createLangfuseTelemetryForwarder(params: {
         if (modelId) lastModelId = modelId;
         if (usage?.cost) lastCost = usage.cost;
 
+        const modelParams = Array.isArray(event.payload.modelParams)
+          ? (event.payload.modelParams as Array<{ id: string; value: string }>)
+          : Array.isArray(event.payload.effectiveRequestedParams)
+            ? (event.payload.effectiveRequestedParams as Array<{
+                id: string;
+                value: string;
+              }>)
+            : undefined;
+        const fastFromParams = modelParams?.find((p) => p.id === "fast")?.value;
+        const effectiveVariant =
+          typeof event.payload.effectiveVariant === "string"
+            ? (event.payload.effectiveVariant as "standard" | "fast" | "none")
+            : fastFromParams === "true"
+              ? "fast"
+              : fastFromParams === "false"
+                ? "standard"
+                : undefined;
+        if (effectiveVariant) {
+          lastEffectiveVariant = effectiveVariant;
+        }
+
         const gen = ensureGeneration();
         if (gen) {
           const usageDetails: Record<string, number> = {};
@@ -318,6 +344,21 @@ export function createLangfuseTelemetryForwarder(params: {
               usageAggregation: "cursor_run_aggregate",
               individualModelCallsAvailable: false,
               modelId: modelId ?? lastModelId ?? null,
+              modelParams: modelParams ?? null,
+              effectiveVariant: effectiveVariant ?? lastEffectiveVariant ?? null,
+              fast:
+                fastFromParams === "true"
+                  ? true
+                  : fastFromParams === "false"
+                    ? false
+                    : null,
+              parameterEvidenceSource:
+                event.payload.parameterEvidenceSource ?? null,
+              variantEvidenceSource:
+                event.payload.variantEvidenceSource ?? null,
+              providerDefaultParams:
+                event.payload.providerDefaultParams ?? null,
+              harnessDefaultParams: event.payload.harnessDefaultParams ?? null,
               ...costFields,
               cursorAgentId: event.payload.cursorAgentId,
               cursorRunId: event.payload.cursorRunId,

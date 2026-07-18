@@ -25,6 +25,14 @@ export function analyticsEventDedupeSuffix(
       return `provision_completed:${operationId ?? "unknown"}`;
     case "p_dev_workspace_provision_failed":
       return `provision_failed:${operationId ?? "unknown"}`;
+    case "p_dev_model_fast_toggle_displayed":
+      return `model_fast_toggle_displayed:${event.configurationSurface}:${event.agentRole}:${event.baseModelId}`;
+    case "p_dev_model_fast_preference_changed":
+      return `model_fast_preference_changed:${event.configurationSurface}:${event.agentRole}:${event.baseModelId}:${event.fastEnabled}`;
+    case "p_dev_model_agent_run_started":
+      return `model_agent_run_started:${event.agentRole}:${event.baseModelId}:${event.fastEnabled}:${Date.now()}`;
+    case "p_dev_model_agent_run_completed":
+      return `model_agent_run_completed:${event.agentRole}:${event.baseModelId}:${event.outcome}:${Date.now()}`;
     default: {
       const exhaustive: never = event;
       return String(exhaustive);

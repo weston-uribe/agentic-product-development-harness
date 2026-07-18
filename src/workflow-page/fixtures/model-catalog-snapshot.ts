@@ -25,10 +25,14 @@ const FIXTURE_MODEL_CATALOG: WorkflowModelCatalogEntry[] = [
         label: "Fast mode",
         type: "boolean",
         allowedValues: ["true", "false"],
+        // Cursor provider default when omitted is Fast.
         defaultValue: "true",
       },
     ],
     fetchedAt: FIXTURE_MODEL_CATALOG_CAPTURED_AT,
     source: "fixture",
+    fastModeAvailable: true,
+    providerDefaultParams: [{ id: "fast", value: "true" }],
+    harnessDefaultParams: [{ id: "fast", value: "false" }],
   },
 ];

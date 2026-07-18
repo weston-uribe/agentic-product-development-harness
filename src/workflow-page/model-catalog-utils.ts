@@ -3,37 +3,21 @@ import type {
   WorkflowModelParameterDefinition,
 } from "./types.js";
 import { hashWorkflowFingerprint } from "./fingerprint.js";
+import {
+  buildCapabilityFromRawModel,
+  type ModelCapabilityRecord,
+  type RawCursorModel,
+} from "../models/index.js";
 
-interface RawCursorModel {
-  id: string;
-  name?: string;
-  displayName?: string;
-  parameters?: Array<{
-    id: string;
-    name?: string;
-    label?: string;
-    type?: string;
-    allowedValues?: string[];
-    defaultValue?: string;
-  }>;
-}
+export type { RawCursorModel };
 
-function normalizeParameter(
-  parameter: NonNullable<RawCursorModel["parameters"]>[number],
+function toWorkflowParameter(
+  parameter: ModelCapabilityRecord["supportedParameters"][number],
 ): WorkflowModelParameterDefinition {
-  const type =
-    parameter.type === "boolean" ||
-    parameter.type === "enum" ||
-    parameter.type === "string"
-      ? parameter.type
-      : parameter.allowedValues && parameter.allowedValues.length > 0
-        ? "enum"
-        : "string";
-
   return {
     id: parameter.id,
-    label: parameter.label ?? parameter.name ?? parameter.id,
-    type,
+    label: parameter.label,
+    type: parameter.type,
     allowedValues: parameter.allowedValues,
     defaultValue: parameter.defaultValue,
   };
@@ -44,14 +28,20 @@ export function normalizeCursorModelCatalog(
   source: "cursor-live" | "fixture",
   fetchedAt: string,
 ): WorkflowModelCatalogEntry[] {
-  return models.map((model) => ({
-    id: model.id,
-    displayName: model.displayName ?? model.name ?? model.id,
-    availability: "available" as const,
-    supportedParameters: (model.parameters ?? []).map(normalizeParameter),
-    fetchedAt,
-    source,
-  }));
+  return models.map((model) => {
+    const capability = buildCapabilityFromRawModel(model, source, fetchedAt);
+    return {
+      id: capability.modelId,
+      displayName: capability.displayName,
+      availability: "available" as const,
+      supportedParameters: capability.supportedParameters.map(toWorkflowParameter),
+      fetchedAt,
+      source,
+      fastModeAvailable: capability.fastModeAvailable,
+      providerDefaultParams: capability.providerDefaultParams,
+      harnessDefaultParams: capability.harnessDefaultParams,
+    };
+  });
 }
 
 export function buildCatalogUnavailableEntry(
@@ -64,6 +54,9 @@ export function buildCatalogUnavailableEntry(
       availability: "catalog-unavailable",
       supportedParameters: [],
       source,
+      fastModeAvailable: false,
+      providerDefaultParams: [],
+      harnessDefaultParams: [],
     },
   ];
 }
@@ -76,8 +69,27 @@ export function buildModelCatalogFingerprint(
       id: entry.id,
       availability: entry.availability,
       parameters: entry.supportedParameters.map((parameter) => parameter.id),
+      fastModeAvailable: entry.fastModeAvailable ?? false,
     })),
   );
 }
 
-export type { RawCursorModel };
+export function catalogEntryToCapability(
+  entry: WorkflowModelCatalogEntry,
+): ModelCapabilityRecord {
+  return buildCapabilityFromRawModel(
+    {
+      id: entry.id,
+      displayName: entry.displayName,
+      parameters: entry.supportedParameters.map((parameter) => ({
+        id: parameter.id,
+        label: parameter.label,
+        type: parameter.type,
+        allowedValues: parameter.allowedValues,
+        defaultValue: parameter.defaultValue,
+      })),
+    },
+    entry.source === "fixture" ? "fixture" : "cursor-live",
+    entry.fetchedAt,
+  );
+}

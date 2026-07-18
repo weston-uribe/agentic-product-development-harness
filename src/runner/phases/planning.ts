@@ -544,7 +544,16 @@ export async function executePlanningPhase(
       agentRole: "planner",
       agentOutputSha256: outputRef?.sha256 ?? null,
       agentOutputByteCount: outputRef?.byteCount ?? null,
-      ...agentObsMetadataFromObserved(observed),
+      ...agentObsMetadataFromObserved({
+        ...observed,
+        requestedModel: {
+          id: plannerModel.model,
+          params: plannerModel.modelParams ?? undefined,
+          parameterEvidenceSource: plannerModel.parameterEvidenceSource,
+          providerDefaultParams: plannerModel.providerDefaultParams,
+          harnessDefaultParams: plannerModel.harnessDefaultParams,
+        },
+      }),
     };
     if (
       plannerObs &&

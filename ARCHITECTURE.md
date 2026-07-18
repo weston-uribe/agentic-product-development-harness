@@ -346,26 +346,29 @@ Full role contracts: [`docs/architecture/linear-automation-state-machine.md`](do
 
 ## Cursor model policy
 
-Every Cursor Cloud agent launched by this harness (planning, implementation,
-revision, and any future phase) uses **standard / basic Composer 2.5**.
+Planner and Builder (and future role) models are configured via Workflow and
+Settings using the same shared control. Fast is a **parameter of the same model**
+(not a separate catalog entry such as “Composer 2.5 Fast”).
 
-- **Fast and Max modes are intentionally avoided** to control Cursor usage cost.
-  The harness must never request the Fast variant, Max mode, or high/max
-  reasoning.
-- Model selection is **centralized** in [`src/cursor/model.ts`](src/cursor/model.ts).
-  `Cursor.models.list()` reports that `composer-2.5`'s **default variant is
-  `fast: true`**, so omitting model params makes the cloud server launch the Fast
-  variant. To prevent this, the harness pins `id: "composer-2.5"` with
-  `params: [{ id: "fast", value: "false" }]`, forcing standard Composer 2.5. The
-  model exposes no `max_mode`/reasoning parameter, so no Max/high-reasoning
-  variant can be (or is) requested.
-- Changing model or mode must be a **deliberate config/code change** (via
-  `defaultModel` in `harness.config.json` or `src/cursor/model.ts`) — never an
-  accidental default.
-- **Preferred future policy** is `Auto` if/when Cursor Automations support it as
-  a model setting (see ADR 0003); until then, standard Composer 2.5 is the only
-  allowed setting.
-- Reports should mention the model setting used when relevant.
+- **Capability discovery** prefers `Cursor.models.list()` ([`src/models/`](src/models/)),
+  with a versioned fallback registry only when Cursor omits fields.
+- **Defaults stay distinct:** Cursor’s provider default for omitted Composer
+  params may be Fast (`providerDefaultParams`). PDev’s product default remains
+  Standard (`harnessDefaultParams` → `fast: false`).
+- **Omit → Standard at resolve time:** when saved config has no Fast preference,
+  display and execution resolve `fast: false` with
+  `parameterEvidenceSource: harness_default_pin`. This does **not** write config
+  on Workflow/Settings/bootstrap GET (no write-on-read).
+- **Persist Fast only on deliberate writes:** user toggles Fast, selects/resaves
+  a model, or a versioned configuration migration transaction runs.
+- **Execution always sends explicit params** for supported Composer Fast
+  (`params: [{ id: "fast", value: "true" | "false" }]`). Provider rejection fails
+  before agent create; the harness does not silently fall back to a more
+  expensive variant.
+- Resolution is centralized in [`src/cursor/model.ts`](src/cursor/model.ts) /
+  [`src/models/`](src/models/).
+- **Preferred future policy** remains `Auto` if/when Cursor Automations support
+  it (ADR 0003). Reports should mention the effective model + variant when relevant.
 
 ---
 
@@ -399,4 +402,4 @@ Agents must not advance Linear status unless the required durable artifact exist
 3. **Honest maturity labels** — distinguish implemented vs planned in every doc.
 4. **Human gates by default** — automation augments review; it does not replace it.
 5. **Router before fan-out** — one status-triggered automation that exits early beats many overlapping triggers.
-6. **Standard Composer 2.5 only** — Fast and Max modes are intentionally avoided to control usage cost; `Auto` is the preferred future policy (ADR 0003).
+6. **Explicit model variants** — Composer defaults to Standard when Fast is omitted; Fast is opt-in via Workflow/Settings; `Auto` remains the preferred future policy (ADR 0003).

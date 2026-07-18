@@ -1,10 +1,10 @@
 import type { HarnessConfig } from "../config/types.js";
 import type { RoleModelRole } from "../config/role-models.js";
 import {
-  resolveBuilderModel,
-  resolvePlannerModel,
+  resolveModelResolutionForRole,
   summarizeRoleModelSource,
 } from "../cursor/model.js";
+import { formatModelVariantSummary } from "../models/index.js";
 import {
   validateCanonicalLinearWorkflow,
   type CanonicalValidationResult,
@@ -58,16 +58,30 @@ function buildWorkflowModelSelection(
   role: RoleModelRole,
   modelCatalog: WorkflowModelCatalogEntry[],
 ): WorkflowModelSelection {
-  const resolved = role === "planner" ? resolvePlannerModel(config) : resolveBuilderModel(config);
-  const catalogEntry = lookupModelInCatalog(modelCatalog, resolved.id);
-  return {
-    modelId: resolved.id,
-    displayName: catalogEntry?.displayName ?? resolved.id,
-    parameters: resolved.params?.map((parameter) => ({
+  // Read-only resolution: never mutates saved configuration.
+  const resolution = resolveModelResolutionForRole(config, role);
+  const catalogEntry = lookupModelInCatalog(modelCatalog, resolution.modelId);
+  const displayName = catalogEntry?.displayName ?? resolution.displayName;
+  const stored =
+    config.roleModels?.[role]?.params?.map((parameter) => ({
       id: parameter.id,
       value: parameter.value,
-    })) ?? [],
+    })) ?? [];
+  return {
+    modelId: resolution.modelId,
+    displayName,
+    parameters: resolution.effectiveRequestedParams.map((parameter) => ({
+      id: parameter.id,
+      value: parameter.value,
+    })),
+    storedParameters: stored,
     source: summarizeRoleModelSource(config, role),
+    parameterEvidenceSource: resolution.parameterEvidenceSource,
+    effectiveVariant: resolution.effectiveVariant,
+    variantSummary: formatModelVariantSummary(
+      displayName,
+      resolution.effectiveVariant,
+    ),
   };
 }
 

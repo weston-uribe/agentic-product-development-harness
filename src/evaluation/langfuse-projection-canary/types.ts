@@ -27,6 +27,8 @@ export interface SyntheticProjectionCanaryReport {
     skillProvenanceStatus: "present" | "none";
     costSource: string;
     costUnavailableReason: string | null;
+    costUsd?: number | null;
+    effectiveVariant?: "standard" | "fast" | "none";
   };
   applied: boolean;
   acceptanceComplete: boolean | null;

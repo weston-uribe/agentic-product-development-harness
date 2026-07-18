@@ -41,6 +41,12 @@ export interface WorkflowModelCatalogEntry {
   supportedParameters: WorkflowModelParameterDefinition[];
   fetchedAt?: string;
   source: "cursor-live" | "fixture";
+  /** True when the model advertises a configurable Fast parameter. */
+  fastModeAvailable?: boolean;
+  /** Cursor-advertised defaults if params omitted (may be Fast for Composer). */
+  providerDefaultParams?: Array<{ id: string; value: string }>;
+  /** PDev product defaults when stored preference is missing (Standard for Composer). */
+  harnessDefaultParams?: Array<{ id: string; value: string }>;
 }
 
 export type WorkflowModelSelectionSource =
@@ -49,11 +55,25 @@ export type WorkflowModelSelectionSource =
   | "defaultModel.id"
   | "code-default";
 
+export type WorkflowParameterEvidenceSource =
+  | "stored"
+  | "harness_default_pin"
+  | "unsupported"
+  | "provider_default";
+
+export type WorkflowEffectiveVariant = "standard" | "fast" | "none";
+
 export interface WorkflowModelSelection {
   modelId: string;
   displayName: string;
+  /** Effective requested params for display/execution (may include harness pin). */
   parameters: Array<{ id: string; value: string }>;
+  /** Params actually stored in config; may omit Fast. */
+  storedParameters?: Array<{ id: string; value: string }>;
   source: WorkflowModelSelectionSource;
+  parameterEvidenceSource?: WorkflowParameterEvidenceSource;
+  effectiveVariant?: WorkflowEffectiveVariant;
+  variantSummary?: string;
 }
 
 export interface WorkflowCurrentWorkflowMapping {

@@ -36,13 +36,22 @@ The harness does **not** currently use `SendOptions.onDelta` (`InteractionUpdate
 
 **Absent:** no `costUsd`, `cost`, or pricing fields in published `.d.ts`.
 
-Harness cost projection for Cursor runs:
+### Model selection params (proven for `@cursor/sdk@1.0.23`)
 
-```text
-costSource: "unavailable"
+`Agent.create` / `agent.send` accept:
+
+```ts
+{
+  id: "composer-2.5",
+  params: [{ id: "fast", value: "true" | "false" }]
+}
 ```
 
-Do not invent numeric cost estimates from this SDK version.
+`ModelListItem` may also expose `parameters` and `variants`. The harness normalizes these into a provider-neutral capability record (`src/models/`). Fast is a parameter of the same model — not a separate fake model ID.
+
+### Cost projection
+
+When provider USD is absent, the harness estimates from the versioned variant-aware pricing registry (`src/evaluation/telemetry/pricing-registry.ts`) using **resolved model + params**. Fast runs must not use Standard rates. Registry version is projected to Langfuse as `pricingRegistryVersion`.
 
 ## `SDKMessage` stream variants
 

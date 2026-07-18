@@ -6,16 +6,17 @@ import {
 } from "../../src/evaluation/telemetry/cost.js";
 
 describe("cost records", () => {
-  it("requires costUnavailableReason when unavailable", () => {
+  it("estimates from pricing registry using Standard when params omitted", () => {
     const cost = resolveCostRecord({
       modelId: "composer-2.5",
-      inputTokens: 100,
-      outputTokens: 50,
+      inputTokens: 1_000_000,
+      outputTokens: 0,
     });
-    expect(cost.costSource).toBe("unavailable");
-    expect(cost.costUnavailableReason).toBe("missing_pricing_entry");
+    expect(cost.costSource).toBe("pricing_registry");
+    expect(cost.estimatedCostUsd).toBe(0.5);
+    expect(cost.pricingRegistryVersion).toBeTruthy();
     const fields = costProjectionFields(cost);
-    expect(fields.costUnavailableReason).toBe("missing_pricing_entry");
+    expect(fields.costUsd).toBe(0.5);
   });
 
   it("uses provider cost when present", () => {
@@ -29,12 +30,23 @@ describe("cost records", () => {
     expect(cost.costUnavailableReason).toBeUndefined();
   });
 
-  it("buildUsageRecord attaches full cost projection fields", () => {
+  it("buildUsageRecord attaches Fast-variant registry estimate when params say fast", () => {
     const usage = buildUsageRecord(
-      { inputTokens: 1, outputTokens: 2 },
+      { inputTokens: 1_000_000, outputTokens: 0 },
       "composer-2.5",
+      [{ id: "fast", value: "true" }],
     );
-    expect(usage?.cost.costSource).toBe("unavailable");
-    expect(usage?.cost.costUnavailableReason).toBe("missing_pricing_entry");
+    expect(usage?.cost.costSource).toBe("pricing_registry");
+    expect(usage?.cost.estimatedCostUsd).toBe(3);
+  });
+
+  it("marks missing pricing for unknown models", () => {
+    const cost = resolveCostRecord({
+      modelId: "totally-unknown-model",
+      inputTokens: 100,
+      outputTokens: 50,
+    });
+    expect(cost.costSource).toBe("unavailable");
+    expect(cost.costUnavailableReason).toBe("missing_pricing_entry");
   });
 });

@@ -4,6 +4,7 @@ import type {
   CostUnavailableReason,
 } from "./types.js";
 import { estimateCostUsd, lookupModelPrice } from "./pricing-registry.js";
+import type { ModelParameterValue } from "../../models/types.js";
 
 export function unavailableCost(
   reason: CostUnavailableReason = "provider_did_not_report",
@@ -17,11 +18,12 @@ export function unavailableCost(
 /**
  * Resolve cost with precedence:
  * 1. Provider-reported cost from Cursor
- * 2. Pricing-registry estimate for approved models
+ * 2. Pricing-registry estimate for approved model + variant
  * 3. Explicit unavailable with machine-readable reason
  */
 export function resolveCostRecord(params: {
   modelId?: string | null;
+  modelParams?: ReadonlyArray<ModelParameterValue> | null;
   providerReportedCostUsd?: number | null;
   inputTokens?: number;
   outputTokens?: number;
@@ -54,6 +56,7 @@ export function resolveCostRecord(params: {
 
   const estimated = estimateCostUsd({
     modelId: params.modelId,
+    modelParams: params.modelParams,
     inputTokens: params.inputTokens,
     outputTokens: params.outputTokens,
     cacheReadTokens: params.cacheReadTokens,
@@ -68,7 +71,7 @@ export function resolveCostRecord(params: {
     };
   }
 
-  if (params.modelId && !lookupModelPrice(params.modelId)) {
+  if (params.modelId && !lookupModelPrice(params.modelId, params.modelParams)) {
     return unavailableCost("missing_pricing_entry");
   }
 
@@ -87,12 +90,14 @@ export function buildUsageRecord(
     costUsd?: number;
   } | null | undefined,
   modelId?: string | null,
+  modelParams?: ReadonlyArray<ModelParameterValue> | null,
 ): AgentUsageRecord | null {
   if (!usage || typeof usage !== "object") {
     return null;
   }
   const cost = resolveCostRecord({
     modelId,
+    modelParams,
     providerReportedCostUsd: usage.costUsd,
     inputTokens: usage.inputTokens,
     outputTokens: usage.outputTokens,

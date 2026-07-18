@@ -41,6 +41,14 @@ export const METADATA_V1_ALLOWED_KEYS = [
   "modelId",
   "modelRole",
   "modelParams",
+  "effectiveVariant",
+  "fast",
+  "parameterEvidenceSource",
+  "variantEvidenceSource",
+  "providerDefaultParams",
+  "harnessDefaultParams",
+  "effectiveRequestedParams",
+  "capabilityRegistryVersion",
   "cursorAgentId",
   "cursorRunId",
   "cursorRequestId",
@@ -254,7 +262,13 @@ export function buildMetadataV1(
 
     switch (key) {
       case "modelParams":
+      case "providerDefaultParams":
+      case "harnessDefaultParams":
+      case "effectiveRequestedParams":
         raw[key] = boundModelParams(value as ModelParamInput[]);
+        break;
+      case "fast":
+        raw[key] = boundBoolean(value);
         break;
       case "evaluationSchemaVersion":
       case "runGeneration":

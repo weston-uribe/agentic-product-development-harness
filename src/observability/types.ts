@@ -41,7 +41,20 @@ export type ErrorCategory =
   | "local_persistence"
   | "server"
   | "unexpected"
+  | "model_selection"
   | "unknown";
+
+export type ModelConfigurationSurface = "workflow" | "settings";
+export type ModelCapabilitySourceProperty =
+  | "cursor-live"
+  | "fixture"
+  | "fallback-registry"
+  | "unknown";
+export type ParameterEvidenceSourceProperty =
+  | "stored"
+  | "harness_default_pin"
+  | "unsupported"
+  | "provider_default";
 
 export type ProvisioningFailureCategory =
   | "auth"
@@ -162,6 +175,42 @@ export type AnalyticsEvent =
     }
   | {
       type: "p_dev_setup_completed";
+    }
+  | {
+      type: "p_dev_model_fast_toggle_displayed";
+      agentRole: string;
+      baseModelId: string;
+      capabilitySource: ModelCapabilitySourceProperty;
+      configurationSurface: ModelConfigurationSurface;
+      parameterEvidenceSource: ParameterEvidenceSourceProperty;
+    }
+  | {
+      type: "p_dev_model_fast_preference_changed";
+      agentRole: string;
+      baseModelId: string;
+      fastEnabled: boolean;
+      capabilitySource: ModelCapabilitySourceProperty;
+      configurationSurface: ModelConfigurationSurface;
+      parameterEvidenceSource: ParameterEvidenceSourceProperty;
+    }
+  | {
+      type: "p_dev_model_agent_run_started";
+      agentRole: string;
+      baseModelId: string;
+      fastEnabled: boolean;
+      capabilitySource: ModelCapabilitySourceProperty;
+      configurationSurface: ModelConfigurationSurface;
+      parameterEvidenceSource: ParameterEvidenceSourceProperty;
+    }
+  | {
+      type: "p_dev_model_agent_run_completed";
+      agentRole: string;
+      baseModelId: string;
+      fastEnabled: boolean;
+      capabilitySource: ModelCapabilitySourceProperty;
+      configurationSurface: ModelConfigurationSurface;
+      parameterEvidenceSource: ParameterEvidenceSourceProperty;
+      outcome: "completed" | "failed";
     };
 
 export interface AllowedSentryContext {
@@ -183,6 +232,13 @@ export interface AllowedSentryContext {
   duration_bucket?: DurationBucket;
   retry_count_bucket?: string;
   rate_limit_pause_count_bucket?: string;
+  agent_role?: string;
+  base_model_id?: string;
+  fast_enabled?: boolean;
+  parameter_evidence_source?: ParameterEvidenceSourceProperty;
+  capability_registry_version?: string;
+  failure_classification?: string;
+  requested_model_params?: string;
 }
 
 export interface ProductErrorCaptureInput {
@@ -198,6 +254,14 @@ export interface ProductErrorCaptureInput {
   durationBucket?: DurationBucket;
   retryCountBucket?: string;
   rateLimitPauseCountBucket?: string;
+  agentRole?: string;
+  baseModelId?: string;
+  fastEnabled?: boolean;
+  parameterEvidenceSource?: ParameterEvidenceSourceProperty;
+  capabilityRegistryVersion?: string;
+  failureClassification?: string;
+  /** JSON-serialized allowlisted param id/value pairs only — never prompts. */
+  requestedModelParams?: string;
 }
 
 export type TypedBreadcrumb =

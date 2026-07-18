@@ -8,6 +8,10 @@ export const ANALYTICS_EVENT_NAMES = [
   "p_dev_workspace_provision_completed",
   "p_dev_workspace_provision_failed",
   "p_dev_setup_completed",
+  "p_dev_model_fast_toggle_displayed",
+  "p_dev_model_fast_preference_changed",
+  "p_dev_model_agent_run_started",
+  "p_dev_model_agent_run_completed",
 ] as const;
 
 export const COMMON_ANALYTICS_PROPERTY_KEYS = [
@@ -71,6 +75,13 @@ export const ALLOWED_SENTRY_TAG_KEYS = [
   "duration_bucket",
   "retry_count_bucket",
   "rate_limit_pause_count_bucket",
+  "agent_role",
+  "base_model_id",
+  "fast_enabled",
+  "parameter_evidence_source",
+  "capability_registry_version",
+  "failure_classification",
+  "requested_model_params",
 ] as const;
 
 export function bucketDurationMs(durationMs: number): DurationBucket {
@@ -212,6 +223,42 @@ export function analyticsEventToProperties(
       };
     case "p_dev_setup_completed":
       return {};
+    case "p_dev_model_fast_toggle_displayed":
+      return {
+        agent_role: event.agentRole,
+        base_model_id: event.baseModelId,
+        capability_source: event.capabilitySource,
+        configuration_surface: event.configurationSurface,
+        parameter_evidence_source: event.parameterEvidenceSource,
+      };
+    case "p_dev_model_fast_preference_changed":
+      return {
+        agent_role: event.agentRole,
+        base_model_id: event.baseModelId,
+        fast_enabled: event.fastEnabled,
+        capability_source: event.capabilitySource,
+        configuration_surface: event.configurationSurface,
+        parameter_evidence_source: event.parameterEvidenceSource,
+      };
+    case "p_dev_model_agent_run_started":
+      return {
+        agent_role: event.agentRole,
+        base_model_id: event.baseModelId,
+        fast_enabled: event.fastEnabled,
+        capability_source: event.capabilitySource,
+        configuration_surface: event.configurationSurface,
+        parameter_evidence_source: event.parameterEvidenceSource,
+      };
+    case "p_dev_model_agent_run_completed":
+      return {
+        agent_role: event.agentRole,
+        base_model_id: event.baseModelId,
+        fast_enabled: event.fastEnabled,
+        capability_source: event.capabilitySource,
+        configuration_surface: event.configurationSurface,
+        parameter_evidence_source: event.parameterEvidenceSource,
+        outcome: event.outcome,
+      };
     default: {
       const exhaustive: never = event;
       throw new Error(`Unsupported analytics event: ${String(exhaustive)}`);

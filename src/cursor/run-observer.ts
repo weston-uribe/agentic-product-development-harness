@@ -366,14 +366,30 @@ export async function sendAndObserve(
     durationMs: result.durationMs,
   });
 
+  const resultModelParams = Array.isArray(result.model?.params)
+    ? result.model.params.map((param) => ({
+        id: String(param.id),
+        value: String(param.value),
+      }))
+    : options.model?.params?.map((param) => ({
+        id: param.id,
+        value: param.value,
+      }));
+  const resultModelId = result.model?.id ?? options.model?.id;
+  const usageForTelemetry = buildUsageRecord(
+    result.usage,
+    resultModelId,
+    resultModelParams,
+  );
+
   const failureClass = classifyRunResultStatus(result.status);
   if (failureClass) {
     if (telemetrySession) {
       await telemetrySession.emitRunFinished({
         status: result.status,
         hasAssistantOutput: false,
-        modelId: result.model?.id,
-        usage: buildUsageRecord(result.usage),
+        modelId: resultModelId,
+        usage: usageForTelemetry,
         artifactRef: runResultRef,
         error: true,
       });
@@ -392,8 +408,8 @@ export async function sendAndObserve(
       await telemetrySession.emitRunFinished({
         status: result.status,
         hasAssistantOutput: false,
-        modelId: result.model?.id,
-        usage: buildUsageRecord(result.usage),
+        modelId: resultModelId,
+        usage: usageForTelemetry,
         artifactRef: runResultRef,
         error: true,
       });
@@ -443,12 +459,12 @@ export async function sendAndObserve(
     await telemetrySession.emitRunFinished({
       status: result.status,
       hasAssistantOutput: true,
-      modelId: result.model?.id,
-      usage: buildUsageRecord(result.usage),
+      modelId: resultModelId,
+      usage: usageForTelemetry,
       durationMs: result.durationMs ?? null,
       requestId: result.requestId ?? null,
       artifactRef: runResultRef,
-      costSource: "unavailable",
+      costSource: usageForTelemetry?.cost.costSource ?? "unavailable",
     });
     const snap = await telemetrySession.finalize();
     eventCounts = snap.counts;

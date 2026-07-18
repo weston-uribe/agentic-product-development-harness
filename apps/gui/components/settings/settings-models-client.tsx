@@ -77,6 +77,7 @@ export function SettingsModelsClient({ initialBootstrap }: SettingsModelsClientP
           modelCatalog={bootstrap.modelCatalog}
           modelId={plannerSelection.modelId}
           parameters={plannerSelection.parameters}
+          configurationSurface="settings"
           saveLabel={saveStateLabel("planning")}
           saveErrorDetail={saveErrorDetail("planning")}
           onSelectModel={handleModelSelect}
@@ -90,6 +91,7 @@ export function SettingsModelsClient({ initialBootstrap }: SettingsModelsClientP
           modelCatalog={bootstrap.modelCatalog}
           modelId={builderSelection.modelId}
           parameters={builderSelection.parameters}
+          configurationSurface="settings"
           saveLabel={saveStateLabel("implementation")}
           saveErrorDetail={saveErrorDetail("implementation")}
           onSelectModel={handleModelSelect}

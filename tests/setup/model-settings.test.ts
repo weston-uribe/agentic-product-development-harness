@@ -43,10 +43,13 @@ describe("model-settings", () => {
     expect(summary.source).toBe("agentProvider.model.id");
   });
 
-  it("reports fast:false as code-controlled pinned params", () => {
+  it("reports fast:false as harness-default pin when Fast is not stored", () => {
     const summary = summarizeCursorModelSettings(makeConfig());
 
     expect(summary.pinnedParams).toEqual([...STANDARD_MODEL_PARAMS]);
     expect(summary.paramsControlledInCode).toBe(true);
+    expect(summary.parameterEvidenceSource).toBe("harness_default_pin");
+    expect(summary.effectiveVariant).toBe("standard");
+    expect(summary.policyNote).toMatch(/without writing config/i);
   });
 });

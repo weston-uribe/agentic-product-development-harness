@@ -779,7 +779,16 @@ export async function executeImplementationPhase(
             | import("../../evaluation/capture-policy.js").CursorUsageInput
             | undefined,
         ),
-        ...agentObsMetadataFromObserved(observed),
+        ...agentObsMetadataFromObserved({
+          ...observed,
+          requestedModel: {
+            id: builderModel.model,
+            params: builderModel.modelParams ?? undefined,
+            parameterEvidenceSource: builderModel.parameterEvidenceSource,
+            providerDefaultParams: builderModel.providerDefaultParams,
+            harnessDefaultParams: builderModel.harnessDefaultParams,
+          },
+        }),
         ...(observed.completeness
           ? completenessToMetadata(observed.completeness)
           : {}),

@@ -57,10 +57,10 @@ describe("langfuse projection canary", () => {
     expect(report.projected.phaseTraceName).toBe("SYN-TEST-1 · planning");
     expect(report.projected.agentName).toBe("SYN-TEST-1 · planner");
     expect(report.projected.generationName).toBe(
-      "SYN-TEST-1 · planner · Cursor run",
+      "SYN-TEST-1 · planner · Cursor run · Standard",
     );
-    expect(report.projected.costSource).toBe("unavailable");
-    expect(report.projected.costUnavailableReason).toBe("missing_pricing_entry");
+    expect(report.projected.costSource).toBe("pricing_registry");
+    expect(report.projected.effectiveVariant).toBe("standard");
     expect(report.privacyGatePassed).toBe(true);
     expect(["present", "none"]).toContain(
       report.projected.skillProvenanceStatus,

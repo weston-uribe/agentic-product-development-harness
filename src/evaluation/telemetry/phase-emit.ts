@@ -119,7 +119,18 @@ export function agentObsMetadataFromObserved(observed: {
   requestId?: string;
   status?: string;
   durationMs?: number | null;
-  model?: { id: string } | null;
+  model?: {
+    id: string;
+    params?: Array<{ id: string; value: string }>;
+  } | null;
+  /** Requested selection when provider result omits params. */
+  requestedModel?: {
+    id: string;
+    params?: Array<{ id: string; value: string }>;
+    parameterEvidenceSource?: string;
+    providerDefaultParams?: Array<{ id: string; value: string }>;
+    harnessDefaultParams?: Array<{ id: string; value: string }>;
+  } | null;
   usage?: {
     inputTokens?: number;
     outputTokens?: number;
@@ -141,13 +152,39 @@ export function agentObsMetadataFromObserved(observed: {
   eventCounts?: { total?: number };
 }): Record<string, unknown> {
   const usage = observed.usage;
+  const providerParams = observed.model?.params;
+  const requestedParams = observed.requestedModel?.params;
+  const effectiveParams =
+    providerParams && providerParams.length > 0
+      ? providerParams
+      : (requestedParams ?? []);
+  const variantEvidenceSource =
+    providerParams && providerParams.length > 0
+      ? "provider_confirmed"
+      : requestedParams
+        ? "requested_model_parameters"
+        : undefined;
+  const fastValue = effectiveParams.find((param) => param.id === "fast")?.value;
+  const effectiveVariant =
+    fastValue === "true" ? "fast" : fastValue === "false" ? "standard" : "none";
+
   return {
     cursorAgentId: observed.agentId,
     cursorRunId: observed.runId,
     cursorRequestId: observed.requestId ?? null,
     cursorStatus: observed.status ?? null,
     cursorDurationMs: observed.durationMs ?? null,
-    modelId: observed.model?.id ?? null,
+    modelId: observed.model?.id ?? observed.requestedModel?.id ?? null,
+    modelParams: effectiveParams.length > 0 ? effectiveParams : null,
+    effectiveRequestedParams: effectiveParams.length > 0 ? effectiveParams : null,
+    effectiveVariant,
+    fast: fastValue === "true" ? true : fastValue === "false" ? false : null,
+    parameterEvidenceSource:
+      observed.requestedModel?.parameterEvidenceSource ?? null,
+    variantEvidenceSource: variantEvidenceSource ?? null,
+    providerDefaultParams:
+      observed.requestedModel?.providerDefaultParams ?? null,
+    harnessDefaultParams: observed.requestedModel?.harnessDefaultParams ?? null,
     costSource: usage?.cost?.costSource ?? "unavailable",
     costUnavailableReason:
       (usage?.cost as { costUnavailableReason?: string } | undefined)

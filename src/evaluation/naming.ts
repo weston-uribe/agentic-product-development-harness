@@ -49,12 +49,20 @@ export function agentObservationDisplayName(params: {
   return `${params.issueKey.trim()} · ${params.role}`;
 }
 
-/** Aggregate Cursor generation display name, e.g. `FRE-3 · planner · Cursor run`. */
+/** Aggregate Cursor generation display name, e.g. `FRE-3 · planner · Cursor run · Fast`. */
 export function aggregateGenerationDisplayName(params: {
   issueKey: string;
   role: AgentDisplayRole | string;
+  effectiveVariant?: "standard" | "fast" | "none" | null;
 }): string {
-  return `${params.issueKey.trim()} · ${params.role} · Cursor run`;
+  const base = `${params.issueKey.trim()} · ${params.role} · Cursor run`;
+  if (params.effectiveVariant === "fast") {
+    return `${base} · Fast`;
+  }
+  if (params.effectiveVariant === "standard") {
+    return `${base} · Standard`;
+  }
+  return base;
 }
 
 /** Map evaluation phase to default agent role (null for orchestration-only). */

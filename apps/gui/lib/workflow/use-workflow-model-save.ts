@@ -184,27 +184,49 @@ export function useWorkflowModelSave({
       modelId: string,
       modelCatalog: Array<{
         id: string;
+        displayName?: string;
         supportedParameters: Array<{
           id: string;
           type: string;
           defaultValue?: string;
         }>;
+        harnessDefaultParams?: Array<{ id: string; value: string }>;
+        fastModeAvailable?: boolean;
       }>,
     ) => {
       const role = phaseToRole(phaseKey);
       const model = modelCatalog.find((entry) => entry.id === modelId);
+      // Use PDev harness defaults (Standard), not Cursor provider defaults (may be Fast).
       const defaultParams =
-        model?.supportedParameters
-          .filter((parameter) => parameter.type === "boolean")
-          .map((parameter) => ({
-            id: parameter.id,
-            value: parameter.defaultValue ?? "false",
-          })) ?? [];
+        model?.harnessDefaultParams?.length
+          ? model.harnessDefaultParams.map((param) => ({
+              id: param.id,
+              value: param.value,
+            }))
+          : (model?.supportedParameters
+              .filter((parameter) => parameter.id === "fast")
+              .map((parameter) => ({
+                id: parameter.id,
+                value: "false",
+              })) ?? []);
+      const fastEnabled = defaultParams.some(
+        (param) => param.id === "fast" && param.value === "true",
+      );
       const nextSelection: WorkflowModelSelection = {
         modelId,
-        displayName: model?.id ?? modelId,
+        displayName: model?.displayName ?? model?.id ?? modelId,
         parameters: defaultParams,
+        storedParameters: defaultParams,
         source: "roleModels",
+        parameterEvidenceSource: "stored",
+        effectiveVariant: model?.fastModeAvailable
+          ? fastEnabled
+            ? "fast"
+            : "standard"
+          : "none",
+        variantSummary: model?.fastModeAvailable
+          ? `${model.displayName ?? modelId} · ${fastEnabled ? "Fast" : "Standard"}`
+          : (model?.displayName ?? modelId),
       };
       setOptimisticSelections((current) => ({ ...current, [role]: nextSelection }));
       scheduleSave(phaseKey, nextSelection);
@@ -216,12 +238,29 @@ export function useWorkflowModelSave({
     (phaseKey: WorkflowModelPhaseKey, parameterId: string, value: string) => {
       const role = phaseToRole(phaseKey);
       const current = optimisticSelections[role];
+      const parameters = [
+        ...current.parameters.filter((entry) => entry.id !== parameterId),
+        { id: parameterId, value },
+      ];
+      const fastEnabled = parameters.some(
+        (param) => param.id === "fast" && param.value === "true",
+      );
       const nextSelection: WorkflowModelSelection = {
         ...current,
-        parameters: [
-          ...current.parameters.filter((entry) => entry.id !== parameterId),
-          { id: parameterId, value },
-        ],
+        parameters,
+        storedParameters: parameters,
+        parameterEvidenceSource: "stored",
+        effectiveVariant:
+          parameterId === "fast" || current.effectiveVariant !== "none"
+            ? fastEnabled
+              ? "fast"
+              : "standard"
+            : current.effectiveVariant,
+        variantSummary:
+          current.displayName &&
+          (parameterId === "fast" || current.effectiveVariant !== "none")
+            ? `${current.displayName} · ${fastEnabled ? "Fast" : "Standard"}`
+            : current.variantSummary,
       };
       setOptimisticSelections((currentState) => ({
         ...currentState,

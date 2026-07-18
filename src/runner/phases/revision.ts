@@ -942,7 +942,16 @@ export async function executeRevisionPhase(
           | null
           | undefined,
       ),
-      ...agentObsMetadataFromObserved(observed),
+      ...agentObsMetadataFromObserved({
+        ...observed,
+        requestedModel: {
+          id: builderModel.model,
+          params: builderModel.modelParams ?? undefined,
+          parameterEvidenceSource: builderModel.parameterEvidenceSource,
+          providerDefaultParams: builderModel.providerDefaultParams,
+          harnessDefaultParams: builderModel.harnessDefaultParams,
+        },
+      }),
       ...(observed.completeness
         ? completenessToMetadata(observed.completeness)
         : {}),

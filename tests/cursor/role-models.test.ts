@@ -49,4 +49,18 @@ describe("role model resolvers", () => {
     ]);
     expect(summarizeRoleModelSource(config, "builder")).toBe("agentProvider.model.id");
   });
+
+  it("pins Standard when roleModels omits fast without mutating config", () => {
+    const config = makeConfig({
+      roleModels: {
+        planner: { id: "composer-2.5" },
+        builder: { id: "composer-2.5" },
+      },
+    });
+    const before = JSON.stringify(config.roleModels);
+    expect(resolvePlannerModel(config).params).toEqual([
+      { id: "fast", value: "false" },
+    ]);
+    expect(JSON.stringify(config.roleModels)).toBe(before);
+  });
 });

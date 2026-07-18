@@ -138,6 +138,7 @@ export async function runSyntheticProjectionCanary(options: {
 
   const cost = resolveCostRecord({
     modelId: "composer-2.5",
+    modelParams: [{ id: "fast", value: "false" }],
     inputTokens: 12,
     outputTokens: 4,
     totalTokens: 16,
@@ -150,10 +151,14 @@ export async function runSyntheticProjectionCanary(options: {
     generationName: aggregateGenerationDisplayName({
       issueKey,
       role: "planner",
+      effectiveVariant: "standard",
     }),
     skillProvenanceStatus: skillInject.skillProvenanceStatus,
     costSource: cost.costSource,
     costUnavailableReason: cost.costUnavailableReason ?? null,
+    costUsd:
+      cost.estimatedCostUsd ?? cost.providerReportedCostUsd ?? null,
+    effectiveVariant: "standard",
   };
 
   let applied = false;

@@ -127,6 +127,44 @@ describe("cloud agent factories use basic Composer 2.5", () => {
     assertStandardComposer(request.model);
   });
 
+  it("createPlanningCloudAgent transmits explicit Fast when roleModels request it", async () => {
+    await createPlanningCloudAgent({
+      apiKey: "key",
+      config: makeConfig({
+        roleModels: {
+          planner: {
+            id: "composer-2.5",
+            params: [{ id: "fast", value: "true" }],
+          },
+        },
+      }),
+      targetRepo: TARGET_REPO,
+      baseBranch: "dev",
+    });
+
+    const request = createMock.mock.calls[0]![0];
+    expect(request.model).toEqual({
+      id: "composer-2.5",
+      params: [{ id: "fast", value: "true" }],
+    });
+  });
+
+  it("fails closed when provider rejects model parameters", async () => {
+    createMock.mockRejectedValueOnce(new Error("Unsupported parameter fast"));
+    await expect(
+      createPlanningCloudAgent({
+        apiKey: "key",
+        config: makeConfig(),
+        targetRepo: TARGET_REPO,
+        baseBranch: "dev",
+      }),
+    ).rejects.toMatchObject({
+      code: "model_parameter_rejected",
+      modelId: "composer-2.5",
+      failureClassification: "provider_model_parameter_rejected",
+    });
+  });
+
   it("createImplementationCloudAgent requests standard Composer 2.5 and agent mode", async () => {
     await createImplementationCloudAgent({
       apiKey: "key",

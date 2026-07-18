@@ -34,18 +34,20 @@ Optional Actions workflow: `.github/workflows/evaluation-inspect-langfuse.yml`.
 
 ## Cost
 
-Every generation exposes `costSource`, numeric `costUsd` when trustworthy, otherwise `costUnavailableReason`, plus model ID and token categories. Pricing registry is modular (`src/evaluation/telemetry/pricing-registry.ts`); Composer 2.5 has no approved entry.
+Every generation exposes `costSource`, numeric `costUsd` when trustworthy, otherwise `costUnavailableReason`, plus base `modelId`, `effectiveVariant`, `fast`, complete `modelParams` / `effectiveRequestedParams`, `parameterEvidenceSource`, and `pricingRegistryVersion`. Pricing registry is modular and **variant-aware** (`src/evaluation/telemetry/pricing-registry.ts`).
 
-### Composer 2.5 cost investigation (evidence)
+### Composer 2.5 pricing (operator-approved)
 
-| Check | Result |
-|-------|--------|
-| Cursor `runs/.../cursor/run-result.json` fields | Usage tokens may be present (`inputTokens` / `outputTokens` / `totalTokens`); no trustworthy `cost` / `totalCost` / billing USD field observed on FRE-3 artifacts |
-| Cursor SDK / run-result cost | Provider does not report per-run USD for Composer 2.5 in the harness adapter path |
-| Pricing registry (`PRICING_REGISTRY_VERSION=2026-07-18.v1`) | Empty by design — no operator-approved Composer 2.5 rates |
-| Final generation cost record | `costSource=unavailable` + `costUnavailableReason=missing_pricing_entry` when tokens exist; never a blank cost record |
+| Variant | Input | Output | Params |
+|---------|-------|--------|--------|
+| Standard | `$0.50 / 1M` | `$2.50 / 1M` | `fast=false` |
+| Fast | `$3.00 / 1M` | `$15.00 / 1M` | `fast=true` |
 
-Numeric USD remains unavailable until an approved registry entry or provider-reported cost exists.
+Registry version: `PRICING_REGISTRY_VERSION=2026-07-18.v2`. Cost lookup uses resolved model **plus** parameters — Fast runs must never price as Standard.
+
+Generation display names distinguish variants (e.g. `FRE-3 · planner · Cursor run · Fast`). When the run result omits effective params, projection uses the requested configuration and sets `variantEvidenceSource=requested_model_parameters` (never claim provider-confirmed unless confirmed).
+
+Provider defaults and PDev harness defaults remain distinct in metadata (`providerDefaultParams` vs `harnessDefaultParams`) so omit→Standard (`harness_default_pin`) is never confused with Cursor’s possible Fast provider default.
 
 ## Skills
 

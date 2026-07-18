@@ -60,7 +60,11 @@ export function mapHarnessProvisioningStateToFailureCategory(
   state: HarnessProvisioningState,
 ): ProvisioningFailureCategory {
   const category = mapHarnessProvisioningStateToErrorCategory(state);
-  if (category === "validation" || category === "unexpected") {
+  if (
+    category === "validation" ||
+    category === "unexpected" ||
+    category === "model_selection"
+  ) {
     return "unknown";
   }
   return category;
