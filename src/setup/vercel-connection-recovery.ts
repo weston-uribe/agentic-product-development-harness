@@ -31,6 +31,7 @@ import {
 } from "./vercel-setup-client.js";
 import { assessDurableBridgeHealth } from "./workspace-entry.js";
 import { deriveVercelBridgeRepairEligibility } from "./vercel-bridge-readiness.js";
+import { deriveHarnessTeamKeyFromControlPlane } from "./derive-harness-team-key.js";
 import type { SetupGuiViewModel } from "./gui-view-model.js";
 import type { RemoteSetupSummary } from "./remote-setup-summary.js";
 import type {
@@ -841,8 +842,7 @@ export async function advanceVercelConnectionRecovery(input: {
                 controlPlane?.linearWorkspace?.teams[0]?.teamId ??
                 controlPlane?.linear?.teamId,
               derivedHarnessTeamKey:
-                controlPlane?.linearWorkspace?.teams[0]?.teamKey ??
-                controlPlane?.linear?.teamKey,
+                deriveHarnessTeamKeyFromControlPlane(controlPlane),
               allowExistingProjectBridgeInstall: true,
             }
           : {
@@ -862,8 +862,7 @@ export async function advanceVercelConnectionRecovery(input: {
                 controlPlane?.linearWorkspace?.teams[0]?.teamId ??
                 controlPlane?.linear?.teamId,
               derivedHarnessTeamKey:
-                controlPlane?.linearWorkspace?.teams[0]?.teamKey ??
-                controlPlane?.linear?.teamKey,
+                deriveHarnessTeamKeyFromControlPlane(controlPlane),
             };
 
       const previewResult = await preview(plan);

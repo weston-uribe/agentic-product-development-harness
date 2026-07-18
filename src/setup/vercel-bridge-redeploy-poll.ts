@@ -29,6 +29,7 @@ import {
   previewVercelBridgeSetup,
 } from "./vercel-setup-plan.js";
 import { logVercelBridgeEvent } from "./vercel-bridge-structured-log.js";
+import { deriveHarnessTeamKeyFromControlPlane } from "./derive-harness-team-key.js";
 import {
   buildVerificationClaim,
   classifySignedProbeFailure,
@@ -103,8 +104,7 @@ export async function buildPollVerifyPlanInputFromPersistedState(input: {
     input.state.linear?.teamId;
   const derivedHarnessTeamKey =
     input.pending.fingerprintInputs?.harnessTeamKey?.trim() ||
-    input.state.linearWorkspace?.teams[0]?.teamKey ||
-    input.state.linear?.teamKey;
+    deriveHarnessTeamKeyFromControlPlane(input.state);
 
   const savedWebhookSecret = await loadSecretFromEnvLocal({
     cwd: input.cwd,

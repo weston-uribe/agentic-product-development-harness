@@ -119,9 +119,19 @@ module.exports = async function handler(req, res) {
   }
 
   const issueKey = payload.data.identifier;
-  const teamKey = process.env.HARNESS_TEAM_KEY;
-  if (teamKey && !issueKey.startsWith(teamKey + "-")) {
-    return json(res, 200, { accepted: false, reason: "team_key_mismatch" });
+  // HARNESS_TEAM_KEY may be a single key or comma/space-separated allowlist
+  // (multi-association workspaces such as TT,FRE).
+  const teamKeyRaw = process.env.HARNESS_TEAM_KEY || "";
+  const teamKeys = teamKeyRaw
+    .split(/[,\s]+/)
+    .map((part) => part.trim().toUpperCase())
+    .filter(Boolean);
+  if (teamKeys.length > 0) {
+    const normalizedIssueKey = String(issueKey).toUpperCase();
+    const matches = teamKeys.some((key) => normalizedIssueKey.startsWith(key + "-"));
+    if (!matches) {
+      return json(res, 200, { accepted: false, reason: "team_key_mismatch" });
+    }
   }
 
   try {

@@ -33,6 +33,7 @@ import {
   isExcludedBridgeProjectName,
   loadExcludedBridgeProjectNames,
 } from "./vercel-bridge-identity.js";
+import { deriveHarnessTeamKeyFromControlPlane } from "./derive-harness-team-key.js";
 
 export type VercelBridgeReconcileStatus =
   | "already_configured"
@@ -308,8 +309,7 @@ export async function reconcileVercelControlPlaneFromRemote(input: {
       controlPlane?.linearWorkspace?.teams[0]?.teamId ??
       controlPlane?.linear?.teamId,
     derivedHarnessTeamKey:
-      controlPlane?.linearWorkspace?.teams[0]?.teamKey ??
-      controlPlane?.linear?.teamKey,
+      deriveHarnessTeamKeyFromControlPlane(controlPlane),
     allowExistingProjectBridgeInstall: true,
   };
 
