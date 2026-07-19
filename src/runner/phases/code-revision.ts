@@ -22,6 +22,7 @@ import { EventLogger } from "../../artifacts/events.js";
 import { fetchLinearIssue } from "../../linear/client.js";
 import {
   createLinearClient,
+  listIssueComments,
   postErrorComment,
   postIssueComment,
   transitionIssueStatus,
@@ -210,7 +211,7 @@ export async function executeCodeRevisionPhase(
     );
   }
 
-  const state = await loadOrBootstrapWorkflowState({
+  let state = await loadOrBootstrapWorkflowState({
     store,
     issueKey: options.issueKey,
     workflowSchemaVersion: readiness.workflowSchemaVersion,
@@ -254,7 +255,48 @@ export async function executeCodeRevisionPhase(
     );
   }
 
-  const reviewDecision = state.lastAcceptedReviewDecision;
+  const markerTargetRepo = normalizeRepoUrl(resolved.targetRepo);
+  let reviewDecision = state.lastAcceptedReviewDecision;
+  if (
+    !(
+      reviewDecision?.phaseId === "code_review" &&
+      reviewDecision.decision === "needs_revision" &&
+      (reviewDecision.findings ?? []).some((f) => f.severity === "blocking")
+    )
+  ) {
+    try {
+      const comments = await listIssueComments(client, issue.id);
+      const { recoverCodeReviewRevisionFromComments } = await import(
+        "../../workflow/recover-code-review-decision.js"
+      );
+      const recovered = recoverCodeReviewRevisionFromComments({
+        comments,
+        orchestratorMarker: config.orchestratorMarker,
+      });
+      if (recovered) {
+        reviewDecision = recovered;
+        state = {
+          ...state,
+          lastAcceptedReviewDecision: recovered,
+          returnDestination: state.returnDestination ?? "code_review",
+        };
+        await events.log("planning_comment_loaded", "info", {
+          source: "code_review_decision_recovered_from_linear",
+          decisionIdentity: recovered.decisionIdentity,
+          blockingFindingCount: (recovered.findings ?? []).filter(
+            (f) => f.severity === "blocking",
+          ).length,
+          reviewedPrNumber: recovered.reviewedPrNumber ?? null,
+        });
+      }
+    } catch (error) {
+      await events.log("github_pr_inspected", "warn", {
+        source: "code_review_decision_recovery_failed",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   const blockingFindings =
     reviewDecision?.phaseId === "code_review" &&
     reviewDecision.decision === "needs_revision"
@@ -267,7 +309,55 @@ export async function executeCodeRevisionPhase(
     );
   }
 
-  const latestImplementation = state.latestImplementationArtifact;
+  let latestImplementation = state.latestImplementationArtifact;
+  if (!latestImplementation) {
+    try {
+      const comments = await listIssueComments(client, issue.id);
+      const {
+        recoverPrLocatorFromHandoffComments,
+        buildRecoveredImplementationArtifact,
+      } = await import("../../workflow/recover-implementation-artifact.js");
+      const locator = recoverPrLocatorFromHandoffComments({
+        comments,
+        orchestratorMarker: config.orchestratorMarker,
+        targetRepository: markerTargetRepo,
+      });
+      if (locator) {
+        const parsedLocatorPr = parsePrUrl(locator.prUrl);
+        if (parsedLocatorPr) {
+          const inspection = await inspectPullRequest(
+            github,
+            parsedLocatorPr,
+            markerTargetRepo,
+          );
+          latestImplementation = buildRecoveredImplementationArtifact({
+            locator,
+            headSha: inspection.headSha,
+            baseSha: inspection.baseSha,
+          });
+          state = {
+            ...state,
+            latestImplementationArtifact: latestImplementation,
+          };
+          await events.log(
+            "implementation_artifact_recovered_from_linear",
+            "info",
+            {
+              implementationGenerationId:
+                latestImplementation.implementationGenerationId,
+              prNumber: latestImplementation.prNumber,
+              headSha: latestImplementation.headSha,
+            },
+          );
+        }
+      }
+    } catch (error) {
+      await events.log("github_pr_inspected", "warn", {
+        source: "implementation_artifact_recovery_failed",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
   if (!latestImplementation) {
     throw new CodeRevisionError(
       "missing_implementation_pr",
@@ -276,7 +366,6 @@ export async function executeCodeRevisionPhase(
   }
 
   prUrl = latestImplementation.prUrl;
-  const markerTargetRepo = normalizeRepoUrl(resolved.targetRepo);
   const parsedPr = parsePrUrl(latestImplementation.prUrl);
   if (!parsedPr) {
     throw new CodeRevisionError(
