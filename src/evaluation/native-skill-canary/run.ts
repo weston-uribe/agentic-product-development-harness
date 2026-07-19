@@ -157,19 +157,25 @@ export async function defaultLiveCanaryRunner(input: {
       const run = await agent.send(prompt);
       let streamEvents = 0;
       let assistant = "";
-      if (run && typeof (run as { stream?: AsyncIterable<unknown> }).stream === "object") {
-        for await (const event of (run as { stream: AsyncIterable<{ type?: string; text?: string }> }).stream) {
+      const runUnknown = run as unknown as {
+        stream?: () => AsyncIterable<{ type?: string; text?: string }>;
+        wait?: () => Promise<{ id?: string }>;
+      };
+      if (typeof runUnknown.stream === "function") {
+        for await (const event of runUnknown.stream()) {
           streamEvents += 1;
-          if (event && typeof event === "object" && "text" in event && typeof event.text === "string") {
+          if (
+            event &&
+            typeof event === "object" &&
+            "text" in event &&
+            typeof event.text === "string"
+          ) {
             assistant += event.text;
           }
         }
       }
       const result =
-        typeof (run as { wait?: () => Promise<{ id?: string; status?: string }> }).wait ===
-        "function"
-          ? await (run as { wait: () => Promise<{ id?: string }> }).wait()
-          : null;
+        typeof runUnknown.wait === "function" ? await runUnknown.wait() : null;
       const contains = assistant.includes(input.marker);
       return {
         layoutId: input.layoutId,

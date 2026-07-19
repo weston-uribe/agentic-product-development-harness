@@ -237,7 +237,7 @@ test.describe("workflow browser matrix", () => {
       timeout: 10_000,
     });
     await page.getByRole("menuitem", { name: "Settings" }).click();
-    await expect(page).toHaveURL(/\/settings\//);
+    await expect(page).toHaveURL(/\/settings(?:\/|$|\?)/);
   });
 });
 
