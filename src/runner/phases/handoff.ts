@@ -674,6 +674,7 @@ export async function executeHandoffPhase(
       const codeReadiness = await evaluateCodeReviewReadiness({
         config,
         linearStatuses,
+        issueKey: options.issueKey,
       });
       const logDirectory = config.logDirectory ?? "runs";
       const store = new FileWorkflowStateStore(logDirectory);

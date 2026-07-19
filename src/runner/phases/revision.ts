@@ -1152,6 +1152,7 @@ export async function executeRevisionPhase(
       const codeReadiness = await evaluateCodeReviewReadiness({
         config,
         linearStatuses,
+        issueKey: options.issueKey,
       });
       const logDirectory = config.logDirectory ?? "runs";
       const store = new FileWorkflowStateStore(logDirectory);

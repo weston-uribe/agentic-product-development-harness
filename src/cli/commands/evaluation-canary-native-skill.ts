@@ -6,11 +6,13 @@ export async function runEvaluationCanaryNativeSkill(options: {
   keepFixture?: boolean;
   out?: string;
   json?: boolean;
+  targetRepo?: string;
 }): Promise<number> {
   try {
     const report = await runNativeSkillCanary({
       live: options.live === true,
       keepFixture: options.keepFixture === true,
+      targetRepo: options.targetRepo,
     });
     const text = JSON.stringify(report, null, 2);
     if (options.out) {
@@ -19,13 +21,13 @@ export async function runEvaluationCanaryNativeSkill(options: {
     if (options.json !== false) {
       console.log(text);
     }
-    if (options.live) {
-      console.error(
-        "Live native-skill canary refused — final remote cycle only.",
-      );
+    if (!report.productionCursorSkillsMirror.ok) {
+      return 1;
+    }
+    if (options.live && report.liveExecution.attempted === false) {
       return 2;
     }
-    return report.productionCursorSkillsMirror.ok ? 0 : 1;
+    return 0;
   } catch (err) {
     console.error(
       `evaluation:canary-native-skill failed: ${err instanceof Error ? err.message : String(err)}`,

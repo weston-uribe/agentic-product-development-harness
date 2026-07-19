@@ -7,15 +7,13 @@ export async function runPromptsLangfuseSync(options: {
 }): Promise<number> {
   try {
     const plan = await prepareLangfusePromptSync({
-      dryRun: options.dryRun !== false,
+      dryRun: options.dryRun !== false && options.publish !== true,
       label: options.label,
       publish: options.publish === true,
     });
     console.log(JSON.stringify(plan, null, 2));
-    if (options.publish) {
-      console.error(
-        "Publish is not authorized in this chunk; dry-run changeset only.",
-      );
+    if (options.publish && !plan.published) {
+      return 1;
     }
     return 0;
   } catch (err) {

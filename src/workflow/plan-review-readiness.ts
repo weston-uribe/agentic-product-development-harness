@@ -15,6 +15,10 @@ import { validateWorkflowDefinition } from "./definition/validate.js";
 import { PRODUCT_DEVELOPMENT_WORKFLOW_V2 } from "./definition/product-development.v2.js";
 import type { ResolvedWorkflowDefinition } from "./definition/types.js";
 import type { PhaseExecutionFreeze } from "./state/types.js";
+import {
+  resolveIssueConfiguration,
+  type ConfigurationSource,
+} from "./validation-run/index.js";
 
 export type PlanReviewUiState = "disabled" | "setup_required" | "active";
 
@@ -44,6 +48,8 @@ export interface PlanReviewReadinessResult {
   cycleLimit: number;
   planReviewStatusName: string;
   requiredCategory: string;
+  configurationSource: ConfigurationSource;
+  validationRunId: string | null;
 }
 
 export interface EvaluatePlanReviewReadinessInput {
@@ -58,22 +64,58 @@ export interface EvaluatePlanReviewReadinessInput {
   skillPresent?: boolean;
   /** Override for tests: model config validity. */
   modelConfigValid?: boolean;
+  /**
+   * Issue key for validation-run override resolution.
+   * Without this, only shared workflow.optionalPhases applies (normally disabled).
+   */
+  issueKey?: string | null;
+  /** Operator workspace root for `.harness/validation-runs/`. */
+  cwd?: string;
 }
 
 function normalize(name: string): string {
   return name.trim().toLowerCase();
 }
 
-function resolveRequested(config: HarnessConfig): {
+async function resolveRequested(input: {
+  config: HarnessConfig;
+  issueKey?: string | null;
+  cwd?: string;
+}): Promise<{
   requestedEnabled: boolean;
   cycleLimit: number;
   workflowConfig: WorkflowConfigSlice;
-} {
-  const workflowConfig = migrateWorkflowConfigSection(config);
+  configurationSource: ConfigurationSource;
+  validationRunId: string | null;
+}> {
+  const workflowConfig = migrateWorkflowConfigSection(input.config);
+  const resolved = await resolveIssueConfiguration({
+    issueKey: input.issueKey,
+    cwd: input.cwd,
+    workflowSchemaVersion:
+      workflowConfig.schemaVersion ?? WORKFLOW_SCHEMA_VERSION,
+    linearTeamId: input.config.linear?.teamId ?? null,
+  });
+
+  if (
+    resolved.applied &&
+    resolved.snapshot.requestedOptionalPhases.planReview === true
+  ) {
+    return {
+      requestedEnabled: true,
+      cycleLimit: resolved.snapshot.cycleLimits.planReview,
+      workflowConfig,
+      configurationSource: "validation_run_override",
+      validationRunId: resolved.validationRunId,
+    };
+  }
+
   return {
     requestedEnabled: workflowConfig.optionalPhases.planReview === true,
     cycleLimit: workflowConfig.cycleLimits.planReview,
     workflowConfig,
+    configurationSource: "default",
+    validationRunId: null,
   };
 }
 
@@ -139,9 +181,17 @@ function checkLinearStatus(input: {
 export async function evaluatePlanReviewReadiness(
   input: EvaluatePlanReviewReadinessInput,
 ): Promise<PlanReviewReadinessResult> {
-  const { requestedEnabled, cycleLimit, workflowConfig } = resolveRequested(
-    input.config,
-  );
+  const {
+    requestedEnabled,
+    cycleLimit,
+    workflowConfig,
+    configurationSource,
+    validationRunId,
+  } = await resolveRequested({
+    config: input.config,
+    issueKey: input.issueKey,
+    cwd: input.cwd,
+  });
   const planReviewStatus = PRODUCT_DEVELOPMENT_WORKFLOW_V2.statuses.find(
     (s) => s.id === "plan-review",
   );
@@ -162,6 +212,8 @@ export async function evaluatePlanReviewReadiness(
       cycleLimit,
       planReviewStatusName: requiredName,
       requiredCategory,
+      configurationSource,
+      validationRunId,
     };
   }
 
@@ -229,10 +281,12 @@ export async function evaluatePlanReviewReadiness(
     cycleLimit,
     planReviewStatusName: requiredName,
     requiredCategory,
+    configurationSource,
+    validationRunId,
   };
 }
 
-/** Sync helper for pure tests that supply all overrides. */
+/** Sync helper for pure tests that supply all overrides (shared config only). */
 export function evaluatePlanReviewReadinessSync(
   input: EvaluatePlanReviewReadinessInput & {
     promptImplemented: boolean;
@@ -240,10 +294,10 @@ export function evaluatePlanReviewReadinessSync(
     modelConfigValid: boolean;
   },
 ): PlanReviewReadinessResult {
-  // Re-run the async path via a blocking pattern is awkward; duplicate core logic sync.
-  const { requestedEnabled, cycleLimit, workflowConfig } = resolveRequested(
-    input.config,
-  );
+  // Sync path uses shared config only — validation-run overrides require async FS.
+  const workflowConfig = migrateWorkflowConfigSection(input.config);
+  const requestedEnabled = workflowConfig.optionalPhases.planReview === true;
+  const cycleLimit = workflowConfig.cycleLimits.planReview;
   const planReviewStatus = PRODUCT_DEVELOPMENT_WORKFLOW_V2.statuses.find(
     (s) => s.id === "plan-review",
   );
@@ -261,6 +315,8 @@ export function evaluatePlanReviewReadinessSync(
       cycleLimit,
       planReviewStatusName: requiredName,
       requiredCategory,
+      configurationSource: "default",
+      validationRunId: null,
     };
   }
 
@@ -329,6 +385,8 @@ export function evaluatePlanReviewReadinessSync(
     cycleLimit,
     planReviewStatusName: requiredName,
     requiredCategory,
+    configurationSource: "default",
+    validationRunId: null,
   };
 }
 
@@ -368,6 +426,8 @@ export function buildPhaseExecutionFreeze(input: {
     planReviewerFast: input.planReviewerFast,
     missingRequirementCodes: [...input.readiness.missingRequirements],
     workflowSchemaVersion: input.readiness.workflowSchemaVersion,
+    validationRunId: input.readiness.validationRunId,
+    configurationSource: input.readiness.configurationSource,
   };
 }
 
@@ -389,6 +449,8 @@ export function buildPlanReviewReadinessDiagnostic(input: {
       missing_codes: input.readiness.missingRequirements.join(","),
       cycle_limit: input.readiness.cycleLimit,
       workflow_schema_version: input.readiness.workflowSchemaVersion,
+      configuration_source: input.readiness.configurationSource,
+      validation_run_id: input.readiness.validationRunId ?? "",
       ...(input.configurationSurface
         ? { configuration_surface: input.configurationSurface }
         : {}),

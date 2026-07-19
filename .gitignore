@@ -14,6 +14,7 @@ node_modules/.p-dev-install.lock
 !.env.example
 .harness/config.local.json
 .harness/*.local.json
+.harness/validation-runs/
 packages/p-dev/bin/
 packages/p-dev/dist/
 packages/p-dev/gui/

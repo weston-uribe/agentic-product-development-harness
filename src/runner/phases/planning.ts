@@ -702,6 +702,7 @@ export async function executePlanningPhase(
     const readiness = await evaluatePlanReviewReadiness({
       config,
       linearStatuses,
+      issueKey: options.issueKey,
     });
     if (readiness.requestedEnabled && !readiness.effectiveEnabled) {
       const diag = buildPlanReviewReadinessDiagnostic({

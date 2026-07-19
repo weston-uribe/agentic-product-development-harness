@@ -51,6 +51,13 @@ export interface PhaseExecutionFreeze {
   codeReviserFast?: boolean | null;
   missingRequirementCodes: string[];
   workflowSchemaVersion: string;
+  /**
+   * When set, this claim was activated by a validation-run override.
+   * Claimed executions continue under this freeze even if the override later expires.
+   */
+  validationRunId?: string | null;
+  /** Bounded config source for telemetry — never issue content. */
+  configurationSource?: "default" | "validation_run_override";
 }
 
 export interface WorkflowStateRecord {

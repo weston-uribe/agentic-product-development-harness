@@ -21,15 +21,49 @@ describe("native skill canary preflight", () => {
     expect(report.productionCursorSkillsMirror.ok).toBe(true);
     expect(report.evidence.providerProof).toBeNull();
     expect(report.evidence.modelSelfReport).toBeNull();
-    // Production tree must not gain .cursor/skills from canary
     expect(existsSync(path.join(process.cwd(), ".cursor", "skills"))).toBe(false);
   });
 
-  it("refuses live execution", async () => {
-    const report = await runNativeSkillCanary({ live: true });
+  it("blocks live without credentials", async () => {
+    const prevKey = process.env.CURSOR_API_KEY;
+    const prevRepo = process.env.P_DEV_NATIVE_SKILL_CANARY_REPO;
+    delete process.env.CURSOR_API_KEY;
+    delete process.env.P_DEV_NATIVE_SKILL_CANARY_REPO;
+    try {
+      const report = await runNativeSkillCanary({ live: true });
+      expect(report.mode).toBe("live");
+      expect(report.liveExecution.attempted).toBe(false);
+      expect(report.liveExecution.blockedReason).toMatch(/CURSOR_API_KEY/);
+      expect(report.layoutsPrepared.length).toBeGreaterThan(0);
+    } finally {
+      if (prevKey !== undefined) process.env.CURSOR_API_KEY = prevKey;
+      if (prevRepo !== undefined) process.env.P_DEV_NATIVE_SKILL_CANARY_REPO = prevRepo;
+    }
+  });
+
+  it("live mode records provider evidence via injectable runner", async () => {
+    const report = await runNativeSkillCanary({
+      live: true,
+      apiKey: "test-key",
+      targetRepo: "https://github.com/example/canary-fixture",
+      layouts: ["agents_skills"],
+      liveRunner: async ({ layoutId }) => ({
+        layoutId,
+        discovery: "discovered",
+        invocation: "invoked",
+        streamEvents: 3,
+        assistantContainsMarker: true,
+        agentId: "agent-1",
+        runId: "run-1",
+      }),
+    });
     expect(report.mode).toBe("live");
-    expect(report.liveExecution.attempted).toBe(false);
-    expect(report.liveExecution.blockedReason).toMatch(/refuses live/);
-    expect(report.layoutsPrepared).toHaveLength(0);
+    expect(report.liveExecution.attempted).toBe(true);
+    expect(report.evidence.discoveryByLayout.agents_skills).toBe("discovered");
+    expect(report.evidence.invocationByLayout.agents_skills).toBe("invoked");
+    expect(report.evidence.providerProof?.layouts.agents_skills?.assistantContainsMarker).toBe(
+      true,
+    );
+    expect(report.evidence.modelSelfReport).toBeNull();
   });
 });

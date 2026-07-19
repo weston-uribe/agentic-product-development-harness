@@ -12,6 +12,8 @@ import { runResolveRouteCommand } from "./commands/resolve-route.js";
 import { runReconcileRevisionCommand } from "./commands/reconcile-revision.js";
 import { runReconcileMergeCommand } from "./commands/reconcile-merge.js";
 import { runWorkflowStatusReportCommand } from "./commands/workflow-status-report.js";
+import { runWorkflowStatusMigrateCommand } from "./commands/workflow-status-migrate.js";
+import { runValidationRunCommand } from "./commands/validation-run.js";
 import { runRedactOutputCommand } from "./commands/redact-output.js";
 import { runDiagnoseVercelBridgeCommand } from "./commands/diagnose-vercel-bridge.js";
 import { runOperatorInit } from "./commands/operator-init.js";
@@ -328,6 +330,119 @@ export function createProgram(): Command {
         json: opts.json,
       });
       process.exitCode = exitCode;
+    });
+
+  program
+    .command("workflow-status-migrate")
+    .description(
+      "Create-only migration for Plan Review / Code Review / Code Revision Linear statuses",
+    )
+    .option("--team-id <id>", "Linear team id")
+    .option("--apply", "Create missing statuses (default dry-run)", false)
+    .option("--output <path>", "Write JSON migration artifact")
+    .option("--json", "Print JSON to stdout", false)
+    .action(async (opts) => {
+      const configPath = program.opts<{ config: string }>().config;
+      process.exitCode = await runWorkflowStatusMigrateCommand({
+        configPath,
+        teamId: opts.teamId,
+        apply: opts.apply === true,
+        outputPath: opts.output,
+        json: opts.json === true,
+      });
+    });
+
+  const validationRun = program
+    .command("validation-run")
+    .description(
+      "Issue-scoped validation-run overrides for optional review phases (never toggles shared defaults)",
+    );
+
+  validationRun
+    .command("create")
+    .description("Create an active validation-run snapshot for allowlisted issues")
+    .requiredOption(
+      "--issue <issueKey>",
+      "Allowlisted issue key (repeatable)",
+      (value: string, prev: string[]) => [...prev, value],
+      [] as string[],
+    )
+    .option("--plan-review", "Request Plan Review for allowlisted issues", false)
+    .option("--code-review", "Request Code Review for allowlisted issues", false)
+    .option("--team-id <id>", "Linear team id")
+    .option("--project-id <id>", "Linear project id")
+    .option("--expires-at <iso>", "Optional expiration timestamp")
+    .action(async (opts) => {
+      const configPath = program.opts<{ config: string }>().config;
+      process.exitCode = await runValidationRunCommand({
+        configPath,
+        action: "create",
+        issueIds: opts.issue,
+        planReview: opts.planReview === true,
+        codeReview: opts.codeReview === true,
+        teamId: opts.teamId,
+        projectId: opts.projectId,
+        expiresAt: opts.expiresAt,
+      });
+    });
+
+  validationRun
+    .command("list")
+    .description("List validation-run snapshots")
+    .action(async () => {
+      const configPath = program.opts<{ config: string }>().config;
+      process.exitCode = await runValidationRunCommand({
+        configPath,
+        action: "list",
+      });
+    });
+
+  validationRun
+    .command("complete")
+    .description("Mark a validation run completed")
+    .requiredOption("--id <validationRunId>", "Validation run id")
+    .action(async (opts) => {
+      const configPath = program.opts<{ config: string }>().config;
+      process.exitCode = await runValidationRunCommand({
+        configPath,
+        action: "complete",
+        validationRunId: opts.id,
+      });
+    });
+
+  validationRun
+    .command("expire")
+    .description("Mark a validation run expired")
+    .requiredOption("--id <validationRunId>", "Validation run id")
+    .action(async (opts) => {
+      const configPath = program.opts<{ config: string }>().config;
+      process.exitCode = await runValidationRunCommand({
+        configPath,
+        action: "expire",
+        validationRunId: opts.id,
+      });
+    });
+
+  validationRun
+    .command("cleanup-report")
+    .description("Report active/expired/completed validation runs (exit 1 if any active)")
+    .action(async () => {
+      const configPath = program.opts<{ config: string }>().config;
+      process.exitCode = await runValidationRunCommand({
+        configPath,
+        action: "cleanup-report",
+      });
+    });
+
+  validationRun
+    .command("complete-all")
+    .description("Complete all active validation runs and print cleanup report")
+    .action(async () => {
+      const configPath = program.opts<{ config: string }>().config;
+      process.exitCode = await runValidationRunCommand({
+        configPath,
+        action: "complete-all",
+      });
     });
 
   const operator = program
@@ -837,9 +952,10 @@ export function createProgram(): Command {
   evalCmd
     .command("canary-native-skill")
     .description(
-      "Prepare disposable native-skill canary fixtures (dry-run/preflight; refuses live Cloud Agents)",
+      "Native-skill canary: dry-run fixture prep, or --live Cloud Agent evidence collection",
     )
-    .option("--live", "Request live Cloud Agent run (refused in Chunk 3)", false)
+    .option("--live", "Run live Cloud Agent canary (requires API key + target repo)", false)
+    .option("--target-repo <url>", "Disposable GitHub repo URL for live canary")
     .option("--keep-fixture", "Retain disposable fixture directory", false)
     .option("--out <path>", "Write report JSON")
     .option("--json", "Print report JSON to stdout", true)
@@ -849,12 +965,14 @@ export function createProgram(): Command {
         keepFixture?: boolean;
         out?: string;
         json?: boolean;
+        targetRepo?: string;
       }) => {
         process.exitCode = await runEvaluationCanaryNativeSkill({
           live: opts.live === true,
           keepFixture: opts.keepFixture === true,
           out: opts.out,
           json: opts.json !== false,
+          targetRepo: opts.targetRepo,
         });
       },
     );
@@ -871,13 +989,13 @@ export function createProgram(): Command {
   program
     .command("prompts:langfuse:sync")
     .description(
-      "Prepare Langfuse prompt sync changeset (dry-run; does not publish)",
+      "Prepare Langfuse prompt sync changeset; optionally publish immutable versions",
     )
     .option("--dry-run", "Prepare changeset without publishing (default)", true)
     .option("--label <label>", "Approved label (default: dogfood)", "dogfood")
     .option(
       "--publish",
-      "Request publish (blocked in this chunk; dry-run only)",
+      "Publish immutable prompt versions with the approved label (never latest)",
       false,
     )
     .action(

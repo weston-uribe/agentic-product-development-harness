@@ -16,6 +16,10 @@ import { PRODUCT_DEVELOPMENT_WORKFLOW_V2 } from "./definition/product-developmen
 import type { ResolvedWorkflowDefinition } from "./definition/types.js";
 import type { PhaseExecutionFreeze } from "./state/types.js";
 import type { ImplementationArtifactIdentity } from "./implementation-artifact.js";
+import {
+  resolveIssueConfiguration,
+  type ConfigurationSource,
+} from "./validation-run/index.js";
 
 export type CodeReviewUiState = "disabled" | "setup_required" | "active";
 
@@ -62,6 +66,8 @@ export interface CodeReviewReadinessResult {
   codeReviewStatusName: string;
   codeRevisionStatusName: string;
   requiredCategory: string;
+  configurationSource: ConfigurationSource;
+  validationRunId: string | null;
 }
 
 export interface CodeReviewExecutionEligibilityResult {
@@ -79,6 +85,9 @@ export interface EvaluateCodeReviewReadinessInput {
   skillPresent?: boolean;
   modelConfigValid?: boolean;
   reviserModelConfigValid?: boolean;
+  /** Issue key for validation-run override resolution. */
+  issueKey?: string | null;
+  cwd?: string;
 }
 
 export interface EvaluateCodeReviewExecutionEligibilityInput {
@@ -100,16 +109,45 @@ function normalize(name: string): string {
   return name.trim().toLowerCase();
 }
 
-function resolveRequested(config: HarnessConfig): {
+async function resolveRequested(input: {
+  config: HarnessConfig;
+  issueKey?: string | null;
+  cwd?: string;
+}): Promise<{
   requestedEnabled: boolean;
   cycleLimit: number;
   workflowConfig: WorkflowConfigSlice;
-} {
-  const workflowConfig = migrateWorkflowConfigSection(config);
+  configurationSource: ConfigurationSource;
+  validationRunId: string | null;
+}> {
+  const workflowConfig = migrateWorkflowConfigSection(input.config);
+  const resolved = await resolveIssueConfiguration({
+    issueKey: input.issueKey,
+    cwd: input.cwd,
+    workflowSchemaVersion:
+      workflowConfig.schemaVersion ?? WORKFLOW_SCHEMA_VERSION,
+    linearTeamId: input.config.linear?.teamId ?? null,
+  });
+
+  if (
+    resolved.applied &&
+    resolved.snapshot.requestedOptionalPhases.codeReview === true
+  ) {
+    return {
+      requestedEnabled: true,
+      cycleLimit: resolved.snapshot.cycleLimits.codeReview,
+      workflowConfig,
+      configurationSource: "validation_run_override",
+      validationRunId: resolved.validationRunId,
+    };
+  }
+
   return {
     requestedEnabled: workflowConfig.optionalPhases.codeReview === true,
     cycleLimit: workflowConfig.cycleLimits.codeReview,
     workflowConfig,
+    configurationSource: "default",
+    validationRunId: null,
   };
 }
 
@@ -303,9 +341,17 @@ async function finishConfiguredEvaluation(
 export async function evaluateCodeReviewReadiness(
   input: EvaluateCodeReviewReadinessInput,
 ): Promise<CodeReviewReadinessResult> {
-  const { requestedEnabled, cycleLimit, workflowConfig } = resolveRequested(
-    input.config,
-  );
+  const {
+    requestedEnabled,
+    cycleLimit,
+    workflowConfig,
+    configurationSource,
+    validationRunId,
+  } = await resolveRequested({
+    config: input.config,
+    issueKey: input.issueKey,
+    cwd: input.cwd,
+  });
   const codeReviewStatus = PRODUCT_DEVELOPMENT_WORKFLOW_V2.statuses.find(
     (s) => s.id === "code-review",
   );
@@ -329,6 +375,8 @@ export async function evaluateCodeReviewReadiness(
       codeReviewStatusName: reviewName,
       codeRevisionStatusName: revisionName,
       requiredCategory,
+      configurationSource,
+      validationRunId,
     };
   }
 
@@ -351,10 +399,12 @@ export async function evaluateCodeReviewReadiness(
     codeReviewStatusName: reviewName,
     codeRevisionStatusName: revisionName,
     requiredCategory,
+    configurationSource,
+    validationRunId,
   };
 }
 
-/** Sync helper for pure tests that supply all overrides. */
+/** Sync helper for pure tests that supply all overrides (shared config only). */
 export function evaluateCodeReviewReadinessSync(
   input: EvaluateCodeReviewReadinessInput & {
     promptImplemented: boolean;
@@ -364,9 +414,9 @@ export function evaluateCodeReviewReadinessSync(
     reviserModelConfigValid: boolean;
   },
 ): CodeReviewReadinessResult {
-  const { requestedEnabled, cycleLimit, workflowConfig } = resolveRequested(
-    input.config,
-  );
+  const workflowConfig = migrateWorkflowConfigSection(input.config);
+  const requestedEnabled = workflowConfig.optionalPhases.codeReview === true;
+  const cycleLimit = workflowConfig.cycleLimits.codeReview;
   const codeReviewStatus = PRODUCT_DEVELOPMENT_WORKFLOW_V2.statuses.find(
     (s) => s.id === "code-review",
   );
@@ -390,6 +440,8 @@ export function evaluateCodeReviewReadinessSync(
       codeReviewStatusName: reviewName,
       codeRevisionStatusName: revisionName,
       requiredCategory,
+      configurationSource: "default",
+      validationRunId: null,
     };
   }
 
@@ -436,6 +488,8 @@ export function evaluateCodeReviewReadinessSync(
     codeReviewStatusName: reviewName,
     codeRevisionStatusName: revisionName,
     requiredCategory,
+    configurationSource: "default",
+    validationRunId: null,
   };
 }
 
@@ -574,6 +628,8 @@ export function buildCodeReviewPhaseExecutionFreeze(input: {
     codeReviserFast: input.codeReviserFast ?? null,
     missingRequirementCodes: [...input.readiness.missingRequirements],
     workflowSchemaVersion: input.readiness.workflowSchemaVersion,
+    validationRunId: input.readiness.validationRunId,
+    configurationSource: input.readiness.configurationSource,
   };
 }
 
@@ -595,6 +651,8 @@ export function buildCodeReviewReadinessDiagnostic(input: {
       missing_codes: input.readiness.missingRequirements.join(","),
       cycle_limit: input.readiness.cycleLimit,
       workflow_schema_version: input.readiness.workflowSchemaVersion,
+      configuration_source: input.readiness.configurationSource,
+      validation_run_id: input.readiness.validationRunId ?? "",
       ...(input.configurationSurface
         ? { configuration_surface: input.configurationSurface }
         : {}),

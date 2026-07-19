@@ -175,6 +175,7 @@ export async function executePlanReviewPhase(
   const readiness = await evaluatePlanReviewReadiness({
     config,
     linearStatuses,
+    issueKey: options.issueKey,
   });
   const readinessDiag = buildPlanReviewReadinessDiagnostic({
     readiness,

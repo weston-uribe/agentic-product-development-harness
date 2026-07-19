@@ -187,6 +187,7 @@ export async function executeCodeReviewPhase(
   const readiness = await evaluateCodeReviewReadiness({
     config,
     linearStatuses,
+    issueKey: options.issueKey,
   });
   const readinessDiag = buildCodeReviewReadinessDiagnostic({
     readiness,
