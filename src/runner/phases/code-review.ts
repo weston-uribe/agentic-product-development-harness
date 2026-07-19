@@ -19,6 +19,7 @@ import { EventLogger } from "../../artifacts/events.js";
 import { fetchLinearIssue } from "../../linear/client.js";
 import {
   createLinearClient,
+  listIssueComments,
   postErrorComment,
   postIssueComment,
   transitionIssueStatus,
@@ -208,7 +209,7 @@ export async function executeCodeReviewPhase(
     );
   }
 
-  const state = await loadOrBootstrapWorkflowState({
+  let state = await loadOrBootstrapWorkflowState({
     store,
     issueKey: options.issueKey,
     workflowSchemaVersion: readiness.workflowSchemaVersion,
@@ -252,7 +253,59 @@ export async function executeCodeReviewPhase(
     );
   }
 
-  const latestImplementation = state.latestImplementationArtifact;
+  const markerTargetRepo = normalizeRepoUrl(resolved.targetRepo);
+  let latestImplementation = state.latestImplementationArtifact;
+  let recoveredImplementationArtifact = false;
+  if (!latestImplementation) {
+    const comments = await listIssueComments(client, issue.id);
+    const {
+      recoverPrLocatorFromHandoffComments,
+      buildRecoveredImplementationArtifact,
+    } = await import("../../workflow/recover-implementation-artifact.js");
+    const locator = recoverPrLocatorFromHandoffComments({
+      comments,
+      orchestratorMarker: config.orchestratorMarker,
+      targetRepository: markerTargetRepo,
+    });
+    if (locator) {
+      const parsedLocatorPr = parsePrUrl(locator.prUrl);
+      if (parsedLocatorPr) {
+        try {
+          const inspection = await inspectPullRequest(
+            github,
+            parsedLocatorPr,
+            markerTargetRepo,
+          );
+          latestImplementation = buildRecoveredImplementationArtifact({
+            locator,
+            headSha: inspection.headSha,
+            baseSha: inspection.baseSha,
+          });
+          recoveredImplementationArtifact = true;
+          state = {
+            ...state,
+            latestImplementationArtifact: latestImplementation,
+          };
+          await events.log(
+            "implementation_artifact_recovered_from_linear",
+            "info",
+            {
+              implementationGenerationId:
+                latestImplementation.implementationGenerationId,
+              prNumber: latestImplementation.prNumber,
+              headSha: latestImplementation.headSha,
+              builderRunId: latestImplementation.builderRunId,
+            },
+          );
+        } catch (error) {
+          await events.log("github_pr_inspected", "warn", {
+            source: "recovery_failed",
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+    }
+  }
   if (!latestImplementation) {
     const eligibility = evaluateCodeReviewExecutionEligibility({
       latestImplementation: null,
@@ -271,7 +324,6 @@ export async function executeCodeReviewPhase(
     );
   }
 
-  const markerTargetRepo = normalizeRepoUrl(resolved.targetRepo);
   const parsedPr = parsePrUrl(latestImplementation.prUrl);
   if (!parsedPr) {
     throw new CodeReviewError(
@@ -568,6 +620,9 @@ export async function executeCodeReviewPhase(
         codeReviewEffectiveEnabled: true,
         linearStatuses,
         phaseExecutionFreeze: freeze,
+        latestImplementationArtifact: recoveredImplementationArtifact
+          ? latestImplementation
+          : undefined,
         outcome: {
           kind: "review",
           phaseId: "code_review",

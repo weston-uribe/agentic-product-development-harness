@@ -149,6 +149,7 @@ export type RunEventName =
   | "stale_eligibility_skip"
   | "planning_comment_loaded"
   | "plan_artifact_recovered_from_linear"
+  | "implementation_artifact_recovered_from_linear"
   | "implementation_comment_loaded"
   | "linear_status_changed"
   | "linear_comment_posted"

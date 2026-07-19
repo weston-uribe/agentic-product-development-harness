@@ -628,6 +628,53 @@ export async function executeHandoffPhase(
         previousImplementationRunId: previousImplementationRunId ?? undefined,
       }) ?? {};
 
+    // Create immutable implementation identity BEFORE posting the Linear handoff
+    // comment so PR correlation markers survive ephemeral GHA jobs.
+    let linearStatuses: Array<{ name: string; type: string; id?: string }> = [];
+    try {
+      const teamId = resolveAuthoritativeLinearTeamIdFromConfig(config);
+      if (teamId) {
+        linearStatuses = await listTeamWorkflowStates(client, teamId);
+      }
+    } catch {
+      linearStatuses = [];
+    }
+
+    const codeReadiness = await evaluateCodeReviewReadiness({
+      config,
+      linearStatuses,
+      issueKey: options.issueKey,
+    });
+    const logDirectory = config.logDirectory ?? "runs";
+    const store = new FileWorkflowStateStore(logDirectory);
+    const workflowState = await loadOrBootstrapWorkflowState({
+      store,
+      issueKey: options.issueKey,
+      workflowSchemaVersion: codeReadiness.workflowSchemaVersion,
+      enabledOptionalPhases: {
+        planReview: false,
+        codeReview: codeReadiness.requestedEnabled,
+      },
+      effectiveOptionalPhases: {
+        planReview: false,
+        codeReview: codeReadiness.configuredReady,
+      },
+      currentPhaseId: "handoff",
+    });
+
+    const implementationArtifact = createImplementationArtifactIdentity({
+      targetRepository: markerTargetRepo,
+      prNumber: parsedPr.pullNumber,
+      prUrl: inspection.url,
+      headSha: inspection.headSha,
+      baseSha: inspection.baseSha,
+      builderRunId:
+        builderEvidence.builderOriginRunId ??
+        builderEvidence.builderAgentId ??
+        runId,
+      workflowStateRevision: workflowState.stateRevision + 1,
+    });
+
     const handoffCommentId = await postHandoffComment(client, issue.id, handoffBody, {
       ...footerBase,
       branch: branch ?? undefined,
@@ -641,12 +688,18 @@ export async function executeHandoffPhase(
       builderThreadIdempotencyKey: builderEvidence.builderThreadIdempotencyKey,
       previousBuilderAgentId: builderEvidence.previousBuilderAgentId,
       builderThreadReplacementReason: builderEvidence.builderThreadReplacementReason,
+      implementationGenerationId: implementationArtifact.implementationGenerationId,
+      prNumber: String(implementationArtifact.prNumber),
+      prHeadSha: implementationArtifact.headSha,
+      prBaseSha: implementationArtifact.baseSha,
+      diffHash: implementationArtifact.diffHash,
     });
     commentsWritten.push(handoffBody);
     await mkdir(`${runDirectory}/linear`, { recursive: true });
     await writeFile(getHandoffCommentPath(runDirectory), `${handoffBody}\n`, "utf8");
     await events.log("handoff_comment_posted", "info", {
       commentId: handoffCommentId,
+      implementationGenerationId: implementationArtifact.implementationGenerationId,
     });
     await events.log("linear_comment_posted", "info", {
       phase: "handoff",
@@ -659,52 +712,6 @@ export async function executeHandoffPhase(
     });
 
     const handoffSuccess = await (async () => {
-      let linearStatuses: Array<{ name: string; type: string; id?: string }> =
-        [];
-      try {
-        const teamId = resolveAuthoritativeLinearTeamIdFromConfig(config);
-        if (teamId) {
-          linearStatuses = await listTeamWorkflowStates(client, teamId);
-        }
-      } catch {
-        linearStatuses = [];
-      }
-
-      const codeReadiness = await evaluateCodeReviewReadiness({
-        config,
-        linearStatuses,
-        issueKey: options.issueKey,
-      });
-      const logDirectory = config.logDirectory ?? "runs";
-      const store = new FileWorkflowStateStore(logDirectory);
-      const workflowState = await loadOrBootstrapWorkflowState({
-        store,
-        issueKey: options.issueKey,
-        workflowSchemaVersion: codeReadiness.workflowSchemaVersion,
-        enabledOptionalPhases: {
-          planReview: false,
-          codeReview: codeReadiness.requestedEnabled,
-        },
-        effectiveOptionalPhases: {
-          planReview: false,
-          codeReview: codeReadiness.configuredReady,
-        },
-        currentPhaseId: "handoff",
-      });
-
-      const implementationArtifact = createImplementationArtifactIdentity({
-        targetRepository: markerTargetRepo,
-        prNumber: parsedPr.pullNumber,
-        prUrl: inspection.url,
-        headSha: inspection.headSha,
-        baseSha: inspection.baseSha,
-        builderRunId:
-          builderEvidence.builderOriginRunId ??
-          builderEvidence.builderAgentId ??
-          runId,
-        workflowStateRevision: workflowState.stateRevision + 1,
-      });
-
       const applied = await applyPhaseTransition({
         store,
         issueKey: options.issueKey,

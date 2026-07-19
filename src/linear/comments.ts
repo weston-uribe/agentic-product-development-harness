@@ -54,6 +54,12 @@ export interface HandoffCommentFooterInput extends HarnessCommentFooterInput {
   prUrl?: string;
   previewUrl?: string;
   previousImplementationRunId?: string;
+  /** Durable Code Review correlation — written on handoff completion comments. */
+  implementationGenerationId?: string;
+  prNumber?: string;
+  prHeadSha?: string;
+  prBaseSha?: string;
+  diffHash?: string;
 }
 
 export interface RevisionCommentFooterInput extends HandoffCommentFooterInput {
@@ -182,6 +188,20 @@ function buildHarnessMetadataLines(
   }
   if (input.prNumber) {
     lines.push(`pr_number: ${input.prNumber}`);
+  }
+  if (input.implementationGenerationId) {
+    lines.push(
+      `implementation_generation_id: ${input.implementationGenerationId}`,
+    );
+  }
+  if (input.prHeadSha) {
+    lines.push(`pr_head_sha: ${input.prHeadSha}`);
+  }
+  if (input.prBaseSha) {
+    lines.push(`pr_base_sha: ${input.prBaseSha}`);
+  }
+  if (input.diffHash) {
+    lines.push(`diff_hash: ${input.diffHash}`);
   }
   if (input.previewUrl) {
     lines.push(`preview_url: ${input.previewUrl}`);

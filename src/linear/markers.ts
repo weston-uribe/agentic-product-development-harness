@@ -49,6 +49,10 @@ export interface HarnessMarkers {
   gitSha?: string;
   planGenerationId?: string;
   planArtifactHash?: string;
+  implementationGenerationId?: string;
+  prHeadSha?: string;
+  prBaseSha?: string;
+  diffHash?: string;
 }
 
 const HARNESS_HTML_METADATA_PATTERN = /<!--\s*([\s\S]*?)\s*-->/g;
@@ -234,6 +238,18 @@ function parseHarnessMarkerLines(block: string): HarnessMarkers {
         break;
       case "plan_artifact_hash":
         markers.planArtifactHash = value;
+        break;
+      case "implementation_generation_id":
+        markers.implementationGenerationId = value;
+        break;
+      case "pr_head_sha":
+        markers.prHeadSha = value;
+        break;
+      case "pr_base_sha":
+        markers.prBaseSha = value;
+        break;
+      case "diff_hash":
+        markers.diffHash = value;
         break;
       default:
         if (trimmed.startsWith("harness-orchestrator")) {
