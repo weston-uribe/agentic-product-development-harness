@@ -76,7 +76,8 @@ export interface RepositoryDispatchPayload {
     commentId?: string | null;
     pmFeedbackCommentId?: string | null;
     prUrl?: string | null;
-    reconcile?: "revision" | "merge" | null;
+    reconcile?: "revision" | "merge" | "workflow" | null;
+    phase?: string | null;
   };
 }
 

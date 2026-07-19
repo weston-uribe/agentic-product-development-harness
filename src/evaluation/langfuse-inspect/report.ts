@@ -5,6 +5,12 @@ import {
   sessionDisplayName,
 } from "../naming.js";
 import {
+  estimateCostUsd,
+  PRICING_REGISTRY_VERSION,
+  resolvePricingVariant,
+  type PricingVariant,
+} from "../telemetry/pricing-registry.js";
+import {
   contentPresence,
   metadataNumber,
   metadataString,
@@ -142,26 +148,186 @@ function mapObservation(
   };
 }
 
-function generationCostComplete(obs: LangfuseInspectObservation): boolean {
-  if (obs.type !== "GENERATION" && obs.type !== "generation") {
-    // Also treat names containing Cursor run as generations
-    if (!obs.name?.includes("Cursor run") && !obs.name?.includes("aggregate")) {
-      return true;
+function isGenerationObservation(obs: LangfuseInspectObservation): boolean {
+  return (
+    obs.type === "GENERATION" ||
+    obs.type === "generation" ||
+    Boolean(obs.name?.includes("Cursor run"))
+  );
+}
+
+function readUsageToken(
+  usage: Record<string, number> | null,
+  keys: string[],
+): number | null {
+  if (!usage) return null;
+  for (const key of keys) {
+    const value = usage[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
     }
   }
-  if (!obs.costSource) return false;
-  if (obs.costSource === "unavailable") {
-    return Boolean(obs.costUnavailableReason);
+  return null;
+}
+
+function readGenerationInputTokens(
+  obs: LangfuseInspectObservation,
+): number | null {
+  return (
+    readUsageToken(obs.usage, ["input", "inputTokens", "promptTokens"]) ??
+    metadataNumber(obs.metadata, "cursorUsageInputTokens")
+  );
+}
+
+function readGenerationOutputTokens(
+  obs: LangfuseInspectObservation,
+): number | null {
+  return (
+    readUsageToken(obs.usage, ["output", "outputTokens", "completionTokens"]) ??
+    metadataNumber(obs.metadata, "cursorUsageOutputTokens")
+  );
+}
+
+function readModelParams(
+  obs: LangfuseInspectObservation,
+): ReadonlyArray<{ id: string; value: string }> | null {
+  const raw = obs.metadata.modelParams ?? obs.metadata.effectiveRequestedParams;
+  if (!Array.isArray(raw)) return null;
+  const params = raw
+    .map((entry) => {
+      const rec = asRecord(entry);
+      if (!rec || typeof rec.id !== "string" || typeof rec.value !== "string") {
+        return null;
+      }
+      return { id: rec.id, value: rec.value };
+    })
+    .filter((entry): entry is { id: string; value: string } => entry != null);
+  return params.length > 0 ? params : null;
+}
+
+function readEffectiveVariant(
+  obs: LangfuseInspectObservation,
+): PricingVariant | null {
+  const fromMetadata = metadataString(obs.metadata, "effectiveVariant");
+  if (fromMetadata === "fast" || fromMetadata === "standard") {
+    return fromMetadata;
   }
-  if (obs.costSource === "pricing_registry") {
-    return (
-      typeof obs.costUsd === "number" && Boolean(obs.pricingRegistryVersion)
-    );
+  if (obs.metadata.fast === true) return "fast";
+  if (obs.metadata.fast === false) return "standard";
+  const params = readModelParams(obs);
+  if (params) {
+    return resolvePricingVariant(params);
   }
-  if (obs.costSource === "provider") {
-    return typeof obs.costUsd === "number";
+  return null;
+}
+
+function readProviderCostUsd(obs: LangfuseInspectObservation): number | null {
+  const fromMetadata = metadataNumber(obs.metadata, "providerReportedCostUsd");
+  if (fromMetadata != null) return fromMetadata;
+  if (obs.costSource === "provider" && typeof obs.costUsd === "number") {
+    return obs.costUsd;
   }
-  return false;
+  return null;
+}
+
+function readEstimatedCostUsd(obs: LangfuseInspectObservation): number | null {
+  const fromMetadata = metadataNumber(obs.metadata, "estimatedCostUsd");
+  if (fromMetadata != null) return fromMetadata;
+  if (obs.costSource === "pricing_registry" && typeof obs.costUsd === "number") {
+    return obs.costUsd;
+  }
+  return null;
+}
+
+export function generationCostIncompleteReason(
+  obs: LangfuseInspectObservation,
+): string | null {
+  if (!isGenerationObservation(obs)) {
+    return null;
+  }
+
+  if (readGenerationInputTokens(obs) == null) {
+    return "missing_input_token_usage";
+  }
+  if (readGenerationOutputTokens(obs) == null) {
+    return "missing_output_token_usage";
+  }
+  if (!obs.model?.trim()) {
+    return "missing_effective_model";
+  }
+  if (!readEffectiveVariant(obs)) {
+    return "missing_effective_variant";
+  }
+
+  const providerUsd = readProviderCostUsd(obs);
+  const estimatedUsd = readEstimatedCostUsd(obs);
+  const hasProvider = providerUsd != null;
+  const hasEstimated = estimatedUsd != null;
+
+  if (!hasProvider && !hasEstimated) {
+    return "missing_cost_source";
+  }
+  if (hasProvider && hasEstimated) {
+    return "dual_authoritative_cost_sources";
+  }
+
+  const costSource = obs.costSource?.trim();
+  if (costSource === "provider") {
+    if (!hasProvider) {
+      return "cost_source_contradicts_fields";
+    }
+    if (typeof obs.costUsd === "number" && Math.abs(obs.costUsd - providerUsd) > 1e-9) {
+      return "cost_source_contradicts_fields";
+    }
+    return null;
+  }
+
+  if (costSource === "pricing_registry") {
+    if (!hasEstimated) {
+      return "cost_source_contradicts_fields";
+    }
+    if (!obs.pricingRegistryVersion?.trim()) {
+      return "missing_pricing_registry_version";
+    }
+    if (obs.pricingRegistryVersion !== PRICING_REGISTRY_VERSION) {
+      return "stale_pricing_registry_version";
+    }
+    const variant = readEffectiveVariant(obs);
+    const inputTokens = readGenerationInputTokens(obs) ?? 0;
+    const outputTokens = readGenerationOutputTokens(obs) ?? 0;
+    const expected = estimateCostUsd({
+      modelId: obs.model,
+      modelParams: readModelParams(obs),
+      inputTokens,
+      outputTokens,
+    });
+    if (!expected) {
+      return "missing_pricing_registry_estimate";
+    }
+    if (variant && expected.variant !== variant) {
+      return "variant_pricing_mismatch";
+    }
+    if (
+      typeof obs.costUsd === "number" &&
+      Math.abs(obs.costUsd - expected.estimatedCostUsd) > 1e-6
+    ) {
+      return "variant_pricing_mismatch";
+    }
+    if (typeof obs.costUsd === "number" && Math.abs(obs.costUsd - estimatedUsd!) > 1e-9) {
+      return "cost_source_contradicts_fields";
+    }
+    return null;
+  }
+
+  if (costSource === "unavailable" || !costSource) {
+    return "missing_cost_source";
+  }
+
+  return "cost_source_contradicts_fields";
+}
+
+function generationCostComplete(obs: LangfuseInspectObservation): boolean {
+  return generationCostIncompleteReason(obs) == null;
 }
 
 function observationClaimsSkillUsage(obs: LangfuseInspectObservation): boolean {
@@ -376,12 +542,13 @@ export function buildInspectReport(params: {
         obs.type === "GENERATION" ||
         obs.type === "generation" ||
         Boolean(obs.name?.includes("Cursor run"));
-      if (isGeneration && !generationCostComplete(obs)) {
+      const costIncompleteReason = generationCostIncompleteReason(obs);
+      if (isGeneration && costIncompleteReason) {
         gaps.push({
           code: "incomplete_cost_record",
           // Unnamed/reprojected generations may omit metadata in list APIs — warn only.
           severity: obsHuman ? "error" : "warning",
-          message: `Generation ${obs.name ?? obs.id} lacks complete cost record`,
+          message: `Generation ${obs.name ?? obs.id} lacks complete cost record (${costIncompleteReason})`,
           traceId: id || undefined,
           observationId: obs.id,
         });

@@ -53,6 +53,11 @@ export interface HarnessMarkers {
   prHeadSha?: string;
   prBaseSha?: string;
   diffHash?: string;
+  /** Deterministic handoff subject identity for idempotent skip. */
+  handoffSubjectIdentity?: string;
+  /** Deterministic review subject identity for dedupe. */
+  reviewSubjectIdentity?: string;
+  decisionIdentity?: string;
 }
 
 const HARNESS_HTML_METADATA_PATTERN = /<!--\s*([\s\S]*?)\s*-->/g;
@@ -250,6 +255,15 @@ function parseHarnessMarkerLines(block: string): HarnessMarkers {
         break;
       case "diff_hash":
         markers.diffHash = value;
+        break;
+      case "handoff_subject_identity":
+        markers.handoffSubjectIdentity = value;
+        break;
+      case "review_subject_identity":
+        markers.reviewSubjectIdentity = value;
+        break;
+      case "decision_identity":
+        markers.decisionIdentity = value;
         break;
       default:
         if (trimmed.startsWith("harness-orchestrator")) {

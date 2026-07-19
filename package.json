@@ -50,6 +50,7 @@
     "harness:resolve-route": "tsx src/index.ts resolve-route",
     "harness:reconcile-revision": "tsx src/index.ts reconcile-revision",
     "harness:reconcile-merge": "tsx src/index.ts reconcile-merge",
+    "harness:reconcile-workflow": "tsx src/index.ts reconcile-workflow",
     "harness:workflow-status-report": "tsx src/index.ts workflow-status-report",
     "harness:workflow-status-migrate": "tsx src/index.ts workflow-status-migrate",
     "harness:validation-run": "tsx src/index.ts validation-run",

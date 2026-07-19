@@ -44,6 +44,10 @@ No sensitive dumps observed in harness run failures during Stages 7–8; failure
 2. Cost USD fields were not extracted from ephemeral GHA `agent-telemetry.jsonl` payloads in this pass; request-param + registry unit evidence stands in for Stage 9.
 3. Multiple corrective managed-runner syncs were required for durability bugs (plan/code artifact recovery, Code Revision findings, live SHA preference, validation-run modelSelections).
 
+## Synthetic portfolio PRs
+
+Chunk 7 left open synthetic portfolio PRs **#40–#44** for operator cleanup (no auto-merge). Cleanup is owned by Chunk 8.
+
 ## Verdict
 
-Observability acceptance is **conditionally pass** for Chunk 7: configuration-source isolation and Standard/Fast request evidence are strong; full Langfuse UI/session inventory remains operator-side on the managed runner.
+Observability acceptance is **conditionally pass** for Chunk 7: configuration-source isolation and Standard/Fast request evidence are strong; full Langfuse UI/session inventory remains operator-side on the managed runner. Chunk 8 hardens the Langfuse inspect GHA gate (no silent `|| true` pass) and requires fresh global-settings regressions for readiness.

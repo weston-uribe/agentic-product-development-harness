@@ -183,6 +183,22 @@ export interface ControlPlaneSetupState {
     harnessRepository: string;
     syncedAt: string;
   };
+  /** Bounded evidence from optional review status provisioning (no secrets). */
+  optionalReviewProvisioning?: {
+    allTeamsReady: boolean;
+    conflict: boolean;
+    partial: boolean;
+    retryable: boolean;
+    message: string;
+    recordedAt: string;
+    teams: Array<{
+      teamId: string;
+      status: string;
+      created: string[];
+      verifiedStatuses?: Array<{ name: string; id: string; category: string }>;
+      error?: string;
+    }>;
+  };
   runnerUpgrade?: {
     appliedSnapshotContentId?: string;
     appliedAt?: string;

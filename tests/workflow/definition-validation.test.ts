@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CURRENT_WORKFLOW_INVENTORY,
-  DEFAULT_OPTIONAL_PHASES,
+  LEGACY_WORKFLOW_MIGRATION_DEFAULTS,
   PRODUCT_DEVELOPMENT_ROLE_MAPPINGS,
   PRODUCT_DEVELOPMENT_WORKFLOW_V2,
   requiredLinearStatusNames,
@@ -33,7 +33,9 @@ describe("workflow definition validation", () => {
 
   it("reserves plan_reviewer and code_reviewer without requiring Linear statuses by default", () => {
     const resolved = resolveWorkflowDefinition();
-    expect(resolved.enabledOptionalPhases).toEqual(DEFAULT_OPTIONAL_PHASES);
+    expect(resolved.enabledOptionalPhases).toEqual(
+      LEGACY_WORKFLOW_MIGRATION_DEFAULTS,
+    );
     const names = requiredLinearStatusNames(resolved);
     expect(names).not.toContain("Plan Review");
     expect(names).not.toContain("Code Review");

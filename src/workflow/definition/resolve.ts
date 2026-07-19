@@ -1,6 +1,6 @@
 import {
   DEFAULT_CYCLE_LIMITS,
-  DEFAULT_OPTIONAL_PHASES,
+  LEGACY_WORKFLOW_MIGRATION_DEFAULTS,
   PRODUCT_DEVELOPMENT_WORKFLOW_V2,
   WORKFLOW_SCHEMA_VERSION,
 } from "./product-development.v2.js";
@@ -70,10 +70,10 @@ export function resolveWorkflowDefinition(
   const requestedOptionalPhases = {
     planReview:
       workflowConfig?.optionalPhases?.planReview ??
-      DEFAULT_OPTIONAL_PHASES.planReview,
+      LEGACY_WORKFLOW_MIGRATION_DEFAULTS.planReview,
     codeReview:
       workflowConfig?.optionalPhases?.codeReview ??
-      DEFAULT_OPTIONAL_PHASES.codeReview,
+      LEGACY_WORKFLOW_MIGRATION_DEFAULTS.codeReview,
   };
   const enabledOptionalPhases = {
     planReview:

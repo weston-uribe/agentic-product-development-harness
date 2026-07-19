@@ -60,6 +60,23 @@ export interface PhaseExecutionFreeze {
   configurationSource?: "default" | "validation_run_override";
 }
 
+export type WorkflowSideEffectKind =
+  | "linear_decision_comment"
+  | "linear_status_transition"
+  | "manifest_telemetry"
+  | "handoff_marker";
+
+export type WorkflowSideEffectStatus = "pending" | "completed";
+
+/** Deterministic side-effect ledger entry (identities only — no bodies/secrets). */
+export interface WorkflowSideEffectRecord {
+  identity: string;
+  kind: WorkflowSideEffectKind;
+  status: WorkflowSideEffectStatus;
+  createdAt: string;
+  completedAt?: string;
+}
+
 export interface WorkflowStateRecord {
   kind: typeof WORKFLOW_STATE_RECORD_KIND;
   issueKey: string;
@@ -83,6 +100,14 @@ export interface WorkflowStateRecord {
   latestPlanArtifact: PlanArtifactIdentity | null;
   latestImplementationArtifact: ImplementationArtifactIdentity | null;
   phaseExecutionFreeze: PhaseExecutionFreeze | null;
+  /** Current review subject identity (plan/code) when a review loop owns the issue. */
+  activeReviewSubjectIdentity?: string | null;
+  /** Accepted decision identities keyed by review subject (subject → decisionIdentity). */
+  acceptedReviewSubjects?: Record<string, string>;
+  /** Current handoff subject identity for idempotent handoff. */
+  handoffSubjectIdentity?: string | null;
+  /** Pending/completed deterministic side effects for crash-safe replay. */
+  sideEffects?: WorkflowSideEffectRecord[];
 }
 
 /** Immutable snapshot reference stored on manifests/comments. */
@@ -129,6 +154,10 @@ export function createEmptyWorkflowState(input: {
     latestPlanArtifact: null,
     latestImplementationArtifact: null,
     phaseExecutionFreeze: null,
+    activeReviewSubjectIdentity: null,
+    acceptedReviewSubjects: {},
+    handoffSubjectIdentity: null,
+    sideEffects: [],
   };
 }
 

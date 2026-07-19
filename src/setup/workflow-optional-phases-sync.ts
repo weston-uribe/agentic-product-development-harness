@@ -19,6 +19,9 @@ import {
   type WorkflowModelsSyncEvidence,
 } from "./workflow-models-sync-evidence.js";
 import { WorkflowModelSyncError } from "./workflow-model-sync.js";
+import { ensureOptionalReviewStatusesForConfiguredTeams } from "./linear-optional-status-provision.js";
+import { recordOptionalReviewProvisioningEvidence } from "./optional-review-provisioning-evidence.js";
+import { loadSecretFromEnvLocal } from "./service-verification.js";
 
 export interface WorkflowOptionalPhasesSaveRequest {
   planReviewEnabled: boolean;
@@ -159,6 +162,52 @@ export async function saveWorkflowOptionalPhases(input: {
       );
     }
 
+    const priorParsed = harnessConfigSchema.parse(
+      JSON.parse(priorBytes.toString("utf8")),
+    );
+    const priorWorkflow = migrateWorkflowConfigSection(priorParsed);
+    const enablingReview =
+      (input.request.planReviewEnabled &&
+        !priorWorkflow.optionalPhases.planReview) ||
+      (input.request.codeReviewEnabled &&
+        !priorWorkflow.optionalPhases.codeReview);
+
+    // When enabling either review: provision/verify Linear statuses BEFORE any
+    // config write. Do not report success for provisioning alone.
+    if (enablingReview) {
+      const linearApiKey = await loadSecretFromEnvLocal({
+        cwd: input.cwd,
+        key: "LINEAR_API_KEY",
+      });
+      if (!linearApiKey) {
+        throw new WorkflowModelSyncError(
+          "workflow_review_status_preflight_failed",
+          "LINEAR_API_KEY is required to provision review statuses before enabling reviews.",
+        );
+      }
+      const provision = await ensureOptionalReviewStatusesForConfiguredTeams({
+        linearApiKey,
+        config: priorParsed,
+      });
+      try {
+        await recordOptionalReviewProvisioningEvidence(provision, input.cwd);
+      } catch {
+        // Evidence write is best-effort; activation still fail-closed below.
+      }
+      if (!provision.allTeamsReady) {
+        if (provision.conflict) {
+          throw new WorkflowModelSyncError(
+            "workflow_review_status_conflict",
+            provision.message,
+          );
+        }
+        throw new WorkflowModelSyncError(
+          "workflow_review_status_setup_required",
+          provision.message,
+        );
+      }
+    }
+
     const { content: nextContent } = await mergeOptionalPhasesIntoConfigBytes({
       priorBytes,
       planReviewEnabled: input.request.planReviewEnabled,
@@ -218,7 +267,7 @@ export async function saveWorkflowOptionalPhases(input: {
         } catch {
           throw new WorkflowModelSyncError(
             "workflow_model_sync_partial_failure",
-            "Cloud synchronization failed and local configuration could not be restored automatically.",
+            "Cloud synchronization failed and local configuration could not be restored automatically. Newly created Linear review statuses were left installed; effective activation remains false.",
           );
         }
       }

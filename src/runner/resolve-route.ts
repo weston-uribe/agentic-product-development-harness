@@ -19,7 +19,10 @@ import { evaluateMergeReconcile } from "./merge-reconcile.js";
 import { parsePrUrl } from "../github/pr-url.js";
 import { findLatestMergeSourceComment } from "../linear/merge-source-comment.js";
 import { evaluateWorkflowEligibility } from "./workflow-eligibility.js";
-import { FileWorkflowStateStore } from "../workflow/state/store.js";
+import {
+  createWorkflowStateStore,
+  resolveWorkflowStateStoreMode,
+} from "../workflow/state/factory.js";
 import path from "node:path";
 
 export { CloudConfigStaleError } from "../config/assert-cloud-config-fingerprint.js";
@@ -310,9 +313,12 @@ export async function resolveRoute(
   const phaseArg = options.phase ?? "auto";
   const phase = resolvePhase(phaseArg, inferred.phase);
 
-  const stateStore = new FileWorkflowStateStore(
-    path.resolve(config.logDirectory),
-  );
+  const stateStore = await createWorkflowStateStore({
+    logDirectory: path.resolve(config.logDirectory),
+    teamId: issue.teamId ?? undefined,
+    env: process.env,
+    mode: resolveWorkflowStateStoreMode(process.env),
+  });
   const authoritativeState = await stateStore.load(issueKey);
   const eligibility = evaluateWorkflowEligibility({
     config,

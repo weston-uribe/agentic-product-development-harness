@@ -49,7 +49,8 @@ First authorized remote integration cycle for accumulated Chunks 1–6 workflow 
 - Local Langfuse session inspect requires operator credentials not present in `.env.local`  
 - TT-3 post-approval rebuild blocked by early-path handoff marker (Stage 7 AC already met at Ready for Build)  
 - Native skill production mode remains unproven / `rendered_into_prompt`  
-- Open synthetic PRs (#40–#43) left for operator cleanup; **no auto-merge**
+- Open synthetic PRs (#40–#44) left for operator cleanup in Chunk 8; **no auto-merge**
+  - #44 is included in the synthetic portfolio PR set from late Chunk 7 / Code Revision validation
 
 ## Release recommendation
 

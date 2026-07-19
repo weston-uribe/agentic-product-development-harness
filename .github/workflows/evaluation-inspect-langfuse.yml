@@ -48,13 +48,14 @@ jobs:
           LANGFUSE_BASE_URL: ${{ vars.LANGFUSE_BASE_URL }}
           LANGFUSE_TRACING_ENVIRONMENT: ${{ vars.LANGFUSE_TRACING_ENVIRONMENT }}
         run: |
+          set -euo pipefail
           mkdir -p runs/evaluation-reports
           npm run evaluation:inspect-langfuse -- \
             --issue "${{ inputs.issue_key }}" \
             --namespace "${{ inputs.namespace }}" \
             --out "runs/evaluation-reports/${{ inputs.issue_key }}-langfuse-inspect.json" \
             --safe-content \
-            --json > "runs/evaluation-reports/${{ inputs.issue_key }}-langfuse-inspect.stdout.json" || true
+            --json > "runs/evaluation-reports/${{ inputs.issue_key }}-langfuse-inspect.stdout.json"
       - name: Download FRE-3 run artifacts for reprojection
         if: ${{ inputs.mode == 'reproject-dry-run' || inputs.mode == 'reproject-apply' }}
         env:
@@ -83,6 +84,7 @@ jobs:
           LANGFUSE_BASE_URL: ${{ vars.LANGFUSE_BASE_URL }}
           LANGFUSE_TRACING_ENVIRONMENT: ${{ vars.LANGFUSE_TRACING_ENVIRONMENT }}
         run: |
+          set -euo pipefail
           mkdir -p runs/evaluation-reports
           npm run evaluation:reproject-langfuse -- \
             --issue "${{ inputs.issue_key }}" \
@@ -109,7 +111,7 @@ jobs:
             --artifact-cache runs/.fre3-artifact-cache \
             --apply \
             --out "runs/evaluation-reports/${{ inputs.issue_key }}-langfuse-reproject-apply.json" \
-            --json || true
+            --json
           # Langfuse read API is eventually consistent after OTEL flush
           sleep 20
           npm run evaluation:inspect-langfuse -- \
@@ -117,7 +119,42 @@ jobs:
             --namespace "${{ inputs.namespace }}" \
             --out "runs/evaluation-reports/${{ inputs.issue_key }}-langfuse-inspect-post.json" \
             --safe-content \
-            --json | tee "runs/evaluation-reports/${{ inputs.issue_key }}-langfuse-inspect-post.stdout.json" || true
+            --json | tee "runs/evaluation-reports/${{ inputs.issue_key }}-langfuse-inspect-post.stdout.json"
+      - name: Assert Langfuse inspect acceptance
+        if: ${{ inputs.mode == 'inspect' || inputs.mode == 'reproject-apply' }}
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.mode }}" = "inspect" ]; then
+            REPORT="runs/evaluation-reports/${{ inputs.issue_key }}-langfuse-inspect.json"
+          else
+            REPORT="runs/evaluation-reports/${{ inputs.issue_key }}-langfuse-inspect-post.json"
+          fi
+          if [ ! -f "$REPORT" ]; then
+            echo "Missing Langfuse inspect report: $REPORT"
+            exit 1
+          fi
+          node <<'EOF' "$REPORT"
+          import { readFileSync } from "node:fs";
+          const reportPath = process.argv[2];
+          let parsed;
+          try {
+            parsed = JSON.parse(readFileSync(reportPath, "utf8"));
+          } catch (error) {
+            console.error(`Malformed Langfuse inspect report JSON: ${reportPath}`);
+            console.error(error instanceof Error ? error.message : String(error));
+            process.exit(1);
+          }
+          if (parsed?.acceptance?.complete !== true) {
+            console.error(`Langfuse inspect acceptance failed for ${reportPath}`);
+            console.error(`acceptance.complete=${String(parsed?.acceptance?.complete)}`);
+            const gaps = Array.isArray(parsed?.gaps) ? parsed.gaps : [];
+            for (const gap of gaps.filter((entry) => entry?.severity === "error").slice(0, 20)) {
+              console.error(`- [${gap.code}] ${gap.message}`);
+            }
+            process.exit(1);
+          }
+          console.log(`Langfuse inspect acceptance passed: ${reportPath}`);
+          EOF
       - name: Upload redacted report
         if: always()
         uses: actions/upload-artifact@v4

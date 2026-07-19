@@ -3,6 +3,7 @@ name: CI
 on:
   pull_request:
     branches: [main]
+  # Push limited to main — never p-dev-runtime-state (runtime-state branch).
   push:
     branches: [main]
 

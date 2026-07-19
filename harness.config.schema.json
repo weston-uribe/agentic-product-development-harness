@@ -269,6 +269,7 @@
             },
             "optionalPhases": {
               "type": "object",
+              "description": "Field defaults match legacy migration (reviews off) when a workflow object is present but fields are omitted. Brand-new first-run configs persist both true via the config builder.",
               "properties": {
                 "planReview": {
                   "type": "boolean",

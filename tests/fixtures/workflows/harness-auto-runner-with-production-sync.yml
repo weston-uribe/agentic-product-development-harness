@@ -9,7 +9,7 @@ on:
         description: "Linear issue key, e.g. WES-13 (harness run)"
         required: false
       phase:
-        description: "Harness phase (auto, planning, implementation, handoff, revision, merge)"
+        description: "Harness phase (auto, planning, plan_review, implementation, handoff, code_review, code_revision, revision, merge)"
         required: false
         default: auto
       force:
@@ -52,6 +52,7 @@ jobs:
       LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
       GITHUB_TOKEN: ${{ secrets.HARNESS_GITHUB_TOKEN }}
       HARNESS_CONFIG_JSON_B64: ${{ secrets.HARNESS_CONFIG_JSON_B64 }}
+      P_DEV_WORKFLOW_STATE_STORE_MODE: managed_github
 
     steps:
       - name: Resolve inputs
@@ -93,7 +94,7 @@ jobs:
             exit 1
           fi
           case "$INPUT_PHASE" in
-            auto|planning|implementation|handoff|revision|merge) ;;
+            auto|planning|plan_review|implementation|handoff|code_review|code_revision|revision|merge) ;;
             *)
               echo "Invalid phase: $INPUT_PHASE"
               exit 1
@@ -181,6 +182,7 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.HARNESS_GITHUB_TOKEN }}
       HARNESS_CONFIG_JSON_B64: ${{ secrets.HARNESS_CONFIG_JSON_B64 }}
       HARNESS_CONFIG_FINGERPRINT: ${{ vars.HARNESS_CONFIG_FINGERPRINT }}
+      P_DEV_WORKFLOW_STATE_STORE_MODE: managed_github
       P_DEV_EVALUATION_PROVIDER: ${{ vars.P_DEV_EVALUATION_PROVIDER }}
       P_DEV_EVALUATION_CAPTURE_PROFILE: ${{ vars.P_DEV_EVALUATION_CAPTURE_PROFILE }}
       P_DEV_EVALUATION_NAMESPACE: ${{ vars.P_DEV_EVALUATION_NAMESPACE }}
@@ -317,6 +319,7 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.HARNESS_GITHUB_TOKEN }}
       HARNESS_CONFIG_JSON_B64: ${{ secrets.HARNESS_CONFIG_JSON_B64 }}
       HARNESS_CONFIG_FINGERPRINT: ${{ vars.HARNESS_CONFIG_FINGERPRINT }}
+      P_DEV_WORKFLOW_STATE_STORE_MODE: managed_github
       P_DEV_EVALUATION_PROVIDER: ${{ vars.P_DEV_EVALUATION_PROVIDER }}
       P_DEV_EVALUATION_CAPTURE_PROFILE: ${{ vars.P_DEV_EVALUATION_CAPTURE_PROFILE }}
       P_DEV_EVALUATION_NAMESPACE: ${{ vars.P_DEV_EVALUATION_NAMESPACE }}

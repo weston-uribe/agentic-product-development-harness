@@ -158,6 +158,11 @@ export async function loadOrBootstrapWorkflowState(input: {
       latestImplementationArtifact:
         existing.latestImplementationArtifact ?? null,
       phaseExecutionFreeze: existing.phaseExecutionFreeze ?? null,
+      activeReviewSubjectIdentity:
+        existing.activeReviewSubjectIdentity ?? null,
+      acceptedReviewSubjects: existing.acceptedReviewSubjects ?? {},
+      handoffSubjectIdentity: existing.handoffSubjectIdentity ?? null,
+      sideEffects: existing.sideEffects ?? [],
     };
   }
   const bootstrapped = createEmptyWorkflowState({

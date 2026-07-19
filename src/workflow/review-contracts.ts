@@ -216,15 +216,25 @@ export function extractPlanReviewOutcomeFromText(
   }
 }
 
+/**
+ * Accepted decision identity for Plan Review.
+ * Uses subject material (plan generation + hash + cycle) — NOT reviewer generation —
+ * so duplicate completions for the same artifact collapse.
+ */
 export function buildReviewDecisionIdentity(input: {
   decision: ReviewDecision;
   reviewedPlanGenerationId: string;
-  reviewerGenerationId: string;
+  reviewedPlanArtifactHash: string;
+  reviewCycle: number;
+  issueKey: string;
 }): string {
   const material = [
+    "plan_review_decision",
     input.decision,
+    input.issueKey.trim(),
     input.reviewedPlanGenerationId,
-    input.reviewerGenerationId,
+    input.reviewedPlanArtifactHash,
+    String(input.reviewCycle),
   ].join("|");
   return createHash("sha256").update(material).digest("hex").slice(0, 32);
 }
@@ -233,6 +243,8 @@ export function toEngineReviewOutcome(input: {
   planReview: PlanReviewOutcome;
   reviewerGenerationId: string;
   expectedStateRevision?: number;
+  issueKey: string;
+  reviewCycle: number;
 }): ReviewOutcome {
   return {
     decision: input.planReview.decision,
@@ -241,7 +253,9 @@ export function toEngineReviewOutcome(input: {
     decisionIdentity: buildReviewDecisionIdentity({
       decision: input.planReview.decision,
       reviewedPlanGenerationId: input.planReview.reviewedPlanGenerationId,
-      reviewerGenerationId: input.reviewerGenerationId,
+      reviewedPlanArtifactHash: input.planReview.reviewedPlanArtifactHash,
+      reviewCycle: input.reviewCycle,
+      issueKey: input.issueKey,
     }),
     generationId: input.reviewerGenerationId,
     reviewedPlanGenerationId: input.planReview.reviewedPlanGenerationId,
@@ -379,19 +393,26 @@ export function extractCodeReviewOutcomeFromText(
   return lastError;
 }
 
+/**
+ * Accepted decision identity for Code Review.
+ * Uses subject material (PR/head/diff/cycle) — NOT reviewer generation.
+ */
 export function buildCodeReviewDecisionIdentity(input: {
   decision: ReviewDecision;
+  issueKey: string;
   reviewedPrNumber: number;
   reviewedHeadSha: string;
   reviewedDiffHash: string;
-  reviewerGenerationId: string;
+  reviewCycle: number;
 }): string {
   const material = [
+    "code_review_decision",
     input.decision,
+    input.issueKey.trim(),
     String(input.reviewedPrNumber),
     input.reviewedHeadSha,
     input.reviewedDiffHash,
-    input.reviewerGenerationId,
+    String(input.reviewCycle),
   ].join("|");
   return createHash("sha256").update(material).digest("hex").slice(0, 32);
 }
@@ -400,6 +421,8 @@ export function toEngineCodeReviewOutcome(input: {
   codeReview: CodeReviewOutcome;
   reviewerGenerationId: string;
   expectedStateRevision?: number;
+  issueKey: string;
+  reviewCycle: number;
 }): ReviewOutcome {
   return {
     decision: input.codeReview.decision,
@@ -407,10 +430,11 @@ export function toEngineCodeReviewOutcome(input: {
     findings: input.codeReview.findings,
     decisionIdentity: buildCodeReviewDecisionIdentity({
       decision: input.codeReview.decision,
+      issueKey: input.issueKey,
       reviewedPrNumber: input.codeReview.reviewedPrNumber,
       reviewedHeadSha: input.codeReview.reviewedHeadSha,
       reviewedDiffHash: input.codeReview.reviewedDiffHash,
-      reviewerGenerationId: input.reviewerGenerationId,
+      reviewCycle: input.reviewCycle,
     }),
     generationId: input.reviewerGenerationId,
     reviewedPrNumber: input.codeReview.reviewedPrNumber,

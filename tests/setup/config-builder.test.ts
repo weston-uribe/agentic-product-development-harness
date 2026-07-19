@@ -22,6 +22,21 @@ describe("config-builder", () => {
     expect(config.agentProvider?.id).toBe("cursor");
     expect(config.agentProvider?.model?.id).toBe("composer-2.5");
     expect(config.defaultModel?.id).toBe("composer-2.5");
+    expect(config.workflow?.optionalPhases).toEqual({
+      planReview: true,
+      codeReview: true,
+    });
+    expect(config.workflow?.cycleLimits).toEqual({
+      planReview: 4,
+      codeReview: 4,
+    });
+    expect(config.roleModels).toMatchObject({
+      planner: { id: "composer-2.5" },
+      builder: { id: "composer-2.5" },
+      planReviewer: { id: "composer-2.5" },
+      codeReviewer: { id: "composer-2.5" },
+      codeReviser: { id: "composer-2.5" },
+    });
     expect(harnessConfigSchema.safeParse(config).success).toBe(true);
   });
 

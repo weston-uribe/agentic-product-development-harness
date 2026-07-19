@@ -7,7 +7,7 @@ import {
 import { roleModelsSchema } from "./role-models.js";
 import {
   DEFAULT_CYCLE_LIMITS,
-  DEFAULT_OPTIONAL_PHASES,
+  LEGACY_WORKFLOW_MIGRATION_DEFAULTS,
   WORKFLOW_SCHEMA_VERSION,
 } from "../workflow/definition/product-development.v2.js";
 
@@ -145,13 +145,19 @@ const workflowConfigSchema = z
     schemaVersion: z.string().min(1).default(WORKFLOW_SCHEMA_VERSION),
     optionalPhases: z
       .object({
-        planReview: z.boolean().default(DEFAULT_OPTIONAL_PHASES.planReview),
-        codeReview: z.boolean().default(DEFAULT_OPTIONAL_PHASES.codeReview),
+        // Zod defaults apply only when the workflow object is present but a
+        // field is omitted. Absent workflow sections use LEGACY migration.
+        planReview: z
+          .boolean()
+          .default(LEGACY_WORKFLOW_MIGRATION_DEFAULTS.planReview),
+        codeReview: z
+          .boolean()
+          .default(LEGACY_WORKFLOW_MIGRATION_DEFAULTS.codeReview),
       })
       .strict()
       .default({
-        planReview: DEFAULT_OPTIONAL_PHASES.planReview,
-        codeReview: DEFAULT_OPTIONAL_PHASES.codeReview,
+        planReview: LEGACY_WORKFLOW_MIGRATION_DEFAULTS.planReview,
+        codeReview: LEGACY_WORKFLOW_MIGRATION_DEFAULTS.codeReview,
       }),
     cycleLimits: z
       .object({
@@ -183,7 +189,10 @@ export const harnessConfigSchema = z
     defaultModel: z.object({ id: z.string() }).optional(),
     roleModels: roleModelsSchema.optional(),
     promptProvider: promptProviderConfigSchema.optional(),
-    /** Versioned workflow definition knobs. Optional reviewers default off. */
+    /**
+     * Versioned workflow knobs. New workspaces persist reviews on via the
+     * config builder; legacy configs without this section migrate to off.
+     */
     workflow: workflowConfigSchema.optional(),
     /**
      * Issue-scoped validation-run snapshots for dogfood/synthetic gates.

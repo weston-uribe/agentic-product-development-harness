@@ -83,6 +83,27 @@ function assertHarnessWorkflowContracts(workflow: string, label: string): void {
       expect(workflow).toMatch(/sync_dry_run:[\s\S]*default:\s*"true"/);
     });
 
+    it("supports review phases in workflow_dispatch phase input and gate validation", () => {
+      expect(workflow).toContain("plan_review");
+      expect(workflow).toContain("code_review");
+      expect(workflow).toContain("code_revision");
+      const gate = extractJobSection(workflow, "gate");
+      expect(gate).toMatch(
+        /auto\|planning\|plan_review\|implementation\|handoff\|code_review\|code_revision\|revision\|merge/,
+      );
+    });
+
+    it("uses managed GitHub workflow state on gate and phase runner jobs", () => {
+      const gate = extractJobSection(workflow, "gate");
+      const runHarness = extractJobSection(workflow, "run-harness");
+      const runMerge = extractJobSection(workflow, "run-merge");
+      const syncSection = extractJobSection(workflow, "sync-production");
+      expect(gate).toContain("P_DEV_WORKFLOW_STATE_STORE_MODE: managed_github");
+      expect(runHarness).toContain("P_DEV_WORKFLOW_STATE_STORE_MODE: managed_github");
+      expect(runMerge).toContain("P_DEV_WORKFLOW_STATE_STORE_MODE: managed_github");
+      expect(syncSection).not.toContain("P_DEV_WORKFLOW_STATE_STORE_MODE");
+    });
+
     it("validates sync_dry_run is true or false for workflow_dispatch", () => {
       const syncSection = extractJobSection(workflow, "sync-production");
       expect(syncSection).toContain("Validate sync dry run");

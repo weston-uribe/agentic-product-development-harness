@@ -9,6 +9,7 @@ import {
   hasPlanningCompletionMarker,
   findProductionSyncMarkerForMergeCommit,
 } from "../linear/comments.js";
+import { parseHarnessMarkers } from "../linear/markers.js";
 import type { GitHubClient } from "../github/client.js";
 import { findImplementationPullRequest } from "../github/pr-discovery.js";
 import {
@@ -220,6 +221,7 @@ export function checkHandoffIdempotency(
   issue: LinearIssueSnapshot,
   comments: LinearCommentRecord[],
   force: boolean,
+  options?: { currentSubjectIdentity?: string },
 ): IdempotencyResult {
   if (force) {
     return { skip: false };
@@ -227,17 +229,31 @@ export function checkHandoffIdempotency(
 
   const orchestratorMarker = config.orchestratorMarker;
   const pmReview = getTransitionalStatus(config, "pmReview");
+  const currentSubject = options?.currentSubjectIdentity?.trim();
+
+  // Same subject identity → idempotent skip. Historical handoff markers without
+  // a matching subject identity do NOT suppress a new handoff subject.
+  if (currentSubject) {
+    const matchingSubject = comments.some((comment) => {
+      if (!hasHandoffCompletionMarker(comment.body, orchestratorMarker)) {
+        return false;
+      }
+      const markers = parseHarnessMarkers(comment.body);
+      return markers.handoffSubjectIdentity === currentSubject;
+    });
+    if (matchingSubject) {
+      return {
+        skip: true,
+        reason: `duplicate_phase_completed: handoff subject ${currentSubject} already completed`,
+      };
+    }
+    return { skip: false };
+  }
+
+  // Without a current subject, only skip when already in PM Review with any handoff.
   const hasHandoffComment = comments.some((comment) =>
     hasHandoffCompletionMarker(comment.body, orchestratorMarker),
   );
-
-  if (hasHandoffComment) {
-    return {
-      skip: true,
-      reason: "duplicate_phase_completed: handoff marker already exists",
-    };
-  }
-
   if (
     issue.status?.toLowerCase() === pmReview.toLowerCase() &&
     hasHandoffComment

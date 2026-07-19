@@ -11,6 +11,7 @@ import { runSyncProductionCommand } from "./commands/sync-production.js";
 import { runResolveRouteCommand } from "./commands/resolve-route.js";
 import { runReconcileRevisionCommand } from "./commands/reconcile-revision.js";
 import { runReconcileMergeCommand } from "./commands/reconcile-merge.js";
+import { runReconcileWorkflowCommand } from "./commands/reconcile-workflow.js";
 import { runWorkflowStatusReportCommand } from "./commands/workflow-status-report.js";
 import { runWorkflowStatusMigrateCommand } from "./commands/workflow-status-migrate.js";
 import { runValidationRunCommand } from "./commands/validation-run.js";
@@ -300,6 +301,33 @@ export function createProgram(): Command {
     .action(async (opts) => {
       const configPath = program.opts<{ config: string }>().config;
       const exitCode = await runReconcileMergeCommand({
+        issueKey: opts.issue,
+        configPath,
+        json: opts.json,
+        dryRun: opts.dryRun,
+        dispatch: opts.dispatch,
+        force: opts.force,
+      });
+      process.exitCode = exitCode;
+    });
+
+  program
+    .command("reconcile-workflow")
+    .description(
+      "Scan configured Linear teams for stranded workflow issues; optionally dispatch recovery runs",
+    )
+    .option("--issue <key>", "Reconcile a single Linear issue key")
+    .option("--json", "Print reconcile JSON to stdout", false)
+    .option("--dry-run", "Evaluate only; no Linear writes or dispatch", false)
+    .option(
+      "--dispatch",
+      "When eligible, send repository_dispatch for recovery runs",
+      false,
+    )
+    .option("--force", "Force reconcile while transitional statuses allow", false)
+    .action(async (opts) => {
+      const configPath = program.opts<{ config: string }>().config;
+      const exitCode = await runReconcileWorkflowCommand({
         issueKey: opts.issue,
         configPath,
         json: opts.json,

@@ -76,10 +76,17 @@ import {
   evaluateCodeReviewReadiness,
 } from "../../workflow/code-review-readiness.js";
 import {
-  FileWorkflowStateStore,
-  loadOrBootstrapWorkflowState,
+    loadOrBootstrapWorkflowState,
 } from "../../workflow/state/index.js";
+import { resolvePhaseWorkflowStateStore } from "../../workflow/state/resolve-store.js";
 import { createImplementationArtifactIdentity } from "../../workflow/implementation-artifact.js";
+import { buildHandoffSubjectIdentity } from "../../workflow/subject-identities.js";
+import {
+  buildSideEffectIdentity,
+  isSideEffectCompleted,
+  markSideEffectCompleted,
+  upsertPendingSideEffect,
+} from "../../workflow/state/side-effects.js";
 
 export interface HandoffPhaseOptions {
   issueKey: string;
@@ -646,7 +653,10 @@ export async function executeHandoffPhase(
       issueKey: options.issueKey,
     });
     const logDirectory = config.logDirectory ?? "runs";
-    const store = new FileWorkflowStateStore(logDirectory);
+    const store = await resolvePhaseWorkflowStateStore({
+    config,
+    logDirectory,
+  });
     const workflowState = await loadOrBootstrapWorkflowState({
       store,
       issueKey: options.issueKey,
@@ -675,7 +685,118 @@ export async function executeHandoffPhase(
       workflowStateRevision: workflowState.stateRevision + 1,
     });
 
-    const handoffCommentId = await postHandoffComment(client, issue.id, handoffBody, {
+    const handoffSubjectIdentity = buildHandoffSubjectIdentity({
+      issueKey: options.issueKey,
+      targetRepo: markerTargetRepo,
+      implementationGenerationId:
+        implementationArtifact.implementationGenerationId,
+      prNumber: implementationArtifact.prNumber,
+      headSha: implementationArtifact.headSha,
+      diffHash: implementationArtifact.diffHash,
+    });
+
+    const subjectIdempotency = checkHandoffIdempotency(
+      config,
+      issue,
+      comments,
+      Boolean(options.force),
+      { currentSubjectIdentity: handoffSubjectIdentity },
+    );
+    if (
+      subjectIdempotency.skip ||
+      workflowState.handoffSubjectIdentity === handoffSubjectIdentity
+    ) {
+      await events.log("idempotency_skip", "info", {
+        reason:
+          subjectIdempotency.reason ??
+          `handoff subject ${handoffSubjectIdentity} already recorded in durable state`,
+        handoffSubjectIdentity,
+      });
+      finalOutcome = "duplicate";
+      errorClassification = "duplicate_phase_completed";
+      const manifest: RunManifest = {
+        runId,
+        issueKey: options.issueKey,
+        phase,
+        phaseInferredFromStatus,
+        linearStatusBefore,
+        linearStatusAfter,
+        targetRepo: resolved.targetRepo,
+        baseBranch: resolved.baseBranch,
+        resolutionSource: resolved.resolutionSource,
+        dryRun: false,
+        finalOutcome,
+        errorClassification,
+        startedAt: startedAt.toISOString(),
+        finishedAt: new Date().toISOString(),
+        milestone: MILESTONE,
+        promptVersion: HANDOFF_PROMPT_VERSION,
+        cursorAgentId: null,
+        cursorRunId: null,
+        branch,
+        prUrl,
+        previewUrl,
+        validationSummary: null,
+        changedFiles,
+        checkSummary,
+        previousImplementationRunId,
+        previousHandoffRunId: null,
+        pmFeedbackCommentId: null,
+        ...emptyMergeManifestFields(),
+        model,
+      };
+      return writeFinalManifest(
+        manifest,
+        runDirectory,
+        parsed,
+        resolved,
+        events,
+        finalOutcome,
+        errorClassification,
+        phaseTrace,
+      );
+    }
+
+    // Decision-before-effects: CAS-record accepted handoff subject + pending effects
+    // before posting Linear comment or moving status.
+    const commentEffectId = buildSideEffectIdentity({
+      kind: "handoff_marker",
+      subjectIdentity: handoffSubjectIdentity,
+    });
+    const statusEffectId = buildSideEffectIdentity({
+      kind: "linear_status_transition",
+      subjectIdentity: handoffSubjectIdentity,
+      detail: "pm_review",
+    });
+    let durable = upsertPendingSideEffect(
+      {
+        ...workflowState,
+        handoffSubjectIdentity,
+        latestImplementationArtifact: implementationArtifact,
+      },
+      { identity: commentEffectId, kind: "handoff_marker" },
+    );
+    durable = upsertPendingSideEffect(durable, {
+      identity: statusEffectId,
+      kind: "linear_status_transition",
+    });
+    const acceptedRevision = workflowState.stateRevision + 1;
+    durable = { ...durable, stateRevision: acceptedRevision };
+    const casAccepted = await store.compareAndSet({
+      issueKey: options.issueKey,
+      expectedRevision: workflowState.stateRevision,
+      next: durable,
+    });
+    if (!casAccepted) {
+      throw new HandoffError(
+        "linear_write_failure",
+        "Failed to CAS-accept handoff subject into durable workflow state before side effects.",
+      );
+    }
+
+    let handoffCommentId: string | null = null;
+    if (!isSideEffectCompleted(durable, commentEffectId)) {
+      handoffCommentId = await postHandoffComment(client, issue.id, handoffBody, {
       ...footerBase,
       branch: branch ?? undefined,
       prUrl: prUrl ?? undefined,
@@ -693,7 +814,19 @@ export async function executeHandoffPhase(
       prHeadSha: implementationArtifact.headSha,
       prBaseSha: implementationArtifact.baseSha,
       diffHash: implementationArtifact.diffHash,
+      handoffSubjectIdentity,
     });
+      durable = markSideEffectCompleted(durable, commentEffectId);
+      durable = {
+        ...durable,
+        stateRevision: durable.stateRevision + 1,
+      };
+      await store.compareAndSet({
+        issueKey: options.issueKey,
+        expectedRevision: durable.stateRevision - 1,
+        next: durable,
+      });
+    }
     commentsWritten.push(handoffBody);
     await mkdir(`${runDirectory}/linear`, { recursive: true });
     await writeFile(getHandoffCommentPath(runDirectory), `${handoffBody}\n`, "utf8");
@@ -716,7 +849,7 @@ export async function executeHandoffPhase(
         store,
         issueKey: options.issueKey,
         config,
-        expectedStateRevision: workflowState.stateRevision,
+        expectedStateRevision: durable.stateRevision,
         currentPhaseId: "handoff",
         outcome: {
           kind: "success",

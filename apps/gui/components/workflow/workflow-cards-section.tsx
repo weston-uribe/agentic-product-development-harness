@@ -182,6 +182,12 @@ export function WorkflowCardsSection({
               <p className="text-xs text-muted-foreground">{optionalPhasesSaveError}</p>
             ) : null}
             <p className="text-muted-foreground">{content.description}</p>
+            <p
+              className="text-xs text-muted-foreground"
+              data-testid="optional-phase-global-scope"
+            >
+              This setting applies to every issue handled by this harness.
+            </p>
             {content.independentAgentNote ? (
               <p className="text-muted-foreground">{content.independentAgentNote}</p>
             ) : null}

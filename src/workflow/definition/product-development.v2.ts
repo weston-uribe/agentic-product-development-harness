@@ -1,6 +1,7 @@
 /**
  * Product-development workflow definition v2.
- * Optional plan_review / code_review phases are defined but disabled by default.
+ * New workspaces enable Plan Review and Code Review; legacy configs without a
+ * workflow section keep both disabled via LEGACY_WORKFLOW_MIGRATION_DEFAULTS.
  */
 
 import type {
@@ -14,7 +15,17 @@ import { PRODUCT_DEVELOPMENT_ROLE_MAPPINGS } from "./roles.js";
 
 export const WORKFLOW_SCHEMA_VERSION = "product-development-v2";
 
-export const DEFAULT_OPTIONAL_PHASES = {
+/** Defaults written into brand-new first-run harness configs. */
+export const NEW_WORKSPACE_OPTIONAL_PHASE_DEFAULTS = {
+  planReview: true,
+  codeReview: true,
+} as const;
+
+/**
+ * Fallbacks when migrating configs that omit workflow.optionalPhases.
+ * Preserves pre-Chunk-8 behavior (reviews off) for legacy installations.
+ */
+export const LEGACY_WORKFLOW_MIGRATION_DEFAULTS = {
   planReview: false,
   codeReview: false,
 } as const;

@@ -113,9 +113,9 @@ import { resolveAuthoritativeLinearTeamIdFromConfig } from "../../config/resolve
 import { listTeamWorkflowStates } from "../../setup/linear-setup-client.js";
 import { evaluateCodeReviewReadiness } from "../../workflow/code-review-readiness.js";
 import {
-  FileWorkflowStateStore,
-  loadOrBootstrapWorkflowState,
+    loadOrBootstrapWorkflowState,
 } from "../../workflow/state/index.js";
+import { resolvePhaseWorkflowStateStore } from "../../workflow/state/resolve-store.js";
 import { createImplementationArtifactIdentity } from "../../workflow/implementation-artifact.js";
 
 export interface RevisionPhaseOptions {
@@ -1154,7 +1154,10 @@ export async function executeRevisionPhase(
         issueKey: options.issueKey,
       });
       const logDirectory = config.logDirectory ?? "runs";
-      const store = new FileWorkflowStateStore(logDirectory);
+      const store = await resolvePhaseWorkflowStateStore({
+    config,
+    logDirectory,
+  });
       const workflowState = await loadOrBootstrapWorkflowState({
         store,
         issueKey: options.issueKey,

@@ -84,6 +84,7 @@ export type ControlPlaneSetupStatePatch = {
   linearWorkspace?: ControlPlaneSetupState["linearWorkspace"];
   vercel?: Partial<VercelBridgeSelection>;
   workflowModels?: ControlPlaneSetupState["workflowModels"];
+  optionalReviewProvisioning?: ControlPlaneSetupState["optionalReviewProvisioning"];
   runnerUpgrade?: ControlPlaneSetupState["runnerUpgrade"];
   initialSetup?: ControlPlaneSetupState["initialSetup"];
 };
@@ -106,6 +107,8 @@ export async function updateControlPlaneSetupState(
           : (patch.vercel as VercelBridgeSelection)
         : current.vercel,
     workflowModels: patch.workflowModels ?? current.workflowModels,
+    optionalReviewProvisioning:
+      patch.optionalReviewProvisioning ?? current.optionalReviewProvisioning,
     runnerUpgrade: patch.runnerUpgrade ?? current.runnerUpgrade,
     initialSetup: patch.initialSetup ?? current.initialSetup,
   };

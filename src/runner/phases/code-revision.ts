@@ -45,9 +45,9 @@ import { parseIssueDescription } from "../../linear/parser.js";
 import { resolveTargetRepo } from "../../resolver/target-repo.js";
 import { applyPhaseTransition } from "../workflow-transition.js";
 import {
-  FileWorkflowStateStore,
-  loadOrBootstrapWorkflowState,
+    loadOrBootstrapWorkflowState,
 } from "../../workflow/state/index.js";
+import { resolvePhaseWorkflowStateStore } from "../../workflow/state/resolve-store.js";
 import {
   buildCodeReviewExecutionEligibilityDiagnostic,
   buildCodeReviewPhaseExecutionFreeze,
@@ -199,7 +199,10 @@ export async function executeCodeRevisionPhase(
   let prUrl: string | null = null;
   let extraEvalMetadata: Record<string, unknown> = {};
 
-  const store = new FileWorkflowStateStore(logDirectory);
+  const store = await resolvePhaseWorkflowStateStore({
+    config,
+    logDirectory,
+  });
   let linearStatuses: Array<{ name: string; type: string; id?: string }> = [];
   try {
     const teamId = resolveAuthoritativeLinearTeamIdFromConfig(config);

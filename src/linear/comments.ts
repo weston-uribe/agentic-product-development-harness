@@ -60,6 +60,8 @@ export interface HandoffCommentFooterInput extends HarnessCommentFooterInput {
   prHeadSha?: string;
   prBaseSha?: string;
   diffHash?: string;
+  /** Deterministic handoff subject for idempotent skip across jobs. */
+  handoffSubjectIdentity?: string;
 }
 
 export interface RevisionCommentFooterInput extends HandoffCommentFooterInput {
@@ -202,6 +204,9 @@ function buildHarnessMetadataLines(
   }
   if (input.diffHash) {
     lines.push(`diff_hash: ${input.diffHash}`);
+  }
+  if (input.handoffSubjectIdentity) {
+    lines.push(`handoff_subject_identity: ${input.handoffSubjectIdentity}`);
   }
   if (input.previewUrl) {
     lines.push(`preview_url: ${input.previewUrl}`);

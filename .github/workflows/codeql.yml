@@ -1,6 +1,7 @@
 name: CodeQL
 
 on:
+  # Push limited to main — never p-dev-runtime-state (runtime-state branch).
   push:
     branches: [main]
   pull_request:

@@ -1,18 +1,18 @@
 name: Harness Reconcile Stranded Issues
 
-# Recovers stranded Needs Revision / Ready to Merge issues when webhooks were missed.
+# Recovers stranded workflow issues when webhooks were missed.
 on:
   schedule:
     - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
       issue:
-        description: "Optional Linear issue key to reconcile (e.g. FRE-3)"
+        description: "Optional Linear issue key to reconcile (e.g. WES-13)"
         required: false
-      mode:
-        description: "revision | merge | both"
+      dry_run:
+        description: "Evaluate only; no Linear writes or dispatch"
         required: false
-        default: "both"
+        default: "false"
       dispatch:
         description: "When eligible, send repository_dispatch"
         required: false
@@ -32,6 +32,7 @@ jobs:
       HARNESS_CONFIG_JSON_B64: ${{ secrets.HARNESS_CONFIG_JSON_B64 }}
       HARNESS_CONFIG_FINGERPRINT: ${{ vars.HARNESS_CONFIG_FINGERPRINT }}
       GITHUB_DISPATCH_REPOSITORY: ${{ github.repository }}
+      P_DEV_WORKFLOW_STATE_STORE_MODE: managed_github
 
     steps:
       - name: Checkout harness repo
@@ -46,44 +47,21 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Reconcile single issue
-        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.issue != '' }}
+      - name: Reconcile workflow issues
         env:
-          ISSUE_KEY: ${{ github.event.inputs.issue }}
-          MODE: ${{ github.event.inputs.mode || 'both' }}
+          ISSUE_KEY: ${{ github.event.inputs.issue || '' }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
           DO_DISPATCH: ${{ github.event.inputs.dispatch || 'true' }}
         run: |
-          run_rev() {
-            if [ "$DO_DISPATCH" = "true" ]; then
-              npm run harness:reconcile-revision -- --issue "$ISSUE_KEY" --dispatch --json
-            else
-              npm run harness:reconcile-revision -- --issue "$ISSUE_KEY" --json
-            fi
-          }
-          run_merge() {
-            if [ "$DO_DISPATCH" = "true" ]; then
-              npm run harness:reconcile-merge -- --issue "$ISSUE_KEY" --dispatch --json
-            else
-              npm run harness:reconcile-merge -- --issue "$ISSUE_KEY" --json
-            fi
-          }
-          case "$MODE" in
-            revision) run_rev ;;
-            merge) run_merge ;;
-            both|*)
-              run_rev || true
-              run_merge || true
-              ;;
-          esac
-
-      - name: Reconcile FRE-3 when scheduled (temporary recovery seed)
-        if: ${{ github.event_name == 'schedule' }}
-        run: |
-          # Bounded recovery: reconcile known stranded revision/merge candidates.
-          # Idempotent per pmFeedbackCommentId (revision) and issueKey+prUrl (merge).
-          for ISSUE in FRE-3; do
-            echo "Reconciling revision for $ISSUE"
-            npm run harness:reconcile-revision -- --issue "$ISSUE" --dispatch --json || true
-            echo "Reconciling merge for $ISSUE"
-            npm run harness:reconcile-merge -- --issue "$ISSUE" --dispatch --json || true
-          done
+          set -euo pipefail
+          ARGS=(--json)
+          if [ -n "$ISSUE_KEY" ]; then
+            ARGS+=(--issue "$ISSUE_KEY")
+          fi
+          if [ "$DRY_RUN" = "true" ]; then
+            ARGS+=(--dry-run)
+          fi
+          if [ "$DO_DISPATCH" = "true" ]; then
+            ARGS+=(--dispatch)
+          fi
+          npm run harness:reconcile-workflow -- "${ARGS[@]}"

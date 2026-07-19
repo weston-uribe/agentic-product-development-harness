@@ -42,9 +42,9 @@ import { parseIssueDescription } from "../../linear/parser.js";
 import { resolveTargetRepo } from "../../resolver/target-repo.js";
 import { applyPhaseTransition } from "../workflow-transition.js";
 import {
-  FileWorkflowStateStore,
-  loadOrBootstrapWorkflowState,
+    loadOrBootstrapWorkflowState,
 } from "../../workflow/state/index.js";
+import { resolvePhaseWorkflowStateStore } from "../../workflow/state/resolve-store.js";
 import {
   buildCodeReviewExecutionEligibilityDiagnostic,
   buildCodeReviewPhaseExecutionFreeze,
@@ -193,7 +193,10 @@ export async function executeCodeReviewPhase(
   let cursorRunId: string | null = null;
   let extraEvalMetadata: Record<string, unknown> = {};
 
-  const store = new FileWorkflowStateStore(logDirectory);
+  const store = await resolvePhaseWorkflowStateStore({
+    config,
+    logDirectory,
+  });
   let linearStatuses: Array<{ name: string; type: string; id?: string }> = [];
   try {
     const teamId = resolveAuthoritativeLinearTeamIdFromConfig(config);
@@ -276,8 +279,8 @@ export async function executeCodeReviewPhase(
   const markerTargetRepo = normalizeRepoUrl(resolved.targetRepo);
   let latestImplementation = state.latestImplementationArtifact;
   let recoveredImplementationArtifact = false;
+  const comments = await listIssueComments(client, issue.id);
   if (!latestImplementation) {
-    const comments = await listIssueComments(client, issue.id);
     const {
       recoverPrLocatorFromHandoffComments,
       buildRecoveredImplementationArtifact,
@@ -652,10 +655,14 @@ export async function executeCodeReviewPhase(
         );
       }
 
+      const reviewCycle =
+        state.cycleCounters.code_review_cycles ?? 0;
       const review = toEngineCodeReviewOutcome({
         codeReview: validated.outcome,
         reviewerGenerationId: runId,
         expectedStateRevision: latestImplementation.workflowStateRevision,
+        issueKey: options.issueKey,
+        reviewCycle,
       });
 
       const applied = await applyPhaseTransition({
@@ -721,7 +728,22 @@ export async function executeCodeReviewPhase(
           codeReviewCycleLimit: freeze.cycleLimit,
         },
       });
-      await postIssueComment(client, issue.id, commentBody);
+      const { findCodeReviewCommentByDecision } = await import(
+        "../../linear/code-review-comment.js"
+      );
+      const existingDecisionComment = findCodeReviewCommentByDecision(
+        comments,
+        config.orchestratorMarker,
+        review.decisionIdentity,
+      );
+      if (!existingDecisionComment) {
+        await postIssueComment(client, issue.id, commentBody);
+      } else {
+        await events.log("idempotency_skip", "info", {
+          reason: "duplicate_code_review_decision_comment",
+          decisionIdentity: review.decisionIdentity,
+        });
+      }
       await transitionIssueStatus(client, issue, applied.statusName);
       linearStatusAfter = applied.statusName;
 

@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { buildInspectReport } from "../../src/evaluation/langfuse-inspect/report.js";
+import {
+  generationCostIncompleteReason,
+  buildInspectReport,
+} from "../../src/evaluation/langfuse-inspect/report.js";
 import { deriveSessionId } from "../../src/evaluation/identifiers.js";
+import { PRICING_REGISTRY_VERSION } from "../../src/evaluation/telemetry/pricing-registry.js";
+import type { LangfuseInspectObservation } from "../../src/evaluation/langfuse-inspect/types.js";
+import {
+  OPTIONAL_REVIEW_RECONCILE_STATUSES,
+  resolveWorkflowReconcileStatusNames,
+} from "../../src/runner/workflow-reconcile.js";
 
 describe("langfuse inspect report", () => {
   it("fails acceptance when planning trace and planner agent are missing", () => {
@@ -27,7 +36,6 @@ describe("langfuse inspect report", () => {
     expect(report.gaps.some((g) => g.code === "missing_planning_trace")).toBe(
       true,
     );
-    // Legacy p-dev.* names are warnings; human-readable contract gaps are errors.
     expect(
       report.gaps.some(
         (g) =>
@@ -68,9 +76,12 @@ describe("langfuse inspect report", () => {
               usageDetails: { input: 10, output: 5 },
               metadata: {
                 linearIssueKey: "FRE-3",
-                costSource: "unavailable",
-                costUnavailableReason: "missing_pricing_entry",
+                effectiveVariant: "standard",
+                costSource: "pricing_registry",
+                estimatedCostUsd: 0.0000175,
+                pricingRegistryVersion: PRICING_REGISTRY_VERSION,
               },
+              costDetails: { total: 0.0000175 },
             },
           ],
         },
@@ -91,9 +102,49 @@ describe("langfuse inspect report", () => {
     expect(
       report.gaps.some((g) => g.code === "incomplete_cost_record"),
     ).toBe(false);
+    expect(report.acceptance.generationCostComplete).toBe(true);
   });
 
-  it("flags incomplete cost when costSource=unavailable without reason", () => {
+  it("accepts provider-reported cost without requiring pricing registry version", () => {
+    const obs: LangfuseInspectObservation = {
+      id: "gen",
+      name: "FRE-3 · planner · Cursor run",
+      type: "GENERATION",
+      startTime: null,
+      endTime: null,
+      model: "composer-2.5",
+      hasInput: true,
+      hasOutput: true,
+      inputByteCount: 1,
+      outputByteCount: 1,
+      inputSha256: null,
+      outputSha256: null,
+      usage: { input: 10, output: 5 },
+      costUsd: 0.02,
+      costSource: "provider",
+      costUnavailableReason: null,
+      pricingRegistryVersion: null,
+      promptName: null,
+      promptContractVersion: null,
+      skillIds: [],
+      skillProvenanceStatus: null,
+      toolCount: 0,
+      agentId: null,
+      cursorRunId: null,
+      linearIssueKey: "FRE-3",
+      phase: "planning",
+      phaseExecutionId: null,
+      harnessRunId: null,
+      revisionCycleIndex: null,
+      metadata: {
+        providerReportedCostUsd: 0.02,
+        effectiveVariant: "standard",
+      },
+    };
+    expect(generationCostIncompleteReason(obs)).toBeNull();
+  });
+
+  it("flags incomplete cost when costSource=unavailable without estimate", () => {
     const sessionId = deriveSessionId("weston-dogfood", "FRE-3");
     const report = buildInspectReport({
       issueKey: "FRE-3",
@@ -110,9 +161,13 @@ describe("langfuse inspect report", () => {
               id: "gen",
               name: "FRE-3 · planner · Cursor run",
               type: "GENERATION",
+              model: "composer-2.5",
+              usageDetails: { input: 10, output: 5 },
               metadata: {
                 linearIssueKey: "FRE-3",
+                effectiveVariant: "standard",
                 costSource: "unavailable",
+                costUnavailableReason: "missing_pricing_entry",
               },
             },
             {
@@ -130,6 +185,88 @@ describe("langfuse inspect report", () => {
     expect(report.gaps.some((g) => g.code === "incomplete_cost_record")).toBe(
       true,
     );
+  });
+
+  it("flags dual authoritative provider and estimated costs", () => {
+    const obs: LangfuseInspectObservation = {
+      id: "gen",
+      name: "FRE-3 · planner · Cursor run",
+      type: "GENERATION",
+      startTime: null,
+      endTime: null,
+      model: "composer-2.5",
+      hasInput: true,
+      hasOutput: true,
+      inputByteCount: 1,
+      outputByteCount: 1,
+      inputSha256: null,
+      outputSha256: null,
+      usage: { input: 10, output: 5 },
+      costUsd: 0.02,
+      costSource: "provider",
+      costUnavailableReason: null,
+      pricingRegistryVersion: PRICING_REGISTRY_VERSION,
+      promptName: null,
+      promptContractVersion: null,
+      skillIds: [],
+      skillProvenanceStatus: null,
+      toolCount: 0,
+      agentId: null,
+      cursorRunId: null,
+      linearIssueKey: "FRE-3",
+      phase: "planning",
+      phaseExecutionId: null,
+      harnessRunId: null,
+      revisionCycleIndex: null,
+      metadata: {
+        providerReportedCostUsd: 0.02,
+        estimatedCostUsd: 0.00001,
+        effectiveVariant: "standard",
+      },
+    };
+    expect(generationCostIncompleteReason(obs)).toBe(
+      "dual_authoritative_cost_sources",
+    );
+  });
+
+  it("flags fast variant priced with standard registry rates", () => {
+    const obs: LangfuseInspectObservation = {
+      id: "gen",
+      name: "FRE-3 · planner · Cursor run",
+      type: "GENERATION",
+      startTime: null,
+      endTime: null,
+      model: "composer-2.5",
+      hasInput: true,
+      hasOutput: true,
+      inputByteCount: 1,
+      outputByteCount: 1,
+      inputSha256: null,
+      outputSha256: null,
+      usage: { input: 1_000_000, output: 1_000_000 },
+      costUsd: 3.0,
+      costSource: "pricing_registry",
+      costUnavailableReason: null,
+      pricingRegistryVersion: PRICING_REGISTRY_VERSION,
+      promptName: null,
+      promptContractVersion: null,
+      skillIds: [],
+      skillProvenanceStatus: null,
+      toolCount: 0,
+      agentId: null,
+      cursorRunId: null,
+      linearIssueKey: "FRE-3",
+      phase: "planning",
+      phaseExecutionId: null,
+      harnessRunId: null,
+      revisionCycleIndex: null,
+      metadata: {
+        estimatedCostUsd: 3.0,
+        effectiveVariant: "fast",
+        modelParams: [{ id: "fast", value: "true" }],
+      },
+    };
+    expect(generationCostIncompleteReason(obs)).toBe("variant_pricing_mismatch");
   });
 
   it("fails when reprojected observation claims skills without artifact evidence", () => {
@@ -166,12 +303,16 @@ describe("langfuse inspect report", () => {
               id: "gen",
               name: "FRE-3 · planner · Cursor run",
               type: "GENERATION",
+              model: "composer-2.5",
+              usageDetails: { input: 10, output: 5 },
               metadata: {
                 linearIssueKey: "FRE-3",
                 reprojected: true,
                 harnessRunId: "run-plan",
-                costSource: "unavailable",
-                costUnavailableReason: "missing_pricing_entry",
+                effectiveVariant: "standard",
+                costSource: "pricing_registry",
+                estimatedCostUsd: 0.0000175,
+                pricingRegistryVersion: PRICING_REGISTRY_VERSION,
                 skillsUsed: [],
                 skillProvenanceStatus: "none",
               },
@@ -231,12 +372,16 @@ describe("langfuse inspect report", () => {
               id: "gen",
               name: "FRE-3 · planner · Cursor run",
               type: "GENERATION",
+              model: "composer-2.5",
+              usageDetails: { input: 10, output: 5 },
               metadata: {
                 linearIssueKey: "FRE-3",
                 reprojected: true,
                 harnessRunId: "run-plan",
-                costSource: "unavailable",
-                costUnavailableReason: "missing_pricing_entry",
+                effectiveVariant: "standard",
+                costSource: "pricing_registry",
+                estimatedCostUsd: 0.0000175,
+                pricingRegistryVersion: PRICING_REGISTRY_VERSION,
                 skillsUsed: [],
                 skillProvenanceStatus: "none",
               },
@@ -261,5 +406,23 @@ describe("langfuse inspect report", () => {
       report.gaps.some((g) => g.code === "false_skill_provenance"),
     ).toBe(false);
     expect(report.acceptance.complete).toBe(true);
+  });
+});
+
+describe("workflow reconcile status discovery", () => {
+  it("includes dispatch and review statuses without hard-coded issue keys", () => {
+    const statuses = resolveWorkflowReconcileStatusNames({
+      repos: [],
+      logDirectory: "runs",
+      orchestratorMarker: "p-dev",
+    });
+    expect(statuses).toContain("Ready for Planning");
+    expect(statuses).toContain("Ready for Build");
+    expect(statuses).toContain("PR Open");
+    for (const reviewStatus of OPTIONAL_REVIEW_RECONCILE_STATUSES) {
+      expect(statuses).toContain(reviewStatus);
+    }
+    expect(statuses).toContain("Needs Revision");
+    expect(statuses).toContain("Ready to Merge");
   });
 });

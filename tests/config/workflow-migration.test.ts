@@ -4,7 +4,12 @@ import {
   migratedWorkflowPreservesCurrentBehavior,
 } from "../../src/config/migrate-workflow-config.js";
 import { harnessConfigSchema } from "../../src/config/schema.js";
-import { resolveWorkflowDefinition } from "../../src/workflow/definition/index.js";
+import { buildExampleTargetAppConfig } from "../../src/setup/config-builder.js";
+import {
+  LEGACY_WORKFLOW_MIGRATION_DEFAULTS,
+  NEW_WORKSPACE_OPTIONAL_PHASE_DEFAULTS,
+  resolveWorkflowDefinition,
+} from "../../src/workflow/definition/index.js";
 import { evaluateTransition } from "../../src/workflow/transition-engine.js";
 
 const minimalConfig = {
@@ -21,13 +26,48 @@ const minimalConfig = {
 };
 
 describe("workflow config migration", () => {
-  it("fills defaults without enabling optional reviewers", () => {
+  it("legacy config with no workflow section migrates to reviews off", () => {
     const migrated = migrateWorkflowConfigSection({});
     expect(migratedWorkflowPreservesCurrentBehavior(migrated)).toBe(true);
+    expect(migrated.optionalPhases).toEqual(LEGACY_WORKFLOW_MIGRATION_DEFAULTS);
+  });
+
+  it("preserves explicit on settings", () => {
+    const migrated = migrateWorkflowConfigSection({
+      workflow: {
+        optionalPhases: { planReview: true, codeReview: true },
+      },
+    });
+    expect(migrated.optionalPhases).toEqual({
+      planReview: true,
+      codeReview: true,
+    });
+  });
+
+  it("preserves explicit off settings", () => {
+    const migrated = migrateWorkflowConfigSection({
+      workflow: {
+        optionalPhases: { planReview: false, codeReview: false },
+      },
+    });
     expect(migrated.optionalPhases).toEqual({
       planReview: false,
       codeReview: false,
     });
+  });
+
+  it("new workspace config builder persists reviews on", () => {
+    const config = buildExampleTargetAppConfig();
+    expect(config.workflow?.optionalPhases).toEqual(
+      NEW_WORKSPACE_OPTIONAL_PHASE_DEFAULTS,
+    );
+    expect(config.workflow?.cycleLimits).toEqual({
+      planReview: 4,
+      codeReview: 4,
+    });
+    expect(config.roleModels?.planReviewer).toEqual(config.roleModels?.planner);
+    expect(config.roleModels?.codeReviewer).toEqual(config.roleModels?.builder);
+    expect(config.roleModels?.codeReviser).toEqual(config.roleModels?.builder);
   });
 
   it("accepts configs without workflow section", () => {
@@ -35,9 +75,10 @@ describe("workflow config migration", () => {
     expect(parsed.workflow).toBeUndefined();
     const migrated = migrateWorkflowConfigSection(parsed);
     expect(migrated.schemaVersion).toContain("product-development");
+    expect(migrated.optionalPhases).toEqual(LEGACY_WORKFLOW_MIGRATION_DEFAULTS);
   });
 
-  it("preserves no-review routing after migration", () => {
+  it("preserves no-review routing after legacy migration", () => {
     const migrated = migrateWorkflowConfigSection({});
     const definition = resolveWorkflowDefinition({
       workflowConfig: migrated,

@@ -45,7 +45,7 @@ const issue: LinearIssueSnapshot = {
 };
 
 describe("handoff idempotency", () => {
-  it("skips when a handoff marker already exists", () => {
+  it("does not skip on historical handoff marker without matching subject", () => {
     const result = checkHandoffIdempotency(
       config,
       issue,
@@ -56,6 +56,24 @@ describe("handoff idempotency", () => {
         },
       ],
       false,
+      { currentSubjectIdentity: "subject-new" },
+    );
+
+    expect(result.skip).toBe(false);
+  });
+
+  it("skips when handoff subject identity already completed", () => {
+    const result = checkHandoffIdempotency(
+      config,
+      issue,
+      [
+        {
+          id: "c1",
+          body: `<!--\nharness-orchestrator-v1\nphase: handoff\nrun_id: run-1\npr_url: https://github.com/o/r/pull/1\nhandoff_subject_identity: subject-abc\n-->`,
+        },
+      ],
+      false,
+      { currentSubjectIdentity: "subject-abc" },
     );
 
     expect(result.skip).toBe(true);

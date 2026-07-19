@@ -19,6 +19,8 @@ import type { WorkflowFixtureId } from "@harness/workflow-page/constants";
 import { buildCatalogUnavailableEntry } from "@harness/workflow-page/model-catalog-utils";
 import { loadSecretFromEnvLocal } from "@harness/setup/service-verification";
 import { readControlPlaneSetupState } from "@harness/setup/control-plane-setup-state";
+import { resolveAuthoritativeLinearTeamIds } from "@harness/config/resolve-linear-team";
+import { OPTIONAL_REVIEW_STATUSES } from "@harness/setup/linear-optional-status-migrate";
 import {
   WorkflowModelSyncError,
   type WorkflowModelSaveRequest,
@@ -82,7 +84,12 @@ export async function loadWorkflowBootstrap(
   }
 
   const setupState = await readControlPlaneSetupState(cwd);
-  const teamId = setupState?.linear?.teamId;
+  const teamIds = config
+    ? resolveAuthoritativeLinearTeamIds(config)
+    : setupState?.linear?.teamId
+      ? [setupState.linear.teamId]
+      : [];
+  const teamId = teamIds[0] ?? setupState?.linear?.teamId;
   const teamKey = setupState?.linear?.teamKey ?? config?.linear?.teamKey;
 
   let linearStatuses: Awaited<ReturnType<typeof loadLiveLinearStatuses>>["statuses"] =
@@ -104,29 +111,59 @@ export async function loadWorkflowBootstrap(
           "Validation limitation: LINEAR_API_KEY is not configured, so live Linear statuses could not be loaded.",
         );
       }
-    } else if (!teamId) {
+    } else if (teamIds.length === 0) {
       if (debugEnabled) {
         warnings.push(
-          "Validation limitation: Linear team is not configured in control-plane setup state.",
+          "Validation limitation: No configured Linear teams found for status readiness.",
         );
       }
     } else {
-      const result = await loadLiveLinearStatuses({
-        apiKey: linearApiKey,
-        teamId,
+      const perTeam: Array<
+        Awaited<ReturnType<typeof loadLiveLinearStatuses>>["statuses"]
+      > = [];
+      let loadState: "loaded" | "unavailable" = "loaded";
+      for (const id of teamIds) {
+        const result = await loadLiveLinearStatuses({
+          apiKey: linearApiKey,
+          teamId: id,
+        });
+        if (result.loadState !== "loaded") {
+          loadState = "unavailable";
+        }
+        perTeam.push(result.statuses);
+        if (debugEnabled && result.warning) {
+          warnings.push("Linear status load reported a non-fatal warning.");
+        }
+        if (debugEnabled && result.error) {
+          warnings.push("Linear status load failed.");
+        }
+      }
+      // Union of all statuses for display, but only treat optional review
+      // statuses as present when every configured team has them.
+      const byName = new Map<string, (typeof linearStatuses)[number]>();
+      for (const statuses of perTeam) {
+        for (const status of statuses) {
+          byName.set(status.name.trim().toLowerCase(), status);
+        }
+      }
+      const reviewNames = new Set(
+        OPTIONAL_REVIEW_STATUSES.map((s) => s.name.trim().toLowerCase()),
+      );
+      linearStatuses = [...byName.values()].filter((status) => {
+        const key = status.name.trim().toLowerCase();
+        if (!reviewNames.has(key)) return true;
+        return perTeam.every((teamStatuses) =>
+          teamStatuses.some(
+            (s) =>
+              s.name.trim().toLowerCase() === key &&
+              s.type.trim().toLowerCase() === "started",
+          ),
+        );
       });
-      linearStatuses = result.statuses;
       catalogLoadMetadata = {
         ...catalogLoadMetadata,
-        statusCatalog: result.loadState,
+        statusCatalog: loadState,
       };
-      if (debugEnabled && result.warning) {
-        // Public warnings must never include provider error bodies.
-        warnings.push("Linear status load reported a non-fatal warning.");
-      }
-      if (debugEnabled && result.error) {
-        warnings.push("Linear status load failed.");
-      }
     }
 
     const cursorApiKey = await loadSecretFromEnvLocal({

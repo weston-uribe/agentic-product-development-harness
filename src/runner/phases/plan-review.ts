@@ -42,9 +42,9 @@ import { parseIssueDescription } from "../../linear/parser.js";
 import { resolveTargetRepo } from "../../resolver/target-repo.js";
 import { applyPhaseTransition } from "../workflow-transition.js";
 import {
-  FileWorkflowStateStore,
-  loadOrBootstrapWorkflowState,
+    loadOrBootstrapWorkflowState,
 } from "../../workflow/state/index.js";
+import { resolvePhaseWorkflowStateStore } from "../../workflow/state/resolve-store.js";
 import {
   buildPhaseExecutionFreeze,
   buildPlanReviewReadinessDiagnostic,
@@ -180,7 +180,10 @@ export async function executePlanReviewPhase(
   let cursorRunId: string | null = null;
   let extraEvalMetadata: Record<string, unknown> = {};
 
-  const store = new FileWorkflowStateStore(logDirectory);
+  const store = await resolvePhaseWorkflowStateStore({
+    config,
+    logDirectory,
+  });
   let linearStatuses: Array<{ name: string; type: string; id?: string }> = [];
   try {
     const teamId = resolveAuthoritativeLinearTeamIdFromConfig(config);
@@ -509,10 +512,14 @@ export async function executePlanReviewPhase(
         );
       }
 
+      const reviewCycle =
+        state.cycleCounters.plan_review_cycles ?? 0;
       const review = toEngineReviewOutcome({
         planReview: validated.outcome,
         reviewerGenerationId: runId,
         expectedStateRevision: latestPlan.workflowStateRevision,
+        issueKey: options.issueKey,
+        reviewCycle,
       });
 
       const applied = await applyPhaseTransition({
@@ -570,7 +577,22 @@ export async function executePlanReviewPhase(
           planReviewCycleLimit: freeze.cycleLimit,
         },
       });
-      await postIssueComment(client, issue.id, commentBody);
+      const { findPlanReviewCommentByDecision } = await import(
+        "../../linear/plan-review-comment.js"
+      );
+      const existingDecisionComment = findPlanReviewCommentByDecision(
+        comments,
+        config.orchestratorMarker,
+        review.decisionIdentity,
+      );
+      if (!existingDecisionComment) {
+        await postIssueComment(client, issue.id, commentBody);
+      } else {
+        await events.log("idempotency_skip", "info", {
+          reason: "duplicate_plan_review_decision_comment",
+          decisionIdentity: review.decisionIdentity,
+        });
+      }
       await transitionIssueStatus(client, issue, applied.statusName);
       linearStatusAfter = applied.statusName;
 

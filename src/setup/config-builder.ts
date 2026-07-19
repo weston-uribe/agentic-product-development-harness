@@ -2,6 +2,11 @@ import { harnessConfigSchema, type HarnessConfig } from "../config/schema.js";
 import { validateRepoClosure } from "../config/load-config.js";
 import { DEFAULT_MODEL_ID } from "../config/defaults.js";
 import { LEGACY_COMPOSER_MODEL_ID, STANDARD_MODEL_PARAMS } from "../cursor/model.js";
+import {
+  DEFAULT_CYCLE_LIMITS,
+  NEW_WORKSPACE_OPTIONAL_PHASE_DEFAULTS,
+  WORKFLOW_SCHEMA_VERSION,
+} from "../workflow/definition/product-development.v2.js";
 import type { SetupConfigBuildInput } from "./setup-state.js";
 
 const EXAMPLE_LINEAR_STATUSES = {
@@ -51,6 +56,20 @@ export function buildHarnessConfig(input: SetupConfigBuildInput): HarnessConfig 
     roleModels: {
       planner: roleSelection,
       builder: roleSelection,
+      planReviewer: roleSelection,
+      codeReviewer: roleSelection,
+      codeReviser: roleSelection,
+    },
+    workflow: {
+      schemaVersion: WORKFLOW_SCHEMA_VERSION,
+      optionalPhases: {
+        planReview: NEW_WORKSPACE_OPTIONAL_PHASE_DEFAULTS.planReview,
+        codeReview: NEW_WORKSPACE_OPTIONAL_PHASE_DEFAULTS.codeReview,
+      },
+      cycleLimits: {
+        planReview: DEFAULT_CYCLE_LIMITS.plan_review_cycles,
+        codeReview: DEFAULT_CYCLE_LIMITS.code_review_cycles,
+      },
     },
     linear: {
       teamKey: input.linearTeamKey ?? "TEAM",

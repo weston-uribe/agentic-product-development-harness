@@ -1,3 +1,4 @@
+import { resolvePhaseWorkflowStateStore } from "../../workflow/state/resolve-store.js";
 import { mkdir, writeFile } from "node:fs/promises";
 import {
   DEFAULT_PLANNING_TIMEOUT_SECONDS,
@@ -385,11 +386,12 @@ export async function executePlanningPhase(
       generation: runGeneration,
     });
 
-    const { FileWorkflowStateStore: PlanningStateStore, loadOrBootstrapWorkflowState: loadPlanningState } =
+    const { loadOrBootstrapWorkflowState: loadPlanningState } =
       await import("../../workflow/state/index.js");
-    const planningStateStore = new PlanningStateStore(
-      config.logDirectory ?? "runs",
-    );
+    const planningStateStore = await resolvePhaseWorkflowStateStore({
+      config,
+      logDirectory: config.logDirectory ?? "runs",
+    });
     const planningWorkflowState = await loadPlanningState({
       store: planningStateStore,
       issueKey: options.issueKey,
@@ -761,7 +763,7 @@ export async function executePlanningPhase(
     const { createPlanArtifactIdentity } = await import(
       "../../workflow/plan-artifact.js"
     );
-    const { FileWorkflowStateStore, loadOrBootstrapWorkflowState } =
+    const { loadOrBootstrapWorkflowState } =
       await import("../../workflow/state/index.js");
     const { applyPhaseTransition } = await import("../workflow-transition.js");
     const { captureWorkflowAnalyticsEvent, bypassEventToAnalytics } =
@@ -799,7 +801,10 @@ export async function executePlanningPhase(
     }
 
     const logDirectory = config.logDirectory ?? "runs";
-    const store = new FileWorkflowStateStore(logDirectory);
+    const store = await resolvePhaseWorkflowStateStore({
+    config,
+    logDirectory,
+  });
     const priorState = await loadOrBootstrapWorkflowState({
       store,
       issueKey: options.issueKey,

@@ -16,10 +16,14 @@ The product-development lifecycle is declared as a versioned workflow definition
 ### Source-of-truth hierarchy
 
 1. **Workflow definition** (versioned code + config) — legal transitions and role bindings
-2. **Authoritative issue-scoped `WorkflowStateRecord`** — accepted phase/decision/counters/generations with monotonic `stateRevision`
+2. **Authoritative issue-scoped `WorkflowStateRecord`** — accepted phase/decision/counters/generations with monotonic `stateRevision`. On managed GitHub Actions runners this is durable GitHub Contents CAS on branch `p-dev-runtime-state` (explicit `P_DEV_WORKFLOW_STATE_STORE_MODE=managed_github`); local/fixture modes may use file or memory stores. Managed mode fails closed — never silently falls back to ephemeral local files.
 3. **Live Linear issue status + GitHub/run evidence** — external facts validated on every mutation
-4. **Run manifests / Linear markers / status comments** — immutable snapshots or references only; must not independently advance workflow state
+4. **Run manifests / Linear markers / status comments** — immutable snapshots or effect projections of durable decisions; must not independently advance workflow state
 5. **Webhook/dispatch payloads** — hints only; never authorize transitions
+
+### Decision-and-effects sequence
+
+Accepted review decisions and handoff subjects are CAS-written to durable state with pending deterministic side effects (Linear comment, status transition, telemetry) before those external effects run. Each effect is CAS-marked complete; reconciliation replays only incomplete effects. Never post the authoritative decision comment or move Linear first and only afterward attempt to record the accepted decision.
 
 ### Atomic mutation protocol
 
@@ -62,7 +66,21 @@ Optional phases declare `enabledBy`, `bypassNext`, and do not require Linear sta
 - Continue to bypass destination
 - No fake success scores
 
-Defaults: `planReview=false`, `codeReview=false` — current paths unchanged.
+Defaults are split deliberately:
+
+- `NEW_WORKSPACE_OPTIONAL_PHASE_DEFAULTS` — both `true` (first-run config builder persists this)
+- `LEGACY_WORKFLOW_MIGRATION_DEFAULTS` — both `false` (configs with no `workflow` section)
+
+Do not use one ambiguous constant for both behaviors.
+
+### Mid-run setting changes
+
+- A claimed phase execution keeps its frozen configuration (`phaseExecutionFreeze`).
+- An issue already in Plan Review, Code Review, or Code Revision completes that active review loop under its frozen settings.
+- Disabling a review prevents new claims after the save completes.
+- Enabling a review affects subsequent eligible phase claims.
+- Do not retroactively pull an issue backward into a review phase it has already passed.
+- Do not cancel active agents merely because the global toggle changed.
 
 ### Review loops
 

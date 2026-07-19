@@ -161,6 +161,8 @@ describe("plan artifact identity", () => {
     const review = toEngineReviewOutcome({
       planReview: planReview.outcome!,
       reviewerGenerationId: "rev-1",
+      issueKey: "TT-TEST",
+      reviewCycle: 0,
     });
     const result = evaluateTransition({
       definition,
