@@ -558,45 +558,72 @@ export async function executeCodeReviewPhase(
           "agent",
         ) ?? null;
 
-      const observed = await Promise.race([
-        sendAndObserve(agent, prompt, runDirectory, events, {
-          apiKey: cursorApiKey,
-          phase: "code_review",
-          telemetryCorrelation,
-          onTelemetryEvent: onTelemetry,
-          targetRepo: resolved.targetRepo,
-          expectedPrUrl: latestImplementation.prUrl,
-        }),
-        new Promise<never>((_, reject) => {
-          setTimeout(() => {
-            reject(
-              new CodeReviewError(
-                "cursor_run_timeout",
-                `Cursor code review run exceeded ${timeoutMs / 1000}s`,
-              ),
-            );
-          }, timeoutMs);
-        }),
-      ]);
+      const observeWithTimeout = (message: string) =>
+        Promise.race([
+          sendAndObserve(agent, message, runDirectory, events, {
+            apiKey: cursorApiKey,
+            phase: "code_review",
+            telemetryCorrelation,
+            onTelemetryEvent: onTelemetry,
+            targetRepo: resolved.targetRepo,
+            expectedPrUrl: latestImplementation.prUrl,
+          }),
+          new Promise<never>((_, reject) => {
+            setTimeout(() => {
+              reject(
+                new CodeReviewError(
+                  "cursor_run_timeout",
+                  `Cursor code review run exceeded ${timeoutMs / 1000}s`,
+                ),
+              );
+            }, timeoutMs);
+          }),
+        ]);
 
+      let observed = await observeWithTimeout(prompt);
       cursorAgentId = observed.agentId;
       cursorRunId = observed.runId;
       await mkdir(path.join(runDirectory, "outputs"), { recursive: true });
       const resultPath = getCodeReviewResultPath(runDirectory);
       await writeFile(resultPath, `${observed.assistantText}\n`, "utf8");
+
+      let validated = extractCodeReviewOutcomeFromText(observed.assistantText);
+      if (!validated.ok || !validated.outcome) {
+        // One repair turn: agents sometimes return prose instead of the required JSON.
+        const repairPrompt = [
+          "Your previous reply was not valid structured Code Review output.",
+          `Parser error: ${validated.error ?? "malformed_json"}.`,
+          "Reply again with ONLY a fenced ```json code block matching the required schema.",
+          "Do not include any prose outside the JSON fence.",
+          `Set reviewedPrNumber=${latestImplementation.prNumber},`,
+          `reviewedHeadSha=${latestImplementation.headSha},`,
+          `reviewedDiffHash=${latestImplementation.diffHash}.`,
+        ].join(" ");
+        await events.log("cursor_event", "warn", {
+          phase: "code_review",
+          event: "structured_outcome_repair_attempt",
+          priorError: validated.error ?? "malformed_json",
+        });
+        observed = await observeWithTimeout(repairPrompt);
+        cursorAgentId = observed.agentId;
+        cursorRunId = observed.runId;
+        await writeFile(resultPath, `${observed.assistantText}\n`, "utf8");
+        validated = extractCodeReviewOutcomeFromText(observed.assistantText);
+      }
+
       const outputRef = await buildArtifactRef({
         runDirectory,
         absolutePath: resultPath,
         artifactKind: "agent_output",
       });
 
-      const validated = extractCodeReviewOutcomeFromText(observed.assistantText);
       if (!validated.ok || !validated.outcome) {
         reviewerObs?.end({
           metadata: {
             modelId: observed.model?.id ?? model,
             modelRole: "code_reviewer",
             schemaFailure: validated.error ?? "malformed_json",
+            repairAttempted: true,
           },
         });
         throw new CodeReviewError(

@@ -351,13 +351,32 @@ export function validateCodeReviewOutcome(
 export function extractCodeReviewOutcomeFromText(
   text: string,
 ): CodeReviewOutcomeValidationResult {
+  const candidates: string[] = [];
   const fenced = text.match(/```json\s*([\s\S]*?)\s*```/i);
-  const raw = fenced?.[1] ?? text.trim();
-  try {
-    return validateCodeReviewOutcome(JSON.parse(raw) as unknown);
-  } catch {
-    return { ok: false, error: "malformed_json" };
+  if (fenced?.[1]) candidates.push(fenced[1]);
+  const trimmed = text.trim();
+  if (trimmed) candidates.push(trimmed);
+  // Agents sometimes wrap JSON in prose; recover the outermost object.
+  const firstBrace = text.indexOf("{");
+  const lastBrace = text.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    candidates.push(text.slice(firstBrace, lastBrace + 1));
   }
+
+  let lastError: CodeReviewOutcomeValidationResult = {
+    ok: false,
+    error: "malformed_json",
+  };
+  for (const raw of candidates) {
+    try {
+      const validated = validateCodeReviewOutcome(JSON.parse(raw) as unknown);
+      if (validated.ok) return validated;
+      lastError = validated;
+    } catch {
+      // try next candidate
+    }
+  }
+  return lastError;
 }
 
 export function buildCodeReviewDecisionIdentity(input: {

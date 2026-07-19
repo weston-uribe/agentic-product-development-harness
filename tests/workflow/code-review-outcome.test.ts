@@ -12,6 +12,25 @@ import { evaluateTransition } from "../../src/workflow/transition-engine.js";
 import { resolveWorkflowDefinition } from "../../src/workflow/definition/index.js";
 
 describe("code review structured outcome", () => {
+  it("extracts JSON object when agent wraps it in prose", () => {
+    const result = extractCodeReviewOutcomeFromText(`
+Looks good overall.
+
+\`\`\`json
+{
+  "decision": "approved",
+  "summary": "README note is present",
+  "findings": [],
+  "reviewedPrNumber": 42,
+  "reviewedHeadSha": "abc",
+  "reviewedDiffHash": "def"
+}
+\`\`\`
+`);
+    expect(result.ok).toBe(true);
+    expect(result.outcome?.decision).toBe("approved");
+  });
+
   it("accepts valid approval with nonblocking notes", () => {
     const result = validateCodeReviewOutcome({
       decision: "approved",

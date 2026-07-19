@@ -381,34 +381,60 @@ export async function executePlanningPhase(
       currentPhaseId: "planning",
     });
     let priorPlanBody = "_Prior plan unavailable._";
-    const needsPlanRevision =
+    let recoveredRevision: Awaited<
+      ReturnType<
+        typeof import("../../workflow/recover-plan-review-decision.js").recoverPlanReviewRevisionFromComments
+      >
+    > = null;
+    const localNeedsPlanRevision =
       planningWorkflowState.returnDestination === "plan_review" &&
       Boolean(planningWorkflowState.latestPlanArtifact) &&
       planningWorkflowState.lastAcceptedReviewDecision?.decision ===
         "needs_revision";
-    if (needsPlanRevision) {
-      try {
-        const priorComments = await listIssueComments(client, issue.id);
-        const prior = priorComments
-          .slice()
-          .reverse()
-          .find((c) => c.body.includes("### Full plan"));
+    try {
+      const priorComments = await listIssueComments(client, issue.id);
+      if (!localNeedsPlanRevision) {
+        const { recoverPlanReviewRevisionFromComments } = await import(
+          "../../workflow/recover-plan-review-decision.js"
+        );
+        recoveredRevision = recoverPlanReviewRevisionFromComments({
+          comments: priorComments,
+          orchestratorMarker: config.orchestratorMarker,
+        });
+        if (recoveredRevision) {
+          await events.log("planning_comment_loaded", "info", {
+            source: "plan_review_revision_recovered_from_linear",
+            decisionIdentity: recoveredRevision.decisionIdentity,
+            blockingFindingCount: recoveredRevision.findings.filter(
+              (f) => f.severity === "blocking",
+            ).length,
+          });
+        }
+      }
+      const needsPlanBody =
+        localNeedsPlanRevision || Boolean(recoveredRevision);
+      if (needsPlanBody) {
+        // Newest-first Linear lists: take the first ### Full plan match.
+        const prior = priorComments.find((c) => c.body.includes("### Full plan"));
         if (prior) {
           const match = prior.body.match(
             /### Full plan\n([\s\S]*?)(?:\n<!--|\n---|\s*$)/,
           );
           priorPlanBody = match?.[1]?.trim() || prior.body;
         }
-      } catch {
-        // best-effort
       }
+    } catch {
+      // best-effort
     }
+    const needsPlanRevision =
+      localNeedsPlanRevision || Boolean(recoveredRevision);
+    const revisionFindings = localNeedsPlanRevision
+      ? (planningWorkflowState.lastAcceptedReviewDecision?.findings ?? [])
+      : (recoveredRevision?.findings ?? []);
     const revisionContext = needsPlanRevision
       ? {
           priorPlanBody,
-          acceptedBlockingFindings: (
-            planningWorkflowState.lastAcceptedReviewDecision?.findings ?? []
-          )
+          acceptedBlockingFindings: revisionFindings
             .filter((f) => f.severity === "blocking")
             .map((f) => ({
               id: f.id,
@@ -416,12 +442,14 @@ export async function executePlanningPhase(
               evidence: f.evidence,
               requiredChange: f.requiredChange,
             })),
-          planReviewCycle:
-            planningWorkflowState.cycleCounters.plan_review_cycles ?? 0,
+          planReviewCycle: localNeedsPlanRevision
+            ? (planningWorkflowState.cycleCounters.plan_review_cycles ?? 0)
+            : (recoveredRevision?.planReviewCycle ?? 1),
           planReviewCycleLimit: 4,
-          causedByReviewDecisionIdentity:
-            planningWorkflowState.lastAcceptedReviewDecision
-              ?.decisionIdentity ?? null,
+          causedByReviewDecisionIdentity: localNeedsPlanRevision
+            ? (planningWorkflowState.lastAcceptedReviewDecision
+                ?.decisionIdentity ?? null)
+            : (recoveredRevision?.decisionIdentity ?? null),
         }
       : null;
 
