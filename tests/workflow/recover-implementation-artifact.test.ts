@@ -55,11 +55,54 @@ describe("recoverPrLocatorFromHandoffComments", () => {
 
     const artifact = buildRecoveredImplementationArtifact({
       locator: locator!,
-      headSha: "unused",
-      baseSha: "unused",
+      headSha,
+      baseSha,
     });
     expect(artifact.implementationGenerationId).toBe("impl-abc");
+    expect(artifact.headSha).toBe(headSha);
     expect(artifact.diffHash).toBe(diffHash);
+  });
+
+  it("prefers live GitHub SHAs when handoff markers are stale after Code Revision", () => {
+    const staleHead = "a".repeat(40);
+    const staleBase = "b".repeat(40);
+    const liveHead = "e".repeat(40);
+    const liveBase = "f".repeat(40);
+    const comment = formatHandoffComment("Ready for review.", {
+      orchestratorMarker: ORCHESTRATOR,
+      phase: "handoff",
+      runId: "handoff-run-stale",
+      model: "composer-2.5",
+      promptVersion: "handoff@1",
+      targetRepo: TARGET,
+      prUrl: PR_URL,
+      implementationGenerationId: "impl-stale",
+      prNumber: "42",
+      prHeadSha: staleHead,
+      prBaseSha: staleBase,
+      diffHash: hashDiffIdentity({
+        prNumber: 42,
+        headSha: staleHead,
+        baseSha: staleBase,
+      }),
+    });
+    const locator = recoverPrLocatorFromHandoffComments({
+      comments: [{ body: comment }],
+      orchestratorMarker: ORCHESTRATOR,
+      targetRepository: TARGET,
+    });
+    const artifact = buildRecoveredImplementationArtifact({
+      locator: locator!,
+      headSha: liveHead,
+      baseSha: liveBase,
+    });
+    expect(artifact.headSha).toBe(liveHead);
+    expect(artifact.baseSha).toBe(liveBase);
+    expect(artifact.diffHash).toBe(
+      hashDiffIdentity({ prNumber: 42, headSha: liveHead, baseSha: liveBase }),
+    );
+    expect(artifact.implementationGenerationId).toMatch(/^impl-recovered-/);
+    expect(artifact.implementationGenerationId).not.toBe("impl-stale");
   });
 
   it("derives stable identity when markers lack generation/sha fields (legacy)", () => {

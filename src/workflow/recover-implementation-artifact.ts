@@ -92,7 +92,11 @@ export function recoverPrLocatorFromHandoffComments(input: {
 
 /**
  * Build a durable implementation artifact from a recovered PR locator plus
- * live GitHub SHAs (required when markers lack head/base/diff identity).
+ * live GitHub SHAs.
+ *
+ * Live head/base are authoritative: handoff markers go stale after Code Revision
+ * mutates the PR tip. Marker SHAs/diff/generation are reused only when they still
+ * match the live tip.
  */
 export function buildRecoveredImplementationArtifact(input: {
   locator: RecoveredPrLocator;
@@ -100,16 +104,23 @@ export function buildRecoveredImplementationArtifact(input: {
   baseSha: string;
   workflowStateRevision?: number;
 }): ImplementationArtifactIdentity {
-  const headSha = input.locator.headSha ?? input.headSha;
-  const baseSha = input.locator.baseSha ?? input.baseSha;
+  const headSha = input.headSha;
+  const baseSha = input.baseSha;
+  const liveMatchesLocator =
+    Boolean(input.locator.headSha) &&
+    Boolean(input.locator.baseSha) &&
+    input.locator.headSha === headSha &&
+    input.locator.baseSha === baseSha;
   const diffHash =
-    input.locator.diffHash ??
-    hashDiffIdentity({
-      prNumber: input.locator.prNumber,
-      headSha,
-      baseSha,
-    });
+    liveMatchesLocator && input.locator.diffHash
+      ? input.locator.diffHash
+      : hashDiffIdentity({
+          prNumber: input.locator.prNumber,
+          headSha,
+          baseSha,
+        });
   const implementationGenerationId =
+    liveMatchesLocator &&
     input.locator.implementationGenerationId &&
     input.locator.implementationGenerationId.trim().length > 0
       ? input.locator.implementationGenerationId.trim()
