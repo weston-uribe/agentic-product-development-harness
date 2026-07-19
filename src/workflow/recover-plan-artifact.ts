@@ -27,28 +27,43 @@ export function extractFullPlanBody(commentBody: string): string | null {
 /**
  * Prefer marker-backed identity when present; otherwise derive a stable identity
  * from planner run_id + plan body hash so Plan Review can correlate across jobs.
+ *
+ * Always selects the newest matching planning completion comment (Linear comment
+ * lists are typically newest-first; createdAt is used when available).
  */
 export function recoverPlanArtifactFromPlanningComments(input: {
   comments: readonly LinearCommentLike[];
   orchestratorMarker: string;
   promptContractVersionFallback?: string;
 }): PlanArtifactIdentity | null {
-  const planning = input.comments
-    .slice()
-    .reverse()
-    .map((c) => ({
+  const planningCandidates = input.comments
+    .map((c, index) => ({
       body: c.body,
       markers: parseHarnessMarkers(c.body),
       createdAt: c.createdAt,
+      index,
     }))
-    .find(
+    .filter(
       (c) =>
         c.markers.orchestratorMarker === input.orchestratorMarker &&
         c.markers.phase === "planning" &&
         Boolean(c.markers.runId) &&
         c.body.includes("### Full plan"),
-    );
+    )
+    .sort((a, b) => {
+      const aMarked = a.markers.planGenerationId ? 1 : 0;
+      const bMarked = b.markers.planGenerationId ? 1 : 0;
+      if (aMarked !== bMarked) return bMarked - aMarked;
+      const aTime = a.createdAt ? Date.parse(a.createdAt) : Number.NaN;
+      const bTime = b.createdAt ? Date.parse(b.createdAt) : Number.NaN;
+      if (Number.isFinite(aTime) && Number.isFinite(bTime) && aTime !== bTime) {
+        return bTime - aTime;
+      }
+      // Newest-first list: lower index is newer.
+      return a.index - b.index;
+    });
 
+  const planning = planningCandidates[0];
   if (!planning?.markers.runId) return null;
 
   const planBody = extractFullPlanBody(planning.body);

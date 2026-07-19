@@ -72,7 +72,7 @@ describe("recoverPlanArtifactFromPlanningComments", () => {
     expect(first?.plannerRunId).toBe("planning-run-legacy");
   });
 
-  it("prefers the latest planning completion comment", () => {
+  it("prefers the newest planning completion comment (newest-first list)", () => {
     const older = formatPlanningComment("old plan body", {
       orchestratorMarker: ORCHESTRATOR,
       phase: "planning",
@@ -95,12 +95,47 @@ describe("recoverPlanArtifactFromPlanningComments", () => {
     });
 
     const recovered = recoverPlanArtifactFromPlanningComments({
-      comments: [{ body: older }, { body: newer }],
+      // Linear-style newest-first ordering
+      comments: [
+        { body: newer, createdAt: "2026-07-19T03:17:47.000Z" },
+        { body: older, createdAt: "2026-07-19T02:45:42.000Z" },
+      ],
       orchestratorMarker: ORCHESTRATOR,
     });
 
     expect(recovered?.planGenerationId).toBe("gen-new");
     expect(recovered?.plannerRunId).toBe("planning-new");
+  });
+
+  it("prefers marker-backed planning comments over older recovered stubs", () => {
+    const legacy = formatPlanningComment("old stub plan", {
+      orchestratorMarker: ORCHESTRATOR,
+      phase: "planning",
+      runId: "planning-legacy",
+      model: "composer-2.5",
+      promptVersion: "planning@1",
+      targetRepo: "https://github.com/example/repo",
+    });
+    const marked = formatPlanningComment(PLAN_BODY, {
+      orchestratorMarker: ORCHESTRATOR,
+      phase: "planning",
+      runId: "planning-marked",
+      model: "composer-2.5",
+      promptVersion: "planning@1",
+      targetRepo: "https://github.com/example/repo",
+      planGenerationId: "gen-marked",
+      planArtifactHash: hashPlanArtifactBody(PLAN_BODY),
+    });
+
+    const recovered = recoverPlanArtifactFromPlanningComments({
+      comments: [
+        { body: marked, createdAt: "2026-07-19T03:17:47.000Z" },
+        { body: legacy, createdAt: "2026-07-19T02:45:42.000Z" },
+      ],
+      orchestratorMarker: ORCHESTRATOR,
+    });
+
+    expect(recovered?.planGenerationId).toBe("gen-marked");
   });
 
   it("returns null when no planning completion comment exists", () => {

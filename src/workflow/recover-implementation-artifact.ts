@@ -32,29 +32,41 @@ export interface RecoveredPrLocator {
 }
 
 /**
- * Locate the latest handoff completion comment that carries a PR URL.
+ * Locate the newest handoff completion comment that carries a PR URL.
  */
 export function recoverPrLocatorFromHandoffComments(input: {
   comments: readonly LinearCommentLike[];
   orchestratorMarker: string;
   targetRepository: string;
 }): RecoveredPrLocator | null {
-  const handoff = input.comments
-    .slice()
-    .reverse()
-    .map((c) => ({
+  const handoffCandidates = input.comments
+    .map((c, index) => ({
       body: c.body,
       markers: parseHarnessMarkers(c.body),
       createdAt: c.createdAt,
+      index,
     }))
-    .find(
+    .filter(
       (c) =>
         c.markers.orchestratorMarker === input.orchestratorMarker &&
         c.markers.phase === "handoff" &&
         Boolean(c.markers.runId) &&
         Boolean(c.markers.prUrl),
-    );
+    )
+    .sort((a, b) => {
+      const aMarked = a.markers.implementationGenerationId ? 1 : 0;
+      const bMarked = b.markers.implementationGenerationId ? 1 : 0;
+      if (aMarked !== bMarked) return bMarked - aMarked;
+      const aTime = a.createdAt ? Date.parse(a.createdAt) : Number.NaN;
+      const bTime = b.createdAt ? Date.parse(b.createdAt) : Number.NaN;
+      if (Number.isFinite(aTime) && Number.isFinite(bTime) && aTime !== bTime) {
+        return bTime - aTime;
+      }
+      // Newest-first list: lower index is newer.
+      return a.index - b.index;
+    });
 
+  const handoff = handoffCandidates[0];
   if (!handoff?.markers.runId || !handoff.markers.prUrl) return null;
 
   const parsed = parsePrUrl(handoff.markers.prUrl);
