@@ -2,6 +2,9 @@ const PUBLIC_UNSAFE_PATTERNS: ReadonlyArray<{ pattern: RegExp; reason: string }>
   [
     { pattern: /\b[A-Z]{2,5}-\d+\b/, reason: "Linear issue key" },
     { pattern: /github\.com/i, reason: "GitHub URL" },
+    { pattern: /\b[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\b/, reason: "owner/repo slug" },
+    { pattern: /HARNESS_ISSUE_KEY/i, reason: "issue key env name" },
+    { pattern: /runs\/[A-Z]{2,5}-\d+/i, reason: "issue-scoped run directory" },
     { pattern: /ghp_/i, reason: "GitHub token prefix" },
     { pattern: /github_pat_/i, reason: "GitHub PAT prefix" },
     { pattern: /sk-/i, reason: "Secret key prefix" },

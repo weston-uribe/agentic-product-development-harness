@@ -2,6 +2,11 @@ import { appendFileSync } from "node:fs";
 import { EXIT_CONFIG, EXIT_PLANNING_FAILURE, EXIT_RUN_FAILURE } from "../exit-codes.js";
 import { CloudConfigStaleError } from "../../config/assert-cloud-config-fingerprint.js";
 import { isPublicRunnerMode } from "../../public-execution/mode.js";
+import {
+  hashOpaquePublicId,
+  maskValueForGithubActions,
+  writePrivateRuntimeContext,
+} from "../../public-execution/private-runtime-context.js";
 import { isDispatchPhase } from "../../runner/phase-args.js";
 import {
   resolveRoute,
@@ -28,12 +33,39 @@ function appendRouteGithubOutput(
     return;
   }
 
+  writePrivateRuntimeContext({
+    issueKey: result.issueKey,
+    repoConfigId: result.repoConfigId,
+    targetRepo: result.targetRepo,
+    baseBranch: result.baseBranch,
+    mergeConcurrencyGroup: result.mergeConcurrencyGroup,
+    linearStatus: result.linearStatus ?? undefined,
+    pmFeedbackCommentId: result.pmFeedbackCommentId ?? undefined,
+  });
+
   const publicMode = isPublicRunnerMode();
+  if (publicMode) {
+    maskValueForGithubActions(result.issueKey);
+    maskValueForGithubActions(result.repoConfigId);
+    maskValueForGithubActions(result.targetRepo);
+    maskValueForGithubActions(result.mergeConcurrencyGroup);
+    if (result.baseBranch) {
+      maskValueForGithubActions(result.baseBranch);
+    }
+  }
+
+  const publicMergeGroup = publicMode
+    ? hashOpaquePublicId(result.mergeConcurrencyGroup)
+    : result.mergeConcurrencyGroup;
+  const publicRepoConfigId = publicMode
+    ? hashOpaquePublicId(result.repoConfigId)
+    : result.repoConfigId;
+
   const lines = publicMode
     ? [
         `phase=${result.phase}`,
-        `repo_config_id=${result.repoConfigId}`,
-        `merge_concurrency_group=${result.mergeConcurrencyGroup}`,
+        `repo_config_id=${publicRepoConfigId}`,
+        `merge_concurrency_group=${publicMergeGroup}`,
         `should_run=${result.shouldRun}`,
         `reconcile_reason=${result.reconcileReason ?? ""}`,
       ]
@@ -94,8 +126,10 @@ export async function runResolveRouteCommand(
             {
               requestId: requestId ?? undefined,
               phase: result.phase,
-              repoConfigId: result.repoConfigId,
-              mergeConcurrencyGroup: result.mergeConcurrencyGroup,
+              repoConfigId: hashOpaquePublicId(result.repoConfigId),
+              mergeConcurrencyGroup: hashOpaquePublicId(
+                result.mergeConcurrencyGroup,
+              ),
               shouldRun: result.shouldRun,
             },
             null,

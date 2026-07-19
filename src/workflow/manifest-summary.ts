@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { redactSecrets } from "../artifacts/redact.js";
+import { isPublicRunnerMode } from "../public-execution/mode.js";
 
 export interface ManifestSubset {
   issueKey?: string;
@@ -9,8 +10,14 @@ export interface ManifestSubset {
 }
 
 function subsetFromRedacted(redacted: Record<string, unknown>): ManifestSubset {
+  const publicMode = isPublicRunnerMode();
   return {
-    issueKey: typeof redacted.issueKey === "string" ? redacted.issueKey : undefined,
+    issueKey:
+      publicMode
+        ? undefined
+        : typeof redacted.issueKey === "string"
+          ? redacted.issueKey
+          : undefined,
     phase: typeof redacted.phase === "string" ? redacted.phase : undefined,
     finalOutcome:
       typeof redacted.finalOutcome === "string" ? redacted.finalOutcome : undefined,

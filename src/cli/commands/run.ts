@@ -3,6 +3,8 @@ import {
   buildFallbackRunManifest,
   writeJsonOutManifest,
 } from "../../artifacts/write-json-out-manifest.js";
+import { PublicSafeLogger } from "../../public-execution/logger.js";
+import { isPublicRunnerMode } from "../../public-execution/mode.js";
 import { resolveRunGeneration } from "../../runner/run-generation.js";
 import { runOrchestrator, type RunPhaseArg } from "../../runner/orchestrator.js";
 import { createEvaluationRuntime } from "../../evaluation/runtime.js";
@@ -106,7 +108,14 @@ export async function runRunCommand(options: RunCommandOptions): Promise<number>
       }
     }
 
-    if (options.json && manifest) {
+    if (isPublicRunnerMode()) {
+      new PublicSafeLogger().log({
+        requestId: requestId ?? undefined,
+        phase: manifest?.phase,
+        outcome: result.exitCode === 0 ? "success" : "failure",
+        errorCode: manifest?.errorClassification ?? undefined,
+      });
+    } else if (options.json && manifest) {
       console.log(JSON.stringify(manifest, null, 2));
     } else if (manifest && typeof manifest === "object") {
       const label = manifest.dryRun ? "Dry run" : "Run";

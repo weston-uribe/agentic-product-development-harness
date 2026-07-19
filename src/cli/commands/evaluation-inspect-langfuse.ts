@@ -1,10 +1,13 @@
 import path from "node:path";
 import { EXIT_CONFIG, EXIT_SUCCESS } from "../exit-codes.js";
 import { runLangfuseInspect } from "../../evaluation/langfuse-inspect/run.js";
+import { PublicSafeLogger } from "../../public-execution/logger.js";
+import { isPublicRunnerMode } from "../../public-execution/mode.js";
+import { readPrivateIssueKey } from "../../public-execution/private-runtime-context.js";
 import { resolveLogDirectory, resolveNamespace } from "./eval-shared.js";
 
 export async function runEvaluationInspectLangfuse(options: {
-  issueKey: string;
+  issueKey?: string;
   configPath?: string;
   namespace?: string;
   logDirectory?: string;
@@ -13,6 +16,15 @@ export async function runEvaluationInspectLangfuse(options: {
   json?: boolean;
 }): Promise<number> {
   try {
+    const issueKey =
+      options.issueKey?.trim() || readPrivateIssueKey()?.trim() || "";
+    if (!issueKey) {
+      process.stderr.write(
+        "evaluation:inspect-langfuse requires --issue or private runtime context.\n",
+      );
+      return EXIT_CONFIG;
+    }
+
     const logDirectory = await resolveLogDirectory({
       configPath: options.configPath,
       logDirectory: options.logDirectory,
@@ -23,18 +35,30 @@ export async function runEvaluationInspectLangfuse(options: {
       path.join(
         logDirectory,
         "evaluation-reports",
-        `${options.issueKey}-langfuse-inspect.json`,
+        isPublicRunnerMode()
+          ? `langfuse-inspect-${process.env.GITHUB_RUN_ID ?? "local"}.json`
+          : `${issueKey}-langfuse-inspect.json`,
       );
 
     const { report, exitCode } = await runLangfuseInspect({
-      issueKey: options.issueKey,
+      issueKey,
       namespace,
       logDirectory,
       outPath,
       safeContent: options.safeContent === true,
     });
 
-    if (options.json) {
+    if (isPublicRunnerMode()) {
+      new PublicSafeLogger().log({
+        phase: "langfuse_inspect",
+        outcome: report.acceptance.complete ? "success" : "failure",
+        errorCode: report.acceptance.complete
+          ? undefined
+          : "langfuse_incomplete",
+        publicEventType: "langfuse_inspect",
+        blockers: report.gaps.length,
+      });
+    } else if (options.json) {
       process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
     } else {
       process.stdout.write(
@@ -63,11 +87,20 @@ export async function runEvaluationInspectLangfuse(options: {
 
     return exitCode === 0 ? EXIT_SUCCESS : EXIT_CONFIG;
   } catch (error) {
-    process.stderr.write(
-      `evaluation:inspect-langfuse failed: ${
-        error instanceof Error ? error.message : String(error)
-      }\n`,
-    );
+    if (isPublicRunnerMode()) {
+      new PublicSafeLogger().log({
+        phase: "langfuse_inspect",
+        outcome: "failure",
+        errorCode: "langfuse_inspect_failed",
+        publicEventType: "langfuse_inspect",
+      });
+    } else {
+      process.stderr.write(
+        `evaluation:inspect-langfuse failed: ${
+          error instanceof Error ? error.message : String(error)
+        }\n`,
+      );
+    }
     return EXIT_CONFIG;
   }
 }

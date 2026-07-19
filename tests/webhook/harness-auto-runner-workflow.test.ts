@@ -216,6 +216,12 @@ function assertHarnessWorkflowContracts(workflow: string, label: string): void {
         expect(section).not.toContain("runs/${{ needs.gate.outputs.issue_key }}");
       }
     });
+
+    it("never references HARNESS_ISSUE_KEY or issue-key env dumps in public jobs", () => {
+      expect(workflow).not.toContain("HARNESS_ISSUE_KEY");
+      expect(workflow).not.toContain("ISSUE_KEY: ${{ env.");
+      expect(workflow).not.toContain("--issue \"$HARNESS_ISSUE_KEY\"");
+    });
   });
 }
 

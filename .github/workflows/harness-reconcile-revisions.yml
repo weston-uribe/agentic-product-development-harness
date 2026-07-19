@@ -73,7 +73,6 @@ jobs:
           ARGS=(--json)
           if [ -n "$REQUEST_ID" ]; then
             npm run harness:claim-job-request -- --request-id "$REQUEST_ID" --json
-            ARGS+=(--issue "$HARNESS_ISSUE_KEY")
           fi
           if [ "$DRY_RUN" = "true" ]; then
             ARGS+=(--dry-run)

@@ -1,6 +1,11 @@
 import { appendFileSync } from "node:fs";
 import { GitHubClient } from "../../github/client.js";
 import {
+  maskValueForGithubActions,
+  shouldKeepIssueKeyOutOfGithubEnv,
+  writePrivateRuntimeContext,
+} from "../../public-execution/private-runtime-context.js";
+import {
   resolveJobRequestRepository,
   resolveStateGithubToken,
   resolveWorkflowStateBranch,
@@ -50,11 +55,28 @@ export async function createGithubJobRequestStoreFromEnv(
   return store;
 }
 
+/**
+ * Persist the claimed issue key for later steps in this job.
+ * In public-runner mode, never write HARNESS_ISSUE_KEY to GITHUB_ENV — Actions
+ * dumps that file into every subsequent step's env log.
+ */
 export function writeHarnessIssueKeyToGithubEnv(issueKey: string): void {
+  const trimmed = issueKey.trim();
+  if (!trimmed) {
+    return;
+  }
+
+  writePrivateRuntimeContext({ issueKey: trimmed });
+  maskValueForGithubActions(trimmed);
+
+  if (shouldKeepIssueKeyOutOfGithubEnv()) {
+    return;
+  }
+
   const githubEnvPath = process.env.GITHUB_ENV?.trim();
   if (!githubEnvPath) {
     return;
   }
 
-  appendFileSync(githubEnvPath, `HARNESS_ISSUE_KEY=${issueKey}\n`, "utf8");
+  appendFileSync(githubEnvPath, `HARNESS_ISSUE_KEY=${trimmed}\n`, "utf8");
 }

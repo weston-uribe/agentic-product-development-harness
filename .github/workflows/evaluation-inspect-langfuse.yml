@@ -66,7 +66,6 @@ jobs:
           REPORT="runs/evaluation-reports/langfuse-inspect-${{ github.run_id }}.json"
           STDOUT="runs/evaluation-reports/langfuse-inspect-${{ github.run_id }}.stdout.json"
           npm run evaluation:inspect-langfuse -- \
-            --issue "$HARNESS_ISSUE_KEY" \
             --namespace "${{ inputs.namespace }}" \
             --out "$REPORT" \
             --safe-content \
@@ -101,7 +100,6 @@ jobs:
           set -euo pipefail
           mkdir -p runs/evaluation-reports
           npm run evaluation:reproject-langfuse -- \
-            --issue "$HARNESS_ISSUE_KEY" \
             --namespace "${{ inputs.namespace }}" \
             --artifact-cache runs/.artifact-cache \
             --out "runs/evaluation-reports/langfuse-reproject-${{ github.run_id }}.json" \
@@ -120,7 +118,6 @@ jobs:
           set -euo pipefail
           mkdir -p runs/evaluation-reports
           npm run evaluation:reproject-langfuse -- \
-            --issue "$HARNESS_ISSUE_KEY" \
             --namespace "${{ inputs.namespace }}" \
             --artifact-cache runs/.artifact-cache \
             --apply \
@@ -128,7 +125,6 @@ jobs:
             --json
           sleep 20
           npm run evaluation:inspect-langfuse -- \
-            --issue "$HARNESS_ISSUE_KEY" \
             --namespace "${{ inputs.namespace }}" \
             --out "runs/evaluation-reports/langfuse-inspect-post-${{ github.run_id }}.json" \
             --safe-content \
@@ -162,7 +158,7 @@ jobs:
             console.error(`acceptance.complete=${String(parsed?.acceptance?.complete)}`);
             const gaps = Array.isArray(parsed?.gaps) ? parsed.gaps : [];
             for (const gap of gaps.filter((entry) => entry?.severity === "error").slice(0, 20)) {
-              console.error(`- [${gap.code}] ${gap.message}`);
+              console.error(`- [${String(gap.code ?? "unknown")}]`);
             }
             process.exit(1);
           }

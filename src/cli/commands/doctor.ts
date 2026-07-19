@@ -23,6 +23,8 @@ import {
 import { GitHubClient, pingGitHub } from "../../github/client.js";
 import { pingLinear } from "../../linear/client.js";
 import { detectNoncanonicalConfigOverrides } from "../../workflow/canonical-workflow-validation.js";
+import { PublicSafeLogger } from "../../public-execution/logger.js";
+import { isPublicRunnerMode } from "../../public-execution/mode.js";
 import {
   doctorChecksFailed,
   formatDoctorCheckLine,
@@ -345,8 +347,21 @@ export async function runDoctor(options: DoctorOptions): Promise<number> {
     });
   }
 
-  for (const check of checks) {
-    console.log(formatDoctorCheckLine(check));
+  if (isPublicRunnerMode()) {
+    const failed = checks.filter((check) => !check.ok && !check.skipped).length;
+    const skipped = checks.filter((check) => check.skipped).length;
+    const passed = checks.length - failed - skipped;
+    new PublicSafeLogger().log({
+      phase: "doctor",
+      outcome: failed > 0 ? "failure" : "success",
+      errorCode: failed > 0 ? "doctor_checks_failed" : undefined,
+      retryCount: passed,
+      noops: skipped,
+    });
+  } else {
+    for (const check of checks) {
+      console.log(formatDoctorCheckLine(check));
+    }
   }
 
   return doctorChecksFailed(checks) ? EXIT_CONFIG : EXIT_SUCCESS;

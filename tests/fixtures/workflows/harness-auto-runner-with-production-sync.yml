@@ -158,7 +158,8 @@ jobs:
           HARNESS_CONFIG_FINGERPRINT: ${{ vars.HARNESS_CONFIG_FINGERPRINT }}
         run: |
           npm run harness:claim-job-request -- --request-id "$REQUEST_ID" --json
-          npm run harness:reconcile-revision -- --issue "$HARNESS_ISSUE_KEY" --json
+          npm run harness:resolve-route -- --request-id "$REQUEST_ID" --phase auto --github-output
+          npm run harness:reconcile-revision -- --json
 
       - name: Write gate summary
         if: always()
@@ -167,7 +168,6 @@ jobs:
           INPUT_PHASE: ${{ steps.inputs.outputs.phase }}
           RESOLVED_PHASE: ${{ steps.route.outputs.phase }}
           SHOULD_RUN: ${{ steps.route.outputs.should_run }}
-          MERGE_GROUP: ${{ steps.route.outputs.merge_concurrency_group }}
         run: |
           {
             echo "## Harness Gate"
@@ -176,7 +176,6 @@ jobs:
             echo "- Input phase: \`$INPUT_PHASE\`"
             echo "- Resolved phase: \`$RESOLVED_PHASE\`"
             echo "- Should run: \`$SHOULD_RUN\`"
-            echo "- Merge concurrency group: \`$MERGE_GROUP\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
   run-harness:
@@ -243,9 +242,7 @@ jobs:
         env:
           GITHUB_RUN_ID: ${{ github.run_id }}
           TRIGGER: ${{ needs.gate.outputs.trigger }}
-          ISSUE_KEY: ${{ env.HARNESS_ISSUE_KEY }}
-          PHASE: ${{ needs.gate.outputs.phase }}
-          REPO_CONFIG_ID: ${{ needs.gate.outputs.repo_config_id }}
+                    PHASE: ${{ needs.gate.outputs.phase }}
         run: |
           RECEIVED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           export RECEIVED_AT
@@ -312,7 +309,6 @@ jobs:
         run: |
           npm run harness:claim-job-request -- --request-id "${{ needs.gate.outputs.request_id }}" --json
           npx tsx src/workflow/finalize-harness-run.ts \
-            --issue "$HARNESS_ISSUE_KEY" \
             --json-out harness-run-output.json \
             --exit-code "${EXIT_CODE:-1}"
 
@@ -441,10 +437,7 @@ jobs:
         env:
           GITHUB_RUN_ID: ${{ github.run_id }}
           TRIGGER: ${{ needs.gate.outputs.trigger }}
-          ISSUE_KEY: ${{ env.HARNESS_ISSUE_KEY }}
-          PHASE: merge
-          REPO_CONFIG_ID: ${{ needs.gate.outputs.repo_config_id }}
-          MERGE_CONCURRENCY_GROUP: ${{ needs.gate.outputs.merge_concurrency_group }}
+                    PHASE: merge
         run: |
           RECEIVED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           export RECEIVED_AT
@@ -477,7 +470,6 @@ jobs:
         run: |
           npm run harness:claim-job-request -- --request-id "${{ needs.gate.outputs.request_id }}" --json
           npx tsx src/workflow/finalize-harness-run.ts \
-            --issue "$HARNESS_ISSUE_KEY" \
             --json-out harness-run-output.json \
             --exit-code "${EXIT_CODE:-1}"
 
@@ -507,7 +499,6 @@ jobs:
         if: always()
         env:
           REQUEST_ID: ${{ needs.gate.outputs.request_id }}
-          MERGE_GROUP: ${{ needs.gate.outputs.merge_concurrency_group }}
           TRIGGER: ${{ needs.gate.outputs.trigger }}
           EXIT_CODE: ${{ steps.merge.outputs.exit_code }}
         run: |
@@ -515,7 +506,6 @@ jobs:
             echo "## Harness Merge Runner"
             echo ""
             echo "- Request id: \`$REQUEST_ID\`"
-            echo "- Merge concurrency group: \`$MERGE_GROUP\`"
             echo "- Trigger: \`$TRIGGER\`"
             echo "- Harness exit code: \`$EXIT_CODE\`"
             echo ""

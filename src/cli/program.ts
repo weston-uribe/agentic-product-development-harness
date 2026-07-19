@@ -310,7 +310,10 @@ export function createProgram(): Command {
     .description(
       "Evaluate revision eligibility from Linear state; optionally dispatch or record pending intent",
     )
-    .requiredOption("--issue <key>", "Linear issue key, e.g. FRE-3")
+    .option(
+      "--issue <key>",
+      "Linear issue key (optional in public mode when private runtime context exists)",
+    )
     .option("--json", "Print reconcile JSON to stdout", false)
     .option("--dry-run", "Evaluate only; no Linear writes or dispatch", false)
     .option(
@@ -918,7 +921,10 @@ export function createProgram(): Command {
     .description(
       "Maintainer-only: inventory a Langfuse issue session and emit a redacted gap report",
     )
-    .requiredOption("--issue <key>", "Linear issue key, e.g. FRE-3")
+    .option(
+      "--issue <key>",
+      "Linear issue key (optional in public mode when private runtime context exists)",
+    )
     .option("--namespace <namespace>", "Evaluation namespace")
     .option("--log-directory <path>", "Override harness logDirectory")
     .option("--out <path>", "Write redacted report JSON to this path")
@@ -930,7 +936,7 @@ export function createProgram(): Command {
     .option("--json", "Print full report JSON to stdout", false)
     .action(
       async (opts: {
-        issue: string;
+        issue?: string;
         namespace?: string;
         logDirectory?: string;
         out?: string;
@@ -955,7 +961,10 @@ export function createProgram(): Command {
     .description(
       "Maintainer-only: idempotently reproject issue artifacts into Langfuse",
     )
-    .requiredOption("--issue <key>", "Linear issue key, e.g. FRE-3")
+    .option(
+      "--issue <key>",
+      "Linear issue key (optional in public mode when private runtime context exists)",
+    )
     .option("--namespace <namespace>", "Evaluation namespace")
     .option("--log-directory <path>", "Override harness logDirectory")
     .option(
@@ -968,7 +977,7 @@ export function createProgram(): Command {
     .option("--json", "Print report JSON to stdout", false)
     .action(
       async (opts: {
-        issue: string;
+        issue?: string;
         namespace?: string;
         logDirectory?: string;
         artifactCache?: string;

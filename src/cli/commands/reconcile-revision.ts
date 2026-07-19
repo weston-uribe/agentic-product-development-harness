@@ -14,7 +14,7 @@ import {
 } from "../../webhook/dispatch-github.js";
 
 export interface ReconcileRevisionCommandOptions {
-  issueKey: string;
+  issueKey?: string;
   configPath: string;
   json?: boolean;
   dryRun?: boolean;
@@ -25,8 +25,16 @@ export interface ReconcileRevisionCommandOptions {
 export async function runReconcileRevisionCommand(
   options: ReconcileRevisionCommandOptions,
 ): Promise<number> {
-  if (!options.issueKey?.trim()) {
-    console.error("--issue <KEY> is required.");
+  const { readPrivateIssueKey } = await import(
+    "../../public-execution/private-runtime-context.js"
+  );
+  const { isPublicRunnerMode } = await import("../../public-execution/mode.js");
+  const { PublicSafeLogger } = await import("../../public-execution/logger.js");
+
+  const resolvedIssueKey =
+    options.issueKey?.trim() || readPrivateIssueKey()?.trim();
+  if (!resolvedIssueKey) {
+    console.error("--issue <KEY> is required (or private runtime context).");
     return EXIT_CONFIG;
   }
 
@@ -38,7 +46,7 @@ export async function runReconcileRevisionCommand(
 
   try {
     const { config } = await loadHarnessConfig({ configPath: options.configPath });
-    const issueKey = options.issueKey.toUpperCase();
+    const issueKey = resolvedIssueKey.toUpperCase();
     const issue = await fetchLinearIssue(issueKey, apiKey);
     const client = createLinearClient(apiKey);
     const comments = await listIssueComments(client, issue.id);
@@ -99,7 +107,22 @@ export async function runReconcileRevisionCommand(
       }
     }
 
-    if (options.json) {
+    if (isPublicRunnerMode()) {
+      const reasonCode = String(result.reason ?? "")
+        .trim()
+        .replace(/[^a-zA-Z0-9._-]/g, "_")
+        .slice(0, 64);
+      const publicOutcome =
+        result.action === "ignore" || result.action === "skip_duplicate"
+          ? "noop"
+          : "success";
+      new PublicSafeLogger().log({
+        phase: "revision",
+        outcome: publicOutcome,
+        errorCode: reasonCode || undefined,
+        publicEventType: "reconcile_revision",
+      });
+    } else if (options.json) {
       console.log(JSON.stringify(result, null, 2));
     } else {
       console.log(`Issue: ${result.issueKey}`);
@@ -120,7 +143,16 @@ export async function runReconcileRevisionCommand(
 
     return 0;
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    if (isPublicRunnerMode()) {
+      new PublicSafeLogger().log({
+        phase: "revision",
+        outcome: "failure",
+        errorCode: "reconcile_revision_failed",
+        publicEventType: "reconcile_revision",
+      });
+    } else {
+      console.error(error instanceof Error ? error.message : String(error));
+    }
     return EXIT_RUN_FAILURE;
   }
 }

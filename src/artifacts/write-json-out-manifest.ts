@@ -1,10 +1,40 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { MILESTONE } from "../config/defaults.js";
+import { isPublicRunnerMode } from "../public-execution/mode.js";
 import { emptyMergeManifestFields } from "./manifest-fields.js";
 import { redactSecrets } from "./redact.js";
 import { createRunId } from "./run-id.js";
 import type { ErrorClassification, RunManifest, RunPhase } from "../types/run.js";
+
+const PUBLIC_MANIFEST_OMIT_KEYS = new Set([
+  "issueKey",
+  "targetRepo",
+  "baseBranch",
+  "branch",
+  "prUrl",
+  "previewUrl",
+  "changedFiles",
+  "validationSummary",
+  "pmFeedbackCommentId",
+  "cursorAgentId",
+  "cursorRunId",
+]);
+
+function toPublicSafeManifest(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+  const record = value as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [key, nested] of Object.entries(record)) {
+    if (PUBLIC_MANIFEST_OMIT_KEYS.has(key)) {
+      continue;
+    }
+    out[key] = nested;
+  }
+  return out;
+}
 
 export interface FallbackManifestInput {
   issueKey: string;
@@ -63,8 +93,11 @@ export async function writeJsonOutManifest(
   manifest: unknown,
 ): Promise<void> {
   const redacted = redactSecrets(manifest);
+  const payload = isPublicRunnerMode()
+    ? toPublicSafeManifest(redacted)
+    : redacted;
   await mkdir(dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, `${JSON.stringify(redacted, null, 2)}\n`, "utf8");
+  await writeFile(outputPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
 }
 
 export async function readJsonOutManifest(outputPath: string): Promise<RunManifest | null> {

@@ -9,10 +9,19 @@ import {
 } from "../../src/public-execution/logger.js";
 import { isPublicRunnerMode } from "../../src/public-execution/mode.js";
 import {
+  hashOpaquePublicId,
+  readPrivateRuntimeContext,
+  shouldKeepIssueKeyOutOfGithubEnv,
+  writePrivateRuntimeContext,
+} from "../../src/public-execution/private-runtime-context.js";
+import {
   PublicationRejectedError,
   assertPublicSafe,
   isPublicSafe,
 } from "../../src/public-execution/redaction-validator.js";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 describe("public execution modules", () => {
   describe("isPublicRunnerMode", () => {
@@ -129,6 +138,43 @@ describe("public execution modules", () => {
       expect(summary).toContain("**phase**: dispatch");
       expect(summary).toContain("**outcome**: noop");
       expect(summary).not.toContain("issueKey");
+    });
+  });
+
+  describe("private runtime context", () => {
+    it("keeps issue keys out of GITHUB_ENV in public mode", () => {
+      expect(
+        shouldKeepIssueKeyOutOfGithubEnv({ P_DEV_PUBLIC_RUNNER_MODE: "1" }),
+      ).toBe(true);
+      expect(shouldKeepIssueKeyOutOfGithubEnv({})).toBe(false);
+    });
+
+    it("persists private fields to a local context file", () => {
+      const dir = mkdtempSync(path.join(tmpdir(), "p-dev-private-ctx-"));
+      const contextPath = path.join(dir, "runtime-context.json");
+      try {
+        const env = {
+          P_DEV_PRIVATE_RUNTIME_CONTEXT_PATH: contextPath,
+        };
+        writePrivateRuntimeContext(
+          {
+            issueKey: "TT-10",
+            repoConfigId: "weston-uribe-portfolio",
+            mergeConcurrencyGroup: "weston-uribe-portfolio-dev",
+          },
+          env,
+        );
+        expect(readPrivateRuntimeContext(env)).toEqual({
+          issueKey: "TT-10",
+          repoConfigId: "weston-uribe-portfolio",
+          mergeConcurrencyGroup: "weston-uribe-portfolio-dev",
+        });
+        expect(hashOpaquePublicId("weston-uribe-portfolio-dev")).toMatch(
+          /^[a-f0-9]{32}$/,
+        );
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     });
   });
 
