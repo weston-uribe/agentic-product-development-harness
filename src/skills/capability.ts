@@ -107,7 +107,7 @@ export const NATIVE_SKILL_SURFACE_CAPABILITIES: readonly NativeSkillSurfaceCapab
       surface: "sdk_cloud_agent",
       state: "unproven",
       evidence:
-        "V1CreateAgentRequest has prompt/model/mcpServers/customSubagents/repos — no skill field. Cloud project/team/plugins settings layers are always on in VM per SDK comments, but that is not proof Agent Skills are discovered or invocable. SDKMessage has no skill load/invoke events. Ambient discovery from target-repo checkout layouts remains unproven pending final remote canary.",
+        "V1CreateAgentRequest has prompt/model/mcpServers/customSubagents/repos — no skill field. Chunk 7 live canary against weston-uribe/pdev-native-skill-canary classified both candidate layouts (agents_skills, cursor_skills) as unavailable from provider evidence (no marker, no skill invoke events). Ambient discovery remains unproven — not promoted to unsupported. Production must use rendered_into_prompt.",
       notes:
         "Production must use rendered_into_prompt. Do not mark supported without direct canary evidence.",
     },
