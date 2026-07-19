@@ -1,9 +1,9 @@
-import {
-  dispatchRepositoryEvent,
-  getDispatchEventType,
-  getDispatchRepository,
-} from "./dispatch-github.js";
 import { loadHarnessConfig } from "../config/load-config.js";
+import {
+  createEnvelopeAndDispatch,
+  type CreateEnvelopeAndDispatchInput,
+  type CreateEnvelopeAndDispatchResult,
+} from "../workflow/job-request/dispatch-opaque.js";
 import {
   shouldDispatchLinearCommentEvent,
   shouldDispatchLinearIssueEvent,
@@ -15,7 +15,6 @@ import {
 } from "./parse-linear-issue-event.js";
 import { logWebhookEvent } from "./redact-log.js";
 import type {
-  RepositoryDispatchPayload,
   WebhookAcceptedResponse,
   WebhookErrorResponse,
   WebhookIgnoredResponse,
@@ -36,6 +35,10 @@ export interface HandleLinearWebhookOptions {
   toleranceMs?: number;
   nowMs?: number;
   fetchImpl?: typeof fetch;
+  /** Test injection — defaults to createEnvelopeAndDispatch. */
+  envelopeDispatch?: (
+    input: CreateEnvelopeAndDispatchInput,
+  ) => Promise<CreateEnvelopeAndDispatchResult>;
 }
 
 type WebhookResponseBody =
@@ -136,7 +139,10 @@ export async function handleLinearWebhook(
   const eventType = readPayloadEventType(payload, headers.eventType);
   const config = await loadHarnessConfigForWebhook();
 
-  let clientPayload: RepositoryDispatchPayload | null = null;
+  let issueKey: string | null = null;
+  let linearDeliveryId: string | null = null;
+  let triggerSource = "linear_webhook";
+  let phase = "auto";
 
   if (eventType === "Comment") {
     const parsed = parseLinearCommentEvent(payload, headers, teamKey);
@@ -153,7 +159,6 @@ export async function handleLinearWebhook(
       logWebhookEvent({
         linearDeliveryId: parsed.linearDeliveryId,
         linearWebhookId: parsed.linearWebhookId,
-        issueKey: parsed.issueKey,
         action: parsed.action,
         accepted: false,
         reason: filterResult.reason,
@@ -178,21 +183,9 @@ export async function handleLinearWebhook(
       });
     }
 
-    clientPayload = {
-      issueKey: parsed.issueKey,
-      issueId: parsed.issueId,
-      issueUrl: null,
-      action: parsed.action,
-      statusName: null,
-      previousStatusName: null,
-      linearDeliveryId: parsed.linearDeliveryId,
-      linearWebhookId: parsed.linearWebhookId,
-      receivedAt: new Date(options.nowMs ?? Date.now()).toISOString(),
-      meta: {
-        triggerKind: "comment_create",
-        commentId: parsed.commentId,
-      },
-    };
+    issueKey = parsed.issueKey;
+    linearDeliveryId = parsed.linearDeliveryId;
+    triggerSource = "linear_comment";
   } else {
     const parsed = parseLinearIssueEvent(payload, headers, teamKey);
 
@@ -208,7 +201,6 @@ export async function handleLinearWebhook(
       logWebhookEvent({
         linearDeliveryId: parsed.linearDeliveryId,
         linearWebhookId: parsed.linearWebhookId,
-        issueKey: parsed.issueKey,
         action: parsed.action,
         statusName: parsed.statusName,
         previousStatusName: parsed.previousStatusName,
@@ -236,65 +228,50 @@ export async function handleLinearWebhook(
       });
     }
 
-    clientPayload = {
-      issueKey: parsed.issueKey,
-      issueId: parsed.issueId,
-      issueUrl: parsed.issueUrl,
-      action: parsed.action,
-      statusName: parsed.statusName,
-      previousStatusName: parsed.previousStatusName,
-      linearDeliveryId: parsed.linearDeliveryId,
-      linearWebhookId: parsed.linearWebhookId,
-      receivedAt: new Date(options.nowMs ?? Date.now()).toISOString(),
-      meta: {
-        triggerKind: "issue_status",
-      },
-    };
+    issueKey = parsed.issueKey;
+    linearDeliveryId = parsed.linearDeliveryId;
+    triggerSource = "linear_issue_status";
   }
 
   const dispatchToken =
     options.dispatchToken ?? process.env.GITHUB_DISPATCH_TOKEN;
-  if (!dispatchToken) {
+  if (!dispatchToken || !issueKey) {
     logWebhookEvent({
-      issueKey: clientPayload.issueKey,
       accepted: false,
       error: "dispatch_failed",
     });
     return jsonResponse(500, { error: "dispatch_failed" });
   }
+
+  const envelopeDispatch = options.envelopeDispatch ?? createEnvelopeAndDispatch;
 
   try {
-    await dispatchRepositoryEvent({
-      token: dispatchToken,
-      repository: getDispatchRepository(),
-      eventType: getDispatchEventType(),
-      clientPayload,
+    const dispatched = await envelopeDispatch({
+      issueKey,
+      phase,
+      triggerSource,
+      linearDeliveryId,
+      dispatchToken,
       fetchImpl: options.fetchImpl,
     });
-  } catch (error) {
+
     logWebhookEvent({
-      issueKey: clientPayload.issueKey,
+      linearDeliveryId,
+      accepted: true,
+      dispatched: true,
+      requestId: dispatched.requestId,
+    });
+
+    return jsonResponse(200, {
+      accepted: true,
+      dispatched: true,
+      requestId: dispatched.requestId,
+    });
+  } catch {
+    logWebhookEvent({
       accepted: false,
       error: "dispatch_failed",
-      reason: error instanceof Error ? error.message : String(error),
     });
     return jsonResponse(500, { error: "dispatch_failed" });
   }
-
-  logWebhookEvent({
-    linearDeliveryId: clientPayload.linearDeliveryId,
-    linearWebhookId: clientPayload.linearWebhookId,
-    issueKey: clientPayload.issueKey,
-    action: clientPayload.action,
-    statusName: clientPayload.statusName,
-    previousStatusName: clientPayload.previousStatusName,
-    accepted: true,
-    dispatched: true,
-  });
-
-  return jsonResponse(200, {
-    accepted: true,
-    dispatched: true,
-    issueKey: clientPayload.issueKey,
-  });
 }

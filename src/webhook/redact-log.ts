@@ -1,6 +1,8 @@
 export interface WebhookLogFields {
   linearDeliveryId?: string | null;
   linearWebhookId?: string | null;
+  /** Prefer requestId on public/bridge surfaces; issueKey is private-only. */
+  requestId?: string | null;
   issueKey?: string | null;
   action?: string | null;
   statusName?: string | null;

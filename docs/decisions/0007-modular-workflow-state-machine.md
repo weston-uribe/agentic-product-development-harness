@@ -16,7 +16,7 @@ The product-development lifecycle is declared as a versioned workflow definition
 ### Source-of-truth hierarchy
 
 1. **Workflow definition** (versioned code + config) — legal transitions and role bindings
-2. **Authoritative issue-scoped `WorkflowStateRecord`** — accepted phase/decision/counters/generations with monotonic `stateRevision`. On managed GitHub Actions runners this is durable GitHub Contents CAS on branch `p-dev-runtime-state` (explicit `P_DEV_WORKFLOW_STATE_STORE_MODE=managed_github`); local/fixture modes may use file or memory stores. Managed mode fails closed — never silently falls back to ephemeral local files.
+2. **Authoritative issue-scoped `WorkflowStateRecord`** — accepted phase/decision/counters/generations with monotonic `stateRevision`. On managed GitHub Actions runners this is durable GitHub Contents CAS on branch `p-dev-runtime-state` in an **explicit private state repository** (`P_DEV_WORKFLOW_STATE_REPOSITORY`), never in the public execution repository. Store mode is explicit (`P_DEV_WORKFLOW_STATE_STORE_MODE=managed_github`); local/fixture modes may use file or memory stores. Managed mode fails closed — never silently falls back to ephemeral local files or to `GITHUB_REPOSITORY`.
 3. **Live Linear issue status + GitHub/run evidence** — external facts validated on every mutation
 4. **Run manifests / Linear markers / status comments** — immutable snapshots or effect projections of durable decisions; must not independently advance workflow state
 5. **Webhook/dispatch payloads** — hints only; never authorize transitions

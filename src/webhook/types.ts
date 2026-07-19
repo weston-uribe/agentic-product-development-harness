@@ -42,7 +42,8 @@ export type WebhookIgnoreReason =
 export interface WebhookAcceptedResponse {
   accepted: true;
   dispatched: true;
-  issueKey: string;
+  /** Opaque job-request id — never an issue key. */
+  requestId: string;
 }
 
 export interface WebhookIgnoredResponse {
@@ -92,10 +93,20 @@ export interface ProductionPromotedDispatchPayload {
   githubDeliveryId?: string;
 }
 
+/** Public Auto Runner payload — opaque request id only. */
+export interface OpaqueJobDispatchPayload {
+  requestId: string;
+  envelopeSchemaVersion: number;
+  publicEventType: string;
+}
+
 export interface DispatchGitHubOptions {
   token: string;
   repository: string;
   eventType: string;
-  clientPayload: RepositoryDispatchPayload | ProductionPromotedDispatchPayload;
+  clientPayload:
+    | RepositoryDispatchPayload
+    | ProductionPromotedDispatchPayload
+    | OpaqueJobDispatchPayload;
   fetchImpl?: typeof fetch;
 }

@@ -118,6 +118,13 @@ describe("handleLinearWebhook integration", () => {
     const rawBody = readFileSync(fixturePath, "utf8");
     const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
 
+    const envelopeDispatch = vi.fn(async () => ({
+      requestId: "11111111-1111-4111-8111-111111111111",
+      envelopeSchemaVersion: 1,
+      publicEventType: "linear_issue_status_changed",
+      executionRepository: "owner/execution-repo",
+    }));
+
     const result = await handleLinearWebhook({
       method: "POST",
       rawBody,
@@ -132,15 +139,20 @@ describe("handleLinearWebhook integration", () => {
       dispatchToken: TOKEN,
       nowMs: 1_700_000_000_000,
       fetchImpl: fetchMock,
+      envelopeDispatch,
     });
 
     expect(result.status).toBe(200);
     expect(result.body).toEqual({
       accepted: true,
       dispatched: true,
-      issueKey: "WES-20",
+      requestId: "11111111-1111-4111-8111-111111111111",
     });
-    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(envelopeDispatch).toHaveBeenCalledOnce();
+    expect(envelopeDispatch.mock.calls[0]?.[0]).toMatchObject({
+      issueKey: "WES-20",
+      dispatchToken: TOKEN,
+    });
   });
 
   it("returns ignored_status without dispatching", async () => {

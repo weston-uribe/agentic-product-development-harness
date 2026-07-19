@@ -23,13 +23,42 @@ describe("harness reconcile revisions workflow", () => {
     expect(workflow).not.toContain("harness:reconcile-merge");
   });
 
-  it("loads managed GitHub workflow state during reconciliation", () => {
+  it("loads managed GitHub workflow state and public runner env during reconciliation", () => {
     expect(workflow).toContain("P_DEV_WORKFLOW_STATE_STORE_MODE: managed_github");
+    expect(workflow).toContain("P_DEV_PUBLIC_RUNNER_MODE: \"1\"");
+    expect(workflow).toContain("P_DEV_STATE_GITHUB_TOKEN:");
+  });
+
+  it("uses request_id workflow_dispatch input instead of issue", () => {
+    expect(workflow).toContain("request_id:");
+    expect(workflow).not.toMatch(/^\s+issue:\s*$/m);
+  });
+
+  it("writes aggregate-only reconcile summary", () => {
+    expect(workflow).toContain("Write reconcile summary");
+    expect(workflow).toContain("Candidates found:");
+    expect(workflow).toContain("Dispatched:");
   });
 });
 
 describe("evaluation inspect langfuse workflow", () => {
   const workflow = readFileSync(inspectWorkflowPath, "utf8");
+
+  it("uses request_id workflow input", () => {
+    expect(workflow).toContain("request_id:");
+    expect(workflow).not.toContain("issue_key:");
+  });
+
+  it("enables public runner mode and managed state env", () => {
+    expect(workflow).toContain("P_DEV_PUBLIC_RUNNER_MODE: \"1\"");
+    expect(workflow).toContain("P_DEV_WORKFLOW_STATE_STORE_MODE: managed_github");
+    expect(workflow).toContain("P_DEV_STATE_GITHUB_TOKEN:");
+  });
+
+  it("does not hard-code weston-uribe/p-dev-harness", () => {
+    expect(workflow).not.toContain("weston-uribe/p-dev-harness");
+    expect(workflow).toContain('github.repository');
+  });
 
   it("does not silently ignore inspect CLI failures", () => {
     expect(workflow).not.toMatch(/evaluation:inspect-langfuse[^\n]*\|\| true/);
@@ -52,8 +81,9 @@ describe("evaluation inspect langfuse workflow", () => {
     expect(workflow).toContain("Malformed Langfuse inspect report JSON");
   });
 
-  it("always uploads redacted reports", () => {
+  it("always uploads redacted reports with run-scoped artifact name", () => {
     expect(workflow).toContain("if: always()");
     expect(workflow).toContain("Upload redacted report");
+    expect(workflow).toContain("langfuse-inspect-${{ github.run_id }}");
   });
 });

@@ -4,8 +4,12 @@ export interface VercelBridgeArtifactFile {
   encoding: "utf-8";
 }
 
+/**
+ * Self-contained Vercel handler: create private job-request envelope, then
+ * repository_dispatch with opaque requestId only.
+ */
 const linearWebhookHandler = String.raw`
-const { createHmac, timingSafeEqual } = require("node:crypto");
+const { createHmac, timingSafeEqual, randomUUID, createHash } = require("node:crypto");
 
 function json(res, status, body) {
   res.statusCode = status;
@@ -58,13 +62,139 @@ function timestampOk(payloadTimestamp, headerTimestamp) {
     .some((value) => Math.abs(now - value) <= toleranceMs);
 }
 
-async function dispatchToGitHub(payload) {
+function parseRepoSlug(slug) {
+  if (!slug || typeof slug !== "string") return null;
+  const parts = slug.trim().split("/");
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
+  return { owner: parts[0], repo: parts[1] };
+}
+
+function jobRequestPath(requestId) {
+  const safe = String(requestId).replace(/[^A-Za-z0-9._-]+/g, "_");
+  return ".p-dev/job-requests/" + safe + ".json";
+}
+
+function dedupeIdentity(issueKey, phase, linearDeliveryId, triggerSource) {
+  return createHash("sha256")
+    .update(JSON.stringify({
+      issueKey: String(issueKey).trim(),
+      phase: String(phase).trim(),
+      linearDeliveryId: linearDeliveryId ? String(linearDeliveryId).trim() : null,
+      triggerSource: String(triggerSource).trim(),
+    }))
+    .digest("hex");
+}
+
+async function githubApi(pathname, token, init) {
+  const response = await fetch("https://api.github.com" + pathname, {
+    ...init,
+    headers: {
+      Accept: "application/vnd.github+json",
+      Authorization: "Bearer " + token,
+      "X-GitHub-Api-Version": "2022-11-28",
+      ...(init && init.headers ? init.headers : {}),
+    },
+  });
+  return response;
+}
+
+async function ensureStateBranch(owner, repo, branch, token) {
+  const refRes = await githubApi(
+    "/repos/" + owner + "/" + repo + "/git/ref/heads/" + encodeURIComponent(branch),
+    token,
+    { method: "GET" },
+  );
+  if (refRes.ok) return;
+  if (refRes.status !== 404) {
+    throw new Error("state_branch_lookup_failed");
+  }
+  const repoRes = await githubApi("/repos/" + owner + "/" + repo, token, { method: "GET" });
+  if (!repoRes.ok) throw new Error("state_repo_lookup_failed");
+  const repoJson = await repoRes.json();
+  const defaultBranch = (repoJson.default_branch || "main").trim();
+  const defaultRefRes = await githubApi(
+    "/repos/" + owner + "/" + repo + "/git/ref/heads/" + encodeURIComponent(defaultBranch),
+    token,
+    { method: "GET" },
+  );
+  if (!defaultRefRes.ok) throw new Error("default_branch_lookup_failed");
+  const defaultRef = await defaultRefRes.json();
+  const createRes = await githubApi(
+    "/repos/" + owner + "/" + repo + "/git/refs",
+    token,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ref: "refs/heads/" + branch,
+        sha: defaultRef.object.sha,
+      }),
+    },
+  );
+  if (!createRes.ok && createRes.status !== 422) {
+    throw new Error("state_branch_create_failed");
+  }
+}
+
+async function createJobRequestEnvelope(issueKey, phase, triggerSource, linearDeliveryId) {
+  const stateSlug =
+    process.env.P_DEV_JOB_REQUEST_REPOSITORY ||
+    process.env.P_DEV_WORKFLOW_STATE_REPOSITORY;
+  const stateToken =
+    process.env.P_DEV_STATE_GITHUB_TOKEN || process.env.GITHUB_DISPATCH_TOKEN;
+  const branch = process.env.P_DEV_WORKFLOW_STATE_BRANCH || "p-dev-runtime-state";
+  const parsed = parseRepoSlug(stateSlug);
+  if (!parsed || !stateToken) {
+    throw new Error("missing_state_configuration");
+  }
+  await ensureStateBranch(parsed.owner, parsed.repo, branch, stateToken);
+  const requestId = randomUUID();
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
+  const record = {
+    kind: "p-dev-job-request-v1",
+    schemaVersion: 1,
+    requestId: requestId,
+    issueKey: issueKey,
+    phase: phase,
+    triggerSource: triggerSource,
+    linearDeliveryId: linearDeliveryId || null,
+    force: false,
+    createdAt: now.toISOString(),
+    expiresAt: expiresAt,
+    state: "pending",
+    claimIdentity: null,
+    completionState: null,
+    dedupeIdentity: dedupeIdentity(issueKey, phase, linearDeliveryId, triggerSource),
+    revision: 0,
+  };
+  const path = jobRequestPath(requestId);
+  const putRes = await githubApi(
+    "/repos/" + parsed.owner + "/" + parsed.repo + "/contents/" + path,
+    stateToken,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: "p-dev: create job request " + requestId,
+        content: Buffer.from(JSON.stringify(record, null, 2), "utf8").toString("base64"),
+        branch: branch,
+      }),
+    },
+  );
+  if (!putRes.ok) {
+    throw new Error("job_request_create_failed");
+  }
+  return requestId;
+}
+
+async function dispatchOpaque(requestId) {
   const repository = process.env.GITHUB_DISPATCH_REPOSITORY;
   const token = process.env.GITHUB_DISPATCH_TOKEN;
   if (!repository || !token) {
     throw new Error("missing_dispatch_configuration");
   }
-  const eventType = process.env.GITHUB_DISPATCH_EVENT_TYPE || "linear_issue_event";
+  const eventType = process.env.GITHUB_DISPATCH_EVENT_TYPE || "linear_issue_status_changed";
   const response = await fetch("https://api.github.com/repos/" + repository + "/dispatches", {
     method: "POST",
     headers: {
@@ -75,12 +205,17 @@ async function dispatchToGitHub(payload) {
     },
     body: JSON.stringify({
       event_type: eventType,
-      client_payload: payload,
+      client_payload: {
+        requestId: requestId,
+        envelopeSchemaVersion: 1,
+        publicEventType: eventType,
+      },
     }),
   });
   if (!response.ok) {
     throw new Error("github_dispatch_" + response.status);
   }
+  return eventType;
 }
 
 module.exports = async function handler(req, res) {
@@ -131,16 +266,12 @@ module.exports = async function handler(req, res) {
     if (!url || typeof url !== "string") {
       return null;
     }
-    // Concatenate "\\d" so String.raw does not double-escape digit class.
     const match = url.match(new RegExp("/([A-Z]+-" + "\\d+" + ")(?:/|$|#)"));
     return match ? match[1] : null;
   }
 
   let issueKey = null;
-  let issueId = null;
-  let issueUrl = null;
   let action = payload.action || "";
-  let statusName = null;
   let triggerKind = "issue_status";
   let commentId = null;
 
@@ -148,8 +279,6 @@ module.exports = async function handler(req, res) {
     const data = payload.data || {};
     const issue = data.issue || {};
     issueKey = issue.identifier || issueKeyFromUrl(payload.url) || issueKeyFromUrl(issue.url);
-    issueId = issue.id || data.issueId || null;
-    issueUrl = issue.url || payload.url || null;
     action = payload.action || "";
     triggerKind = "comment_create";
     commentId = data.id || null;
@@ -158,9 +287,6 @@ module.exports = async function handler(req, res) {
     }
   } else if (payload.type === "Issue" && payload.data && payload.data.identifier) {
     issueKey = payload.data.identifier;
-    issueId = payload.data.id || null;
-    issueUrl = payload.data.url || null;
-    statusName = payload.data.state && payload.data.state.name;
   } else {
     return json(res, 200, { accepted: false, reason: "ignored_event" });
   }
@@ -170,25 +296,21 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    await dispatchToGitHub({
-      issueKey: issueKey,
-      issueId: issueId,
-      issueUrl: issueUrl,
-      action: action,
-      statusName: statusName,
-      linearDeliveryId: getHeader(req, "linear-delivery"),
-      linearWebhookId: getHeader(req, "linear-webhook-id"),
-      receivedAt: new Date().toISOString(),
-      meta: {
-        triggerKind: triggerKind,
-        commentId: commentId,
-      },
+    const requestId = await createJobRequestEnvelope(
+      issueKey,
+      "auto",
+      triggerKind === "comment_create" ? "linear_comment" : "linear_issue_status",
+      getHeader(req, "linear-delivery"),
+    );
+    await dispatchOpaque(requestId);
+    return json(res, 200, {
+      accepted: true,
+      dispatched: true,
+      requestId: requestId,
     });
   } catch {
     return json(res, 500, { error: "dispatch_failed" });
   }
-
-  return json(res, 200, { accepted: true, dispatched: true, issueKey: issueKey });
 };
 `.trimStart();
 

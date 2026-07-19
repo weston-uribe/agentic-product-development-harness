@@ -6,6 +6,11 @@
 import path from "node:path";
 import { GitHubClient } from "../../github/client.js";
 import {
+  resolveStateGithubToken,
+  resolveWorkflowStateBranch,
+  resolveWorkflowStateRepository,
+} from "../../public-execution/runtime-repos.js";
+import {
   FileWorkflowStateStore,
   InMemoryWorkflowStateStore,
   type WorkflowStateStore,
@@ -24,6 +29,7 @@ export class WorkflowStateStoreError extends Error {
       | "managed_store_init_failed"
       | "managed_store_missing_credentials"
       | "managed_store_missing_dispatch_repo"
+      | "managed_store_missing_state_repository"
       | "managed_store_missing_team",
     message: string,
   ) {
@@ -55,22 +61,16 @@ export interface CreateWorkflowStateStoreInput {
   logDirectory?: string;
   /** Required for managed_github. */
   teamId?: string;
-  dispatchOwner?: string;
-  dispatchRepo?: string;
+  /** Optional override for managed_github state repository owner. */
+  stateOwner?: string;
+  /** Optional override for managed_github state repository name. */
+  stateRepo?: string;
+  /** Optional override for managed_github state branch. */
+  stateBranch?: string;
   githubToken?: string;
   env?: Record<string, string | undefined>;
   /** Test injection. */
   githubClient?: GitHubClient;
-}
-
-function parseDispatchRepo(
-  slug: string | undefined,
-): { owner: string; repo: string } | null {
-  const trimmed = slug?.trim();
-  if (!trimmed) return null;
-  const [owner, repo] = trimmed.split("/");
-  if (!owner || !repo) return null;
-  return { owner, repo };
 }
 
 /**
@@ -102,39 +102,34 @@ export async function createWorkflowStateStore(
   }
 
   const token =
-    input.githubToken?.trim() ||
-    env.GITHUB_TOKEN?.trim() ||
-    env.HARNESS_GITHUB_TOKEN?.trim();
+    input.githubToken?.trim() || resolveStateGithubToken(env);
   if (!token) {
     throw new WorkflowStateStoreError(
       "managed_store_missing_credentials",
-      "Managed workflow state requires GITHUB_TOKEN. Refusing to fall back to local file state.",
+      "Managed workflow state requires a GitHub token. Refusing to fall back to local file state.",
     );
   }
 
   const fromParts =
-    input.dispatchOwner && input.dispatchRepo
-      ? { owner: input.dispatchOwner, repo: input.dispatchRepo }
+    input.stateOwner && input.stateRepo
+      ? { owner: input.stateOwner, repo: input.stateRepo }
       : null;
-  const fromEnv =
-    parseDispatchRepo(env.GITHUB_DISPATCH_REPOSITORY) ??
-    parseDispatchRepo(
-      env.GITHUB_REPOSITORY, // managed runner runs inside the dispatch repo
-    );
-  const dispatch = fromParts ?? fromEnv;
-  if (!dispatch) {
+  const stateRepository = fromParts ?? resolveWorkflowStateRepository(env);
+  if (!stateRepository) {
     throw new WorkflowStateStoreError(
-      "managed_store_missing_dispatch_repo",
-      "Managed workflow state requires the harness dispatch repository. Refusing to fall back to local file state.",
+      "managed_store_missing_state_repository",
+      "Managed workflow state requires P_DEV_WORKFLOW_STATE_REPOSITORY. Refusing to fall back to local file state.",
     );
   }
 
+  const branch = input.stateBranch ?? resolveWorkflowStateBranch(env);
   const client = input.githubClient ?? new GitHubClient({ token });
   const store = new GithubWorkflowStateStore({
     client,
-    owner: dispatch.owner,
-    repo: dispatch.repo,
+    owner: stateRepository.owner,
+    repo: stateRepository.repo,
     teamId,
+    branch,
   });
 
   try {

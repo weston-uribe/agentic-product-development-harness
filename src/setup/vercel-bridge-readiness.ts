@@ -11,6 +11,9 @@ export const OPTIONAL_VERCEL_BRIDGE_ENV_VARS = [
   "GITHUB_DISPATCH_REPOSITORY",
   "GITHUB_DISPATCH_EVENT_TYPE",
   "LINEAR_WEBHOOK_TIMESTAMP_TOLERANCE_MS",
+  "P_DEV_WORKFLOW_STATE_REPOSITORY",
+  "P_DEV_JOB_REQUEST_REPOSITORY",
+  "P_DEV_WORKFLOW_STATE_BRANCH",
 ] as const;
 
 export type OptionalVercelBridgeEnvVarName =
@@ -20,10 +23,16 @@ export const DEFAULT_VERCEL_BRIDGE_ENV_DEFAULTS: Record<
   OptionalVercelBridgeEnvVarName,
   string
 > = {
-  GITHUB_DISPATCH_REPOSITORY: "weston-uribe/agentic-product-development-harness",
+  GITHUB_DISPATCH_REPOSITORY: "weston-uribe/p-dev-harness-runner",
   GITHUB_DISPATCH_EVENT_TYPE: "linear_issue_status_changed",
   LINEAR_WEBHOOK_TIMESTAMP_TOLERANCE_MS: "60000",
+  P_DEV_WORKFLOW_STATE_REPOSITORY: "weston-uribe/p-dev-harness-state",
+  P_DEV_JOB_REQUEST_REPOSITORY: "weston-uribe/p-dev-harness-state",
+  P_DEV_WORKFLOW_STATE_BRANCH: "p-dev-runtime-state",
 };
+
+/** Bridge must also receive P_DEV_STATE_GITHUB_TOKEN (no default; never inlined in source). */
+export const VERCEL_BRIDGE_STATE_TOKEN_ENV = "P_DEV_STATE_GITHUB_TOKEN";
 
 export interface VercelBridgeReadiness {
   projectSelected: boolean;

@@ -12,6 +12,9 @@ import { runResolveRouteCommand } from "./commands/resolve-route.js";
 import { runReconcileRevisionCommand } from "./commands/reconcile-revision.js";
 import { runReconcileMergeCommand } from "./commands/reconcile-merge.js";
 import { runReconcileWorkflowCommand } from "./commands/reconcile-workflow.js";
+import { runClaimJobRequestCommand } from "./commands/claim-job-request.js";
+import { runDispatchJobRequestCommand } from "./commands/dispatch-job-request.js";
+import { runPrivateStateCanaryCommand } from "./commands/private-state-canary.js";
 import { runWorkflowStatusReportCommand } from "./commands/workflow-status-report.js";
 import { runWorkflowStatusMigrateCommand } from "./commands/workflow-status-migrate.js";
 import { runValidationRunCommand } from "./commands/validation-run.js";
@@ -72,7 +75,8 @@ export function createProgram(): Command {
   program
     .command("run")
     .description("Run harness against a Linear issue")
-    .requiredOption("--issue <key>", "Linear issue key, e.g. WES-11")
+    .option("--issue <key>", "Linear issue key, e.g. WES-11")
+    .option("--request-id <id>", "Opaque job request id from private envelope")
     .option("--dry-run", "Parse and resolve without side effects", false)
     .option(
       "--phase <phase>",
@@ -87,6 +91,7 @@ export function createProgram(): Command {
       const configPath = program.opts<{ config: string }>().config;
       const exitCode = await runRunCommand({
         issueKey: opts.issue,
+        requestId: opts.requestId,
         configPath,
         dryRun: opts.dryRun,
         fixturePath: opts.fixture,
@@ -132,7 +137,8 @@ export function createProgram(): Command {
   program
     .command("resolve-route")
     .description("Resolve harness phase and target repo for workflow routing")
-    .requiredOption("--issue <key>", "Linear issue key, e.g. WES-11")
+    .option("--issue <key>", "Linear issue key, e.g. WES-11")
+    .option("--request-id <id>", "Opaque job request id from private envelope")
     .option(
       "--phase <phase>",
       `Phase override: ${DISPATCH_PHASE_CLI_DESCRIPTION}`,
@@ -148,11 +154,53 @@ export function createProgram(): Command {
       const configPath = program.opts<{ config: string }>().config;
       const exitCode = await runResolveRouteCommand({
         issueKey: opts.issue,
+        requestId: opts.requestId,
         configPath,
         phase: opts.phase,
         json: opts.json,
         githubOutput: opts.githubOutput,
       });
+      process.exitCode = exitCode;
+    });
+
+  program
+    .command("claim-job-request")
+    .description("Claim a private job-request envelope and expose issue key to GITHUB_ENV")
+    .requiredOption("--request-id <id>", "Opaque job request id")
+    .option("--json", "Print public-safe claim JSON to stdout", false)
+    .action(async (opts) => {
+      const exitCode = await runClaimJobRequestCommand({
+        requestId: opts.requestId,
+        json: opts.json,
+      });
+      process.exitCode = exitCode;
+    });
+
+  program
+    .command("dispatch-job-request")
+    .description(
+      "Operator-local: create a private job-request envelope and dispatch an opaque request id",
+    )
+    .requiredOption("--issue <issueKey>", "Linear issue key (private; never sent as public input)")
+    .option("--phase <phase>", "Requested phase or auto", "auto")
+    .option("--force", "Force recovery mode on the envelope", false)
+    .option("--json", "Print operator result JSON (includes private issue key)", false)
+    .action(async (opts) => {
+      const exitCode = await runDispatchJobRequestCommand({
+        issue: opts.issue,
+        phase: opts.phase,
+        force: opts.force,
+        json: opts.json,
+      });
+      process.exitCode = exitCode;
+    });
+
+  program
+    .command("private-state-canary")
+    .description("CAS read/write canary against managed private workflow state")
+    .option("--json", "Print public-safe canary JSON to stdout", false)
+    .action(async (opts) => {
+      const exitCode = await runPrivateStateCanaryCommand({ json: opts.json });
       process.exitCode = exitCode;
     });
 

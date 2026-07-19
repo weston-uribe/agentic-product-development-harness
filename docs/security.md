@@ -79,11 +79,21 @@ Optional: `GITHUB_DISPATCH_REPOSITORY`, `GITHUB_DISPATCH_EVENT_TYPE`, `LINEAR_WE
 | `HARNESS_CONFIG_JSON_B64` | All harness jobs (private operator config) |
 | `LINEAR_API_KEY` | All live harness phases |
 | `CURSOR_API_KEY` | planning, implementation, revision, merge repair |
-| `HARNESS_GITHUB_TOKEN` | Mapped to runtime `GITHUB_TOKEN` in workflows |
+| `HARNESS_GITHUB_TOKEN` | Mapped to runtime `GITHUB_TOKEN` for **target** repo operations |
+| `P_DEV_STATE_GITHUB_TOKEN` | Contents R/W on the **private state** repository only |
+| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | Evaluation inspect / projection canaries (manual) |
+
+Repository **variables** (not secrets): `HARNESS_CONFIG_FINGERPRINT`, `P_DEV_WORKFLOW_STATE_REPOSITORY`, `P_DEV_WORKFLOW_STATE_BRANCH`, `P_DEV_JOB_REQUEST_REPOSITORY`, `P_DEV_PUBLIC_RUNNER_MODE`, `P_DEV_EVALUATION_*`, `LANGFUSE_BASE_URL`, `LANGFUSE_TRACING_ENVIRONMENT`.
 
 `HARNESS_GITHUB_TOKEN` must have access to **target repos** in the resolved harness config (classic `repo` or fine-grained **Contents: Read and write** + **Pull requests: Read and write** on each target). Target repos are typically defined in private config via `HARNESS_CONFIG_JSON_B64` — see [`docs/operator-config.md`](operator-config.md).
 
+`P_DEV_STATE_GITHUB_TOKEN` must **not** be the same unrestricted token as target operations when practical. Scope it to the private state repository (`Contents: Read and write`).
+
 Do **not** name the Actions secret `GITHUB_TOKEN` — GitHub reserves that for the auto-generated workflow token.
+
+### Public execution repository
+
+When `P_DEV_PUBLIC_RUNNER_MODE=1`, workflows must use allowlisted public logging only. Issue keys, target repo names, PR URLs, plan/review bodies, and diffs must not appear in step summaries, artifact names, concurrency groups, or job outputs. Job dispatch uses opaque `requestId` envelopes stored in the private state repository.
 
 ---
 
@@ -91,7 +101,8 @@ Do **not** name the Actions secret `GITHUB_TOKEN` — GitHub reserves that for t
 
 - **Prefer fine-grained PATs** scoped to the minimum repos and permissions.
 - **Classic PATs** are discouraged except as a documented fallback.
-- `GITHUB_DISPATCH_TOKEN`: harness repo only, Contents: write (for `repository_dispatch`).
+- `GITHUB_DISPATCH_TOKEN`: public execution repository `repository_dispatch` (+ optional state write on the bridge if not using a separate state token).
+- `P_DEV_STATE_GITHUB_TOKEN`: private state repository Contents R/W only.
 - `HARNESS_GITHUB_TOKEN`: target repos only, merge/repair permissions as needed.
 
 ---

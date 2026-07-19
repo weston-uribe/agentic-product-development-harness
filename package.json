@@ -48,6 +48,8 @@
     "harness:inspect": "tsx src/index.ts inspect",
     "harness:validate-issue": "tsx src/index.ts validate-issue",
     "harness:resolve-route": "tsx src/index.ts resolve-route",
+    "harness:claim-job-request": "tsx src/index.ts claim-job-request",
+    "harness:private-state-canary": "tsx src/index.ts private-state-canary",
     "harness:reconcile-revision": "tsx src/index.ts reconcile-revision",
     "harness:reconcile-merge": "tsx src/index.ts reconcile-merge",
     "harness:reconcile-workflow": "tsx src/index.ts reconcile-workflow",

@@ -43,6 +43,9 @@ export interface VercelBridgeEnvInput {
   GITHUB_DISPATCH_REPOSITORY?: string;
   GITHUB_DISPATCH_EVENT_TYPE?: string;
   LINEAR_WEBHOOK_TIMESTAMP_TOLERANCE_MS?: string;
+  P_DEV_WORKFLOW_STATE_REPOSITORY?: string;
+  P_DEV_JOB_REQUEST_REPOSITORY?: string;
+  P_DEV_WORKFLOW_STATE_BRANCH?: string;
 }
 
 export interface VercelBridgeTeamInput {

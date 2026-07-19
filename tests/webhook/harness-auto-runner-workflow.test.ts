@@ -28,16 +28,27 @@ function assertHarnessWorkflowContracts(workflow: string, label: string): void {
       expect(workflow).toContain("linear_issue_status_changed");
     });
 
-    it("defines gate job with resolve-route and without required concurrency", () => {
-      const gate = extractJobSection(workflow, "gate");
-      expect(gate).toContain("harness:resolve-route");
-      expect(gate).not.toMatch(/^\s+concurrency:/m);
-      expect(gate).toContain("GITHUB_TOKEN");
+    it("uses request_id workflow_dispatch input and client_payload.requestId", () => {
+      expect(workflow).toContain("request_id:");
+      expect(workflow).toContain("client_payload.requestId");
+      expect(workflow).not.toMatch(/^\s+issue:\s*$/m);
     });
 
-    it("run-harness keeps per-issue concurrency without canceling in-progress work", () => {
+    it("defines gate job with claim, resolve-route, and without required concurrency", () => {
+      const gate = extractJobSection(workflow, "gate");
+      expect(gate).toContain("harness:claim-job-request");
+      expect(gate).toContain("harness:resolve-route");
+      expect(gate).toContain("--request-id");
+      expect(gate).not.toMatch(/^\s+concurrency:/m);
+      expect(gate).toContain("GITHUB_TOKEN");
+      expect(gate).not.toContain("issue_key:");
+    });
+
+    it("run-harness keeps per-request concurrency without canceling in-progress work", () => {
       const runHarness = extractJobSection(workflow, "run-harness");
-      expect(runHarness).toMatch(/group:\s*harness-\$\{\{/);
+      expect(runHarness).toContain(
+        "harness-req-${{ needs.gate.outputs.request_id }}",
+      );
       expect(runHarness).toContain("cancel-in-progress: false");
       expect(runHarness).not.toContain("harness-merge-");
     });
@@ -93,14 +104,17 @@ function assertHarnessWorkflowContracts(workflow: string, label: string): void {
       );
     });
 
-    it("uses managed GitHub workflow state on gate and phase runner jobs", () => {
+    it("uses managed GitHub workflow state and public runner env on harness jobs", () => {
       const gate = extractJobSection(workflow, "gate");
       const runHarness = extractJobSection(workflow, "run-harness");
       const runMerge = extractJobSection(workflow, "run-merge");
       const syncSection = extractJobSection(workflow, "sync-production");
-      expect(gate).toContain("P_DEV_WORKFLOW_STATE_STORE_MODE: managed_github");
-      expect(runHarness).toContain("P_DEV_WORKFLOW_STATE_STORE_MODE: managed_github");
-      expect(runMerge).toContain("P_DEV_WORKFLOW_STATE_STORE_MODE: managed_github");
+      for (const section of [gate, runHarness, runMerge]) {
+        expect(section).toContain("P_DEV_PUBLIC_RUNNER_MODE: \"1\"");
+        expect(section).toContain("P_DEV_WORKFLOW_STATE_STORE_MODE: managed_github");
+        expect(section).toContain("P_DEV_WORKFLOW_STATE_REPOSITORY:");
+        expect(section).toContain("P_DEV_STATE_GITHUB_TOKEN:");
+      }
       expect(syncSection).not.toContain("P_DEV_WORKFLOW_STATE_STORE_MODE");
     });
 
@@ -127,9 +141,10 @@ function assertHarnessWorkflowContracts(workflow: string, label: string): void {
       expect(workflow).toContain('FORCE_FLAG="--force"');
     });
 
-    it("validates issue key format in gate job", () => {
+    it("validates request id format in gate job without issue key regex", () => {
       const gate = extractJobSection(workflow, "gate");
-      expect(gate).toContain("^[A-Z]+-[0-9]+$");
+      expect(gate).toContain("Invalid request id format.");
+      expect(gate).not.toContain("^[A-Z]+-[0-9]+$");
     });
 
     it("validates sync repo id format without hard-coded allowlist", () => {
@@ -191,6 +206,16 @@ function assertHarnessWorkflowContracts(workflow: string, label: string): void {
       expect(syncSection).toContain("--production-branch");
       expect(syncSection).toContain("--ref");
     });
+
+    it("uploads public-safe harness artifacts without issue-key paths", () => {
+      const runHarness = extractJobSection(workflow, "run-harness");
+      const runMerge = extractJobSection(workflow, "run-merge");
+      for (const section of [runHarness, runMerge]) {
+        expect(section).toContain("name: harness-run-${{ github.run_id }}");
+        expect(section).toContain("runs/public-summary-${{ github.run_id }}.json");
+        expect(section).not.toContain("runs/${{ needs.gate.outputs.issue_key }}");
+      }
+    });
   });
 }
 
@@ -204,8 +229,8 @@ describe("harness-auto-runner concurrency behavior contracts", () => {
   const runHarness = extractJobSection(workflow, "run-harness");
   const runMerge = extractJobSection(workflow, "run-merge");
 
-  it("duplicate same-issue non-merge dispatch queues via run-harness concurrency without cancel", () => {
-    expect(runHarness).toContain("group: harness-${{ needs.gate.outputs.issue_key }}");
+  it("duplicate same-request non-merge dispatch queues via run-harness concurrency without cancel", () => {
+    expect(runHarness).toContain("harness-req-${{ needs.gate.outputs.request_id }}");
     expect(runHarness).toContain("cancel-in-progress: false");
   });
 
@@ -215,8 +240,8 @@ describe("harness-auto-runner concurrency behavior contracts", () => {
     expect(runMerge).toContain("queue: max");
   });
 
-  it("different issues in non-merge phases use distinct run-harness groups", () => {
-    expect(runHarness).toContain("needs.gate.outputs.issue_key");
+  it("different requests in non-merge phases use distinct run-harness groups", () => {
+    expect(runHarness).toContain("needs.gate.outputs.request_id");
   });
 
   it("different issues targeting same repo/base branch share merge queue group output", () => {

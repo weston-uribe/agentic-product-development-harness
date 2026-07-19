@@ -47,6 +47,25 @@ export async function runSyncManagedRunnerCommand(options: {
   }
 
   try {
+    const executionSlug =
+      process.env.P_DEV_EXECUTION_REPOSITORY?.trim() ||
+      process.env.GITHUB_DISPATCH_REPOSITORY?.trim() ||
+      undefined;
+    let expectedRepositoryId: number | undefined;
+    if (executionSlug && executionSlug.includes("/")) {
+      const [owner, repo] = executionSlug.split("/");
+      if (owner && repo) {
+        try {
+          const info = await provider.getRepositoryMetadata(owner, repo);
+          if (info && typeof info.id === "number") {
+            expectedRepositoryId = info.id;
+          }
+        } catch {
+          // Fall through — release sync will fail closed on marker/id mismatch.
+        }
+      }
+    }
+
     const result = await runReleaseSyncManagedRunner(provider, {
       cwd,
       apply: options.apply === true,
@@ -54,6 +73,12 @@ export async function runSyncManagedRunnerCommand(options: {
       overallTimeoutMs: RELEASE_SYNC_OVERALL_TIMEOUT_MS,
       canaryPollIntervalMs: RELEASE_SYNC_CANARY_POLL_INTERVAL_MS,
       canaryPollTimeoutMs: RELEASE_SYNC_CANARY_POLL_TIMEOUT_MS,
+      ...(executionSlug && expectedRepositoryId !== undefined
+        ? {
+            expectedRepoSlug: executionSlug,
+            expectedRepositoryId,
+          }
+        : {}),
     });
 
     if (options.json) {
