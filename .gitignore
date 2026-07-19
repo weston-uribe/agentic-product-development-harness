@@ -15,6 +15,13 @@ node_modules/.p-dev-install.lock
 .harness/config.local.json
 .harness/*.local.json
 .harness/validation-runs/
+.harness/control-plane-setup.json
+.harness/p-dev-runner-upgrade.progress.json
+.harness/p-dev-runner-upgrade.last-verified.json
+.harness/p-dev-managed-repo.json
+.harness/vercel-connection-recovery.json
+apps/gui/tsconfig.tsbuildinfo
+*.tsbuildinfo
 packages/p-dev/bin/
 packages/p-dev/dist/
 packages/p-dev/gui/
