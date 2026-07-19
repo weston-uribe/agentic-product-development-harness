@@ -29,3 +29,4 @@ packages/p-dev/templates/
 packages/p-dev/workspace-snapshot/
 packages/p-dev/node_modules/
 packages/p-dev/*.tgz
+.harness/p-dev-runner-upgrade.pending.json
