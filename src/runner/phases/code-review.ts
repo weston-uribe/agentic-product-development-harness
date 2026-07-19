@@ -134,7 +134,7 @@ export async function executeCodeReviewPhase(
   const runId = `code-review-${startedAt.getTime()}`;
   const deliveryId = process.env.GITHUB_RUN_ID ?? runId;
   const runGeneration = resolveRunGeneration();
-  const { config } = await loadHarnessConfig({ configPath: options.configPath });
+  let { config } = await loadHarnessConfig({ configPath: options.configPath });
   const logDirectory = config.logDirectory ?? "runs";
   const runDirectory = getRunDirectory(logDirectory, options.issueKey, runId);
   await mkdir(runDirectory, { recursive: true });
@@ -149,6 +149,26 @@ export async function executeCodeReviewPhase(
   const github = new GitHubClient({ token: githubToken });
   const issue = await fetchLinearIssue(options.issueKey, linearApiKey);
   const parsed = parseIssueDescription(issue.description ?? "");
+  {
+    const { resolveIssueConfiguration, applyValidationRunModelSelections } =
+      await import("../../workflow/validation-run/index.js");
+    const { WORKFLOW_SCHEMA_VERSION } = await import(
+      "../../workflow/definition/product-development.v2.js"
+    );
+    const issueConfig = await resolveIssueConfiguration({
+      issueKey: options.issueKey,
+      workflowSchemaVersion:
+        config.workflow?.schemaVersion ?? WORKFLOW_SCHEMA_VERSION,
+      linearTeamId:
+        config.linear?.teamId ??
+        config.repos[0]?.linearAssociations?.[0]?.teamId ??
+        null,
+      inlineSnapshots: config.validationRuns ?? null,
+    });
+    if (issueConfig.applied) {
+      config = applyValidationRunModelSelections(config, issueConfig.snapshot);
+    }
+  }
   const resolved = resolveTargetRepo(
     parsed,
     {

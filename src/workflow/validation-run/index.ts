@@ -34,3 +34,5 @@ export {
   observabilityPropsForConfiguration,
   resolveIssueConfiguration,
 } from "./resolve.js";
+
+export { applyValidationRunModelSelections } from "./model-overrides.js";
