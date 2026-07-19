@@ -8,7 +8,7 @@ Workflow schema: `product-development-v2`
 
 | Identity | Value |
 |----------|--------|
-| Feature branch source tip (pre-report commit) | `adfc8ddd92daf1c1780fa948b128afbae9e501f0` |
+| Feature branch source tip | `f3c62a12561ee94fd0a562e6e6228ac6e10e6a8a` |
 | Privacy fix source commit | `e8b119aeb878727480647b6c59cff6fd8e925a70` |
 | Packaged snapshot content ID | `60bb267bac7b38b784cd31d45bd323ee01f750b3e1d638682ac3dc5fdcc694bd` |
 | Snapshot source commit | `e8b119aeb878727480647b6c59cff6fd8e925a70` |
