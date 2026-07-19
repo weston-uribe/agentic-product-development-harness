@@ -276,16 +276,32 @@ export async function executePlanningPhase(
     linearStatusAfter = freshIssue.status;
     runOwnedStatuses = [linearStatusBefore, freshIssue.status].filter(Boolean) as string[];
 
+    const comments = await listIssueComments(client, issue.id);
+    let allowPlanningInProgressForRevision = false;
     try {
-      assertPlanningEligibleStatus(config, freshIssue, Boolean(options.force));
+      const { recoverPlanReviewRevisionFromComments } = await import(
+        "../../workflow/recover-plan-review-decision.js"
+      );
+      allowPlanningInProgressForRevision = Boolean(
+        recoverPlanReviewRevisionFromComments({
+          comments,
+          orchestratorMarker: config.orchestratorMarker,
+        }),
+      );
+    } catch {
+      allowPlanningInProgressForRevision = false;
+    }
+
+    try {
+      assertPlanningEligibleStatus(config, freshIssue, Boolean(options.force), {
+        allowPlanningInProgressForRevision,
+      });
     } catch (error) {
       throw new PlanningError(
         "wrong_status",
         error instanceof Error ? error.message : String(error),
       );
     }
-
-    const comments = await listIssueComments(client, issue.id);
     const idempotency = checkPlanningIdempotency(
       config,
       issue,

@@ -81,4 +81,13 @@ describe("planning idempotency", () => {
     const issue = { ...baseIssue, status: "Planning" };
     expect(() => assertPlanningEligibleStatus(config, issue, true)).not.toThrow();
   });
+
+  it("allows Planning status for Plan Review revision recovery", () => {
+    const issue = { ...baseIssue, status: "Planning" };
+    expect(() =>
+      assertPlanningEligibleStatus(config, issue, false, {
+        allowPlanningInProgressForRevision: true,
+      }),
+    ).not.toThrow();
+  });
 });

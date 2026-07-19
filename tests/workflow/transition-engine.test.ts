@@ -253,7 +253,7 @@ describe("transition engine — review loops", () => {
     });
     expect(plan.updatedCounters.plan_review_cycles).toBe(1);
     expect(plan.updatedCounters.code_review_cycles).toBe(2);
-    expect(plan.nextStatusName).toBe("Planning");
+    expect(plan.nextStatusName).toBe("Ready for Planning");
   });
 
   it("escalates at maximum cycles without auto-approve", () => {

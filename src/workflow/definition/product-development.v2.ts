@@ -292,7 +292,7 @@ const PHASES: readonly WorkflowPhaseDefinition[] = [
       {
         id: "needs_revision",
         label: "Revise plan",
-        nextPhaseId: "planning",
+        nextPhaseId: "planning_dispatch",
         incrementsCycleCounter: true,
       },
     ],
@@ -611,9 +611,12 @@ const TRANSITIONS: readonly WorkflowTransitionDefinition[] = [
   {
     id: "plan_review_needs_revision",
     fromPhaseId: "plan_review",
-    toPhaseId: "planning",
+    // Route to dispatch (Ready for Planning), not in-progress Planning.
+    // Planning eligibility only claims from Ready for Planning; landing on
+    // Planning caused silent wrong_status skips and stuck revision loops.
+    toPhaseId: "planning_dispatch",
     kind: "review_needs_revision",
-    label: "Planning",
+    label: "Ready for Planning",
     decisionId: "needs_revision",
   },
   {

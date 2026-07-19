@@ -80,6 +80,10 @@ export function assertPlanningEligibleStatus(
   config: HarnessConfig,
   issue: LinearIssueSnapshot,
   force: boolean,
+  options?: {
+    /** Allow in-progress Planning when recovering a Plan Review revision loop. */
+    allowPlanningInProgressForRevision?: boolean;
+  },
 ): void {
   const status = issue.status?.trim() ?? "";
   const eligible = getEligiblePlanningStatuses(config);
@@ -89,7 +93,10 @@ export function assertPlanningEligibleStatus(
     return;
   }
 
-  if (force && status.toLowerCase() === planningInProgress.toLowerCase()) {
+  if (
+    status.toLowerCase() === planningInProgress.toLowerCase() &&
+    (force || options?.allowPlanningInProgressForRevision)
+  ) {
     return;
   }
 
