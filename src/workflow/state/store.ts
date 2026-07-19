@@ -155,6 +155,8 @@ export async function loadOrBootstrapWorkflowState(input: {
         codeReview: false,
       },
       latestPlanArtifact: existing.latestPlanArtifact ?? null,
+      latestImplementationArtifact:
+        existing.latestImplementationArtifact ?? null,
       phaseExecutionFreeze: existing.phaseExecutionFreeze ?? null,
     };
   }

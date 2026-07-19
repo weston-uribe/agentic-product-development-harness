@@ -9,6 +9,8 @@ import { toPublicApiError } from "@harness/gui/public-client-payload";
 const saveRequestSchema = z.object({
   planReviewEnabled: z.boolean(),
   planReviewCycleLimit: z.number().int().min(1),
+  codeReviewEnabled: z.boolean(),
+  codeReviewCycleLimit: z.number().int().min(1),
   expectedConfigFingerprint: z.string().min(1),
   sourceMode: z.enum(["live", "fixture"]).optional(),
   fixtureId: z.string().optional(),
@@ -44,6 +46,8 @@ export async function PUT(request: Request) {
     const result = await saveWorkflowOptionalPhases({
       planReviewEnabled: parsed.data.planReviewEnabled,
       planReviewCycleLimit: parsed.data.planReviewCycleLimit,
+      codeReviewEnabled: parsed.data.codeReviewEnabled,
+      codeReviewCycleLimit: parsed.data.codeReviewCycleLimit,
       expectedConfigFingerprint: parsed.data.expectedConfigFingerprint,
       sourceMode,
       fixtureId,

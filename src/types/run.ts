@@ -3,6 +3,8 @@ export type RunPhase =
   | "plan_review"
   | "implementation"
   | "handoff"
+  | "code_review"
+  | "code_revision"
   | "revision"
   | "merge"
   | "production_sync"

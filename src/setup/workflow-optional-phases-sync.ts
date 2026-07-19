@@ -23,6 +23,8 @@ import { WorkflowModelSyncError } from "./workflow-model-sync.js";
 export interface WorkflowOptionalPhasesSaveRequest {
   planReviewEnabled: boolean;
   planReviewCycleLimit: number;
+  codeReviewEnabled: boolean;
+  codeReviewCycleLimit: number;
   expectedConfigFingerprint: string;
 }
 
@@ -51,6 +53,8 @@ async function mergeOptionalPhasesIntoConfigBytes(input: {
   priorBytes: Buffer;
   planReviewEnabled: boolean;
   planReviewCycleLimit: number;
+  codeReviewEnabled: boolean;
+  codeReviewCycleLimit: number;
 }): Promise<{ content: string; config: HarnessConfig }> {
   const parsed = JSON.parse(input.priorBytes.toString("utf8")) as Record<string, unknown>;
   const baseConfig = harnessConfigSchema.parse(parsed);
@@ -62,10 +66,12 @@ async function mergeOptionalPhasesIntoConfigBytes(input: {
       optionalPhases: {
         ...workflow.optionalPhases,
         planReview: input.planReviewEnabled,
+        codeReview: input.codeReviewEnabled,
       },
       cycleLimits: {
         ...workflow.cycleLimits,
         planReview: input.planReviewCycleLimit,
+        codeReview: input.codeReviewCycleLimit,
       },
     },
   });
@@ -132,6 +138,15 @@ export async function saveWorkflowOptionalPhases(input: {
       "Plan Review cycle limit must be a positive integer.",
     );
   }
+  if (
+    !Number.isInteger(input.request.codeReviewCycleLimit) ||
+    input.request.codeReviewCycleLimit < 1
+  ) {
+    throw new WorkflowModelSyncError(
+      "workflow_model_validation_failed",
+      "Code Review cycle limit must be a positive integer.",
+    );
+  }
 
   return withWorkflowModelSyncLock(input.cwd, async () => {
     const { bytes: priorBytes, hash: currentFingerprint } =
@@ -148,6 +163,8 @@ export async function saveWorkflowOptionalPhases(input: {
       priorBytes,
       planReviewEnabled: input.request.planReviewEnabled,
       planReviewCycleLimit: input.request.planReviewCycleLimit,
+      codeReviewEnabled: input.request.codeReviewEnabled,
+      codeReviewCycleLimit: input.request.codeReviewCycleLimit,
     });
 
     await writeConfigLocalAtomically(input.cwd, nextContent);

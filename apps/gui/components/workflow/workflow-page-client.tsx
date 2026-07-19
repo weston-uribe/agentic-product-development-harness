@@ -3,7 +3,6 @@
 import { useCallback, useRef, useState } from "react";
 import type { RoleModelRole } from "@harness/config/role-models";
 import type {
-  PlanReviewReadinessView,
   WorkflowBootstrapPayload,
   WorkflowModelSelection,
 } from "@harness/workflow-page/types";
@@ -12,7 +11,10 @@ import { WorkflowHealthPanel } from "@/components/workflow/workflow-health-panel
 import { WorkflowCardsSection } from "@/components/workflow/workflow-cards-section";
 import { fetchWorkflowBootstrap } from "@/lib/workflow/api-client";
 import { useModelAutosave } from "@/lib/workflow/use-model-autosave";
-import { useWorkflowOptionalPhasesSave } from "@/lib/workflow/use-workflow-optional-phases-save";
+import {
+  useWorkflowOptionalPhasesSave,
+  type OptionalPhasesReadiness,
+} from "@/lib/workflow/use-workflow-optional-phases-save";
 
 type WorkflowPageClientProps = {
   initialBootstrap: WorkflowBootstrapPayload;
@@ -25,6 +27,17 @@ function toCommittedSelections(
     planner: bootstrap.plannerSelection,
     builder: bootstrap.builderSelection,
     planReviewer: bootstrap.planReviewerSelection,
+    codeReviewer: bootstrap.codeReviewerSelection,
+    codeReviser: bootstrap.codeReviserSelection,
+  };
+}
+
+function toCommittedOptionalReadiness(
+  bootstrap: WorkflowBootstrapPayload,
+): OptionalPhasesReadiness {
+  return {
+    planReview: bootstrap.planReviewReadiness,
+    codeReview: bootstrap.codeReviewReadiness,
   };
 }
 
@@ -33,13 +46,13 @@ export function WorkflowPageClient({ initialBootstrap }: WorkflowPageClientProps
   const [committedSelections, setCommittedSelections] = useState(() =>
     toCommittedSelections(initialBootstrap),
   );
-  const [committedPlanReviewReadiness, setCommittedPlanReviewReadiness] = useState(
-    initialBootstrap.planReviewReadiness,
+  const [committedOptionalReadiness, setCommittedOptionalReadiness] = useState(
+    () => toCommittedOptionalReadiness(initialBootstrap),
   );
   const [isLoadingScope, setIsLoadingScope] = useState(false);
   const scopeAbortRef = useRef<AbortController | null>(null);
   const scopeLoadTokenRef = useRef(0);
-  const syncOptionalReadinessRef = useRef<(readiness: PlanReviewReadinessView) => void>(
+  const syncOptionalReadinessRef = useRef<(readiness: OptionalPhasesReadiness) => void>(
     () => {},
   );
 
@@ -59,8 +72,8 @@ export function WorkflowPageClient({ initialBootstrap }: WorkflowPageClientProps
       scopeId: bootstrap.selectedScopeId,
     });
     setBootstrap(nextBootstrap);
-    setCommittedPlanReviewReadiness(nextBootstrap.planReviewReadiness);
-    syncOptionalReadinessRef.current(nextBootstrap.planReviewReadiness);
+    setCommittedOptionalReadiness(toCommittedOptionalReadiness(nextBootstrap));
+    syncOptionalReadinessRef.current(toCommittedOptionalReadiness(nextBootstrap));
     return nextBootstrap;
   }, [bootstrap.fixtureId, bootstrap.selectedScopeId, bootstrap.sourceMode]);
 
@@ -71,8 +84,8 @@ export function WorkflowPageClient({ initialBootstrap }: WorkflowPageClientProps
     [],
   );
 
-  const handleCommittedPlanReviewReadinessChange = useCallback(
-    (_readiness: PlanReviewReadinessView) => {
+  const handleCommittedOptionalReadinessChange = useCallback(
+    (_readiness: OptionalPhasesReadiness) => {
       void reloadBootstrap();
     },
     [reloadBootstrap],
@@ -82,6 +95,8 @@ export function WorkflowPageClient({ initialBootstrap }: WorkflowPageClientProps
     plannerSelection,
     builderSelection,
     planReviewerSelection,
+    codeReviewerSelection,
+    codeReviserSelection,
     handleModelSelect,
     handleModelParameter,
     saveStateLabel,
@@ -100,8 +115,8 @@ export function WorkflowPageClient({ initialBootstrap }: WorkflowPageClientProps
       selectedScopeId: bootstrap.selectedScopeId,
       configFingerprint: bootstrap.configFingerprint,
     },
-    committedReadiness: committedPlanReviewReadiness,
-    onCommittedReadinessChange: handleCommittedPlanReviewReadinessChange,
+    committedReadiness: committedOptionalReadiness,
+    onCommittedReadinessChange: handleCommittedOptionalReadinessChange,
     onFingerprintChange: handleBootstrapFingerprintChange,
   });
 
@@ -132,8 +147,9 @@ export function WorkflowPageClient({ initialBootstrap }: WorkflowPageClientProps
         }
         setBootstrap(nextBootstrap);
         setCommittedSelections(toCommittedSelections(nextBootstrap));
-        setCommittedPlanReviewReadiness(nextBootstrap.planReviewReadiness);
-        optionalPhasesSave.syncCommittedReadiness(nextBootstrap.planReviewReadiness);
+        const nextOptional = toCommittedOptionalReadiness(nextBootstrap);
+        setCommittedOptionalReadiness(nextOptional);
+        optionalPhasesSave.syncCommittedReadiness(nextOptional);
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") {
           return;
@@ -176,7 +192,10 @@ export function WorkflowPageClient({ initialBootstrap }: WorkflowPageClientProps
     plannerSelection,
     builderSelection,
     planReviewerSelection,
+    codeReviewerSelection,
+    codeReviserSelection,
     planReviewReadiness: optionalPhasesSave.planReviewReadiness,
+    codeReviewReadiness: optionalPhasesSave.codeReviewReadiness,
   };
 
   return (
@@ -203,10 +222,13 @@ export function WorkflowPageClient({ initialBootstrap }: WorkflowPageClientProps
         bootstrap={viewBootstrap}
         disabled={isLoadingScope}
         planReviewReadiness={optionalPhasesSave.planReviewReadiness}
+        codeReviewReadiness={optionalPhasesSave.codeReviewReadiness}
         optionalPhasesSaveLabel={optionalPhasesSave.saveStateLabel}
         optionalPhasesSaveError={optionalPhasesSave.saveError}
         onPlanReviewEnabledChange={optionalPhasesSave.handlePlanReviewEnabledChange}
         onPlanReviewCycleLimitChange={optionalPhasesSave.handlePlanReviewCycleLimitChange}
+        onCodeReviewEnabledChange={optionalPhasesSave.handleCodeReviewEnabledChange}
+        onCodeReviewCycleLimitChange={optionalPhasesSave.handleCodeReviewCycleLimitChange}
         onSelectModel={handleModelSelect}
         onUpdateModelParameter={handleModelParameter}
         saveStateLabel={saveStateLabel}

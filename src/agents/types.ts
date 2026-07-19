@@ -18,6 +18,8 @@ export type AgentObservePhase =
   | "planning"
   | "plan_review"
   | "implementation"
+  | "code_review"
+  | "code_revision"
   | "revision"
   | "integration_repair";
 
@@ -84,6 +86,8 @@ export interface BranchAgentParams {
 
 export type RevisionAgentParams = BranchAgentParams;
 export type IntegrationRepairAgentParams = BranchAgentParams;
+export type CodeReviewAgentParams = BranchAgentParams;
+export type CodeRevisionAgentParams = BranchAgentParams;
 
 export interface AgentModelSelection {
   id: string;
@@ -141,6 +145,8 @@ export interface AgentProvider {
 
   createPlanningAgent(params: PlanningAgentParams): Promise<AgentHandle>;
   createPlanReviewAgent(params: PlanningAgentParams): Promise<AgentHandle>;
+  createCodeReviewAgent(params: CodeReviewAgentParams): Promise<AgentHandle>;
+  createCodeRevisionAgent(params: CodeRevisionAgentParams): Promise<AgentHandle>;
   createImplementationAgent(params: ImplementationAgentParams): Promise<AgentHandle>;
   acquireBuilderAgent(params: AcquireBuilderAgentParams): Promise<AcquiredBuilderAgent>;
 

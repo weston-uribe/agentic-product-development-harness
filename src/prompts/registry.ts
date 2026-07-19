@@ -1,6 +1,5 @@
 /**
  * Prompt definition registry — local templates remain contract authority.
- * Future plan_reviewer / code_reviewer slots are reserved (not implemented).
  */
 
 import { createHash } from "node:crypto";
@@ -8,6 +7,8 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  CODE_REVISION_PROMPT_VERSION,
+  CODE_REVIEW_PROMPT_VERSION,
   IMPLEMENTATION_PROMPT_VERSION,
   INTEGRATION_REPAIR_PROMPT_VERSION,
   PLAN_REVIEW_PROMPT_VERSION,
@@ -154,16 +155,70 @@ export const PROMPT_REGISTRY: PromptRegistryEntry[] = [
     },
   },
   {
-    phase: null,
-    templateFile: null,
+    phase: "code_review",
+    templateFile: "code-review.md",
     definition: {
       name: "p-dev.code-review",
       role: "code_reviewer",
-      contractVersion: "code-review@0",
+      contractVersion: CODE_REVIEW_PROMPT_VERSION,
       type: "text",
-      variableSchema: schema(["promptVersion", "issueKey"]),
+      variableSchema: schema(
+        [
+          ...COMMON_ISSUE_VARS,
+          "reviewedPrNumber",
+          "reviewedHeadSha",
+          "reviewedBaseSha",
+          "reviewedDiffHash",
+          "prUrl",
+          "targetRepository",
+          "changedFilesSummary",
+          "testEvidence",
+          "priorAcceptedFeedback",
+          "codeReviewCycle",
+          "codeReviewCycleLimit",
+          "approvedPlanIdentity",
+          "architectureContext",
+          "repositoryPolicies",
+        ],
+        ["targetRepo", "baseBranch"],
+      ),
       localTemplatePath: "src/prompts/code-review.md",
-      implemented: false,
+      implemented: true,
+    },
+  },
+  {
+    phase: "code_revision",
+    templateFile: "code-revision.md",
+    definition: {
+      name: "p-dev.code-revision",
+      role: "code_reviser",
+      contractVersion: CODE_REVISION_PROMPT_VERSION,
+      type: "text",
+      variableSchema: schema(
+        [
+          ...COMMON_ISSUE_VARS,
+          "reviewedPrNumber",
+          "reviewedHeadSha",
+          "reviewedBaseSha",
+          "reviewedDiffHash",
+          "prUrl",
+          "targetRepository",
+          "branch",
+          "blockingFindings",
+          "causedByReviewDecisionIdentity",
+          "currentHeadSha",
+          "currentDiffHash",
+          "testEvidence",
+          "codeReviewCycle",
+          "codeReviewCycleLimit",
+          "approvedPlanIdentity",
+          "architectureContext",
+          "repositoryPolicies",
+        ],
+        ["targetRepo", "baseBranch"],
+      ),
+      localTemplatePath: "src/prompts/code-revision.md",
+      implemented: true,
     },
   },
 ];

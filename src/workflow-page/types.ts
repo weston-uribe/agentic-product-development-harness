@@ -4,6 +4,7 @@ import type {
 import type { RequiredWorkflowStatus } from "../setup/linear-status-contract.js";
 import type { CanonicalValidationViolation } from "../workflow/canonical-workflow-validation.js";
 import type { PlanReviewUiState } from "../workflow/plan-review-readiness.js";
+import type { CodeReviewUiState } from "../workflow/code-review-readiness.js";
 import type { RoleModelRole } from "../config/role-models.js";
 
 export type WorkflowSourceMode = "live" | "fixture";
@@ -133,6 +134,8 @@ export interface ModelSaveReadiness {
   planner: WorkflowRoleModelSaveReadiness;
   builder: WorkflowRoleModelSaveReadiness;
   planReviewer: WorkflowRoleModelSaveReadiness;
+  codeReviewer: WorkflowRoleModelSaveReadiness;
+  codeReviser: WorkflowRoleModelSaveReadiness;
   ready: boolean;
 }
 
@@ -140,6 +143,14 @@ export interface PlanReviewReadinessView {
   requestedEnabled: boolean;
   effectiveEnabled: boolean;
   uiState: PlanReviewUiState;
+  missingRequirementMessages: string[];
+  cycleLimit: number;
+}
+
+export interface CodeReviewReadinessView {
+  requestedEnabled: boolean;
+  effectiveEnabled: boolean;
+  uiState: CodeReviewUiState;
   missingRequirementMessages: string[];
   cycleLimit: number;
 }
@@ -156,7 +167,10 @@ export interface WorkflowBootstrapPayload {
   plannerSelection: WorkflowModelSelection;
   builderSelection: WorkflowModelSelection;
   planReviewerSelection: WorkflowModelSelection;
+  codeReviewerSelection: WorkflowModelSelection;
+  codeReviserSelection: WorkflowModelSelection;
   planReviewReadiness: PlanReviewReadinessView;
+  codeReviewReadiness: CodeReviewReadinessView;
   configFingerprint: string;
   modelSaveReadiness: ModelSaveReadiness;
   canonicalWorkflow: WorkflowCanonicalWorkflowView;

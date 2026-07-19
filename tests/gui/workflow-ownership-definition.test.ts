@@ -2,13 +2,15 @@ import { describe, expect, it } from "vitest";
 import { WORKFLOW_OWNERSHIP_COLUMNS, WORKFLOW_OPTIONAL_PHASES } from "../../apps/gui/lib/workflow/workflow-ownership.js";
 
 describe("workflow ownership from shared definition", () => {
-  it("always exposes Plan Review as an optional phase card", () => {
+  it("always exposes Plan Review and Code Review as optional phase cards", () => {
     expect(WORKFLOW_OPTIONAL_PHASES.map((phase) => phase.statusKey)).toEqual([
       "plan-review",
+      "code-review",
     ]);
     const all = WORKFLOW_OWNERSHIP_COLUMNS.flatMap((c) => [...c.statuses]);
     expect(all).not.toContain("plan-review");
     expect(all).not.toContain("code-review");
+    expect(all).not.toContain("code-revision");
     expect(all).toEqual(
       expect.arrayContaining([
         "backlog",

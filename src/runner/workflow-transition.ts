@@ -5,6 +5,7 @@
 
 import type { HarnessConfig } from "../config/types.js";
 import { migrateWorkflowConfigSection } from "../config/migrate-workflow-config.js";
+import { getRegistryEntryByName } from "../prompts/registry.js";
 import { resolveWorkflowDefinition } from "../workflow/definition/resolve.js";
 import type { ResolvedWorkflowDefinition } from "../workflow/definition/types.js";
 import {
@@ -20,6 +21,31 @@ import {
 } from "../workflow/state/index.js";
 import type { PhaseBypassEvent } from "../workflow/optional-phase.js";
 import type { PlanArtifactIdentity } from "../workflow/plan-artifact.js";
+import type { ImplementationArtifactIdentity } from "../workflow/implementation-artifact.js";
+import {
+  evaluateCodeReviewReadinessSync,
+  type LinearStatusSnapshot,
+} from "../workflow/code-review-readiness.js";
+
+function syncCodeReviewConfiguredReady(input: {
+  config: HarnessConfig;
+  linearStatuses?: readonly LinearStatusSnapshot[] | null;
+}): boolean {
+  const codeReviewPrompt =
+    getRegistryEntryByName("p-dev.code-review")?.definition.implemented === true;
+  const codeRevisionPrompt =
+    getRegistryEntryByName("p-dev.code-revision")?.definition.implemented ===
+    true;
+  return evaluateCodeReviewReadinessSync({
+    config: input.config,
+    linearStatuses: input.linearStatuses ?? null,
+    promptImplemented: codeReviewPrompt,
+    revisionPromptImplemented: codeRevisionPrompt,
+    skillPresent: true,
+    modelConfigValid: true,
+    reviserModelConfigValid: true,
+  }).configuredReady;
+}
 
 export function resolveDefinitionForConfig(input: {
   config: HarnessConfig;
@@ -27,17 +53,33 @@ export function resolveDefinitionForConfig(input: {
   productionBranch?: string;
   /** Fail-closed effective Plan Review activation for routing. */
   planReviewEffectiveEnabled?: boolean;
+  /** Fail-closed effective Code Review activation for routing (configuredReady). */
+  codeReviewEffectiveEnabled?: boolean;
+  /** When omitted, Code Review readiness treats statuses as missing (fail-closed). */
+  linearStatuses?: readonly LinearStatusSnapshot[] | null;
 }): ResolvedWorkflowDefinition {
   const workflowConfig = migrateWorkflowConfigSection(input.config);
+  const shouldApplyEffective =
+    input.planReviewEffectiveEnabled !== undefined ||
+    input.codeReviewEffectiveEnabled !== undefined ||
+    input.linearStatuses !== undefined;
+
   return resolveWorkflowDefinition({
     workflowConfig,
     baseBranch: input.baseBranch,
     productionBranch: input.productionBranch,
-    ...(input.planReviewEffectiveEnabled !== undefined
+    ...(shouldApplyEffective
       ? {
           effectiveOptionalPhases: {
-            planReview: input.planReviewEffectiveEnabled,
-            codeReview: workflowConfig.optionalPhases.codeReview === true,
+            planReview:
+              input.planReviewEffectiveEnabled ??
+              workflowConfig.optionalPhases.planReview === true,
+            codeReview:
+              input.codeReviewEffectiveEnabled ??
+              syncCodeReviewConfiguredReady({
+                config: input.config,
+                linearStatuses: input.linearStatuses ?? null,
+              }),
           },
         }
       : {}),
@@ -53,6 +95,8 @@ export function evaluatePhaseTransition(input: {
   baseBranch?: string;
   productionBranch?: string;
   planReviewEffectiveEnabled?: boolean;
+  codeReviewEffectiveEnabled?: boolean;
+  linearStatuses?: readonly LinearStatusSnapshot[] | null;
 }): TransitionResult {
   const definition = resolveDefinitionForConfig(input);
   return evaluateTransition({
@@ -79,6 +123,8 @@ export function resolveNextStatusName(input: {
   baseBranch?: string;
   productionBranch?: string;
   planReviewEffectiveEnabled?: boolean;
+  codeReviewEffectiveEnabled?: boolean;
+  linearStatuses?: readonly LinearStatusSnapshot[] | null;
 }): {
   statusName: string;
   result: TransitionResult;
@@ -111,8 +157,11 @@ export async function applyPhaseTransition(input: {
   clearActiveRunId?: string;
   phaseExecutionId?: string;
   planReviewEffectiveEnabled?: boolean;
+  codeReviewEffectiveEnabled?: boolean;
+  linearStatuses?: readonly LinearStatusSnapshot[] | null;
   returnDestination?: string | null;
   latestPlanArtifact?: PlanArtifactIdentity | null;
+  latestImplementationArtifact?: ImplementationArtifactIdentity | null;
   phaseExecutionFreeze?: PhaseExecutionFreeze | null;
 }): Promise<{
   statusName: string | null;
@@ -138,6 +187,7 @@ export async function applyPhaseTransition(input: {
     phaseExecutionId: input.phaseExecutionId,
     returnDestination: input.returnDestination,
     latestPlanArtifact: input.latestPlanArtifact,
+    latestImplementationArtifact: input.latestImplementationArtifact,
     phaseExecutionFreeze: input.phaseExecutionFreeze,
   });
   return {

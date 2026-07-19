@@ -3,7 +3,11 @@
 import { useEffect, useState } from "react";
 import type { CanonicalStatusKey } from "@harness/workflow/canonical-product-development-workflow";
 import { lookupCanonicalStatus } from "@harness/workflow/canonical-product-development-workflow";
-import type { PlanReviewReadinessView, WorkflowBootstrapPayload } from "@harness/workflow-page/types";
+import type {
+  CodeReviewReadinessView,
+  PlanReviewReadinessView,
+  WorkflowBootstrapPayload,
+} from "@harness/workflow-page/types";
 import { AlertTriangle } from "lucide-react";
 import {
   WORKFLOW_OWNERSHIP_COLUMNS,
@@ -28,14 +32,19 @@ import {
 
 const EXPANDED_CARDS_KEY = "workflow-expanded-cards";
 
+type OptionalPhaseReadiness = PlanReviewReadinessView | CodeReviewReadinessView;
+
 type WorkflowCardsSectionProps = {
   bootstrap: WorkflowBootstrapPayload;
   disabled?: boolean;
   planReviewReadiness: PlanReviewReadinessView;
+  codeReviewReadiness: CodeReviewReadinessView;
   optionalPhasesSaveLabel?: string | null;
   optionalPhasesSaveError?: string;
   onPlanReviewEnabledChange: (enabled: boolean) => void;
   onPlanReviewCycleLimitChange: (limit: number) => void;
+  onCodeReviewEnabledChange: (enabled: boolean) => void;
+  onCodeReviewCycleLimitChange: (limit: number) => void;
   onSelectModel: (phaseKey: WorkflowModelPhaseKey, modelId: string) => void;
   onUpdateModelParameter: (
     phaseKey: WorkflowModelPhaseKey,
@@ -66,14 +75,14 @@ function writeExpandedCards(keys: Set<CanonicalStatusKey>): void {
 }
 
 function optionalBadgeTone(
-  readiness: PlanReviewReadinessView,
+  readiness: OptionalPhaseReadiness,
 ): "default" | "setup" | "active" {
   if (readiness.uiState === "active") return "active";
   if (readiness.uiState === "setup_required") return "setup";
   return "default";
 }
 
-function optionalBadgeLabel(readiness: PlanReviewReadinessView): string {
+function optionalBadgeLabel(readiness: OptionalPhaseReadiness): string {
   if (readiness.uiState === "active") return "Active";
   if (readiness.uiState === "setup_required") return "Setup required";
   return "Optional";
@@ -83,10 +92,13 @@ export function WorkflowCardsSection({
   bootstrap,
   disabled = false,
   planReviewReadiness,
+  codeReviewReadiness,
   optionalPhasesSaveLabel,
   optionalPhasesSaveError,
   onPlanReviewEnabledChange,
   onPlanReviewCycleLimitChange,
+  onCodeReviewEnabledChange,
+  onCodeReviewCycleLimitChange,
   onSelectModel,
   onUpdateModelParameter,
   saveStateLabel,
@@ -123,15 +135,17 @@ export function WorkflowCardsSection({
     if (!statusDef) {
       return null;
     }
+    const isPlanReview = statusKey === "plan-review";
+    const readiness = isPlanReview ? planReviewReadiness : codeReviewReadiness;
     const isExpanded = expanded.has(statusKey);
     const content = resolveStatusContent(
       statusKey,
       bootstrap.canonicalWorkflow.mergePathVariant,
       planReviewReadiness,
+      codeReviewReadiness,
     );
     const showBypass =
-      planReviewReadiness.uiState === "disabled" ||
-      planReviewReadiness.uiState === "setup_required";
+      readiness.uiState === "disabled" || readiness.uiState === "setup_required";
 
     return (
       <div
@@ -149,8 +163,8 @@ export function WorkflowCardsSection({
             <span className="text-sm font-medium">{statusDef.name}</span>
             <WorkflowOptionalPhaseBadge
               visible
-              label={optionalBadgeLabel(planReviewReadiness)}
-              tone={optionalBadgeTone(planReviewReadiness)}
+              label={optionalBadgeLabel(readiness)}
+              tone={optionalBadgeTone(readiness)}
             />
           </div>
           <span className="shrink-0 text-xs text-muted-foreground">
@@ -177,28 +191,38 @@ export function WorkflowCardsSection({
               </p>
             ))}
             <WorkflowSetupRequirementsList
-              visible={planReviewReadiness.uiState === "setup_required"}
-              messages={planReviewReadiness.missingRequirementMessages}
+              visible={readiness.uiState === "setup_required"}
+              messages={readiness.missingRequirementMessages}
             />
             <WorkflowOptionalEnableControl
               visible={content.showOptionalPhaseControls}
-              enabled={planReviewReadiness.requestedEnabled}
-              label="Enable Plan Review"
+              enabled={readiness.requestedEnabled}
+              label={isPlanReview ? "Enable Plan Review" : "Enable Code Review"}
               disabled={disabled}
-              onChange={onPlanReviewEnabledChange}
+              onChange={
+                isPlanReview ? onPlanReviewEnabledChange : onCodeReviewEnabledChange
+              }
             />
             <WorkflowCycleLimitControl
               visible={
-                content.showOptionalPhaseControls && planReviewReadiness.requestedEnabled
+                content.showOptionalPhaseControls && readiness.requestedEnabled
               }
-              cycleName="plan review cycles"
-              limit={planReviewReadiness.cycleLimit}
+              cycleName={isPlanReview ? "plan review cycles" : "code review cycles"}
+              limit={readiness.cycleLimit}
               disabled={disabled}
-              onChange={onPlanReviewCycleLimitChange}
+              onChange={
+                isPlanReview
+                  ? onPlanReviewCycleLimitChange
+                  : onCodeReviewCycleLimitChange
+              }
             />
             <WorkflowBypassPathDisplay
               visible={showBypass}
-              bypassLabel="Planning → Ready for Build"
+              bypassLabel={
+                isPlanReview
+                  ? "Planning → Ready for Build"
+                  : "PR Open → PM Review"
+              }
             />
             {content.showPlanReviewerModel ? (
               <WorkflowModelControl
@@ -210,6 +234,34 @@ export function WorkflowCardsSection({
                 parameters={bootstrap.planReviewerSelection.parameters}
                 saveLabel={saveStateLabel("plan_review")}
                 saveErrorDetail={saveErrorDetail?.("plan_review")}
+                onSelectModel={onSelectModel}
+                onUpdateModelParameter={onUpdateModelParameter}
+              />
+            ) : null}
+            {content.showCodeReviewerModel ? (
+              <WorkflowModelControl
+                label="Code Reviewer model"
+                phaseKey="code_review"
+                disabled={disabled || !codeReviewReadiness.requestedEnabled}
+                modelCatalog={bootstrap.modelCatalog}
+                modelId={bootstrap.codeReviewerSelection.modelId}
+                parameters={bootstrap.codeReviewerSelection.parameters}
+                saveLabel={saveStateLabel("code_review")}
+                saveErrorDetail={saveErrorDetail?.("code_review")}
+                onSelectModel={onSelectModel}
+                onUpdateModelParameter={onUpdateModelParameter}
+              />
+            ) : null}
+            {content.showCodeReviserModel ? (
+              <WorkflowModelControl
+                label="Code Reviser model"
+                phaseKey="code_revision"
+                disabled={disabled || !codeReviewReadiness.requestedEnabled}
+                modelCatalog={bootstrap.modelCatalog}
+                modelId={bootstrap.codeReviserSelection.modelId}
+                parameters={bootstrap.codeReviserSelection.parameters}
+                saveLabel={saveStateLabel("code_revision")}
+                saveErrorDetail={saveErrorDetail?.("code_revision")}
                 onSelectModel={onSelectModel}
                 onUpdateModelParameter={onUpdateModelParameter}
               />
@@ -236,6 +288,8 @@ export function WorkflowCardsSection({
     const content = resolveStatusContent(
       statusKey,
       bootstrap.canonicalWorkflow.mergePathVariant,
+      planReviewReadiness,
+      codeReviewReadiness,
     );
 
     return (

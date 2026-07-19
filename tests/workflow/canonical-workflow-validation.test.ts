@@ -187,16 +187,22 @@ describe("canonical workflow validation", () => {
     expect(result.valid).toBe(true);
   });
 
-  it("does not block when Plan Review is present", () => {
-    const result = validateCanonicalLinearWorkflow({
+  it("does not block when optional Plan Review or Code Review statuses are present", () => {
+    const withPlan = validateCanonicalLinearWorkflow({
       workflowStates: [
         ...buildValidLinearStates(),
         { id: "s-pr-review", name: "Plan Review", category: "started" },
       ],
     });
-    expect(result.valid).toBe(true);
-    expect(result.informationalWarnings).toHaveLength(1);
-    expect(result.informationalWarnings[0]?.kind).toBe("deprecated-status-present");
-    expect(result.informationalWarnings[0]?.statusName).toBe("Plan Review");
+    expect(withPlan.valid).toBe(true);
+
+    const withCode = validateCanonicalLinearWorkflow({
+      workflowStates: [
+        ...buildValidLinearStates(),
+        { id: "s-code-review", name: "Code Review", category: "started" },
+        { id: "s-code-revision", name: "Code Revision", category: "started" },
+      ],
+    });
+    expect(withCode.valid).toBe(true);
   });
 });

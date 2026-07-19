@@ -128,6 +128,20 @@ export const PHASE_ELIGIBLE_SKILLS: Record<
       role: "plan_review_guidance",
     },
   ],
+  code_review: [
+    {
+      skillId: "code-reviewer",
+      sourcePath: ".agents/skills/code-reviewer/SKILL.md",
+      role: "code_review_guidance",
+    },
+  ],
+  code_revision: [
+    {
+      skillId: "implementation",
+      sourcePath: ".agents/skills/implementation/SKILL.md",
+      role: "code_revision_guidance",
+    },
+  ],
   implementation: [
     {
       skillId: "implementation",

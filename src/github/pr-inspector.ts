@@ -21,6 +21,7 @@ export interface PrInspectionResult {
   branch: string;
   /** Live PR branch head commit; use for check lookup and guarded merge. */
   headSha: string;
+  baseSha: string;
   baseBranch: string;
   state: string;
   merged: boolean;
@@ -271,6 +272,7 @@ async function inspectPullRequestRaw(
     url: pull.html_url,
     branch: pull.head.ref,
     headSha: pull.head.sha,
+    baseSha: pull.base.sha,
     baseBranch: pull.base.ref,
     state: pull.state,
     merged: pull.merged,

@@ -5,6 +5,7 @@
 
 import type { ReviewDecision } from "../review-contracts.js";
 import type { PlanArtifactIdentity } from "../plan-artifact.js";
+import type { ImplementationArtifactIdentity } from "../implementation-artifact.js";
 
 export const WORKFLOW_STATE_RECORD_KIND = "p-dev.workflow-state.v1" as const;
 
@@ -15,12 +16,17 @@ export interface AcceptedReviewDecision {
   acceptedAt: string;
   reviewedPlanGenerationId?: string;
   reviewedPlanArtifactHash?: string;
+  reviewedPrNumber?: number;
+  reviewedHeadSha?: string;
+  reviewedDiffHash?: string;
   findings?: Array<{
     id: string;
     severity: "blocking" | "non_blocking";
     category: string;
     evidence: string;
     requiredChange?: string;
+    file?: string;
+    line?: number;
   }>;
 }
 
@@ -29,11 +35,20 @@ export interface PhaseExecutionFreeze {
   phaseId: string;
   claimedAt: string;
   requestedEnabled: boolean;
-  /** Fail-closed readiness at claim — not merely the config toggle. */
+  /**
+   * Fail-closed configuration readiness at claim — not merely the config toggle.
+   * For Code Review this is configuredReady (not per-issue executionEligible).
+   */
   effectiveEnabled: boolean;
+  /** Explicit Code Review configuredReady when phase is code_review/code_revision. */
+  configuredReady?: boolean;
   cycleLimit: number;
   planReviewerModelId: string | null;
   planReviewerFast: boolean | null;
+  codeReviewerModelId?: string | null;
+  codeReviewerFast?: boolean | null;
+  codeReviserModelId?: string | null;
+  codeReviserFast?: boolean | null;
   missingRequirementCodes: string[];
   workflowSchemaVersion: string;
 }
@@ -59,6 +74,7 @@ export interface WorkflowStateRecord {
   lastTransitionIdentity: string | null;
   lastTransitionAt: string | null;
   latestPlanArtifact: PlanArtifactIdentity | null;
+  latestImplementationArtifact: ImplementationArtifactIdentity | null;
   phaseExecutionFreeze: PhaseExecutionFreeze | null;
 }
 
@@ -104,6 +120,7 @@ export function createEmptyWorkflowState(input: {
     lastTransitionIdentity: null,
     lastTransitionAt: null,
     latestPlanArtifact: null,
+    latestImplementationArtifact: null,
     phaseExecutionFreeze: null,
   };
 }

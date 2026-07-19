@@ -1,7 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { PlanReviewReadinessView } from "@harness/workflow-page/types";
+import type {
+  CodeReviewReadinessView,
+  PlanReviewReadinessView,
+} from "@harness/workflow-page/types";
 import { saveWorkflowOptionalPhases } from "@/lib/workflow/api-client";
 
 export type OptionalPhasesSaveState = "idle" | "saving" | "saved" | "error";
@@ -15,6 +18,25 @@ export type WorkflowOptionalPhasesSaveContext = {
   configFingerprint: string;
 };
 
+export type OptionalPhasesReadiness = {
+  planReview: PlanReviewReadinessView;
+  codeReview: CodeReviewReadinessView;
+};
+
+function buildSavePayload(readiness: OptionalPhasesReadiness): {
+  planReviewEnabled: boolean;
+  planReviewCycleLimit: number;
+  codeReviewEnabled: boolean;
+  codeReviewCycleLimit: number;
+} {
+  return {
+    planReviewEnabled: readiness.planReview.requestedEnabled,
+    planReviewCycleLimit: readiness.planReview.cycleLimit,
+    codeReviewEnabled: readiness.codeReview.requestedEnabled,
+    codeReviewCycleLimit: readiness.codeReview.cycleLimit,
+  };
+}
+
 export function useWorkflowOptionalPhasesSave({
   context,
   committedReadiness,
@@ -22,8 +44,8 @@ export function useWorkflowOptionalPhasesSave({
   onFingerprintChange,
 }: {
   context: WorkflowOptionalPhasesSaveContext;
-  committedReadiness: PlanReviewReadinessView;
-  onCommittedReadinessChange: (readiness: PlanReviewReadinessView) => void;
+  committedReadiness: OptionalPhasesReadiness;
+  onCommittedReadinessChange: (readiness: OptionalPhasesReadiness) => void;
   onFingerprintChange: (fingerprint: string) => void;
 }) {
   const [optimisticReadiness, setOptimisticReadiness] =
@@ -45,11 +67,10 @@ export function useWorkflowOptionalPhasesSave({
   }, [committedReadiness]);
 
   const runSave = useCallback(
-    async (readiness: PlanReviewReadinessView, generation: number) => {
+    async (readiness: OptionalPhasesReadiness, generation: number) => {
       try {
         const result = await saveWorkflowOptionalPhases({
-          planReviewEnabled: readiness.requestedEnabled,
-          planReviewCycleLimit: readiness.cycleLimit,
+          ...buildSavePayload(readiness),
           expectedConfigFingerprint: fingerprintRef.current,
           sourceMode: context.sourceMode,
           fixtureId: context.fixtureId,
@@ -87,7 +108,7 @@ export function useWorkflowOptionalPhasesSave({
   );
 
   const scheduleSave = useCallback(
-    (readiness: PlanReviewReadinessView) => {
+    (readiness: OptionalPhasesReadiness) => {
       if (timerRef.current) {
         clearTimeout(timerRef.current);
       }
@@ -104,37 +125,47 @@ export function useWorkflowOptionalPhasesSave({
 
   const handlePlanReviewEnabledChange = useCallback(
     (enabled: boolean) => {
-      const next: PlanReviewReadinessView = enabled
+      const committed = committedReadiness.planReview;
+      const nextPlan: PlanReviewReadinessView = enabled
         ? {
-            ...committedReadiness,
+            ...committed,
             requestedEnabled: true,
             uiState:
-              committedReadiness.effectiveEnabled &&
-              committedReadiness.missingRequirementMessages.length === 0
+              committed.effectiveEnabled &&
+              committed.missingRequirementMessages.length === 0
                 ? "active"
                 : "setup_required",
             effectiveEnabled:
-              committedReadiness.effectiveEnabled &&
-              committedReadiness.missingRequirementMessages.length === 0,
+              committed.effectiveEnabled &&
+              committed.missingRequirementMessages.length === 0,
           }
         : {
-            ...optimisticReadiness,
+            ...optimisticReadiness.planReview,
             requestedEnabled: false,
             effectiveEnabled: false,
             uiState: "disabled",
-            missingRequirementMessages: ["Plan Review is disabled in configuration."],
+            missingRequirementMessages: [
+              "Plan Review is disabled in configuration.",
+            ],
           };
+      const next = {
+        ...optimisticReadiness,
+        planReview: nextPlan,
+      };
       setOptimisticReadiness(next);
       scheduleSave(next);
     },
-    [committedReadiness, optimisticReadiness, scheduleSave],
+    [committedReadiness.planReview, optimisticReadiness, scheduleSave],
   );
 
   const handlePlanReviewCycleLimitChange = useCallback(
     (cycleLimit: number) => {
-      const next: PlanReviewReadinessView = {
+      const next = {
         ...optimisticReadiness,
-        cycleLimit,
+        planReview: {
+          ...optimisticReadiness.planReview,
+          cycleLimit,
+        },
       };
       setOptimisticReadiness(next);
       scheduleSave(next);
@@ -142,7 +173,57 @@ export function useWorkflowOptionalPhasesSave({
     [optimisticReadiness, scheduleSave],
   );
 
-  const syncCommittedReadiness = useCallback((next: PlanReviewReadinessView) => {
+  const handleCodeReviewEnabledChange = useCallback(
+    (enabled: boolean) => {
+      const committed = committedReadiness.codeReview;
+      const nextCode: CodeReviewReadinessView = enabled
+        ? {
+            ...committed,
+            requestedEnabled: true,
+            uiState:
+              committed.effectiveEnabled &&
+              committed.missingRequirementMessages.length === 0
+                ? "active"
+                : "setup_required",
+            effectiveEnabled:
+              committed.effectiveEnabled &&
+              committed.missingRequirementMessages.length === 0,
+          }
+        : {
+            ...optimisticReadiness.codeReview,
+            requestedEnabled: false,
+            effectiveEnabled: false,
+            uiState: "disabled",
+            missingRequirementMessages: [
+              "Code Review is disabled in configuration.",
+            ],
+          };
+      const next = {
+        ...optimisticReadiness,
+        codeReview: nextCode,
+      };
+      setOptimisticReadiness(next);
+      scheduleSave(next);
+    },
+    [committedReadiness.codeReview, optimisticReadiness, scheduleSave],
+  );
+
+  const handleCodeReviewCycleLimitChange = useCallback(
+    (cycleLimit: number) => {
+      const next = {
+        ...optimisticReadiness,
+        codeReview: {
+          ...optimisticReadiness.codeReview,
+          cycleLimit,
+        },
+      };
+      setOptimisticReadiness(next);
+      scheduleSave(next);
+    },
+    [optimisticReadiness, scheduleSave],
+  );
+
+  const syncCommittedReadiness = useCallback((next: OptionalPhasesReadiness) => {
     setOptimisticReadiness(next);
   }, []);
 
@@ -156,11 +237,14 @@ export function useWorkflowOptionalPhasesSave({
           : null;
 
   return {
-    planReviewReadiness: optimisticReadiness,
+    planReviewReadiness: optimisticReadiness.planReview,
+    codeReviewReadiness: optimisticReadiness.codeReview,
     saveStateLabel,
     saveError,
     handlePlanReviewEnabledChange,
     handlePlanReviewCycleLimitChange,
+    handleCodeReviewEnabledChange,
+    handleCodeReviewCycleLimitChange,
     syncCommittedReadiness,
   };
 }

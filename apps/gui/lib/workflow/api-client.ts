@@ -33,7 +33,7 @@ export async function fetchWorkflowBootstrap(input?: {
 }
 
 export async function saveWorkflowModel(input: {
-  role: "planner" | "builder" | "planReviewer";
+  role: "planner" | "builder" | "planReviewer" | "codeReviewer" | "codeReviser";
   modelId: string;
   params: Array<{ id: string; value: string }>;
   expectedConfigFingerprint: string;
@@ -86,6 +86,8 @@ export async function saveWorkflowModel(input: {
 export async function saveWorkflowOptionalPhases(input: {
   planReviewEnabled: boolean;
   planReviewCycleLimit: number;
+  codeReviewEnabled: boolean;
+  codeReviewCycleLimit: number;
   expectedConfigFingerprint: string;
   sourceMode?: string;
   fixtureId?: string;
@@ -102,6 +104,8 @@ export async function saveWorkflowOptionalPhases(input: {
       body: JSON.stringify({
         planReviewEnabled: input.planReviewEnabled,
         planReviewCycleLimit: input.planReviewCycleLimit,
+        codeReviewEnabled: input.codeReviewEnabled,
+        codeReviewCycleLimit: input.codeReviewCycleLimit,
         expectedConfigFingerprint: input.expectedConfigFingerprint,
         sourceMode: input.sourceMode,
         fixtureId: input.fixtureId,

@@ -17,7 +17,8 @@ Canonical decisions: [ADR 0006](../decisions/0006-agent-instruction-and-prompt-a
 | Architecture evolution audit | operator | N/A | operator invoke | N/A | `.agents/skills/architecture-evolution-audit/SKILL.md` | Operator | N/A | N/A | N/A | N/A | N/A |
 | Security audit | operator | N/A | operator invoke | N/A | `.agents/skills/security-audit/SKILL.md` | Operator | N/A | N/A | N/A | N/A | N/A |
 | Plan reviewer | `plan_review` | `src/prompts/plan-review.md` | builder + skill execution | `plan-reviewer` | `.agents/skills/plan-reviewer/SKILL.md` | **Rendered** | `plan-review@1` / `p-dev.plan-review` | issue fields, plan identity/hash/body, cycle limits, prior feedback | `roleModels.planReviewer` (defaults to planner) → Cursor `mode: plan` | prompt/skill provenance; phase `plan_review` | None |
-| Code reviewer (future) | reserved | slot `p-dev.code-review` | not implemented | TBD | reserved | — | reserved | — | — | — | — |
+| Code reviewer | `code_review` | `src/prompts/code-review.md` (slot) | builder + skill execution | `code-reviewer` | `.agents/skills/code-reviewer/SKILL.md` | **Rendered** (when prompt implemented) | `code-review@1` / `p-dev.code-review` | PR identity, diff bounds, cycle limits, prior findings summary | `roleModels.codeReviewer` (defaults to builder) | prompt/skill provenance; phase `code_review` | None |
+| Code reviser | `code_revision` | `src/prompts/code-revision.md` (slot) | builder + skill execution | `code-reviewer` | `.agents/skills/code-reviewer/SKILL.md` | **Rendered** (when prompt implemented) | `code-revision@1` / `p-dev.code-revision` | reviewer feedback, PR/branch identity, cycle context | `roleModels.codeReviser` (defaults to builder) | prompt/skill provenance; phase `code_revision` | None |
 | Handoff / merge | orchestration | version constants only | no agent prompt template | none | — | none | `handoff@1` / `merge@1` | — | — | partial metadata | — |
 
 ## Cursor execution-surface capability matrix
@@ -64,7 +65,7 @@ These must not be committed as production adapters in this chunk.
 
 ## Future extension points
 
-- `code_reviewer` prompt registry slot (`p-dev.code-review`) — not implemented. `plan_reviewer` is implemented (Chunk 5).
+- Code Review / Code Revision prompt slots (`p-dev.code-review`, `p-dev.code-revision`) — registry + GUI readiness wired (Chunk 6); runner execution follows prompt `implemented` flag.
 - Post-evidence generated secondary layout from `.agents/skills` with parity tests.
 - Ephemeral cloud availability adapter that does not leave harness skill files in target PRs.
 

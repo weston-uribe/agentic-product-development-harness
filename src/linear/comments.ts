@@ -785,6 +785,8 @@ export function buildPhaseStartCommentBody(
     planning_start: "Planning has started.",
     plan_review_start: "Plan Review has started.",
     implementation_start: "Build has started.",
+    code_review_start: "Code Review has started.",
+    code_revision_start: "Code Revision has started.",
     revision_start: "Revision has started.",
     merge_start: "Merging has started.",
   };

@@ -53,6 +53,10 @@ export function analyticsEventDedupeSuffix(
       return `reconciliation:${event.workflow_phase_id ?? ""}:${event.reconciliation_source ?? ""}`;
     case "p_dev_plan_review_readiness":
       return `plan_review_readiness:${event.ui_state ?? ""}:${event.missing_codes ?? ""}`;
+    case "p_dev_code_review_readiness":
+      return `code_review_readiness:${event.ui_state ?? ""}:${event.missing_codes ?? ""}`;
+    case "p_dev_code_review_execution_eligibility":
+      return `code_review_execution:${event.execution_eligible ?? ""}:${event.failure_codes ?? ""}`;
     default: {
       const exhaustive: never = event;
       return String(exhaustive);

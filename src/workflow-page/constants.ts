@@ -14,6 +14,7 @@ export const WORKFLOW_FIXTURE_IDS = [
   "canonical-whitespace-name",
   "canonical-plan-review-present",
   "plan-review-browser",
+  "code-review-browser",
 ] as const;
 
 export type WorkflowFixtureId = (typeof WORKFLOW_FIXTURE_IDS)[number];

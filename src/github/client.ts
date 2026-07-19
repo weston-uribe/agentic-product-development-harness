@@ -61,7 +61,7 @@ export interface GitHubPullRequest {
   mergeable_state?: string | null;
   rebaseable?: boolean | null;
   head: { ref: string; sha: string };
-  base: { ref: string };
+  base: { ref: string; sha: string };
 }
 
 export interface GitHubRepository {
@@ -190,7 +190,7 @@ export interface GitHubPullRequestListItem {
   body?: string | null;
   merged_at?: string | null;
   head: { ref: string; sha: string };
-  base: { ref: string };
+  base: { ref: string; sha: string };
 }
 
 export interface GitHubCompareResult {

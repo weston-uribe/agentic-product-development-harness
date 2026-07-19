@@ -21,6 +21,13 @@ const CHUNK5_QUERY =
   "source=fixture&fixture=plan-review-browser&scope=harness-repo";
 const CHUNK5_WORKFLOW_URL = `/workflow?${CHUNK5_QUERY}`;
 const CHUNK5_SETTINGS_URL = `/settings/models?${CHUNK5_QUERY}`;
+/**
+ * Isolated fixture (no Code Review Linear statuses) for Chunk 6 acceptance.
+ */
+const CHUNK6_QUERY =
+  "source=fixture&fixture=code-review-browser&scope=harness-repo";
+const CHUNK6_WORKFLOW_URL = `/workflow?${CHUNK6_QUERY}`;
+const CHUNK6_SETTINGS_URL = `/settings/models?${CHUNK6_QUERY}`;
 
 async function expandStatus(page: Page, statusName: string): Promise<void> {
   const button = page.getByRole("button", { name: new RegExp(`^${statusName}\\s`) });
@@ -76,6 +83,27 @@ function planReviewerModelCard(page: Page) {
 
 async function expandPlanReview(page: Page): Promise<void> {
   const card = planReviewCard(page);
+  const button = card.getByRole("button").first();
+  if ((await button.getAttribute("aria-expanded")) === "false") {
+    await button.click();
+  }
+}
+
+function codeReviewCard(page: Page) {
+  return page.getByTestId("optional-phase-card").filter({
+    has: page.getByText("Code Review", { exact: true }),
+  });
+}
+
+function codeReviewerModelCard(page: Page) {
+  return page
+    .locator("div.rounded-md.border")
+    .filter({ has: page.getByText("Code Reviewer model", { exact: true }) })
+    .first();
+}
+
+async function expandCodeReview(page: Page): Promise<void> {
+  const card = codeReviewCard(page);
   const button = card.getByRole("button").first();
   if ((await button.getAttribute("aria-expanded")) === "false") {
     await button.click();
@@ -757,5 +785,150 @@ test.describe("Chunk 5 Plan Review browser acceptance", () => {
     expect(failedApi, failedApi.join("\n")).toEqual([]);
     expect(posthogRequests).toEqual([]);
     expect(analyticsPosts).toEqual([]);
+  });
+});
+
+test.describe("Chunk 6 Code Review browser acceptance", () => {
+  test("Code Review setup-required UX, persistence, and Settings parity", async ({
+    page,
+  }) => {
+    const consoleErrors: string[] = [];
+    const pageErrors: string[] = [];
+    const failedApi: string[] = [];
+    const modelPuts: Request[] = [];
+    const optionalPhasePuts: Request[] = [];
+
+    page.on("console", (message) => {
+      if (message.type() === "error") {
+        consoleErrors.push(message.text());
+      }
+    });
+    page.on("pageerror", (error) => {
+      pageErrors.push(error.message);
+    });
+    page.on("request", (request) => {
+      const url = request.url();
+      if (request.method() === "PUT" && url.includes("/api/workflow/models")) {
+        modelPuts.push(request);
+      }
+      if (
+        request.method() === "PUT" &&
+        url.includes("/api/workflow/optional-phases")
+      ) {
+        optionalPhasePuts.push(request);
+      }
+    });
+    page.on("response", (response) => {
+      const url = response.url();
+      if (
+        url.includes("/api/") &&
+        response.status() >= 400 &&
+        !url.includes("/api/observability/")
+      ) {
+        failedApi.push(
+          `${response.status()} ${response.request().method()} ${url}`,
+        );
+      }
+    });
+
+    const modelPutsBeforeOpen = modelPuts.length;
+    const optionalPutsBeforeOpen = optionalPhasePuts.length;
+    await page.goto(CHUNK6_WORKFLOW_URL);
+    await page.waitForLoadState("networkidle");
+    await expect(page.locator("body")).toHaveAttribute(
+      "data-p-dev-runtime-smoke",
+      "1",
+    );
+    expect(modelPuts.length).toBe(modelPutsBeforeOpen);
+    expect(optionalPhasePuts.length).toBe(optionalPutsBeforeOpen);
+
+    await expandCodeReview(page);
+    const card = codeReviewCard(page);
+    await expect(card.getByTestId("optional-phase-badge")).toHaveText("Optional");
+    const enableCheckbox = card
+      .getByTestId("optional-phase-enable")
+      .locator('input[type="checkbox"]');
+    await expect(enableCheckbox).not.toBeChecked();
+    await expect(card.getByTestId("bypass-path-display")).toBeVisible();
+
+    const enableSave = page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/workflow/optional-phases") &&
+        response.request().method() === "PUT" &&
+        response.ok(),
+    );
+    await enableCheckbox.check();
+    const enableBody = (await enableSave).request().postDataJSON() as {
+      codeReviewEnabled: boolean;
+      codeReviewCycleLimit: number;
+    };
+    expect(enableBody.codeReviewEnabled).toBe(true);
+    expect(enableBody.codeReviewCycleLimit).toBe(4);
+
+    await expect(page.getByText("Saved").first()).toBeVisible({
+      timeout: 20_000,
+    });
+    // Fixture omits Code Review statuses → Setup required (configuredReady false)
+    await expect(card.getByTestId("optional-phase-badge")).toHaveText(
+      "Setup required",
+    );
+
+    await expandStatus(page, "Building");
+    const builderBefore = await page
+      .locator("div.rounded-md.border")
+      .filter({ has: page.getByText("Builder model", { exact: true }) })
+      .first()
+      .locator("select")
+      .inputValue();
+
+    const reviewerCard = codeReviewerModelCard(page);
+    await expect(reviewerCard).toBeVisible();
+    const switchReviewer = page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/workflow/models") &&
+        response.request().method() === "PUT" &&
+        response.ok(),
+    );
+    await reviewerCard.locator("select").selectOption("composer-2.5");
+    const switchBody = (await switchReviewer).request().postDataJSON() as {
+      role: string;
+    };
+    expect(switchBody.role).toBe("codeReviewer");
+
+    await page.goto(CHUNK6_SETTINGS_URL);
+    await page.waitForLoadState("networkidle");
+    const settingsReviewer = page
+      .locator("div.rounded-md.border")
+      .filter({ has: page.getByText(/Code Reviewer/i) })
+      .first();
+    await expect(settingsReviewer.locator("select")).toHaveValue("composer-2.5");
+
+    await page.goto(CHUNK6_WORKFLOW_URL);
+    await page.waitForLoadState("networkidle");
+    await expandCodeReview(page);
+    await expect(
+      codeReviewCard(page).getByTestId("optional-phase-badge"),
+    ).toHaveText("Setup required");
+    await expect(
+      codeReviewCard(page)
+        .getByTestId("optional-phase-enable")
+        .locator('input[type="checkbox"]'),
+    ).toBeChecked();
+
+    await expandStatus(page, "Building");
+    const builderAfter = await page
+      .locator("div.rounded-md.border")
+      .filter({ has: page.getByText("Builder model", { exact: true }) })
+      .first()
+      .locator("select")
+      .inputValue();
+    expect(builderAfter).toBe(builderBefore);
+
+    expect(
+      pageErrors.filter((message) => /hydrat/i.test(message)),
+      pageErrors.join("\n"),
+    ).toEqual([]);
+    expect(consoleErrors, consoleErrors.join("\n")).toEqual([]);
+    expect(failedApi, failedApi.join("\n")).toEqual([]);
   });
 });

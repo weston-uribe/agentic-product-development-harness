@@ -17,6 +17,8 @@ export interface ReviewFinding {
   /** @deprecated use evidence; retained for transitional callers */
   summary?: string;
   path?: string;
+  file?: string;
+  line?: number;
 }
 
 export interface PlanReviewOutcome {
@@ -25,6 +27,15 @@ export interface PlanReviewOutcome {
   findings: ReviewFinding[];
   reviewedPlanGenerationId: string;
   reviewedPlanArtifactHash: string;
+}
+
+export interface CodeReviewOutcome {
+  decision: ReviewDecision;
+  summary: string;
+  findings: ReviewFinding[];
+  reviewedPrNumber: number;
+  reviewedHeadSha: string;
+  reviewedDiffHash: string;
 }
 
 export interface ReviewOutcome {
@@ -38,6 +49,9 @@ export interface ReviewOutcome {
   generationId: string;
   reviewedPlanGenerationId?: string;
   reviewedPlanArtifactHash?: string;
+  reviewedPrNumber?: number;
+  reviewedHeadSha?: string;
+  reviewedDiffHash?: string;
   /** Workflow-state revision expected at review start. */
   expectedStateRevision?: number;
 }
@@ -94,12 +108,23 @@ function normalizeFinding(raw: unknown, index: number): ReviewFinding | null {
     null;
   if (!evidence) return null;
   const requiredChange = asNonEmptyString(row.requiredChange) ?? undefined;
+  const file =
+    asNonEmptyString(row.file) ?? asNonEmptyString(row.path) ?? undefined;
+  const line =
+    typeof row.line === "number" && Number.isFinite(row.line) && row.line > 0
+      ? Math.floor(row.line)
+      : undefined;
+  if (row.line !== undefined && row.line !== null && line === undefined) {
+    return null;
+  }
   return {
     id,
     severity: severityRaw as ReviewFindingSeverity,
     category,
     evidence,
     ...(requiredChange ? { requiredChange } : {}),
+    ...(file ? { file, path: file } : {}),
+    ...(line !== undefined ? { line } : {}),
   };
 }
 
@@ -223,4 +248,293 @@ export function toEngineReviewOutcome(input: {
     reviewedPlanArtifactHash: input.planReview.reviewedPlanArtifactHash,
     expectedStateRevision: input.expectedStateRevision,
   };
+}
+
+export type CodeReviewOutcomeValidationError =
+  | PlanReviewOutcomeValidationError
+  | "missing_reviewed_pr_identity"
+  | "invalid_file_line_reference";
+
+export interface CodeReviewOutcomeValidationResult {
+  ok: boolean;
+  outcome?: CodeReviewOutcome;
+  error?: CodeReviewOutcomeValidationError;
+  detail?: string;
+}
+
+/**
+ * Validate structured Code Review agent output.
+ * Schema/provider failure must not increment review cycles (caller uses infra_retry).
+ */
+export function validateCodeReviewOutcome(
+  raw: unknown,
+): CodeReviewOutcomeValidationResult {
+  if (!raw || typeof raw !== "object") {
+    return { ok: false, error: "malformed_json" };
+  }
+  const obj = raw as Record<string, unknown>;
+  const decisionRaw = asNonEmptyString(obj.decision);
+  if (!decisionRaw) {
+    return { ok: false, error: "missing_decision" };
+  }
+  if (!DECISIONS.has(decisionRaw as ReviewDecision)) {
+    return { ok: false, error: "unknown_decision", detail: decisionRaw };
+  }
+  const summary = asNonEmptyString(obj.summary);
+  if (!summary) {
+    return { ok: false, error: "missing_summary" };
+  }
+  const reviewedPrNumber =
+    typeof obj.reviewedPrNumber === "number" &&
+    Number.isFinite(obj.reviewedPrNumber) &&
+    obj.reviewedPrNumber > 0
+      ? Math.floor(obj.reviewedPrNumber)
+      : null;
+  const reviewedHeadSha = asNonEmptyString(obj.reviewedHeadSha);
+  const reviewedDiffHash = asNonEmptyString(obj.reviewedDiffHash);
+  if (!reviewedPrNumber || !reviewedHeadSha || !reviewedDiffHash) {
+    return { ok: false, error: "missing_reviewed_pr_identity" };
+  }
+
+  if (!Array.isArray(obj.findings)) {
+    return { ok: false, error: "invalid_findings" };
+  }
+  const findings: ReviewFinding[] = [];
+  for (let i = 0; i < obj.findings.length; i += 1) {
+    const finding = normalizeFinding(obj.findings[i], i);
+    if (!finding) {
+      const row = obj.findings[i] as Record<string, unknown> | undefined;
+      const severity = row?.severity;
+      if (
+        typeof severity === "string" &&
+        !SEVERITIES.has(severity as ReviewFindingSeverity)
+      ) {
+        return { ok: false, error: "unknown_severity", detail: severity };
+      }
+      if (row && row.line !== undefined && row.line !== null) {
+        return {
+          ok: false,
+          error: "invalid_file_line_reference",
+          detail: `index=${i}`,
+        };
+      }
+      return { ok: false, error: "invalid_findings", detail: `index=${i}` };
+    }
+    if (finding.severity === "blocking" && !finding.evidence.trim()) {
+      return { ok: false, error: "empty_blocking_evidence", detail: finding.id };
+    }
+    findings.push(finding);
+  }
+
+  const decision = decisionRaw as ReviewDecision;
+  const blocking = findings.filter((f) => f.severity === "blocking");
+  if (decision === "approved" && blocking.length > 0) {
+    return { ok: false, error: "approved_with_blocking_findings" };
+  }
+  if (decision === "needs_revision" && blocking.length === 0) {
+    return { ok: false, error: "needs_revision_without_blocking_findings" };
+  }
+
+  return {
+    ok: true,
+    outcome: {
+      decision,
+      summary,
+      findings,
+      reviewedPrNumber,
+      reviewedHeadSha,
+      reviewedDiffHash,
+    },
+  };
+}
+
+export function extractCodeReviewOutcomeFromText(
+  text: string,
+): CodeReviewOutcomeValidationResult {
+  const fenced = text.match(/```json\s*([\s\S]*?)\s*```/i);
+  const raw = fenced?.[1] ?? text.trim();
+  try {
+    return validateCodeReviewOutcome(JSON.parse(raw) as unknown);
+  } catch {
+    return { ok: false, error: "malformed_json" };
+  }
+}
+
+export function buildCodeReviewDecisionIdentity(input: {
+  decision: ReviewDecision;
+  reviewedPrNumber: number;
+  reviewedHeadSha: string;
+  reviewedDiffHash: string;
+  reviewerGenerationId: string;
+}): string {
+  const material = [
+    input.decision,
+    String(input.reviewedPrNumber),
+    input.reviewedHeadSha,
+    input.reviewedDiffHash,
+    input.reviewerGenerationId,
+  ].join("|");
+  return createHash("sha256").update(material).digest("hex").slice(0, 32);
+}
+
+export function toEngineCodeReviewOutcome(input: {
+  codeReview: CodeReviewOutcome;
+  reviewerGenerationId: string;
+  expectedStateRevision?: number;
+}): ReviewOutcome {
+  return {
+    decision: input.codeReview.decision,
+    summary: input.codeReview.summary,
+    findings: input.codeReview.findings,
+    decisionIdentity: buildCodeReviewDecisionIdentity({
+      decision: input.codeReview.decision,
+      reviewedPrNumber: input.codeReview.reviewedPrNumber,
+      reviewedHeadSha: input.codeReview.reviewedHeadSha,
+      reviewedDiffHash: input.codeReview.reviewedDiffHash,
+      reviewerGenerationId: input.reviewerGenerationId,
+    }),
+    generationId: input.reviewerGenerationId,
+    reviewedPrNumber: input.codeReview.reviewedPrNumber,
+    reviewedHeadSha: input.codeReview.reviewedHeadSha,
+    reviewedDiffHash: input.codeReview.reviewedDiffHash,
+    expectedStateRevision: input.expectedStateRevision,
+  };
+}
+
+export type CodeRevisionResultState =
+  | "verified_complete"
+  | "blocked_external"
+  | "requires_product_judgment"
+  | "verification_failed";
+
+export interface CodeRevisionAgentOutcome {
+  summary: string;
+  resultState: CodeRevisionResultState;
+  findingsAddressed: Array<{
+    findingId: string;
+    resolution: string;
+    evidence: string;
+  }>;
+  filesChanged: string[];
+  testEvidence: string;
+  currentHeadSha: string;
+  currentDiffHash: string;
+}
+
+export type CodeRevisionOutcomeValidationError =
+  | "malformed_json"
+  | "missing_summary"
+  | "missing_result_state"
+  | "unknown_result_state"
+  | "missing_head_identity"
+  | "invalid_findings_addressed"
+  | "invalid_files_changed";
+
+export interface CodeRevisionOutcomeValidationResult {
+  ok: boolean;
+  outcome?: CodeRevisionAgentOutcome;
+  error?: CodeRevisionOutcomeValidationError;
+  detail?: string;
+}
+
+const CODE_REVISION_RESULT_STATES = new Set<CodeRevisionResultState>([
+  "verified_complete",
+  "blocked_external",
+  "requires_product_judgment",
+  "verification_failed",
+]);
+
+export function validateCodeRevisionOutcome(
+  raw: unknown,
+): CodeRevisionOutcomeValidationResult {
+  if (!raw || typeof raw !== "object") {
+    return { ok: false, error: "malformed_json" };
+  }
+  const obj = raw as Record<string, unknown>;
+  const summary = asNonEmptyString(obj.summary);
+  if (!summary) {
+    return { ok: false, error: "missing_summary" };
+  }
+  const resultStateRaw = asNonEmptyString(obj.resultState);
+  if (!resultStateRaw) {
+    return { ok: false, error: "missing_result_state" };
+  }
+  if (!CODE_REVISION_RESULT_STATES.has(resultStateRaw as CodeRevisionResultState)) {
+    return {
+      ok: false,
+      error: "unknown_result_state",
+      detail: resultStateRaw,
+    };
+  }
+  const currentHeadSha = asNonEmptyString(obj.currentHeadSha);
+  const currentDiffHash = asNonEmptyString(obj.currentDiffHash);
+  if (!currentHeadSha || !currentDiffHash) {
+    return { ok: false, error: "missing_head_identity" };
+  }
+
+  if (!Array.isArray(obj.findingsAddressed)) {
+    return { ok: false, error: "invalid_findings_addressed" };
+  }
+  const findingsAddressed: CodeRevisionAgentOutcome["findingsAddressed"] = [];
+  for (let i = 0; i < obj.findingsAddressed.length; i += 1) {
+    const row = obj.findingsAddressed[i];
+    if (!row || typeof row !== "object") {
+      return {
+        ok: false,
+        error: "invalid_findings_addressed",
+        detail: `index=${i}`,
+      };
+    }
+    const findingId = asNonEmptyString((row as Record<string, unknown>).findingId);
+    const resolution = asNonEmptyString(
+      (row as Record<string, unknown>).resolution,
+    );
+    const evidence = asNonEmptyString((row as Record<string, unknown>).evidence);
+    if (!findingId || !resolution || !evidence) {
+      return {
+        ok: false,
+        error: "invalid_findings_addressed",
+        detail: `index=${i}`,
+      };
+    }
+    findingsAddressed.push({ findingId, resolution, evidence });
+  }
+
+  if (!Array.isArray(obj.filesChanged)) {
+    return { ok: false, error: "invalid_files_changed" };
+  }
+  const filesChanged: string[] = [];
+  for (const file of obj.filesChanged) {
+    const path = asNonEmptyString(file);
+    if (!path) {
+      return { ok: false, error: "invalid_files_changed" };
+    }
+    filesChanged.push(path);
+  }
+
+  return {
+    ok: true,
+    outcome: {
+      summary,
+      resultState: resultStateRaw as CodeRevisionResultState,
+      findingsAddressed,
+      filesChanged,
+      testEvidence:
+        typeof obj.testEvidence === "string" ? obj.testEvidence : "",
+      currentHeadSha,
+      currentDiffHash,
+    },
+  };
+}
+
+export function extractCodeRevisionOutcomeFromText(
+  text: string,
+): CodeRevisionOutcomeValidationResult {
+  const fenced = text.match(/```json\s*([\s\S]*?)\s*```/i);
+  const raw = fenced?.[1] ?? text.trim();
+  try {
+    return validateCodeRevisionOutcome(JSON.parse(raw) as unknown);
+  } catch {
+    return { ok: false, error: "malformed_json" };
+  }
 }

@@ -1,4 +1,6 @@
 import {
+  createCodeReviewCloudAgent,
+  createCodeRevisionCloudAgent,
   createImplementationCloudAgent,
   createPlanReviewCloudAgent,
   createPlanningCloudAgent,
@@ -13,6 +15,8 @@ import type {
   AcquireBuilderAgentParams,
   AgentHandle,
   AgentProvider,
+  CodeReviewAgentParams,
+  CodeRevisionAgentParams,
   ImplementationAgentParams,
   ObservedAgentRun,
   PlanningAgentParams,
@@ -92,6 +96,20 @@ export const cursorAgentProvider: AgentProvider = {
 
   async createPlanReviewAgent(params: PlanningAgentParams): Promise<AgentHandle> {
     const agent = await createPlanReviewCloudAgent(params);
+    return wrapCursorAgent(agent);
+  },
+
+  async createCodeReviewAgent(
+    params: CodeReviewAgentParams,
+  ): Promise<AgentHandle> {
+    const agent = await createCodeReviewCloudAgent(params);
+    return wrapCursorAgent(agent);
+  },
+
+  async createCodeRevisionAgent(
+    params: CodeRevisionAgentParams,
+  ): Promise<AgentHandle> {
+    const agent = await createCodeRevisionCloudAgent(params);
     return wrapCursorAgent(agent);
   },
 

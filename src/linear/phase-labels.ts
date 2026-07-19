@@ -2,6 +2,8 @@ export type PhaseStartPhase =
   | "planning_start"
   | "plan_review_start"
   | "implementation_start"
+  | "code_review_start"
+  | "code_revision_start"
   | "revision_start"
   | "merge_start";
 
@@ -10,6 +12,8 @@ export type HarnessErrorPhase =
   | "plan_review"
   | "implementation"
   | "handoff"
+  | "code_review"
+  | "code_revision"
   | "revision"
   | "merge"
   | "production_sync";
@@ -18,6 +22,8 @@ const PHASE_START_LABELS: Record<PhaseStartPhase, string> = {
   planning_start: "Planning",
   plan_review_start: "Plan Review",
   implementation_start: "Building",
+  code_review_start: "Code Review",
+  code_revision_start: "Code Revision",
   revision_start: "Revision",
   merge_start: "Merging",
 };
@@ -27,6 +33,8 @@ const COMPLETION_LABELS: Record<string, string> = {
   plan_review: "Plan Review complete",
   implementation: "Building complete",
   handoff: "PM handoff",
+  code_review: "Code Review complete",
+  code_revision: "Code Revision complete",
   revision: "Revision complete",
   merge: "Merge complete",
   production_sync: "Production promotion",
@@ -37,6 +45,8 @@ const ERROR_LABELS: Record<HarnessErrorPhase, string> = {
   plan_review: "Plan Review",
   implementation: "Building",
   handoff: "PM handoff",
+  code_review: "Code Review",
+  code_revision: "Code Revision",
   revision: "Revision",
   merge: "Merge",
   production_sync: "Production promotion",

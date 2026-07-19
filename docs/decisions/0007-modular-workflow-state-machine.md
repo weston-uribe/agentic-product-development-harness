@@ -1,6 +1,6 @@
 # ADR 0007: Modular workflow state machine
 
-**Status:** Accepted (Chunk 4 foundation; Chunk 5 Plan Review loop)  
+**Status:** Accepted (Chunk 4 foundation; Chunk 5 Plan Review loop; Chunk 6 Code Review loop)  
 **Date:** 2026-07-18
 
 ## Context
@@ -125,9 +125,73 @@ Disabling Plan Review mid-cycle does not silent-bypass an active claimed reviewe
 
 Reuse the same pattern: optional phase + readiness gate + `ReviewOutcome` + independent counter + GUI three-state card. Do not invent parallel routing.
 
+### Fail-closed Code Review activation (Chunk 6)
+
+Separate three readiness layers (issue-independent vs per-issue):
+
+| Flag | Meaning |
+|------|---------|
+| `requestedEnabled` | `workflow.optionalPhases.codeReview === true` |
+| `configuredReady` | Safe to route/activate in GUI: Linear **Code Review** and **Code Revision** statuses present with required category, definition/prompt/skill/model valid, runner schema supported. **Does not require a PR.** |
+| `executionEligible` | Per-issue: durable PR/implementation artifact matches live GitHub evidence (PR number, repo, head/base SHA, diff identity), generation not superseded, reviewer identity not already owning generation |
+
+Until `configuredReady`:
+
+- Persist requested setting; GUI shows **Setup required** (card state uses `configuredReady` only — not PR presence)
+- Production route remains **PR Open → PM Review**
+- No missing-status transition, no reviewer/reviser agent, no Code Review trace/score
+- Emit bounded `p_dev_code_review_readiness` diagnostic (`configured_ready` property)
+
+Per-issue gate failures emit `p_dev_code_review_execution_eligibility` (`execution_eligible` property). No diff/findings/code bodies in either event.
+
+Freeze **`configuredReady`** (plus requested, cycle limit, reviewer/reviser models) into each claimed phase execution. Readiness/config changes apply only to subsequent claims.
+
+### Code Review lifecycle (when configuredReady)
+
+```text
+PR Open → Code Review
+  approved        → PM Review
+  needs_revision  → Code Revision → Code Review
+  cycle limit     → Blocked (no auto-approve)
+```
+
+Default max cycles: **4** (`workflow.cycleLimits.codeReview`). Revision increments `code_review_cycles` once; infra/duplicate/stale do not.
+
+### vs PM / Engineering Review
+
+Code Review is an **optional agent gate before PM Review**. PM Review and Engineering Review remain human gates on preview/behavior. Code Review evaluates implementation/PR materiality independently; it does not replace or share sessions with PM revision (`Needs Revision` → `Revising`).
+
+### Independence and materiality
+
+Code Reviewer is a fresh agent with bounded PR/diff context. Code Revision uses the **code reviser** role (defaults to Builder model) — separate from PM/engineering revision. Blocking findings follow the same materiality bar as Plan Review (meaningful risk only).
+
+### PR / implementation artifact identity
+
+Reviews bind to `implementationGenerationId`, PR number, repository, head/base SHA, and diff hash. Model-claimed identity is insufficient; live GitHub evidence must match durable artifacts at claim time.
+
+### Code Revision vs PM Revising
+
+| Path | Trigger | Agent role | Returns to |
+|------|---------|------------|------------|
+| Code Revision | Code Review `needs_revision` when Code Review configured | `code_reviser` | Code Review |
+| Revising | PM/Engineering `needs_revision` | `builder` (same session policy as implementation) | PM Review |
+
+### Mid-cycle configuration
+
+Disabling Code Review mid-cycle does not silent-bypass an active claimed reviewer/reviser. Same freeze semantics as Plan Review.
+
+### Linear requirements
+
+When requested, Linear must expose **Code Review** and **Code Revision** statuses in the configured category (default `started`). Sync evaluation without Linear statuses treats statuses as missing (**fail-closed**).
+
+### Engine reuse and Plan Review exception
+
+Routing, `ReviewOutcome`, cycle counters, bypass events, and GUI optional-phase cards reuse the Plan Review pattern. **Exception:** Plan Review GUI/routing uses `effectiveEnabled`; Code Review uses `configuredReady` for card Active state and transition `effectiveOptionalPhases.codeReview` (execution eligibility is per-issue only).
+
 ## Consequences
 
 - Current workflow behavior is preserved when Plan Review is not effectively enabled
 - GUI shows Plan Review as Disabled / Setup required / Active
+- GUI shows Code Review as Disabled / Setup required / Active (`configuredReady`)
 - Markers/manifests become snapshots referencing `stateRevision` / transition identity
 - Concurrent webhook/reconcile races are handled by atomic apply + bounded retry

@@ -19,6 +19,7 @@ import {
   type WorkflowStateStore,
 } from "./store.js";
 import type { PlanArtifactIdentity } from "../plan-artifact.js";
+import type { ImplementationArtifactIdentity } from "../implementation-artifact.js";
 import type { PhaseExecutionFreeze, WorkflowStateRecord } from "./types.js";
 
 export interface ApplyWorkflowTransitionInput {
@@ -35,6 +36,7 @@ export interface ApplyWorkflowTransitionInput {
   clearActiveRunId?: string;
   returnDestination?: string | null;
   latestPlanArtifact?: PlanArtifactIdentity | null;
+  latestImplementationArtifact?: ImplementationArtifactIdentity | null;
   phaseExecutionFreeze?: PhaseExecutionFreeze | null;
   maxRetries?: number;
   now?: () => string;
@@ -60,6 +62,7 @@ function normalizeWorkflowState(record: WorkflowStateRecord): WorkflowStateRecor
       codeReview: false,
     },
     latestPlanArtifact: record.latestPlanArtifact ?? null,
+    latestImplementationArtifact: record.latestImplementationArtifact ?? null,
     phaseExecutionFreeze: record.phaseExecutionFreeze ?? null,
     supersededGenerationIdentities: record.supersededGenerationIdentities ?? [],
   };
@@ -75,6 +78,7 @@ function buildNextState(input: {
   clearActiveRunId?: string;
   returnDestination?: string | null;
   latestPlanArtifact?: PlanArtifactIdentity | null;
+  latestImplementationArtifact?: ImplementationArtifactIdentity | null;
   phaseExecutionFreeze?: PhaseExecutionFreeze | null;
   now: string;
 }): WorkflowStateRecord {
@@ -116,12 +120,17 @@ function buildNextState(input: {
       acceptedAt: input.now,
       reviewedPlanGenerationId: input.outcome.review.reviewedPlanGenerationId,
       reviewedPlanArtifactHash: input.outcome.review.reviewedPlanArtifactHash,
+      reviewedPrNumber: input.outcome.review.reviewedPrNumber,
+      reviewedHeadSha: input.outcome.review.reviewedHeadSha,
+      reviewedDiffHash: input.outcome.review.reviewedDiffHash,
       findings: input.outcome.review.findings.map((f) => ({
         id: f.id,
         severity: f.severity,
         category: f.category,
         evidence: f.evidence,
         ...(f.requiredChange ? { requiredChange: f.requiredChange } : {}),
+        ...(f.path ? { file: f.path } : {}),
+        ...(typeof f.line === "number" ? { line: f.line } : {}),
       })),
     };
   }
@@ -136,7 +145,8 @@ function buildNextState(input: {
       input.outcome.review?.decision === "needs_revision" &&
       input.transition.reason === "review_needs_revision"
     ) {
-      returnDestination = "plan_review";
+      returnDestination =
+        input.currentPhaseId === "code_review" ? "code_review" : "plan_review";
     } else if (
       input.outcome.kind === "review" &&
       (input.outcome.review?.decision === "approved" ||
@@ -158,6 +168,21 @@ function buildNextState(input: {
       superseded.push(previous.latestPlanArtifact.planGenerationId);
     }
     latestPlanArtifact = input.latestPlanArtifact;
+  }
+
+  let latestImplementationArtifact = previous.latestImplementationArtifact;
+  if (input.latestImplementationArtifact !== undefined) {
+    if (
+      input.latestImplementationArtifact &&
+      previous.latestImplementationArtifact &&
+      previous.latestImplementationArtifact.implementationGenerationId !==
+        input.latestImplementationArtifact.implementationGenerationId
+    ) {
+      superseded.push(
+        previous.latestImplementationArtifact.implementationGenerationId,
+      );
+    }
+    latestImplementationArtifact = input.latestImplementationArtifact;
   }
 
   let phaseExecutionFreeze = previous.phaseExecutionFreeze;
@@ -186,6 +211,7 @@ function buildNextState(input: {
     lastTransitionIdentity: input.transition.idempotencyIdentity,
     lastTransitionAt: input.now,
     latestPlanArtifact,
+    latestImplementationArtifact,
     phaseExecutionFreeze,
   };
 }
@@ -289,6 +315,24 @@ export async function applyWorkflowTransition(
       latestPlanWorkflowStateRevision:
         input.evidence.latestPlanWorkflowStateRevision ??
         loaded.latestPlanArtifact?.workflowStateRevision,
+      latestPrNumber:
+        input.evidence.latestPrNumber ??
+        loaded.latestImplementationArtifact?.prNumber,
+      latestHeadSha:
+        input.evidence.latestHeadSha ??
+        loaded.latestImplementationArtifact?.headSha,
+      latestBaseSha:
+        input.evidence.latestBaseSha ??
+        loaded.latestImplementationArtifact?.baseSha,
+      latestDiffHash:
+        input.evidence.latestDiffHash ??
+        loaded.latestImplementationArtifact?.diffHash,
+      latestImplementationGenerationId:
+        input.evidence.latestImplementationGenerationId ??
+        loaded.latestImplementationArtifact?.implementationGenerationId,
+      latestImplementationWorkflowStateRevision:
+        input.evidence.latestImplementationWorkflowStateRevision ??
+        loaded.latestImplementationArtifact?.workflowStateRevision,
     };
 
     if (
@@ -350,7 +394,7 @@ export async function applyWorkflowTransition(
 
     const next = buildNextState({
       previous: loaded,
-      transition,
+      transition: transition,
       currentPhaseId: input.currentPhaseId,
       outcome: input.outcome,
       phaseExecutionId: input.phaseExecutionId,
@@ -358,6 +402,7 @@ export async function applyWorkflowTransition(
       clearActiveRunId: input.clearActiveRunId,
       returnDestination: input.returnDestination,
       latestPlanArtifact: input.latestPlanArtifact,
+      latestImplementationArtifact: input.latestImplementationArtifact,
       phaseExecutionFreeze: input.phaseExecutionFreeze,
       now: now(),
     });

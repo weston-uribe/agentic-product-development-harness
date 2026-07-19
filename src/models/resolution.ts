@@ -210,6 +210,26 @@ function storedParamsForRole(
       };
     }
   }
+  // Code Reviewer / Reviser default to the builder model when unset.
+  if (role === "codeReviewer" || role === "codeReviser") {
+    const builder = config.roleModels?.builder;
+    if (builder?.id) {
+      return {
+        modelId: builder.id,
+        storedParams: cloneParams(builder.params),
+      };
+    }
+  }
+  // Code Reviewer / Code Reviser default to the Builder model when unset.
+  if (role === "codeReviewer" || role === "codeReviser") {
+    const builder = config.roleModels?.builder;
+    if (builder?.id) {
+      return {
+        modelId: builder.id,
+        storedParams: cloneParams(builder.params),
+      };
+    }
+  }
   return {
     modelId: resolveLegacyModelId(config),
     // Legacy configs do not store params; omit so harness pin applies at resolve time.

@@ -154,6 +154,72 @@
                 "id"
               ],
               "additionalProperties": false
+            },
+            "codeReviewer": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "params": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "value": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "value"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "id"
+              ],
+              "additionalProperties": false
+            },
+            "codeReviser": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "params": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "value": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "value"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "id"
+              ],
+              "additionalProperties": false
             }
           },
           "additionalProperties": false
@@ -230,13 +296,13 @@
                 "codeReview": {
                   "type": "integer",
                   "exclusiveMinimum": 0,
-                  "default": 3
+                  "default": 4
                 }
               },
               "additionalProperties": false,
               "default": {
                 "planReview": 4,
-                "codeReview": 3
+                "codeReview": 4
               }
             }
           },

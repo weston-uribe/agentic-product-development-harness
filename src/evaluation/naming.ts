@@ -6,6 +6,8 @@
 export type AgentDisplayRole =
   | "planner"
   | "plan_reviewer"
+  | "code_reviewer"
+  | "code_reviser"
   | "implementer"
   | "reviser"
   | "integration_repairer";
@@ -13,6 +15,8 @@ export type AgentDisplayRole =
 export type PhaseDisplayName =
   | "planning"
   | "plan_review"
+  | "code_review"
+  | "code_revision"
   | "implementation"
   | "handoff"
   | "revision"
@@ -76,6 +80,10 @@ export function defaultAgentRoleForPhase(
       return "planner";
     case "plan_review":
       return "plan_reviewer";
+    case "code_review":
+      return "code_reviewer";
+    case "code_revision":
+      return "code_reviser";
     case "implementation":
       return "implementer";
     case "revision":

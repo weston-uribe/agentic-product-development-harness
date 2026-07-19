@@ -10,6 +10,8 @@ import {
 } from "../observability/model-analytics.js";
 import {
   resolveBuilderModel,
+  resolveCodeReviewerModel,
+  resolveCodeReviserModel,
   resolveModelResolutionForRole,
   resolvePlanReviewerModel,
   resolvePlannerModel,
@@ -129,6 +131,10 @@ export async function createPlanningCloudAgent(
 
 export type PlanReviewAgentParams = PlanningAgentParams;
 
+export type CodeReviewAgentParams = RevisionAgentParams;
+
+export type CodeRevisionAgentParams = RevisionAgentParams;
+
 /**
  * Fresh Plan Reviewer agent — must not reuse the planner conversation.
  * Read-only plan mode; never auto-creates a PR.
@@ -148,6 +154,61 @@ export async function createPlanReviewCloudAgent(
         {
           url: params.targetRepo,
           startingRef: params.baseBranch,
+        },
+      ],
+      autoCreatePR: false,
+      skipReviewerRequest: true,
+    },
+  });
+}
+
+/**
+ * Fresh Code Reviewer agent — must not reuse the implementer conversation.
+ * Read-only plan mode on the PR branch; never auto-creates a PR.
+ */
+export async function createCodeReviewCloudAgent(
+  params: CodeReviewAgentParams,
+): Promise<SDKAgent> {
+  const model: ModelSelection = resolveCodeReviewerModel(params.config);
+  return createCloudAgentWithModel({
+    apiKey: params.apiKey,
+    model,
+    mode: "plan",
+    config: params.config,
+    role: "codeReviewer",
+    cloud: {
+      repos: [
+        {
+          url: params.targetRepo,
+          startingRef: params.branch,
+          prUrl: params.prUrl,
+        },
+      ],
+      autoCreatePR: false,
+      skipReviewerRequest: true,
+    },
+  });
+}
+
+/**
+ * Code Reviser agent — builder-like corrections on the existing PR branch.
+ */
+export async function createCodeRevisionCloudAgent(
+  params: CodeRevisionAgentParams,
+): Promise<SDKAgent> {
+  const model: ModelSelection = resolveCodeReviserModel(params.config);
+  return createCloudAgentWithModel({
+    apiKey: params.apiKey,
+    model,
+    mode: "agent",
+    config: params.config,
+    role: "codeReviser",
+    cloud: {
+      repos: [
+        {
+          url: params.targetRepo,
+          startingRef: params.branch,
+          prUrl: params.prUrl,
         },
       ],
       autoCreatePR: false,

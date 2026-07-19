@@ -109,6 +109,8 @@ export function promptNameForPhase(phase: string): string {
       return "p-dev.plan-review";
     case "code_review":
       return "p-dev.code-review";
+    case "code_revision":
+      return "p-dev.code-revision";
     default:
       return `p-dev.${phase}`;
   }

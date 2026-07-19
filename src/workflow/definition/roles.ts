@@ -19,6 +19,7 @@ export const WORKFLOW_PROMPT_ROLES = [
   "integration_repairer",
   "plan_reviewer",
   "code_reviewer",
+  "code_reviser",
   "none",
 ] as const;
 export type WorkflowPromptRole = (typeof WORKFLOW_PROMPT_ROLES)[number];
@@ -38,6 +39,7 @@ export const WORKFLOW_MODEL_ROLES = [
   "builder",
   "plan_reviewer",
   "code_reviewer",
+  "code_reviser",
 ] as const;
 export type WorkflowModelRole = (typeof WORKFLOW_MODEL_ROLES)[number];
 
@@ -45,10 +47,12 @@ export const ACTIVE_MODEL_ROLES = [
   "planner",
   "builder",
   "plan_reviewer",
+  "code_reviewer",
+  "code_reviser",
 ] as const;
 export type ActiveModelRole = (typeof ACTIVE_MODEL_ROLES)[number];
 
-export const RESERVED_MODEL_ROLES = ["code_reviewer"] as const;
+export const RESERVED_MODEL_ROLES = [] as const;
 
 export interface StatusPhaseRoleMapping {
   statusId: string;
@@ -120,6 +124,14 @@ export const PRODUCT_DEVELOPMENT_ROLE_MAPPINGS: readonly StatusPhaseRoleMapping[
       promptRole: "code_reviewer",
       skillRole: "code_reviewer",
       modelRole: "code_reviewer",
+    },
+    {
+      statusId: "code-revision",
+      phaseId: "code_revision",
+      agentRole: "builder",
+      promptRole: "code_reviser",
+      skillRole: "implementation",
+      modelRole: "code_reviser",
     },
     {
       statusId: "needs-revision",

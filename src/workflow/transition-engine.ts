@@ -50,6 +50,13 @@ export interface TransitionEvidence {
   latestPlanGenerationId?: string;
   latestPlanArtifactHash?: string;
   latestPlanWorkflowStateRevision?: number;
+  /** Latest immutable implementation/PR identity for Code Review correlation. */
+  latestPrNumber?: number;
+  latestHeadSha?: string;
+  latestBaseSha?: string;
+  latestDiffHash?: string;
+  latestImplementationGenerationId?: string;
+  latestImplementationWorkflowStateRevision?: number;
 }
 
 export interface TransitionEngineInput {
@@ -402,6 +409,55 @@ function evaluateReviewTransition(
       review.expectedStateRevision !== undefined &&
       evidence.latestPlanWorkflowStateRevision !== undefined &&
       review.expectedStateRevision < evidence.latestPlanWorkflowStateRevision
+    ) {
+      return reject(input, "stale_workflow_revision");
+    }
+  }
+
+  // Code Review: verify harness PR/head/diff identity (model claim is insufficient).
+  if (
+    current.id === "code_review" &&
+    (review.reviewedPrNumber !== undefined ||
+      review.reviewedHeadSha ||
+      review.reviewedDiffHash)
+  ) {
+    if (!evidence.latestPrNumber && !evidence.latestHeadSha) {
+      return reject(input, "missing_pr_artifact");
+    }
+    if (
+      evidence.latestImplementationGenerationId &&
+      evidence.supersededGenerationIds?.includes(
+        evidence.latestImplementationGenerationId,
+      )
+    ) {
+      return reject(input, "superseded_implementation");
+    }
+    if (
+      review.reviewedPrNumber !== undefined &&
+      evidence.latestPrNumber !== undefined &&
+      review.reviewedPrNumber !== evidence.latestPrNumber
+    ) {
+      return reject(input, "pr_number_mismatch");
+    }
+    if (
+      review.reviewedHeadSha &&
+      evidence.latestHeadSha &&
+      review.reviewedHeadSha !== evidence.latestHeadSha
+    ) {
+      return reject(input, "outdated_head_sha");
+    }
+    if (
+      review.reviewedDiffHash &&
+      evidence.latestDiffHash &&
+      review.reviewedDiffHash !== evidence.latestDiffHash
+    ) {
+      return reject(input, "diff_hash_mismatch");
+    }
+    if (
+      review.expectedStateRevision !== undefined &&
+      evidence.latestImplementationWorkflowStateRevision !== undefined &&
+      review.expectedStateRevision <
+        evidence.latestImplementationWorkflowStateRevision
     ) {
       return reject(input, "stale_workflow_revision");
     }

@@ -6,7 +6,7 @@ import {
   HANDOFF_PROMPT_VERSION,
   MILESTONE,
 } from "../../config/defaults.js";
-import { resolveNextStatusName } from "../workflow-transition.js";
+import { resolveNextStatusName, applyPhaseTransition } from "../workflow-transition.js";
 import { emptyMergeManifestFields } from "../../artifacts/manifest-fields.js";
 import { writeManifest } from "../../artifacts/manifest.js";
 import { writeRunSummary } from "../../artifacts/summary.js";
@@ -70,6 +70,15 @@ import {
   finalizePhaseEvaluation,
   safeStartPhaseTrace,
 } from "../../evaluation/phase-helpers.js";
+import { listTeamWorkflowStates } from "../../setup/linear-setup-client.js";
+import {
+  evaluateCodeReviewReadiness,
+} from "../../workflow/code-review-readiness.js";
+import {
+  FileWorkflowStateStore,
+  loadOrBootstrapWorkflowState,
+} from "../../workflow/state/index.js";
+import { createImplementationArtifactIdentity } from "../../workflow/implementation-artifact.js";
 
 export interface HandoffPhaseOptions {
   issueKey: string;
@@ -648,16 +657,85 @@ export async function executeHandoffPhase(
       checkResultCategory: categorizeCheckResult(checkSummary),
     });
 
-    const handoffSuccess = resolveNextStatusName({
-      config,
-      currentPhaseId: "handoff",
-      outcome: {
-        kind: "success",
-        phaseId: "handoff",
-        attemptIdentity: runId,
-      },
-      evidence: { linearStatusName: linearStatusBefore ?? "" },
-    });
+    const handoffSuccess = await (async () => {
+      let linearStatuses: Array<{ name: string; type: string; id?: string }> =
+        [];
+      try {
+        if (config.linear?.teamId) {
+          linearStatuses = await listTeamWorkflowStates(
+            client,
+            config.linear.teamId,
+          );
+        }
+      } catch {
+        linearStatuses = [];
+      }
+
+      const codeReadiness = await evaluateCodeReviewReadiness({
+        config,
+        linearStatuses,
+      });
+      const logDirectory = config.logDirectory ?? "runs";
+      const store = new FileWorkflowStateStore(logDirectory);
+      const workflowState = await loadOrBootstrapWorkflowState({
+        store,
+        issueKey: options.issueKey,
+        workflowSchemaVersion: codeReadiness.workflowSchemaVersion,
+        enabledOptionalPhases: {
+          planReview: false,
+          codeReview: codeReadiness.requestedEnabled,
+        },
+        effectiveOptionalPhases: {
+          planReview: false,
+          codeReview: codeReadiness.configuredReady,
+        },
+        currentPhaseId: "handoff",
+      });
+
+      const implementationArtifact = createImplementationArtifactIdentity({
+        targetRepository: markerTargetRepo,
+        prNumber: parsedPr.pullNumber,
+        prUrl: inspection.url,
+        headSha: inspection.headSha,
+        baseSha: inspection.baseSha,
+        builderRunId:
+          builderEvidence.builderOriginRunId ??
+          builderEvidence.builderAgentId ??
+          runId,
+        workflowStateRevision: workflowState.stateRevision + 1,
+      });
+
+      const applied = await applyPhaseTransition({
+        store,
+        issueKey: options.issueKey,
+        config,
+        expectedStateRevision: workflowState.stateRevision,
+        currentPhaseId: "handoff",
+        outcome: {
+          kind: "success",
+          phaseId: "handoff",
+          attemptIdentity: runId,
+        },
+        evidence: { linearStatusName: linearStatusBefore ?? "" },
+        codeReviewEffectiveEnabled: codeReadiness.configuredReady,
+        linearStatuses,
+        latestImplementationArtifact: implementationArtifact,
+        clearActiveRunId: runId,
+      });
+
+      if (!applied.applyOk || !applied.statusName) {
+        throw new HandoffError(
+          "linear_write_failure",
+          `Handoff transition rejected: ${applied.reason}`,
+        );
+      }
+
+      return {
+        statusName: applied.statusName,
+        result: applied.result!,
+        bypass: applied.result?.bypass ?? null,
+      };
+    })();
     const pmReviewStatus = handoffSuccess.statusName;
     await transitionIssueStatus(client, issue, pmReviewStatus);
     linearStatusAfter = pmReviewStatus;

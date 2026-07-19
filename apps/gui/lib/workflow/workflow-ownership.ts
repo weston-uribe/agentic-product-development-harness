@@ -52,6 +52,11 @@ export const WORKFLOW_OPTIONAL_PHASES: readonly WorkflowOptionalPhaseDefinition[
     alwaysVisible: true,
     insertAfter: "planning",
   },
+  {
+    statusKey: "code-review",
+    alwaysVisible: true,
+    insertAfter: "pr-open",
+  },
 ];
 
 export const WORKFLOW_OWNERSHIP_COLUMNS: readonly WorkflowOwnershipColumn[] = [

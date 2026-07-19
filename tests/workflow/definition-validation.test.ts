@@ -52,6 +52,7 @@ describe("workflow definition validation", () => {
       workflowConfig: { optionalPhases: { planReview: false, codeReview: true } },
     });
     expect(requiredLinearStatusNames(withCode)).toContain("Code Review");
+    expect(requiredLinearStatusNames(withCode)).toContain("Code Revision");
   });
 
   it("filters optional transitions for default disabled reviewers", () => {
@@ -95,6 +96,8 @@ describe("workflow definition validation", () => {
         "Ready for Build",
         "Building",
         "PR Open",
+        "Code Review",
+        "Code Revision",
         "PM Review",
         "Needs Revision",
         "Revising",

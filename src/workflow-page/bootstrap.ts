@@ -21,6 +21,10 @@ import {
   evaluatePlanReviewReadiness,
   type PlanReviewReadinessResult,
 } from "../workflow/plan-review-readiness.js";
+import {
+  evaluateCodeReviewReadiness,
+  type CodeReviewReadinessResult,
+} from "../workflow/code-review-readiness.js";
 import { dataSourceLabel } from "./source-context.js";
 import { getFixtureDefinition } from "./fixtures/index.js";
 import { getFixtureWorkflowScopes } from "./fixtures/workflow-scopes.js";
@@ -95,6 +99,18 @@ function toPlanReviewReadinessView(
   return {
     requestedEnabled: readiness.requestedEnabled,
     effectiveEnabled: readiness.effectiveEnabled,
+    uiState: readiness.uiState,
+    missingRequirementMessages: [...readiness.missingRequirementMessages],
+    cycleLimit: readiness.cycleLimit,
+  };
+}
+
+function toCodeReviewReadinessView(
+  readiness: CodeReviewReadinessResult,
+): WorkflowBootstrapPayload["codeReviewReadiness"] {
+  return {
+    requestedEnabled: readiness.requestedEnabled,
+    effectiveEnabled: readiness.configuredReady,
     uiState: readiness.uiState,
     missingRequirementMessages: [...readiness.missingRequirementMessages],
     cycleLimit: readiness.cycleLimit,
@@ -220,20 +236,39 @@ export async function buildWorkflowBootstrap(
     "planReviewer",
     modelCatalog,
   );
+  const codeReviewerSelection = buildWorkflowModelSelection(
+    effectiveConfig,
+    "codeReviewer",
+    modelCatalog,
+  );
+  const codeReviserSelection = buildWorkflowModelSelection(
+    effectiveConfig,
+    "codeReviser",
+    modelCatalog,
+  );
+  const linearStatusSnapshots = linearStatuses.map((status) => ({
+    name: status.name,
+    type: status.type,
+    id: status.id,
+  }));
   const planReviewReadiness = toPlanReviewReadinessView(
     await evaluatePlanReviewReadiness({
       config: effectiveConfig,
-      linearStatuses: linearStatuses.map((status) => ({
-        name: status.name,
-        type: status.type,
-        id: status.id,
-      })),
+      linearStatuses: linearStatusSnapshots,
+    }),
+  );
+  const codeReviewReadiness = toCodeReviewReadinessView(
+    await evaluateCodeReviewReadiness({
+      config: effectiveConfig,
+      linearStatuses: linearStatusSnapshots,
     }),
   );
   const modelSaveReadiness = buildModelSaveReadiness({
     plannerSelection,
     builderSelection,
     planReviewerSelection,
+    codeReviewerSelection,
+    codeReviserSelection,
     modelCatalog,
     catalogLoaded: catalogLoadMetadata.modelCatalog === "loaded",
   });
@@ -257,7 +292,10 @@ export async function buildWorkflowBootstrap(
     plannerSelection,
     builderSelection,
     planReviewerSelection,
+    codeReviewerSelection,
+    codeReviserSelection,
     planReviewReadiness,
+    codeReviewReadiness,
     configFingerprint:
       deps.configFingerprint ?? buildConfigFingerprint(config),
     modelSaveReadiness,
@@ -292,8 +330,21 @@ async function rejectedPayload(
     "planReviewer",
     [],
   );
+  const codeReviewerSelection = buildWorkflowModelSelection(
+    emptyConfig,
+    "codeReviewer",
+    [],
+  );
+  const codeReviserSelection = buildWorkflowModelSelection(
+    emptyConfig,
+    "codeReviser",
+    [],
+  );
   const planReviewReadiness = toPlanReviewReadinessView(
     await evaluatePlanReviewReadiness({ config: emptyConfig, linearStatuses: [] }),
+  );
+  const codeReviewReadiness = toCodeReviewReadinessView(
+    await evaluateCodeReviewReadiness({ config: emptyConfig, linearStatuses: [] }),
   );
 
   return {
@@ -313,12 +364,17 @@ async function rejectedPayload(
     plannerSelection,
     builderSelection,
     planReviewerSelection,
+    codeReviewerSelection,
+    codeReviserSelection,
     planReviewReadiness,
+    codeReviewReadiness,
     configFingerprint: buildConfigFingerprint(undefined),
     modelSaveReadiness: buildModelSaveReadiness({
       plannerSelection,
       builderSelection,
       planReviewerSelection,
+      codeReviewerSelection,
+      codeReviserSelection,
       modelCatalog: [],
       catalogLoaded: false,
     }),

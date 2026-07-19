@@ -22,6 +22,8 @@ export const ANALYTICS_EVENT_NAMES = [
   "p_dev_cycle_limit_reached",
   "p_dev_reconciliation_recovery",
   "p_dev_plan_review_readiness",
+  "p_dev_code_review_readiness",
+  "p_dev_code_review_execution_eligibility",
 ] as const;
 
 /** Bounded workflow transition keys (no issue bodies, prompts, or code). */
@@ -41,9 +43,13 @@ export const ALLOWED_WORKFLOW_ANALYTICS_PROPERTY_KEYS = [
   "workflow_state_revision",
   "requested_enabled",
   "effective_enabled",
+  "configured_ready",
+  "execution_eligible",
   "ui_state",
   "missing_count",
   "missing_codes",
+  "failure_count",
+  "failure_codes",
   "configuration_surface",
 ] as const;
 
@@ -364,7 +370,9 @@ export function analyticsEventToProperties(
     case "p_dev_review_cycle_incremented":
     case "p_dev_cycle_limit_reached":
     case "p_dev_reconciliation_recovery":
-    case "p_dev_plan_review_readiness": {
+    case "p_dev_plan_review_readiness":
+    case "p_dev_code_review_readiness":
+    case "p_dev_code_review_execution_eligibility": {
       const { type: _type, ...rest } = event;
       return { ...rest };
     }

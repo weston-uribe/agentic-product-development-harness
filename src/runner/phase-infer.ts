@@ -14,6 +14,8 @@ const IMPLEMENTATION_STATUSES = new Set([
 ]);
 
 const HANDOFF_STATUSES = new Set(["pr open"]);
+const CODE_REVIEW_STATUSES = new Set(["code review"]);
+const CODE_REVISION_STATUSES = new Set(["code revision"]);
 const REVISION_STATUSES = new Set(["needs revision"]);
 const MERGE_STATUSES = new Set(["ready to merge"]);
 
@@ -52,6 +54,14 @@ export function inferPhaseFromStatus(
 
   if (handoffStatuses.includes(normalized) || HANDOFF_STATUSES.has(normalized)) {
     return { phase: "handoff", statusLabel: status };
+  }
+
+  if (CODE_REVIEW_STATUSES.has(normalized)) {
+    return { phase: "code_review", statusLabel: status };
+  }
+
+  if (CODE_REVISION_STATUSES.has(normalized)) {
+    return { phase: "code_revision", statusLabel: status };
   }
 
   if (revisionStatuses.includes(normalized) || REVISION_STATUSES.has(normalized)) {

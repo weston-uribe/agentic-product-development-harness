@@ -82,6 +82,21 @@ describe("linear workflow requirement report (dry-run)", () => {
     expect(report.proposedAdditions).toContain("Plan Review");
   });
 
+  it("lists Code Review and Code Revision when codeReview optional phase is enabled", () => {
+    const definition = resolveWorkflowDefinition({
+      workflowConfig: { optionalPhases: { codeReview: true } },
+      effectiveOptionalPhases: { codeReview: true },
+    });
+    const report = buildLinearWorkflowRequirementReport({
+      definition,
+      teamId: "team-1",
+      existingStates: statesFromNames(["Backlog", "Ready for Planning"]),
+    });
+    expect(report.missing).toContain("Code Review");
+    expect(report.missing).toContain("Code Revision");
+    expect(report.missing).not.toContain("Plan Review");
+  });
+
   it("reports extras without mutating anything", () => {
     const definition = resolveWorkflowDefinition();
     const report = buildLinearWorkflowRequirementReport({

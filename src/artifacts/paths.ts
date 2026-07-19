@@ -48,6 +48,22 @@ export function getPlanReviewResultPath(runDirectory: string): string {
   return path.join(runDirectory, "outputs", "plan-review-result.md");
 }
 
+export function getCodeReviewPromptPath(runDirectory: string): string {
+  return path.join(runDirectory, "prompts", "code-review-agent.md");
+}
+
+export function getCodeReviewResultPath(runDirectory: string): string {
+  return path.join(runDirectory, "outputs", "code-review-result.md");
+}
+
+export function getCodeRevisionPromptPath(runDirectory: string): string {
+  return path.join(runDirectory, "prompts", "code-revision-agent.md");
+}
+
+export function getCodeRevisionResultPath(runDirectory: string): string {
+  return path.join(runDirectory, "outputs", "code-revision-result.md");
+}
+
 export function getPlanArtifactIdentityPath(runDirectory: string): string {
   return path.join(runDirectory, "workflow", "plan-artifact.json");
 }

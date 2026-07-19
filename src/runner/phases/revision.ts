@@ -6,7 +6,7 @@ import {
   MILESTONE,
   REVISION_PROMPT_VERSION,
 } from "../../config/defaults.js";
-import { resolveNextStatusName } from "../workflow-transition.js";
+import { resolveNextStatusName, applyPhaseTransition } from "../workflow-transition.js";
 import { emptyMergeManifestFields } from "../../artifacts/manifest-fields.js";
 import { writeManifest } from "../../artifacts/manifest.js";
 import { writeRunSummary } from "../../artifacts/summary.js";
@@ -109,6 +109,13 @@ import { allowsLangfuseContentProjection } from "../../evaluation/telemetry/prof
 import { boundRedactedContent } from "../../evaluation/telemetry/redact.js";
 import { MAX_LANGFUSE_CONTENT_CHARS } from "../../evaluation/telemetry/bounds.js";
 import { buildArtifactRef } from "../../evaluation/telemetry/artifact-ref.js";
+import { listTeamWorkflowStates } from "../../setup/linear-setup-client.js";
+import { evaluateCodeReviewReadiness } from "../../workflow/code-review-readiness.js";
+import {
+  FileWorkflowStateStore,
+  loadOrBootstrapWorkflowState,
+} from "../../workflow/state/index.js";
+import { createImplementationArtifactIdentity } from "../../workflow/implementation-artifact.js";
 
 export interface RevisionPhaseOptions {
   issueKey: string;
@@ -1128,16 +1135,90 @@ export async function executeRevisionPhase(
       finalOutcome: "success",
     });
 
-    const revisionSuccess = resolveNextStatusName({
-      config,
-      currentPhaseId: "revision",
-      outcome: {
-        kind: "success",
-        phaseId: "revision",
-        attemptIdentity: runId,
-      },
-      evidence: { linearStatusName: revisingStatus },
-    });
+    const revisionSuccess = await (async () => {
+      let linearStatuses: Array<{ name: string; type: string; id?: string }> =
+        [];
+      try {
+        if (config.linear?.teamId) {
+          linearStatuses = await listTeamWorkflowStates(
+            client,
+            config.linear.teamId,
+          );
+        }
+      } catch {
+        linearStatuses = [];
+      }
+
+      const codeReadiness = await evaluateCodeReviewReadiness({
+        config,
+        linearStatuses,
+      });
+      const logDirectory = config.logDirectory ?? "runs";
+      const store = new FileWorkflowStateStore(logDirectory);
+      const workflowState = await loadOrBootstrapWorkflowState({
+        store,
+        issueKey: options.issueKey,
+        workflowSchemaVersion: codeReadiness.workflowSchemaVersion,
+        enabledOptionalPhases: {
+          planReview: false,
+          codeReview: codeReadiness.requestedEnabled,
+        },
+        effectiveOptionalPhases: {
+          planReview: false,
+          codeReview: codeReadiness.configuredReady,
+        },
+        currentPhaseId: "revision",
+      });
+
+      const implementationArtifact = createImplementationArtifactIdentity({
+        targetRepository: markerTargetRepo,
+        prNumber: parsedPr.pullNumber,
+        prUrl: postInspection.url,
+        headSha: postInspection.headSha,
+        baseSha: postInspection.baseSha,
+        builderRunId:
+          builderEvidence.builderOriginRunId ??
+          builderEvidence.builderAgentId ??
+          runId,
+        workflowStateRevision: workflowState.stateRevision + 1,
+        supersedesImplementationGenerationId:
+          workflowState.latestImplementationArtifact?.implementationGenerationId ??
+          null,
+      });
+
+      const applied = await applyPhaseTransition({
+        store,
+        issueKey: options.issueKey,
+        config,
+        expectedStateRevision: workflowState.stateRevision,
+        currentPhaseId: "revision",
+        outcome: {
+          kind: "success",
+          phaseId: "revision",
+          attemptIdentity: runId,
+        },
+        evidence: { linearStatusName: revisingStatus },
+        codeReviewEffectiveEnabled: codeReadiness.configuredReady,
+        linearStatuses,
+        latestImplementationArtifact: codeReadiness.configuredReady
+          ? implementationArtifact
+          : undefined,
+        clearActiveRunId: runId,
+      });
+
+      if (!applied.applyOk || !applied.statusName) {
+        throw new RevisionError(
+          "linear_write_failure",
+          `Revision transition rejected: ${applied.reason}`,
+        );
+      }
+
+      return {
+        statusName: applied.statusName,
+        result: applied.result!,
+        bypass: applied.result?.bypass ?? null,
+      };
+    })();
     const pmReviewStatus = revisionSuccess.statusName;
     await transitionIssueStatus(client, issue, pmReviewStatus);
     linearStatusAfter = pmReviewStatus;

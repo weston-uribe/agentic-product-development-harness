@@ -4,6 +4,14 @@ export const EVALUATION_PHASES = {
     traceName: "p-dev.plan-review",
     machineKey: "p-dev.plan-review",
   },
+  code_review: {
+    traceName: "p-dev.code-review",
+    machineKey: "p-dev.code-review",
+  },
+  code_revision: {
+    traceName: "p-dev.code-revision",
+    machineKey: "p-dev.code-revision",
+  },
   implementation: {
     traceName: "p-dev.implementation",
     machineKey: "p-dev.implementation",
@@ -36,6 +44,8 @@ export function isEvaluationPhase(value: string): value is EvaluationPhase {
 export const AGENT_INVOKING_PHASES: ReadonlySet<EvaluationPhase> = new Set([
   "planning",
   "plan_review",
+  "code_review",
+  "code_revision",
   "implementation",
   "revision",
   "integration_repair",

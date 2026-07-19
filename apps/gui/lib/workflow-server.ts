@@ -353,6 +353,8 @@ export async function saveWorkflowOptionalPhases(
       baseConfig: fixture.config ?? FALLBACK_CONFIG,
       planReviewEnabled: input.planReviewEnabled,
       planReviewCycleLimit: input.planReviewCycleLimit,
+      codeReviewEnabled: input.codeReviewEnabled,
+      codeReviewCycleLimit: input.codeReviewCycleLimit,
     });
     return {
       saved: true,

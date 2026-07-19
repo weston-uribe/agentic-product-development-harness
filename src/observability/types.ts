@@ -304,6 +304,24 @@ export type AnalyticsEvent =
       cycle_limit?: number;
       workflow_schema_version?: string;
       configuration_surface?: string;
+    }
+  | {
+      type: "p_dev_code_review_readiness";
+      requested_enabled?: boolean;
+      configured_ready?: boolean;
+      ui_state?: string;
+      missing_count?: number;
+      missing_codes?: string;
+      cycle_limit?: number;
+      workflow_schema_version?: string;
+      configuration_surface?: string;
+    }
+  | {
+      type: "p_dev_code_review_execution_eligibility";
+      execution_eligible?: boolean;
+      failure_count?: number;
+      failure_codes?: string;
+      configuration_surface?: string;
     };
 
 export interface AllowedSentryContext {

@@ -21,7 +21,7 @@ export const DEFAULT_OPTIONAL_PHASES = {
 
 export const DEFAULT_CYCLE_LIMITS = {
   plan_review_cycles: 4,
-  code_review_cycles: 3,
+  code_review_cycles: 4,
 } as const;
 
 const STATUSES: readonly WorkflowStatusDefinition[] = [
@@ -92,6 +92,16 @@ const STATUSES: readonly WorkflowStatusDefinition[] = [
   {
     id: "code-review",
     name: "Code Review",
+    category: "started",
+    owner: "agent",
+    automationTrigger: false,
+    creatable: true,
+    systemManaged: false,
+    optionalPhaseId: "code_review",
+  },
+  {
+    id: "code-revision",
+    name: "Code Revision",
     category: "started",
     owner: "agent",
     automationTrigger: false,
@@ -352,8 +362,8 @@ const PHASES: readonly WorkflowPhaseDefinition[] = [
     modelRole: "code_reviewer",
     bypassNext: "pm_review",
     defaultNext: "pm_review",
-    retryTarget: "revision",
-    maximumCycles: 3,
+    retryTarget: "code_revision",
+    maximumCycles: 4,
     cycleCounter: "code_review_cycles",
     evaluationPhase: "code_review",
     requiresLinearStatus: false,
@@ -366,10 +376,31 @@ const PHASES: readonly WorkflowPhaseDefinition[] = [
       {
         id: "needs_revision",
         label: "Needs revision",
-        nextPhaseId: "revision_dispatch",
+        nextPhaseId: "code_revision",
         incrementsCycleCounter: true,
       },
     ],
+    reconciliation: {
+      eligible: true,
+      evidenceKeys: ["issue_status", "pr_url", "review_decision"],
+    },
+  },
+  {
+    id: "code_revision",
+    status: "code-revision",
+    owner: "agent",
+    optional: true,
+    enabledBy: "optionalPhases.codeReview",
+    label: "Code Revision",
+    agentRole: "builder",
+    promptRole: "code_reviser",
+    skillRole: "implementation",
+    modelRole: "code_reviser",
+    bypassNext: "pm_review",
+    defaultNext: "code_review",
+    failureNext: "code_revision",
+    evaluationPhase: "code_revision",
+    requiresLinearStatus: false,
     reconciliation: {
       eligible: true,
       evidenceKeys: ["issue_status", "pr_url", "review_decision"],
@@ -647,9 +678,9 @@ const TRANSITIONS: readonly WorkflowTransitionDefinition[] = [
   {
     id: "code_review_needs_revision",
     fromPhaseId: "code_review",
-    toPhaseId: "revision_dispatch",
+    toPhaseId: "code_revision",
     kind: "review_needs_revision",
-    label: "Needs Revision",
+    label: "Code Revision",
     decisionId: "needs_revision",
   },
   {
@@ -658,6 +689,20 @@ const TRANSITIONS: readonly WorkflowTransitionDefinition[] = [
     toPhaseId: "blocked",
     kind: "escalation",
     label: "Blocked",
+  },
+  {
+    id: "code_revision_success",
+    fromPhaseId: "code_revision",
+    toPhaseId: "code_review",
+    kind: "success",
+    label: "Code Review",
+  },
+  {
+    id: "code_revision_failure",
+    fromPhaseId: "code_revision",
+    toPhaseId: "code_revision",
+    kind: "failure",
+    label: "Code Revision",
   },
   {
     id: "revision_claim",

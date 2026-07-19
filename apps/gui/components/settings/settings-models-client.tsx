@@ -17,6 +17,8 @@ function toCommittedSelections(
     planner: bootstrap.plannerSelection,
     builder: bootstrap.builderSelection,
     planReviewer: bootstrap.planReviewerSelection,
+    codeReviewer: bootstrap.codeReviewerSelection,
+    codeReviser: bootstrap.codeReviserSelection,
   };
 }
 
@@ -41,6 +43,8 @@ export function SettingsModelsClient({ initialBootstrap }: SettingsModelsClientP
     plannerSelection,
     builderSelection,
     planReviewerSelection,
+    codeReviewerSelection,
+    codeReviserSelection,
     handleModelSelect,
     handleModelParameter,
     retrySave,
@@ -62,8 +66,8 @@ export function SettingsModelsClient({ initialBootstrap }: SettingsModelsClientP
       <div>
         <h2 className="text-xl font-semibold tracking-tight">Models</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Planner, Builder, and Plan Reviewer models share the same configuration as the
-          Workflow page.
+          Planner, Builder, Plan Reviewer, Code Reviewer, and Code Reviser models share
+          the same configuration as the Workflow page.
         </p>
       </div>
       {catalogUnavailable ? (
@@ -111,6 +115,34 @@ export function SettingsModelsClient({ initialBootstrap }: SettingsModelsClientP
           configurationSurface="settings"
           saveLabel={saveStateLabel("implementation")}
           saveErrorDetail={saveErrorDetail("implementation")}
+          onSelectModel={handleModelSelect}
+          onUpdateModelParameter={handleModelParameter}
+          onRetry={retrySave}
+        />
+        <WorkflowModelControl
+          label="Code Reviewer model"
+          phaseKey="code_review"
+          disabled={catalogUnavailable}
+          modelCatalog={bootstrap.modelCatalog}
+          modelId={codeReviewerSelection.modelId}
+          parameters={codeReviewerSelection.parameters}
+          configurationSurface="settings"
+          saveLabel={saveStateLabel("code_review")}
+          saveErrorDetail={saveErrorDetail("code_review")}
+          onSelectModel={handleModelSelect}
+          onUpdateModelParameter={handleModelParameter}
+          onRetry={retrySave}
+        />
+        <WorkflowModelControl
+          label="Code Reviser model"
+          phaseKey="code_revision"
+          disabled={catalogUnavailable}
+          modelCatalog={bootstrap.modelCatalog}
+          modelId={codeReviserSelection.modelId}
+          parameters={codeReviserSelection.parameters}
+          configurationSurface="settings"
+          saveLabel={saveStateLabel("code_revision")}
+          saveErrorDetail={saveErrorDetail("code_revision")}
           onSelectModel={handleModelSelect}
           onUpdateModelParameter={handleModelParameter}
           onRetry={retrySave}

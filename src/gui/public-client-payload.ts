@@ -253,6 +253,8 @@ export function toPublicWorkflowBootstrap(
     plannerSelection: cloneModelSelection(input.plannerSelection),
     builderSelection: cloneModelSelection(input.builderSelection),
     planReviewerSelection: cloneModelSelection(input.planReviewerSelection),
+    codeReviewerSelection: cloneModelSelection(input.codeReviewerSelection),
+    codeReviserSelection: cloneModelSelection(input.codeReviserSelection),
     planReviewReadiness: {
       requestedEnabled: input.planReviewReadiness.requestedEnabled,
       effectiveEnabled: input.planReviewReadiness.effectiveEnabled,
@@ -261,6 +263,15 @@ export function toPublicWorkflowBootstrap(
         ...input.planReviewReadiness.missingRequirementMessages,
       ],
       cycleLimit: input.planReviewReadiness.cycleLimit,
+    },
+    codeReviewReadiness: {
+      requestedEnabled: input.codeReviewReadiness.requestedEnabled,
+      effectiveEnabled: input.codeReviewReadiness.effectiveEnabled,
+      uiState: input.codeReviewReadiness.uiState,
+      missingRequirementMessages: [
+        ...input.codeReviewReadiness.missingRequirementMessages,
+      ],
+      cycleLimit: input.codeReviewReadiness.cycleLimit,
     },
     configFingerprint: input.configFingerprint,
     modelSaveReadiness: {
@@ -281,6 +292,18 @@ export function toPublicWorkflowBootstrap(
         ready: input.modelSaveReadiness.planReviewer.ready,
         state: input.modelSaveReadiness.planReviewer.state,
         issues: [...input.modelSaveReadiness.planReviewer.issues],
+      },
+      codeReviewer: {
+        role: input.modelSaveReadiness.codeReviewer.role,
+        ready: input.modelSaveReadiness.codeReviewer.ready,
+        state: input.modelSaveReadiness.codeReviewer.state,
+        issues: [...input.modelSaveReadiness.codeReviewer.issues],
+      },
+      codeReviser: {
+        role: input.modelSaveReadiness.codeReviser.role,
+        ready: input.modelSaveReadiness.codeReviser.ready,
+        state: input.modelSaveReadiness.codeReviser.state,
+        issues: [...input.modelSaveReadiness.codeReviser.issues],
       },
       ready: input.modelSaveReadiness.ready,
     },

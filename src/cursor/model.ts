@@ -66,12 +66,22 @@ export function resolvePlanReviewerModel(config: HarnessConfig): ModelSelection 
   return toSdkSelection(resolveModelSelectionForRole(config, "planReviewer"));
 }
 
+export function resolveCodeReviewerModel(config: HarnessConfig): ModelSelection {
+  return toSdkSelection(resolveModelSelectionForRole(config, "codeReviewer"));
+}
+
+export function resolveCodeReviserModel(config: HarnessConfig): ModelSelection {
+  return toSdkSelection(resolveModelSelectionForRole(config, "codeReviser"));
+}
+
 export function resolveModelForRole(
   config: HarnessConfig,
   role: RoleModelRole,
 ): ModelSelection {
   if (role === "planner") return resolvePlannerModel(config);
   if (role === "planReviewer") return resolvePlanReviewerModel(config);
+  if (role === "codeReviewer") return resolveCodeReviewerModel(config);
+  if (role === "codeReviser") return resolveCodeReviserModel(config);
   return resolveBuilderModel(config);
 }
 

@@ -17,7 +17,9 @@ export type WorkflowAnalyticsEventName =
   | "p_dev_review_cycle_incremented"
   | "p_dev_cycle_limit_reached"
   | "p_dev_reconciliation_recovery"
-  | "p_dev_plan_review_readiness";
+  | "p_dev_plan_review_readiness"
+  | "p_dev_code_review_readiness"
+  | "p_dev_code_review_execution_eligibility";
 
 export interface WorkflowAnalyticsProperties {
   workflow_schema_version: string;

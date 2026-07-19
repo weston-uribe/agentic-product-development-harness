@@ -34,6 +34,8 @@ export type CanonicalAgentPhaseKey =
   | "planning"
   | "plan-review"
   | "implementation"
+  | "code-review"
+  | "code-revision"
   | "revision"
   | "merge-integration-repair";
 
@@ -45,6 +47,8 @@ export type CanonicalStatusKey =
   | "ready-for-build"
   | "building"
   | "pr-open"
+  | "code-review"
+  | "code-revision"
   | "pm-review"
   | "engineering-review"
   | "needs-revision"
@@ -232,6 +236,34 @@ export const CANONICAL_STATUSES: readonly CanonicalStatusDefinition[] = [
     actorRole: "handoff-runner",
     suggestedPosition: { x: 1400, y: 0 },
     graphGroup: "build",
+  },
+  {
+    key: "code-review",
+    name: "Code Review",
+    category: "started",
+    role: "transitional",
+    creatable: true,
+    systemManaged: false,
+    automationTrigger: false,
+    actorRole: "implementation-agent",
+    agentPhaseKey: "code-review",
+    suggestedPosition: { x: 1540, y: 0 },
+    graphGroup: "build",
+    optionalPhase: true,
+  },
+  {
+    key: "code-revision",
+    name: "Code Revision",
+    category: "started",
+    role: "transitional",
+    creatable: true,
+    systemManaged: false,
+    automationTrigger: false,
+    actorRole: "implementation-agent",
+    agentPhaseKey: "code-revision",
+    suggestedPosition: { x: 1540, y: 120 },
+    graphGroup: "build",
+    optionalPhase: true,
   },
   {
     key: "pm-review",

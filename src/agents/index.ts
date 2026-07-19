@@ -4,6 +4,8 @@ import type {
   AcquireBuilderAgentParams,
   AcquiredBuilderAgent,
   AgentHandle,
+  CodeReviewAgentParams,
+  CodeRevisionAgentParams,
   ImplementationAgentParams,
   PlanningAgentParams,
   SendAndObserveOptions,
@@ -25,6 +27,18 @@ export function createPlanReviewAgent(
   params: PlanningAgentParams,
 ): Promise<AgentHandle> {
   return getAgentProvider(params.config).createPlanReviewAgent(params);
+}
+
+export function createCodeReviewAgent(
+  params: CodeReviewAgentParams,
+): Promise<AgentHandle> {
+  return getAgentProvider(params.config).createCodeReviewAgent(params);
+}
+
+export function createCodeRevisionAgent(
+  params: CodeRevisionAgentParams,
+): Promise<AgentHandle> {
+  return getAgentProvider(params.config).createCodeRevisionAgent(params);
 }
 
 export function createImplementationAgent(

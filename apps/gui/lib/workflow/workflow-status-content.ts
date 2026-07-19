@@ -1,6 +1,6 @@
 import type { CanonicalStatusKey } from "@harness/workflow/canonical-product-development-workflow";
 import type { MergePathVariant } from "@harness/workflow/canonical-product-development-workflow";
-import type { PlanReviewReadinessView } from "@harness/workflow-page/types";
+import type { PlanReviewReadinessView, CodeReviewReadinessView } from "@harness/workflow-page/types";
 
 export type WorkflowStatusField = {
   label: string;
@@ -15,6 +15,8 @@ export type WorkflowStatusContent = {
   showBuilderModel?: boolean;
   showBuilderModelReference?: boolean;
   showPlanReviewerModel?: boolean;
+  showCodeReviewerModel?: boolean;
+  showCodeReviserModel?: boolean;
   showOptionalPhaseControls?: boolean;
   independentAgentNote?: string;
 };
@@ -117,6 +119,23 @@ export const WORKFLOW_STATUS_CONTENT: Record<CanonicalStatusKey, WorkflowStatusC
     independentAgentNote:
       "Plan Review uses a separate agent role from Planning. It does not share the Planner session.",
   },
+  "code-review": {
+    description:
+      "An independent Code Reviewer agent evaluates the implementation PR before PM review.",
+    fields: [],
+    showCodeReviewerModel: true,
+    showOptionalPhaseControls: true,
+    independentAgentNote:
+      "Code Review uses a separate agent role from the Builder. It does not share the implementation session.",
+  },
+  "code-revision": {
+    description:
+      "The Code Reviser applies reviewer feedback to the existing branch and pull request.",
+    fields: [],
+    showCodeReviserModel: true,
+    independentAgentNote:
+      "Code Revision uses a dedicated reviser role. It is separate from PM/engineering revision (Needs Revision).",
+  },
   building: {
     description:
       "The Builder implements the work, validates it, and creates or updates the pull request.",
@@ -198,13 +217,73 @@ export function resolvePlanReviewStatusContent(
   };
 }
 
+export function resolveCodeReviewStatusContent(
+  readiness: CodeReviewReadinessView,
+): WorkflowStatusContent {
+  const base = WORKFLOW_STATUS_CONTENT["code-review"];
+
+  if (readiness.uiState === "disabled") {
+    return {
+      ...base,
+      fields: [
+        {
+          label: "Effective route",
+          value: "PR Open → PM Review (Code Review bypassed)",
+        },
+      ],
+    };
+  }
+
+  if (readiness.uiState === "setup_required") {
+    return {
+      ...base,
+      fields: [
+        {
+          label: "Requested route",
+          value: "PR Open → Code Review → PM Review",
+        },
+        {
+          label: "Effective route",
+          value:
+            "PR Open → PM Review (setup incomplete — Code Review bypassed)",
+        },
+        {
+          label: "Revision path",
+          value: "Code Review → Code Revision → Code Review (up to max cycles)",
+        },
+        {
+          label: "Setup required",
+          value: readiness.missingRequirementMessages.join(" "),
+        },
+      ],
+    };
+  }
+
+  return {
+    ...base,
+    fields: [
+      { label: "Entry", value: "PR Open → Code Review" },
+      { label: "Approve", value: "PM Review" },
+      {
+        label: "Revise",
+        value: "Code Revision → Code Review (up to max cycles)",
+      },
+      failure(),
+    ],
+  };
+}
+
 export function resolveStatusContent(
   statusKey: CanonicalStatusKey,
   mergePathVariant: MergePathVariant,
   planReviewReadiness?: PlanReviewReadinessView,
+  codeReviewReadiness?: CodeReviewReadinessView,
 ): WorkflowStatusContent {
   if (statusKey === "plan-review" && planReviewReadiness) {
     return resolvePlanReviewStatusContent(planReviewReadiness);
+  }
+  if (statusKey === "code-review" && codeReviewReadiness) {
+    return resolveCodeReviewStatusContent(codeReviewReadiness);
   }
 
   const base = WORKFLOW_STATUS_CONTENT[statusKey];

@@ -115,6 +115,8 @@ export function buildModelSaveReadiness(input: {
   plannerSelection: WorkflowModelSelection;
   builderSelection: WorkflowModelSelection;
   planReviewerSelection: WorkflowModelSelection;
+  codeReviewerSelection: WorkflowModelSelection;
+  codeReviserSelection: WorkflowModelSelection;
   modelCatalog: WorkflowModelCatalogEntry[];
   catalogLoaded: boolean;
 }): ModelSaveReadiness {
@@ -145,12 +147,37 @@ export function buildModelSaveReadiness(input: {
     modelCatalog: input.modelCatalog,
     catalogLoaded: input.catalogLoaded,
   });
+  const codeReviewer = validateModelSelectionAgainstCatalog({
+    role: "codeReviewer",
+    selection: {
+      modelId: input.codeReviewerSelection.modelId,
+      parameters: input.codeReviewerSelection.parameters,
+    },
+    modelCatalog: input.modelCatalog,
+    catalogLoaded: input.catalogLoaded,
+  });
+  const codeReviser = validateModelSelectionAgainstCatalog({
+    role: "codeReviser",
+    selection: {
+      modelId: input.codeReviserSelection.modelId,
+      parameters: input.codeReviserSelection.parameters,
+    },
+    modelCatalog: input.modelCatalog,
+    catalogLoaded: input.catalogLoaded,
+  });
 
   return {
     planner,
     builder,
     planReviewer,
-    ready: planner.ready && builder.ready && planReviewer.ready,
+    codeReviewer,
+    codeReviser,
+    ready:
+      planner.ready &&
+      builder.ready &&
+      planReviewer.ready &&
+      codeReviewer.ready &&
+      codeReviser.ready,
   };
 }
 

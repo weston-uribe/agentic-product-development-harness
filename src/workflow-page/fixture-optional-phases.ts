@@ -5,6 +5,8 @@ import { buildConfigFingerprint } from "./bootstrap.js";
 export interface FixtureOptionalPhasesState {
   planReviewEnabled: boolean;
   planReviewCycleLimit: number;
+  codeReviewEnabled: boolean;
+  codeReviewCycleLimit: number;
 }
 
 const fixtureOptionalPhases = new Map<string, FixtureOptionalPhasesState>();
@@ -26,6 +28,8 @@ export function getFixtureOptionalPhases(
   return {
     planReviewEnabled: workflow.optionalPhases.planReview,
     planReviewCycleLimit: workflow.cycleLimits.planReview,
+    codeReviewEnabled: workflow.optionalPhases.codeReview,
+    codeReviewCycleLimit: workflow.cycleLimits.codeReview,
   };
 }
 
@@ -47,10 +51,12 @@ export function applyFixtureOptionalPhasesToConfig(input: {
       optionalPhases: {
         ...workflow.optionalPhases,
         planReview: state.planReviewEnabled,
+        codeReview: state.codeReviewEnabled,
       },
       cycleLimits: {
         ...workflow.cycleLimits,
         planReview: state.planReviewCycleLimit,
+        codeReview: state.codeReviewCycleLimit,
       },
     },
   };
@@ -62,11 +68,15 @@ export function saveFixtureOptionalPhases(input: {
   baseConfig: HarnessConfig;
   planReviewEnabled: boolean;
   planReviewCycleLimit: number;
+  codeReviewEnabled: boolean;
+  codeReviewCycleLimit: number;
 }): { configFingerprint: string } {
   const key = storageKey(input.fixtureId, input.scopeId);
   fixtureOptionalPhases.set(key, {
     planReviewEnabled: input.planReviewEnabled,
     planReviewCycleLimit: input.planReviewCycleLimit,
+    codeReviewEnabled: input.codeReviewEnabled,
+    codeReviewCycleLimit: input.codeReviewCycleLimit,
   });
   const merged = applyFixtureOptionalPhasesToConfig({
     fixtureId: input.fixtureId,

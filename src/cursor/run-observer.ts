@@ -28,6 +28,8 @@ export type ObservePhase =
   | "planning"
   | "plan_review"
   | "implementation"
+  | "code_review"
+  | "code_revision"
   | "revision"
   | "integration_repair";
 
