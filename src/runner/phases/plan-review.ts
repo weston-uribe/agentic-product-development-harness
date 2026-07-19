@@ -196,7 +196,7 @@ export async function executePlanReviewPhase(
     );
   }
 
-  const state = await loadOrBootstrapWorkflowState({
+  let state = await loadOrBootstrapWorkflowState({
     store,
     issueKey: options.issueKey,
     workflowSchemaVersion: readiness.workflowSchemaVersion,
@@ -231,7 +231,32 @@ export async function executePlanReviewPhase(
     );
   }
 
-  const latestPlan = state.latestPlanArtifact;
+  // Load comments first — plan identity may need durable Linear recovery when
+  // ephemeral GHA runners do not share workflow-state.json across jobs.
+  const comments = await listIssueComments(client, issue.id);
+  let latestPlan = state.latestPlanArtifact;
+  let recoveredPlanArtifact = false;
+  if (!latestPlan) {
+    const { recoverPlanArtifactFromPlanningComments } = await import(
+      "../../workflow/recover-plan-artifact.js"
+    );
+    latestPlan = recoverPlanArtifactFromPlanningComments({
+      comments,
+      orchestratorMarker: config.orchestratorMarker,
+    });
+    if (latestPlan) {
+      recoveredPlanArtifact = true;
+      state = {
+        ...state,
+        latestPlanArtifact: latestPlan,
+      };
+      await events.log("plan_artifact_recovered_from_linear", "info", {
+        planGenerationId: latestPlan.planGenerationId,
+        planArtifactHash: latestPlan.planArtifactHash,
+        plannerRunId: latestPlan.plannerRunId,
+      });
+    }
+  }
   if (!latestPlan) {
     throw new PlanReviewError(
       "missing_planning_comment",
@@ -239,8 +264,6 @@ export async function executePlanReviewPhase(
     );
   }
 
-  // Load plan body from latest planning comment when possible.
-  const comments = await listIssueComments(client, issue.id);
   const planBody =
     comments
       .slice()
@@ -480,6 +503,8 @@ export async function executePlanReviewPhase(
         currentPhaseId: "plan_review",
         planReviewEffectiveEnabled: true,
         phaseExecutionFreeze: freeze,
+        // Seed recovered identity into durable state for this job + future local use.
+        latestPlanArtifact: recoveredPlanArtifact ? latestPlan : undefined,
         outcome: {
           kind: "review",
           phaseId: "plan_review",

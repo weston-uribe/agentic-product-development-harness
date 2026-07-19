@@ -47,6 +47,8 @@ export interface HarnessMarkers {
   githubWorkflow?: string;
   gitBranch?: string;
   gitSha?: string;
+  planGenerationId?: string;
+  planArtifactHash?: string;
 }
 
 const HARNESS_HTML_METADATA_PATTERN = /<!--\s*([\s\S]*?)\s*-->/g;
@@ -226,6 +228,12 @@ function parseHarnessMarkerLines(block: string): HarnessMarkers {
         break;
       case "git_sha":
         markers.gitSha = value;
+        break;
+      case "plan_generation_id":
+        markers.planGenerationId = value;
+        break;
+      case "plan_artifact_hash":
+        markers.planArtifactHash = value;
         break;
       default:
         if (trimmed.startsWith("harness-orchestrator")) {

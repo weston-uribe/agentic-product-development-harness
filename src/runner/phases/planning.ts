@@ -656,24 +656,9 @@ export async function executePlanningPhase(
     }
     extraEvalMetadata = endMeta;
 
-    const planningComment = await postPlanningComment(
-      client,
-      issue.id,
-      observed.assistantText,
-      {
-        ...footerBase,
-        promptVersion: version,
-        cursorAgentId,
-        cursorRunId,
-      },
-    );
-    commentsWritten.push(observed.assistantText);
-    await events.log("linear_comment_posted", "info", {
-      phase: "planning",
-      commentId: planningComment,
-    });
-
     // Fail-closed Plan Review readiness: route only when effectively enabled.
+    // Create immutable plan identity BEFORE posting the Linear comment so
+    // plan_generation_id / plan_artifact_hash are durable across ephemeral GHA jobs.
     const { evaluatePlanReviewReadiness, buildPlanReviewReadinessDiagnostic } =
       await import("../../workflow/plan-review-readiness.js");
     const { createPlanArtifactIdentity } = await import(
@@ -743,6 +728,27 @@ export async function executePlanningPhase(
         priorState.returnDestination === "plan_review"
           ? priorState.lastAcceptedReviewDecision?.decisionIdentity ?? null
           : null,
+    });
+
+    const planningComment = await postPlanningComment(
+      client,
+      issue.id,
+      observed.assistantText,
+      {
+        ...footerBase,
+        promptVersion: version,
+        cursorAgentId,
+        cursorRunId,
+        planGenerationId: planArtifact.planGenerationId,
+        planArtifactHash: planArtifact.planArtifactHash,
+      },
+    );
+    commentsWritten.push(observed.assistantText);
+    await events.log("linear_comment_posted", "info", {
+      phase: "planning",
+      commentId: planningComment,
+      planGenerationId: planArtifact.planGenerationId,
+      planArtifactHash: planArtifact.planArtifactHash,
     });
 
     const applied = await applyPhaseTransition({

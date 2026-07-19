@@ -44,6 +44,9 @@ export interface HarnessCommentFooterInput {
   promptVersion: string;
   targetRepo: string;
   baseBranch?: string;
+  /** Durable Plan Review correlation — written on planning completion comments. */
+  planGenerationId?: string;
+  planArtifactHash?: string;
 }
 
 export interface HandoffCommentFooterInput extends HarnessCommentFooterInput {
@@ -153,6 +156,12 @@ function buildHarnessMetadataLines(
     `prompt_version: ${input.promptVersion}`,
     `target_repo: ${input.targetRepo}`,
   );
+  if (input.planGenerationId) {
+    lines.push(`plan_generation_id: ${input.planGenerationId}`);
+  }
+  if (input.planArtifactHash) {
+    lines.push(`plan_artifact_hash: ${input.planArtifactHash}`);
+  }
   if (input.issueKey) {
     lines.push(`issue_key: ${input.issueKey}`);
   }
