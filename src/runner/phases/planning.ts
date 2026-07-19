@@ -605,7 +605,7 @@ export async function executePlanningPhase(
       });
     }
 
-    const observed = await Promise.race([
+    let observed = await Promise.race([
       sendAndObserve(agent, prompt, runDirectory, events, {
         apiKey: cursorApiKey,
         phase: "planning",
@@ -658,6 +658,59 @@ export async function executePlanningPhase(
       `${observed.assistantText}\n`,
       "utf8",
     );
+
+    const { isImplementationReadyPlanBody } = await import(
+      "../../workflow/plan-body-quality.js"
+    );
+    let planQuality = isImplementationReadyPlanBody(observed.assistantText);
+    if (!planQuality.ok) {
+      await events.log("cursor_event", "warn", {
+        phase: "planning",
+        event: "plan_body_quality_repair_attempt",
+        reason: planQuality.reason,
+      });
+      const repairPrompt = [
+        "Your previous reply was rejected as not implementation-ready.",
+        `Reason: ${planQuality.reason}.`,
+        "Reply again with the FULL implementation plan markdown now.",
+        "Do not say you will create a plan later. Include Approach with numbered steps,",
+        "files to touch, and an Acceptance Verification Plan section.",
+      ].join(" ");
+      observed = await Promise.race([
+        sendAndObserve(agent, repairPrompt, runDirectory, events, {
+          apiKey: cursorApiKey,
+          phase: "planning",
+          telemetryCorrelation,
+          onTelemetryEvent: onTelemetry,
+          targetRepo: resolved.targetRepo,
+        }),
+        new Promise<never>((_, reject) => {
+          setTimeout(() => {
+            reject(
+              new PlanningError(
+                "cursor_run_timeout",
+                `Cursor planning repair exceeded ${timeoutMs / 1000}s`,
+              ),
+            );
+          }, timeoutMs);
+        }),
+      ]);
+      cursorAgentId = observed.agentId;
+      cursorRunId = observed.runId;
+      await writeFile(
+        planningResultPath,
+        `${observed.assistantText}\n`,
+        "utf8",
+      );
+      planQuality = isImplementationReadyPlanBody(observed.assistantText);
+    }
+    if (!planQuality.ok) {
+      throw new PlanningError(
+        "validation_failed",
+        `Planning output is not implementation-ready: ${planQuality.reason}`,
+      );
+    }
+
     const outputRef = await buildArtifactRef({
       runDirectory,
       absolutePath: planningResultPath,

@@ -77,10 +77,15 @@ When the target product marker is `uninitialized` or the issue includes `## Prod
 
 ## Output format
 
+Your reply **is** the implementation plan. Do **not** say you will create a plan later.
+Do **not** return intent-only stubs such as "Creating the implementation plan…" or
+"I have enough context…". If Plan Review feedback is present, address each blocking
+finding explicitly in the revised plan.
+
 Return markdown only, structured like the harness implementation plan template:
 
 - Context
-- Approach (numbered steps)
+- Approach (numbered steps with concrete file paths and edit intent)
 - Files to touch (table)
 - Files explicitly out of scope
 - Risks (table)
