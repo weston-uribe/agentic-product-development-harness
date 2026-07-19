@@ -8,7 +8,7 @@ Workflow schema: `product-development-v2`
 
 | Identity | Value / status |
 |----------|----------------|
-| Feature branch source SHA | _(filled at commit)_ |
+| Feature branch source SHA | `aae0f531515c1c71cb88da19022a1624d49fb49c` |
 | Packaged snapshot / content identity | _(filled after managed-runner sync)_ |
 | Managed-runner git SHA (`weston-uribe/p-dev-harness`) | _(filled after sync)_ |
 | Runtime-state branch | `p-dev-runtime-state` |
