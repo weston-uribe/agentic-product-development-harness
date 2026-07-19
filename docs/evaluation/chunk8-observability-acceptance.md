@@ -37,7 +37,7 @@ Source fix: `e8b119a`.
 | Public-runner projection canary | **Pass** | GHA `29702463278` — `acceptanceComplete: true` |
 | Local projection canary (`SYN-20260719202319`) | **Pass** | `acceptance.complete: true` |
 | TT-13 (fresh Plan Review fixture) local inspect | **Pass** | `acceptance.complete: true`, `generationCostComplete: true` |
-| TT-13 GHA inspect (opaque request) | **Pass** | Run `29703385200` on tip `e339b17` — assert passed |
+| TT-13 GHA inspect (opaque request) | **Invalidated (Chunk 8C)** | Run `29703385200` — assert checked only `acceptance.complete`; artifact leaked private report fields |
 | TT-8 (historical Code Review fixture) | **Fail hard-complete** | Local + GHA `29703386098` — residual error `incomplete_cost_record` (`missing_input_token_usage` on historical implementer generation) |
 | TT-7 (historical Plan Review attempt) | **Fail hard-complete** | Residual `incomplete_cost_record` on planner generation |
 
@@ -55,9 +55,14 @@ No new sensitive dumps observed in public runner logs for harness CLI surfaces. 
 
 ## Verdict
 
-Observability acceptance is **pass** for ordinary new work:
+**Not ready — Chunk 8C validation pending.**
 
-- Public Actions privacy: **pass**
-- Langfuse write/read on public runner: **pass** (canary + TT-13 GHA inspect)
-- Fresh Plan Review session cost completeness: **pass** (TT-13)
-- Historical TT-8 hard inspect complete: **fail** (documented; does not block new issues)
+Chunk 8B observability Ready was a false positive:
+
+- Public Actions Auto Runner log privacy: **pass** (issue keys absent from step summaries)
+- Public Langfuse inspect **artifact** privacy: **fail** — runs `29703385200` / `29703386098` uploaded full private reports containing Linear keys and trace names
+- Langfuse write/read on public runner: **partial** — projection canary passed; TT-13 live emit hit `UnauthorizedError` and was projection-repaired (not ordinary live proof)
+- Fresh session cost completeness gate: **false positive** — unnamed/incomplete generations could yield `generationCostComplete=true` / `acceptance.complete=true`
+- Historical TT-8 hard inspect complete: **fail** (documented)
+
+Chunk 8C must correct public artifacts, acceptance predicates, and prove untouched live Planning + Plan Review telemetry before this verdict may return to pass.

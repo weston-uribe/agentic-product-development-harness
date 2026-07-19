@@ -4,6 +4,12 @@ Date: 2026-07-19
 Branch: `feat/eval-pipeline`  
 Workflow schema: `product-development-v2`
 
+## Recommendation
+
+**Not ready — Chunk 8C validation pending.**
+
+Chunk 8B Ready was a false positive: public Actions artifacts leaked Linear issue identifiers (runs `29703385200`, `29703386098`); cost/`acceptance.complete` gates treated incomplete unnamed generations as complete; and TT-13 live Langfuse emit was projection-repaired after `UnauthorizedError`, which is not proof of ordinary live telemetry. Chunk 8C must correct privacy, acceptance, and prove untouched Planning + Plan Review emission before Ready is restored.
+
 ## Identities (do not conflate)
 
 | Identity | Value |
@@ -64,9 +70,9 @@ See [`chunk8-observability-acceptance.md`](./chunk8-observability-acceptance.md)
 | Public Actions issue/target privacy | **Pass** |
 | Langfuse secrets on public runner | **Set** (`LANGFUSE_*` + eval vars) |
 | Public-runner projection canary | **Pass** — `29702463278` |
-| Fresh Plan Review session (TT-13) GHA inspect | **Pass** — `29703385200` (`acceptance.complete=true`, `generationCostComplete=true`) |
-| Historical TT-8 hard inspect | **Fail** — `incomplete_cost_record` / `missing_input_token_usage` (GHA `29703386098`) |
-| GHA inspect assert (Node ESM argv) | **Fixed** — workflow tip `e339b17` |
+| Fresh Plan Review session (TT-13) GHA inspect | **Invalidated (Chunk 8C)** — run `29703385200` uploaded a full private inspect report (issue keys / trace names); cost gate was a false positive |
+| Historical TT-8 hard inspect | **Fail** — `incomplete_cost_record` / `missing_input_token_usage` (GHA `29703386098`; also leaked private report artifact) |
+| GHA inspect assert (Node ESM argv) | **Fixed** — workflow tip `e339b17` (insufficient; Chunk 8C expands assert + public-safe artifact) |
 
 ## Synthetic cleanup
 
@@ -86,20 +92,17 @@ See [`chunk8-observability-acceptance.md`](./chunk8-observability-acceptance.md)
 | Private state split + opaque dispatch | Pass |
 | Public log privacy (issue/target) | Pass |
 | Config / private-state canaries | Pass |
-| Plan Review revision → Ready for Build | **Pass** (TT-13) |
-| Langfuse acceptance (fresh session + canary) | **Pass** |
+| Plan Review revision → Ready for Build | **Pass** (TT-13 Linear path; Langfuse live emit not proven) |
+| Langfuse acceptance (fresh session + canary) | **Not ready — Chunk 8C validation pending** |
 | Historical TT-8 Langfuse hard-complete | **Fail** (documented limitation) |
 | Archive old `p-dev-harness` | **Done** |
 
 ## Remaining limitations
 
-1. Historical TT-8 Langfuse session cannot hard-complete (`missing_input_token_usage` on implementer generation). Does not block new ordinary issues.
+1. Historical TT-8 Langfuse session cannot hard-complete (`missing_input_token_usage` on implementer generation). Does not block new ordinary issues after Chunk 8C gates pass.
 2. Managed sync CLI still unreliable (`fetch failed` / timeout); use packaged snapshot push + marker restore when redeploying the public runner.
-3. Live Auto Runner Langfuse emit had an early `UnauthorizedError` episode before secrets stabilized; post-secret write path proven via projection canary + TT-13 inspect. Prefer re-checking live emit on the next ordinary planning job.
+3. Live Auto Runner Langfuse emit for ordinary issues is **unproven** after the TT-13 `UnauthorizedError` + projection-repair episode. Chunk 8C requires a fresh untouched live session.
 4. No public harness source PR, npm publish, or tag was created (not authorized).
-
-## Recommendation
-
-**Ready** for ordinary real issues on the public execution / private state cutover.
+5. Chunk 8C in progress: public-safe inspect artifacts, corrected cost/hard acceptance, remote artifact leak scan, historical artifact deletion.
 
 Do not open a public harness source PR, merge `feat/eval-pipeline` to a public source tree, publish npm, or tag without explicit authorization.
