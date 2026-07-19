@@ -70,6 +70,7 @@ import {
   finalizePhaseEvaluation,
   safeStartPhaseTrace,
 } from "../../evaluation/phase-helpers.js";
+import { resolveAuthoritativeLinearTeamIdFromConfig } from "../../config/resolve-linear-team.js";
 import { listTeamWorkflowStates } from "../../setup/linear-setup-client.js";
 import {
   evaluateCodeReviewReadiness,
@@ -661,11 +662,9 @@ export async function executeHandoffPhase(
       let linearStatuses: Array<{ name: string; type: string; id?: string }> =
         [];
       try {
-        if (config.linear?.teamId) {
-          linearStatuses = await listTeamWorkflowStates(
-            client,
-            config.linear.teamId,
-          );
+        const teamId = resolveAuthoritativeLinearTeamIdFromConfig(config);
+        if (teamId) {
+          linearStatuses = await listTeamWorkflowStates(client, teamId);
         }
       } catch {
         linearStatuses = [];

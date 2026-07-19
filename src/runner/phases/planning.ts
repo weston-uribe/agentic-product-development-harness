@@ -687,14 +687,15 @@ export async function executePlanningPhase(
     const { listTeamWorkflowStates } = await import(
       "../../setup/linear-setup-client.js"
     );
+    const { resolveAuthoritativeLinearTeamIdFromConfig } = await import(
+      "../../config/resolve-linear-team.js"
+    );
 
     let linearStatuses: Array<{ name: string; type: string }> = [];
     try {
-      if (config.linear?.teamId) {
-        linearStatuses = await listTeamWorkflowStates(
-          client,
-          config.linear.teamId,
-        );
+      const teamId = resolveAuthoritativeLinearTeamIdFromConfig(config);
+      if (teamId) {
+        linearStatuses = await listTeamWorkflowStates(client, teamId);
       }
     } catch {
       linearStatuses = [];

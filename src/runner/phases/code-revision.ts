@@ -94,6 +94,7 @@ import {
   captureWorkflowAnalyticsEvent,
   buildWorkflowAnalyticsProperties,
 } from "../../observability/workflow-analytics.js";
+import { resolveAuthoritativeLinearTeamIdFromConfig } from "../../config/resolve-linear-team.js";
 import { listTeamWorkflowStates } from "../../setup/linear-setup-client.js";
 import { GitHubClient } from "../../github/client.js";
 import { inspectPullRequest } from "../../github/pr-inspector.js";
@@ -180,11 +181,9 @@ export async function executeCodeRevisionPhase(
   const store = new FileWorkflowStateStore(logDirectory);
   let linearStatuses: Array<{ name: string; type: string; id?: string }> = [];
   try {
-    if (config.linear?.teamId) {
-      linearStatuses = await listTeamWorkflowStates(
-        client,
-        config.linear.teamId,
-      );
+    const teamId = resolveAuthoritativeLinearTeamIdFromConfig(config);
+    if (teamId) {
+      linearStatuses = await listTeamWorkflowStates(client, teamId);
     }
   } catch {
     linearStatuses = [];

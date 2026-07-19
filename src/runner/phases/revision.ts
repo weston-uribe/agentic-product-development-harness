@@ -109,6 +109,7 @@ import { allowsLangfuseContentProjection } from "../../evaluation/telemetry/prof
 import { boundRedactedContent } from "../../evaluation/telemetry/redact.js";
 import { MAX_LANGFUSE_CONTENT_CHARS } from "../../evaluation/telemetry/bounds.js";
 import { buildArtifactRef } from "../../evaluation/telemetry/artifact-ref.js";
+import { resolveAuthoritativeLinearTeamIdFromConfig } from "../../config/resolve-linear-team.js";
 import { listTeamWorkflowStates } from "../../setup/linear-setup-client.js";
 import { evaluateCodeReviewReadiness } from "../../workflow/code-review-readiness.js";
 import {
@@ -1139,11 +1140,9 @@ export async function executeRevisionPhase(
       let linearStatuses: Array<{ name: string; type: string; id?: string }> =
         [];
       try {
-        if (config.linear?.teamId) {
-          linearStatuses = await listTeamWorkflowStates(
-            client,
-            config.linear.teamId,
-          );
+        const teamId = resolveAuthoritativeLinearTeamIdFromConfig(config);
+        if (teamId) {
+          linearStatuses = await listTeamWorkflowStates(client, teamId);
         }
       } catch {
         linearStatuses = [];
