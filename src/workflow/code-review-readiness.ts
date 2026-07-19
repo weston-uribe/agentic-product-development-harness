@@ -126,7 +126,11 @@ async function resolveRequested(input: {
     cwd: input.cwd,
     workflowSchemaVersion:
       workflowConfig.schemaVersion ?? WORKFLOW_SCHEMA_VERSION,
-    linearTeamId: input.config.linear?.teamId ?? null,
+    linearTeamId:
+      input.config.linear?.teamId ??
+      input.config.repos[0]?.linearAssociations?.[0]?.teamId ??
+      null,
+    inlineSnapshots: input.config.validationRuns ?? null,
   });
 
   if (

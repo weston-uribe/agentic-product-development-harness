@@ -185,6 +185,11 @@ export const harnessConfigSchema = z
     promptProvider: promptProviderConfigSchema.optional(),
     /** Versioned workflow definition knobs. Optional reviewers default off. */
     workflow: workflowConfigSchema.optional(),
+    /**
+     * Issue-scoped validation-run snapshots for dogfood/synthetic gates.
+     * Never enables shared workflow.optionalPhases; cloud-syncable for managed runners.
+     */
+    validationRuns: z.array(z.record(z.unknown())).optional(),
     linear: linearConfigSchema.optional(),
     planning: planningConfigSchema.optional(),
     implementation: implementationConfigSchema.optional(),

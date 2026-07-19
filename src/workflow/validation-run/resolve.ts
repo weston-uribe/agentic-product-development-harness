@@ -7,6 +7,7 @@
 import { WORKFLOW_SCHEMA_VERSION } from "../definition/product-development.v2.js";
 import {
   listValidationRunSnapshots,
+  parseValidationRunSnapshot,
   refreshExpiredValidationRuns,
 } from "./store.js";
 import type {
@@ -88,6 +89,8 @@ export async function resolveIssueConfiguration(input: {
   /** When set, only this validation run may apply (claim freeze continuity). */
   requiredValidationRunId?: string | null;
   now?: Date;
+  /** Cloud-synced snapshots from harness config.validationRuns (not optionalPhases). */
+  inlineSnapshots?: readonly unknown[] | null;
 }): Promise<ResolvedIssueConfiguration> {
   const issueKey = input.issueKey?.trim();
   if (!issueKey) {
@@ -99,7 +102,17 @@ export async function resolveIssueConfiguration(input: {
   }
 
   await refreshExpiredValidationRuns(input.cwd, () => input.now ?? new Date());
-  const snapshots = await listValidationRunSnapshots(input.cwd);
+  const fromDisk = await listValidationRunSnapshots(input.cwd);
+  const fromConfig: ValidationRunSnapshot[] = [];
+  for (const raw of input.inlineSnapshots ?? []) {
+    const parsed = parseValidationRunSnapshot(raw);
+    if (parsed) fromConfig.push(parsed);
+  }
+  // Prefer disk snapshots when ids collide (operator local wins).
+  const byId = new Map<string, ValidationRunSnapshot>();
+  for (const snap of fromConfig) byId.set(snap.validationRunId, snap);
+  for (const snap of fromDisk) byId.set(snap.validationRunId, snap);
+  const snapshots = [...byId.values()];
 
   if (input.requiredValidationRunId) {
     const pinned = snapshots.find(
