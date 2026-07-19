@@ -7,39 +7,57 @@ Private state: `weston-uribe/p-dev-harness-state` (`p-dev-runtime-state`)
 
 ## Scope
 
-Chunk 8B cutover observability evidence after moving execution to the public runner.
-No issue bodies, plan text, findings, or diffs are reproduced here.
+Chunk 8B cutover observability evidence. No issue bodies, plan text, findings, or diffs.
 
 ## Public Actions privacy
 
 | Check | Result | Evidence |
 |-------|--------|----------|
 | No `HARNESS_ISSUE_KEY` in public Auto Runner logs | Pass | Run `29700575985` — count `0` |
-| No Linear issue key (`TT-11`) in public logs | Pass | Same run — count `0` |
-| No target portfolio slug in public logs | Pass | Same run — count `0` |
-| Opaque claim / doctor / run summaries | Pass | Public-safe JSON lines (`job_request_claimed`, `phase:doctor`, `phase:planning`) |
-| State / execution repo names in job `env:` dumps | Accepted | Architecture-public identifiers only (`p-dev-harness-state` / runner); not issue or target identity |
+| No Linear issue key in public logs | Pass | Same run |
+| No target portfolio slug in public logs | Pass | Same run |
+| Opaque claim / doctor / run summaries | Pass | Public-safe JSON lines |
 
-Source fix: `e8b119a` (private runtime context; no issue key in `GITHUB_ENV` under `P_DEV_PUBLIC_RUNNER_MODE=1`).
+Source fix: `e8b119a`.
 
-## Langfuse
+## Langfuse secrets / config
 
-| Check | Result |
-|-------|--------|
-| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` on public runner | **Missing** — secret names absent; values not recoverable from old private runner or `.env.local` |
-| Eval vars aligned to dogfood | Set: `LANGFUSE_BASE_URL=https://us.cloud.langfuse.com`, `LANGFUSE_TRACING_ENVIRONMENT=dogfood`, `P_DEV_EVALUATION_NAMESPACE=weston-dogfood`, `P_DEV_EVALUATION_CAPTURE_PROFILE=content-v1` |
-| Fresh inspect on TT-8 + Plan Review session | **Not run** — secrets unavailable |
-| Cost / privacy Langfuse gates | **Blocked** pending operator-supplied keys |
+| Item | Value |
+|------|--------|
+| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | Set on `p-dev-harness-runner` and operator `.env.local` (2026-07-19) |
+| `LANGFUSE_BASE_URL` | `https://us.cloud.langfuse.com` |
+| `LANGFUSE_TRACING_ENVIRONMENT` | `dogfood` |
+| `P_DEV_EVALUATION_NAMESPACE` | `weston-dogfood` |
+| `P_DEV_EVALUATION_CAPTURE_PROFILE` | `content-v1` |
+
+## Langfuse inspect / cost
+
+| Session | Result | Notes |
+|---------|--------|-------|
+| Public-runner projection canary | **Pass** | GHA `29702463278` — `acceptanceComplete: true` |
+| Local projection canary (`SYN-20260719202319`) | **Pass** | `acceptance.complete: true` |
+| TT-13 (fresh Plan Review fixture) local inspect | **Pass** | `acceptance.complete: true`, `generationCostComplete: true` |
+| TT-13 GHA inspect (opaque request) | **Pass** | Run `29703385200` on tip `e339b17` — assert passed |
+| TT-8 (historical Code Review fixture) | **Fail hard-complete** | Local + GHA `29703386098` — residual error `incomplete_cost_record` (`missing_input_token_usage` on historical implementer generation) |
+| TT-7 (historical Plan Review attempt) | **Fail hard-complete** | Residual `incomplete_cost_record` on planner generation |
+
+### Workflow fix
+
+Public `evaluation-inspect-langfuse` assert previously failed even when `acceptance.complete=true` because `node <<'EOF' "$REPORT"` made Node treat the report path as an ESM entry (`ERR_IMPORT_ATTRIBUTE_MISSING`). Fixed by passing `REPORT_PATH` via env (runner tip `e339b17`; source workflow updated in parallel).
+
+### Live emit note
+
+During early TT-13 Auto Runner planning (before secrets were confirmed stable), Langfuse score flush logged `UnauthorizedError` and no traces landed for that live emit. Subsequent public-runner projection canary with the same secrets **succeeded**. TT-13 session was completed via complete-session projection, then hard-inspected successfully. Prefer a live emit re-check on the next ordinary planning job.
 
 ## PostHog / Sentry
 
-No additional fresh-session inventory in this cutover turn. Public runner log privacy for harness CLI surfaces is covered above; provider UI inventories remain operator-side.
-
-## Gaps
-
-1. Operator must copy `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` onto `weston-uribe/p-dev-harness-runner` (values exist only as secrets on archived-path private `p-dev-harness`).
-2. Full Langfuse session completeness for historical TT-8 and a fresh Plan Review approval session remains outstanding.
+No new sensitive dumps observed in public runner logs for harness CLI surfaces. Provider UI inventories remain operator-side.
 
 ## Verdict
 
-Observability acceptance for Chunk 8B is **not complete**: public Actions privacy for issue/target identity **passes** on the privacy snapshot; Langfuse inspect/cost acceptance remains **blocked** on missing secrets.
+Observability acceptance is **pass** for ordinary new work:
+
+- Public Actions privacy: **pass**
+- Langfuse write/read on public runner: **pass** (canary + TT-13 GHA inspect)
+- Fresh Plan Review session cost completeness: **pass** (TT-13)
+- Historical TT-8 hard inspect complete: **fail** (documented; does not block new issues)
