@@ -81,10 +81,10 @@ describe("settings mutation editors", () => {
     );
     expect(linearEditor).toContain("previewLinearWorkspace");
     expect(linearEditor).toContain("applyLinearWorkspace");
-    expect(linearEditor).toContain('previewPolicy="optional"');
-    expect(linearEditor).toContain('confirmScope="linear-write"');
+    expect(linearEditor).toContain("window.confirm");
     expect(linearEditor).toContain("/api/setup/linear-options");
     expect(linearEditor).toContain("Remove from PDev");
+    expect(linearEditor).not.toContain("SettingsMutationPanel");
     expect(linearEditor).not.toContain("previewLinearSetup");
     expect(mutationPanel).toContain('previewPolicy = "required"');
     expect(mutationPanel).toContain("Optional");
