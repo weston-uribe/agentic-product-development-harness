@@ -24,4 +24,15 @@ describe("linear settings immediate operations", () => {
     expect(source).not.toContain("Configured projects:");
     expect(source).not.toContain("settings-linear-target-repo");
   });
+
+  it("renders human-readable health labels instead of raw enums", () => {
+    const source = readLinearEditor();
+    expect(source).toContain("formatLinearEntityHealthLabel");
+    expect(source).not.toContain(
+      'teamEvidence?.health ?? "verification_pending"',
+    );
+    expect(source).not.toContain(
+      'projectEvidence?.health ?? "verification_pending"',
+    );
+  });
 });

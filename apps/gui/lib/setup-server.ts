@@ -159,6 +159,7 @@ import {
   listLinearTeams,
 } from "@harness/setup/linear-setup-client";
 import { resolveAuthoritativeLinearWorkspaceIdentity } from "@harness/setup/linear-workspace-identity";
+import { verifyLinearWorkspaceAssociations } from "@harness/setup/linear-workspace-verify";
 import { previewLinearSetup } from "@harness/setup/linear-setup-plan";
 import {
   applyLinearWorkspace,
@@ -934,24 +935,21 @@ export async function ensureLinearWorkspaceMigrated(cwd = resolveCwd()) {
 
 export async function loadLinearWorkspaceEditorState(cwd = resolveCwd()) {
   await ensureLinearWorkspaceMigrated(cwd);
-  const summary = await buildLinearSetupSummary(cwd);
+  let summary = await buildLinearSetupSummary(cwd);
   const loaded = await loadHarnessConfig({ baseDir: cwd });
-  const controlPlane = await readControlPlaneSetupState(cwd);
+  let controlPlane = await readControlPlaneSetupState(cwd);
   const associations = resolveLinearAssociationsFromConfig(loaded.config);
   const expectedCommittedFingerprint = computeLinearAssociationsFingerprint(
     loaded.config,
   );
   const evidence = summary.controlPlane?.linearWorkspace;
-  const driftWarnings = detectConfigControlPlaneDrift({
-    config: loaded.config,
-    controlPlane,
-  });
 
   let liveOrganization: { id: string; name: string } | null = null;
   let liveLookupFailed = false;
+  let linearApiKey: string | undefined;
   if (summary.linearApiKeyConfigured) {
     try {
-      const linearApiKey = await loadLinearApiKey(cwd);
+      linearApiKey = await loadLinearApiKey(cwd);
       if (!linearApiKey?.trim()) {
         liveLookupFailed = true;
       } else {
@@ -971,6 +969,33 @@ export async function loadLinearWorkspaceEditorState(cwd = resolveCwd()) {
     durableWorkspaceId: evidence?.workspaceId,
     durableWorkspaceName: evidence?.workspaceName,
     configWorkspaceId: loaded.config.linear?.workspaceId,
+  });
+
+  if (
+    summary.linearApiKeyConfigured &&
+    linearApiKey?.trim() &&
+    associations.length > 0 &&
+    identity.workspaceId
+  ) {
+    try {
+      await verifyLinearWorkspaceAssociations({
+        cwd,
+        linearApiKey,
+        workspaceId: identity.workspaceId,
+        workspaceName:
+          identity.source === "unavailable" ? "" : identity.workspaceName,
+        associations,
+      });
+      summary = await buildLinearSetupSummary(cwd);
+      controlPlane = await readControlPlaneSetupState(cwd);
+    } catch {
+      // Keep durable evidence when live verification cannot run.
+    }
+  }
+
+  const driftWarnings = detectConfigControlPlaneDrift({
+    config: loaded.config,
+    controlPlane,
   });
 
   return {

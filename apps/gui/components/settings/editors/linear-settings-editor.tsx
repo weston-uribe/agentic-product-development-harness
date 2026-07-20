@@ -27,6 +27,7 @@ import {
   previewLinearWorkspace,
 } from "@/lib/settings/settings-setup-client";
 import { pickDisplayedLinearWorkspaceName } from "@/lib/linear-workspace-identity";
+import { formatLinearEntityHealthLabel } from "@harness/setup/linear-workspace-verify";
 
 type LinearEditorInitialData = {
   summary: LinearSetupSummary;
@@ -35,7 +36,12 @@ type LinearEditorInitialData = {
   expectedCommittedFingerprint: string;
   workspaceId: string;
   workspaceName: string;
-  driftWarnings: Array<{ code: string; message: string }>;
+  driftWarnings: Array<{
+    code: string;
+    message: string;
+    teamId?: string;
+    projectId?: string;
+  }>;
   workspaceHealth?: import("@harness/setup/workspace-health-snapshot").WorkspaceHealthSnapshot;
 };
 
@@ -276,6 +282,12 @@ export function LinearSettingsEditor({ initialData }: LinearSettingsEditorProps)
               const teamEvidence = evidence?.teams.find(
                 (team) => team.teamId === teamId,
               );
+              const teamDrift = initialData.driftWarnings.some(
+                (warning) =>
+                  warning.teamId === teamId ||
+                  warning.code === "team_id_mismatch" ||
+                  warning.code === "association_count_mismatch",
+              );
               return (
                 <div key={teamId} className="rounded-md border border-border/70 p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -287,7 +299,10 @@ export function LinearSettingsEditor({ initialData }: LinearSettingsEditorProps)
                         })}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        Health: {teamEvidence?.health ?? "verification_pending"}
+                        Health:{" "}
+                        {formatLinearEntityHealthLabel(teamEvidence?.health, {
+                          drift: teamDrift && !teamEvidence,
+                        })}
                       </p>
                     </div>
                     <Button
@@ -305,6 +320,11 @@ export function LinearSettingsEditor({ initialData }: LinearSettingsEditorProps)
                       const projectEvidence = teamEvidence?.projects.find(
                         (project) => project.projectId === association.projectId,
                       );
+                      const projectDrift = initialData.driftWarnings.some(
+                        (warning) =>
+                          warning.projectId === association.projectId ||
+                          warning.code === "project_id_mismatch",
+                      );
                       return (
                         <li
                           key={linearAssociationKey(association)}
@@ -313,7 +333,12 @@ export function LinearSettingsEditor({ initialData }: LinearSettingsEditorProps)
                           <div>
                             <p>{association.projectName}</p>
                             <p className="text-xs text-muted-foreground">
-                              {projectEvidence?.health ?? "verification_pending"}
+                              {formatLinearEntityHealthLabel(
+                                projectEvidence?.health,
+                                {
+                                  drift: projectDrift && !projectEvidence,
+                                },
+                              )}
                             </p>
                           </div>
                           <Button
