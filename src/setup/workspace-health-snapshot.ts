@@ -22,6 +22,7 @@ import type {
   PDevBridgeHealthStatus,
 } from "./workspace-health.js";
 import { isCredentialFailureStatus } from "./workspace-health.js";
+import { isNonAuthoritativeLinearWorkspaceName } from "./linear-workspace-identity.js";
 
 export type CredentialHealthFact = {
   present: boolean;
@@ -485,9 +486,14 @@ export function deriveLinearHealthFacts(input: {
     automationAggregate = "configured";
   }
 
+  const rawWorkspaceName = evidence?.workspaceName?.trim() || undefined;
   return {
     credential,
-    workspaceName: evidence?.workspaceName?.trim() || undefined,
+    workspaceName:
+      rawWorkspaceName &&
+      !isNonAuthoritativeLinearWorkspaceName(rawWorkspaceName)
+        ? rawWorkspaceName
+        : undefined,
     configuredTeams,
     statusConfigPresent: summary.statusCoverageComplete,
     webhookConfigured,

@@ -173,7 +173,7 @@ export function GuidedLinearWorkspaceCard({
   const [teams, setTeams] = useState<LinearTeamSummary[]>([]);
   const [projects, setProjects] = useState<LinearProjectSummary[]>([]);
   const [workspaceId, setWorkspaceId] = useState("");
-  const [workspaceName, setWorkspaceName] = useState("Linear workspace");
+  const [workspaceName, setWorkspaceName] = useState("");
   const [optionsLoaded, setOptionsLoaded] = useState(false);
   const [optionsLoading, setOptionsLoading] = useState(false);
   const [optionsError, setOptionsError] = useState<string | null>(null);
@@ -466,7 +466,7 @@ export function GuidedLinearWorkspaceCard({
     (requestedAssociations: ResolvedLinearAssociation[]) => ({
       expectedCommittedFingerprint: bootstrap?.expectedCommittedFingerprint ?? "",
       workspaceId: workspaceId || bootstrap?.workspaceId || "",
-      workspaceName: workspaceName || bootstrap?.workspaceName || "Linear workspace",
+      workspaceName: workspaceName || bootstrap?.workspaceName || "",
       requestedAssociations,
     }),
     [bootstrap, workspaceId, workspaceName],

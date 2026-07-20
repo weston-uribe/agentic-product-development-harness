@@ -26,6 +26,7 @@ import {
   applyLinearWorkspace,
   previewLinearWorkspace,
 } from "@/lib/settings/settings-setup-client";
+import { pickDisplayedLinearWorkspaceName } from "@/lib/linear-workspace-identity";
 
 type LinearEditorInitialData = {
   summary: LinearSetupSummary;
@@ -60,9 +61,10 @@ export function LinearSettingsEditor({ initialData }: LinearSettingsEditorProps)
 
   const linearApiKeyConfigured = summary.linearApiKeyConfigured;
   const evidence = summary.controlPlane?.linearWorkspace;
-  const workspaceName =
-    initialData.workspaceHealth?.linear.workspaceName?.trim() ||
-    initialData.workspaceName;
+  const workspaceName = pickDisplayedLinearWorkspaceName({
+    bootstrapName: initialData.workspaceName,
+    healthName: initialData.workspaceHealth?.linear.workspaceName,
+  });
   const grouped = useMemo(
     () => groupAssociationsByTeam(associations),
     [associations],

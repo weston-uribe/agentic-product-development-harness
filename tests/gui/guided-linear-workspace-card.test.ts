@@ -154,6 +154,14 @@ describe("guided linear workspace card", () => {
     expect(source).toContain("verifiedSuccess && applyResult");
     expect(source).toContain("onContinue={onContinue}");
   });
+
+  it("does not seed workspace identity with the Linear workspace placeholder", () => {
+    const source = readLinearCardSource();
+    expect(source).not.toContain('useState("Linear workspace")');
+    expect(source).not.toContain(
+      'workspaceName || bootstrap?.workspaceName || "Linear workspace"',
+    );
+  });
 });
 
 describe("linear settings editor shared draft helpers", () => {

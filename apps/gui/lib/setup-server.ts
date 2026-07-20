@@ -158,6 +158,7 @@ import {
   listLinearProjects,
   listLinearTeams,
 } from "@harness/setup/linear-setup-client";
+import { resolveAuthoritativeLinearWorkspaceIdentity } from "@harness/setup/linear-workspace-identity";
 import { previewLinearSetup } from "@harness/setup/linear-setup-plan";
 import {
   applyLinearWorkspace,
@@ -946,18 +947,31 @@ export async function loadLinearWorkspaceEditorState(cwd = resolveCwd()) {
     controlPlane,
   });
 
-  let workspaceId =
-    loaded.config.linear?.workspaceId ?? evidence?.workspaceId ?? "";
-  let workspaceName = evidence?.workspaceName?.trim() ?? "";
-  if ((!workspaceName || !workspaceId) && summary.linearApiKeyConfigured) {
+  let liveOrganization: { id: string; name: string } | null = null;
+  let liveLookupFailed = false;
+  if (summary.linearApiKeyConfigured) {
     try {
-      const options = await loadLinearWorkspaceOptions();
-      workspaceId = workspaceId || options.workspaceId;
-      workspaceName = workspaceName || options.workspaceName;
+      const linearApiKey = await loadLinearApiKey(cwd);
+      if (!linearApiKey?.trim()) {
+        liveLookupFailed = true;
+      } else {
+        const client = createLinearSetupClient(linearApiKey);
+        liveOrganization = await getLinearOrganizationSummary(client);
+      }
     } catch {
-      // Keep durable evidence only when live org lookup fails.
+      liveLookupFailed = true;
     }
+  } else {
+    liveLookupFailed = true;
   }
+
+  const identity = resolveAuthoritativeLinearWorkspaceIdentity({
+    liveOrganization,
+    liveLookupFailed,
+    durableWorkspaceId: evidence?.workspaceId,
+    durableWorkspaceName: evidence?.workspaceName,
+    configWorkspaceId: loaded.config.linear?.workspaceId,
+  });
 
   return {
     summary,
@@ -967,8 +981,8 @@ export async function loadLinearWorkspaceEditorState(cwd = resolveCwd()) {
       targetRepo: repo.targetRepo,
     })),
     expectedCommittedFingerprint,
-    workspaceId,
-    workspaceName: workspaceName || "Workspace name unavailable",
+    workspaceId: identity.workspaceId,
+    workspaceName: identity.workspaceName,
     driftWarnings,
   };
 }
