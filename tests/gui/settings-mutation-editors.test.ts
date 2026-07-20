@@ -137,11 +137,11 @@ describe("settings mutation editors", () => {
       mutationPanel.lastIndexOf("onApply"),
     );
 
-    expect(deploymentsEditor).toContain('previewPolicy="optional"');
     expect(deploymentsEditor).toContain("previewVercelBridge(buildPlanPayload())");
-    expect(deploymentsEditor).toContain(
-      "disableApply={\n          !selectionComplete || !confirmed || !summary.vercelTokenConfigured\n        }",
-    );
+    expect(deploymentsEditor).toContain("Save deployment selection");
+    expect(deploymentsEditor).toContain("window.confirm");
+    expect(deploymentsEditor).not.toContain("SettingsMutationPanel");
+    expect(deploymentsEditor).not.toContain("Apply deployment changes");
 
     expect(connectionsEditor).not.toContain('previewPolicy="optional"');
     expect(mutationPanel).toContain('previewPolicy = "required"');
