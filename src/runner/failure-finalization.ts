@@ -42,8 +42,8 @@ export interface FailureFinalizationInput {
  * Decide whether failure finalization may assert owned_active_claim.
  *
  * Acceptance comments set owned_active_claim=true before any transitional
- * Linear status is claimed. Pre-phase terminal failures (FRE-5:
- * missing_planning_comment while still Ready for Build) must still be able
+ * Linear status is claimed. Pre-Building terminal failures (e.g. Linear comment
+ * list / status write failures while still Ready for Build) must still be able
  * to project blocked for the same delivery/request, or Linear stays stuck on
  * "Preparing the next phase".
  */
