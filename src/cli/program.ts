@@ -8,6 +8,7 @@ import { runInspect } from "./commands/inspect.js";
 import { runRunCommand } from "./commands/run.js";
 import { runValidateIssue } from "./commands/validate-issue.js";
 import { runSyncProductionCommand } from "./commands/sync-production.js";
+import { runReconcileProductionCommand } from "./commands/reconcile-production.js";
 import { runUpgradeTargetWorkflowsCommand } from "./commands/upgrade-target-workflows.js";
 import { runResolveRouteCommand } from "./commands/resolve-route.js";
 import { runReconcileRevisionCommand } from "./commands/reconcile-revision.js";
@@ -261,6 +262,24 @@ export function createProgram(): Command {
       process.exitCode = exitCode;
     });
 
+  program
+    .command("reconcile-production")
+    .description(
+      "Reconcile production delivery for all (or one) configured target repos",
+    )
+    .option("--repo <id>", "Optional repo config id to scope reconcile")
+    .option("--dry-run", "Inspect without Linear / Langfuse writes", false)
+    .option("--json", "Print reconcile summary JSON to stdout", false)
+    .action(async (opts) => {
+      const configPath = program.opts<{ config: string }>().config;
+      const exitCode = await runReconcileProductionCommand({
+        configPath,
+        repo: opts.repo,
+        dryRun: opts.dryRun,
+        json: opts.json,
+      });
+      process.exitCode = exitCode;
+    });
 
   program
     .command("upgrade-target-workflows")
