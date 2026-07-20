@@ -391,7 +391,7 @@ describe("failure finalization", () => {
     ).toBe("non_owner_cannot_block_acceptance");
   });
 
-  it("FRE-5: pre-Building missing_planning_comment projects blocked on acceptance claim", async () => {
+  it("FRE-5: pre-Building linear_write_failure projects blocked on acceptance claim", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "failure-finalize-fre5-"));
     const jsonOutPath = path.join(dir, "harness-run-output.json");
     const requestId = "dlv-eb090c3c89c73bc68635aba4f7442ba9";
@@ -407,8 +407,8 @@ describe("failure finalization", () => {
       linearStatusBefore: "Ready for Build",
       linearStatusAfter: "Ready for Build",
       finalOutcome: "failed",
-      errorClassification: "missing_planning_comment",
-      validationSummary: null,
+      errorClassification: "linear_write_failure",
+      validationSummary: "Failed to transition issue to Building: GraphQL error",
       runOwnedStatuses: null,
       deliveryId: null,
       runGeneration: 29763160688,
@@ -454,7 +454,7 @@ describe("failure finalization", () => {
     const result = await finalizeFailedHarnessRun({
       issueKey: "FRE-5",
       jsonOutPath,
-      exitCode: 2,
+      exitCode: 3,
       configPath: "harness.config.json",
       linearApiKey: "lin_api_test",
       generation: 29763160688,
@@ -473,7 +473,9 @@ describe("failure finalization", () => {
         ownedActiveClaim: true,
         runId: requestId,
         deliveryId,
-        message: expect.stringContaining("missing_planning_comment"),
+        message: expect.stringMatching(
+          /Failed to transition issue to Building|GraphQL error/,
+        ),
       }),
     );
     await rm(dir, { recursive: true, force: true });
