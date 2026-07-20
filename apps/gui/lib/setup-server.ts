@@ -160,6 +160,11 @@ import {
 } from "@harness/setup/linear-setup-client";
 import { resolveAuthoritativeLinearWorkspaceIdentity } from "@harness/setup/linear-workspace-identity";
 import { verifyLinearWorkspaceAssociations } from "@harness/setup/linear-workspace-verify";
+import {
+  syncLinearAssociationCloudConfig,
+  type LinearAssociationCloudSyncResult,
+} from "@harness/setup/sync-linear-association-cloud-config";
+import { buildCanonicalCloudConfigPair } from "@harness/setup/sync-harness-config-cloud";
 import { previewLinearSetup } from "@harness/setup/linear-setup-plan";
 import {
   applyLinearWorkspace,
@@ -1045,6 +1050,7 @@ export async function applyLinearWorkspaceRemote(options: {
   apply: LinearWorkspaceApplyResult;
   summary: Awaited<ReturnType<typeof buildLinearSetupSummary>>;
   expectedCommittedFingerprint: string;
+  cloudSync: LinearAssociationCloudSyncResult | null;
 }> {
   const cwd = resolveCwd();
   const linearApiKey =
@@ -1055,6 +1061,41 @@ export async function applyLinearWorkspaceRemote(options: {
     fingerprint: options.fingerprint,
     cwd,
   });
+
+  if (apply.verified && apply.configUpdated && linearApiKey.trim()) {
+    try {
+      await verifyLinearWorkspaceAssociations({
+        cwd,
+        linearApiKey,
+        workspaceId: options.plan.workspaceId,
+        workspaceName: options.plan.workspaceName,
+        associations: options.plan.requestedAssociations,
+      });
+    } catch {
+      // Local apply already succeeded; verification runs again on next Settings load.
+    }
+  }
+
+  let cloudSync: LinearAssociationCloudSyncResult | null = null;
+  if (apply.verified && apply.configUpdated) {
+    const provider = await resolveRemoteProvider();
+    if (!provider) {
+      const { fingerprint } = await buildCanonicalCloudConfigPair(cwd);
+      cloudSync = {
+        status: "partial_success",
+        fingerprint,
+        error:
+          "Linear associations were saved locally, but GitHub credentials are required to synchronize cloud harness config.",
+        retryable: true,
+      };
+    } else {
+      cloudSync = await syncLinearAssociationCloudConfig({
+        cwd,
+        provider,
+      });
+    }
+  }
+
   const summary = await buildLinearSetupSummary(cwd);
   const loaded = await loadHarnessConfig({ baseDir: cwd });
   return {
@@ -1063,7 +1104,24 @@ export async function applyLinearWorkspaceRemote(options: {
     expectedCommittedFingerprint: computeLinearAssociationsFingerprint(
       loaded.config,
     ),
+    cloudSync,
   };
+}
+
+export async function syncLinearAssociationCloudConfigRemote(): Promise<LinearAssociationCloudSyncResult> {
+  const cwd = resolveCwd();
+  const provider = await resolveRemoteProvider();
+  if (!provider) {
+    const { fingerprint } = await buildCanonicalCloudConfigPair(cwd);
+    return {
+      status: "partial_success",
+      fingerprint,
+      error:
+        "GitHub credentials are required to synchronize cloud harness config.",
+      retryable: true,
+    };
+  }
+  return syncLinearAssociationCloudConfig({ cwd, provider });
 }
 
 export async function loadVercelBridgeOptionsRemote(input?: {

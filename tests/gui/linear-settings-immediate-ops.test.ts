@@ -18,6 +18,7 @@ describe("linear settings immediate operations", () => {
     expect(source).toContain("window.confirm");
     expect(source).toContain("commitAssociations");
     expect(source).toContain("applyLinearWorkspace");
+    expect(source).toContain("LinearProvisionForm");
     expect(source).not.toContain("SettingsMutationPanel");
     expect(source).not.toContain("Credential:");
     expect(source).not.toContain("Configured teams:");
