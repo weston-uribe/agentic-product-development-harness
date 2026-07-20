@@ -5,10 +5,7 @@ import {
   getEligibleRevisionStatuses,
   getTransitionalStatus,
 } from "../config/status-names.js";
-import {
-  resolveAuthoritativeLinearTeamIdFromConfig,
-  resolveAuthoritativeLinearTeamIds,
-} from "../config/resolve-linear-team.js";
+import { resolveAuthoritativeLinearTeamIds } from "../config/resolve-linear-team.js";
 import { runLinearAssociationGate } from "../config/linear-association-gate.js";
 import { fetchLinearIssue } from "../linear/client.js";
 import { listIssuesByStatus } from "../linear/issue-query.js";
