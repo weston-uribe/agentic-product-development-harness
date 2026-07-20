@@ -843,6 +843,49 @@ export function buildInspectReport(params: {
   );
   const scoreNames = [...new Set(allScores.map((s) => s.name))];
 
+  const expectedCsvPhases = new Set<string>(
+    expectedPhases.filter((p) => p === "planning" || p === "plan_review"),
+  );
+  const csvPhaseTraceIds = new Set(
+    traces
+      .filter(
+        (t) =>
+          t.phase != null &&
+          (t.phase === "planning" || t.phase === "plan_review") &&
+          expectedCsvPhases.has(t.phase),
+      )
+      .map((t) => t.id),
+  );
+  const scoresOnCsvPhases = allScores.filter(
+    (s) => s.traceId != null && csvPhaseTraceIds.has(s.traceId),
+  );
+  const hasScore = (name: string, value?: unknown): boolean =>
+    scoresOnCsvPhases.some(
+      (s) =>
+        s.name === name &&
+        (value === undefined ||
+          s.value === value ||
+          s.value === (value === true ? 1 : value === false ? 0 : value)),
+    );
+  const cursorCsvTokenAcceptance =
+    csvPhaseTraceIds.size > 0 &&
+    hasScore("cursor_token_usage_complete", true) &&
+    hasScore("cursor_input_tokens") &&
+    hasScore("cursor_output_tokens") &&
+    hasScore("cursor_cache_read_tokens") &&
+    hasScore("cursor_cache_write_tokens") &&
+    hasScore("cursor_total_tokens") &&
+    hasScore("cursor_generation_native_usage_complete", false);
+  const cursorCsvCostProxyAvailable =
+    hasScore("cursor_cost_proxy_available", true) &&
+    hasScore("cursor_known_noncache_cost_usd") &&
+    hasScore("cursor_all_input_at_list_rate_usd");
+  const cursorCsvExactMonetaryCostAcceptance = generationCostCompleteAll;
+  const cursorGenerationNativeUsageComplete = hasScore(
+    "cursor_generation_native_usage_complete",
+    true,
+  );
+
   const requiredTracesPresent =
     (!expectedPhases.includes("planning") || dedicatedPlanning) &&
     (!expectedPhases.includes("plan_review") || dedicatedPlanReview);
@@ -935,6 +978,10 @@ export function buildInspectReport(params: {
       errorGapCount,
       warningGapCount,
       scoreNames,
+      cursorCsvTokenAcceptance,
+      cursorCsvCostProxyAvailable,
+      cursorCsvExactMonetaryCostAcceptance,
+      cursorGenerationNativeUsageComplete,
     },
     artifactComparison: {
       localRunCount: params.artifactRuns?.length ?? 0,

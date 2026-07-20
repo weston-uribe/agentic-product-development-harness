@@ -6,9 +6,17 @@ Workflow schema: `product-development-v2`
 
 ## Recommendation
 
-**Not ready — Chunk 8C live generation cost incomplete.**
+**Not ready — exact monetary cost still blocked** (native cloud SDK usage absent; CSV scores-only tokens/proxies available).
 
-Chunk 8C fixed public artifact privacy and false-positive acceptance gates. Untouched live Planning + Plan Review telemetry for TT-14 is present, but required Cursor-run generations lack input/output token usage and a truthful USD cost source (`costSource=unavailable` / `provider_did_not_report`). Hard acceptance correctly fails. Ready is not restored.
+Chunk 8C fixed public artifact privacy and false-positive acceptance gates. Chunk 8D confirmed cloud `@cursor/sdk@1.0.23` does not expose documented usage on finished cloud runs. Chunk 8E validated official usage CSV arithmetic and `Cloud Agent ID` ↔ `cursorAgentId` joins. Chunk 8F imports CSV aggregates as **deterministic Langfuse trace scores only** (no observation mutation).
+
+| Verdict (TT-14 Planning + Plan Review) | Result |
+|----------------------------------------|--------|
+| Score-backed token acceptance | **Pass** |
+| Cost-proxy availability | **Pass** (honest proxies; not billed cost) |
+| Exact monetary / `generationCostComplete` | **Fail** (intentionally unchanged) |
+
+Hard exact-cost acceptance correctly remains fail-closed. Ready is not restored.
 
 ## Identities (do not conflate)
 
@@ -98,10 +106,45 @@ Portfolio PR [#48](https://github.com/weston-uribe/weston-uribe-portfolio/pull/4
 | Hard public acceptance | **Fail** (correct) |
 | Historical leak artifact deletion | **Done** |
 
+## Chunk 8D probe (go/no-go)
+
+| Item | Result |
+|------|--------|
+| SDK lockfile version | `1.0.23` (not upgraded) |
+| Probe CLI | `npm run evaluation:probe-cursor-sdk-usage` |
+| Cloud `RunResult.usage` | Absent |
+| Cloud `run.usage` after `wait()` | Absent |
+| Cloud stream `usage` events | Absent (types: `status`, `thinking`, `assistant`; stream completed clean) |
+| Local comparison (same SDK) | Present — terminal + handle + one stream `usage`; input/output agree; `totalTokens = input + output + cacheRead + cacheWrite` |
+| Stream stable turn/event identity | Absent (`agent_id` / `run_id` only) |
+| Go/no-go | **no-go** (cloud authoritative cumulative usage missing) |
+| Production adapter / fresh issue | **Not built / not created** |
+
+Private evidence (maintainer only): `.harness/chunk8d-sdk-usage-probe.private.json`, `.harness/chunk8d-sdk-usage-surface.note.md`.  
+Checklist: [chunk8d-cursor-sdk-usage-todo.md](chunk8d-cursor-sdk-usage-todo.md).
+
+## Chunk 8F — scores-only CSV import (TT-14 proof)
+
+| Item | Result |
+|------|--------|
+| Write surface | Trace scores only — `observationMutationAttempted=false` |
+| Phases attached | `planning`, `plan_review` only |
+| Read-after-write | Verified; logical score count `22` → second import `22` |
+| Token acceptance | **Pass** (`score_backed_verified`) |
+| Cost-proxy availability | **Pass** (`cursor_known_noncache_cost_usd` + `cursor_all_input_at_list_rate_usd`) |
+| Exact monetary | **Fail** (`generationCostComplete` unchanged / false) |
+| CLI | `npm run evaluation:import-cursor-usage` |
+
+Private evidence (maintainer only): `runs/evaluation-reports/TT-14-cursor-usage-import.private.json`.  
+Escalation: [cursor-composer-2-5-cache-pricing-escalation.md](cursor-composer-2-5-cache-pricing-escalation.md).  
+Follow-on sketch updated: [chunk8e-csv-token-import-followon.md](chunk8e-csv-token-import-followon.md).
+
 ## Remaining limitations
 
-1. Live Cursor-run generations still omit token usage and USD cost (`provider_did_not_report`). Blocks Ready.
-2. Historical TT-8 Langfuse hard-complete remains fail (documented).
-3. No public harness source PR, npm publish, or tag (not authorized).
+1. **Cursor cloud SDK does not report token usage** on documented surfaces for finished cloud runs (`@cursor/sdk@1.0.23`). Native generation `usageDetails` remain incomplete.
+2. **Exact USD cost** remains unavailable: CSV `Cost` is Included/non-numeric; cache rates unpublished ([escalation](cursor-composer-2-5-cache-pricing-escalation.md)).
+3. Score-backed tokens and proxies do **not** satisfy `generationCostComplete` / exact-cost `coreComplete` (by design).
+4. Historical TT-8 Langfuse hard-complete remains fail (documented).
+5. No public harness source PR, npm publish, or tag (not authorized).
 
 Do not open a public harness source PR, merge `feat/eval-pipeline` to a public source tree, publish npm, or tag without explicit authorization.

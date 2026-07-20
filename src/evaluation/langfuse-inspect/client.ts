@@ -223,3 +223,53 @@ export async function fetchSessionBundle(
 
   return { session, traces: enriched, observations, scores };
 }
+
+/**
+ * Lightweight score fetch for CSV import verify.
+ * Prefer per-trace queries (session-scoped score lists can be slow/empty).
+ */
+export async function fetchSessionScoresOnly(
+  client: LangfuseApiClient,
+  _sessionId: string,
+  traceIds: string[] = [],
+): Promise<Array<Record<string, unknown>>> {
+  const scores: Array<Record<string, unknown>> = [];
+  const pushListed = (listed: Record<string, unknown> | null) => {
+    for (const item of asArray(listed?.data)) {
+      const rec = asRecord(item);
+      if (rec) scores.push(rec);
+    }
+  };
+  const ids = [...new Set(traceIds.filter(Boolean))];
+  try {
+    for (const traceId of ids) {
+      if (client.api.scoresV3?.getManyV3) {
+        pushListed(
+          asRecord(
+            await client.api.scoresV3.getManyV3({
+              traceId,
+              limit: 100,
+            }),
+          ),
+        );
+      } else if (client.api.scores?.getMany) {
+        pushListed(
+          asRecord(
+            await client.api.scores.getMany({
+              traceId,
+              limit: 100,
+            }),
+          ),
+        );
+      }
+    }
+  } catch {
+    // leave empty
+  }
+  const byId = new Map<string, Record<string, unknown>>();
+  for (const s of scores) {
+    const id = typeof s.id === "string" ? s.id : null;
+    if (id) byId.set(id, s);
+  }
+  return [...byId.values()];
+}

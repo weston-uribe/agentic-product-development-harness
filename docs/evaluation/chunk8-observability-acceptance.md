@@ -11,7 +11,7 @@ Chunk 8C privacy + Langfuse acceptance evidence. No issue bodies, plan text, fin
 
 ## Verdict
 
-**Not ready — Chunk 8C live generation cost incomplete.**
+**Not ready — exact monetary cost still blocked.** Score-backed CSV tokens and honest cost proxies are available (Chunk 8F); native cloud SDK usage remains absent (Chunk 8D).
 
 ### What Chunk 8C fixed
 
@@ -21,9 +21,19 @@ Chunk 8C privacy + Langfuse acceptance evidence. No issue bodies, plan text, fin
 - Public workflow is inspect-only (no reproject / artifact-cache / stdout capture); retention 1 day.
 - Historical leaking artifacts deleted (runs `29703385200`, `29703386098` + 3 legacy `langfuse-inspect-*`).
 
+### Chunk 8D–8F (usage / billing)
+
+| Chunk | Result |
+|-------|--------|
+| 8D cloud SDK usage probe | **no-go** — finished cloud runs omit documented usage surfaces |
+| 8E CSV feasibility | Token arithmetic + agent/phase join accepted; Included cost; cache rates unpublished |
+| 8F scores-only import | Trace scores only; TT-14 Planning + Plan Review: token **pass**, proxy **pass**, exact cost **fail** |
+
+Attribution is agent→phase (not per-run `provider_exact`). Proxies are not billed cost. Exact-cost gate intentionally not passed. Escalation: [cursor-composer-2-5-cache-pricing-escalation.md](cursor-composer-2-5-cache-pricing-escalation.md).
+
 ### What still blocks Ready
 
-Untouched live TT-14 Planning + Plan Review Cursor-run generations exist but lack token usage and a truthful USD cost source (`costSource=unavailable`, `provider_did_not_report`). Public summary correctly reports `acceptance.complete=false`.
+Native Cursor-run generations still lack `usageDetails` / truthful USD cost. CSV score-backed tokens do **not** feed `generationCostComplete`. Public hard acceptance correctly remains incomplete until numeric provider cost or approved cache pricing exists.
 
 ## Public Actions privacy
 
@@ -62,7 +72,11 @@ Session bundles now merge duplicate traces/observations/scores deterministically
 
 ## Live emit note
 
-TT-14 Auto Runner created live Planning and Plan Review traces, agents, and Cursor-run generations without projection/repair. Cost/token fields were not populated by the provider (`provider_did_not_report`). This is **not** proof of cost-complete live telemetry and does **not** restore Ready.
+TT-14 Auto Runner created live Planning and Plan Review traces, agents, and Cursor-run generations without projection/repair. Native generation cost/token fields were not populated by the provider (`provider_did_not_report`).
+
+Chunk 8F later attached **score-backed** CSV token and proxy scores to those phase traces (scores-only; no observation mutation). That proves token/proxy observability after operator CSV import — **not** native usage completeness and **not** exact monetary acceptance.
+
+Escalation targets: Cursor cloud SDK usage reporting + published Composer 2.5 cache rates (or numeric Admin usage cost). Do not weaken the Langfuse hard exact-cost gate.
 
 TT-13’s earlier projection-repaired session remains non-evidence for ordinary live emission.
 
