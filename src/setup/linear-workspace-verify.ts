@@ -18,12 +18,10 @@ import {
   isWorkflowStatusCoverageComplete,
   matchWorkflowStates,
 } from "./linear-setup-plan.js";
-
-export type LinearEntityHealthLabel =
-  | "Verified"
-  | "Needs verification"
-  | "Needs attention"
-  | "Unavailable";
+export {
+  formatLinearEntityHealthLabel,
+  type LinearEntityHealthLabel,
+} from "./linear-entity-health-label.js";
 
 export type VerifyLinearWorkspaceAssociationsInput = {
   cwd?: string;
@@ -48,28 +46,6 @@ export type VerifyLinearWorkspaceAssociationsResult = {
   evidence: LinearWorkspaceEvidence;
   statusCoverageComplete: boolean;
 };
-
-export function formatLinearEntityHealthLabel(
-  health: LinearTeamHealth | LinearProjectHealth | undefined,
-  options?: { drift?: boolean },
-): LinearEntityHealthLabel {
-  if (options?.drift) {
-    return "Needs attention";
-  }
-  switch (health) {
-    case "healthy":
-      return "Verified";
-    case "needs_repair":
-      return "Needs attention";
-    case "unavailable":
-      return "Unavailable";
-    case "verification_pending":
-    case undefined:
-      return "Needs verification";
-    default:
-      return "Needs verification";
-  }
-}
 
 function groupAssociationsByTeamId(
   associations: ResolvedLinearAssociation[],

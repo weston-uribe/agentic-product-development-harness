@@ -7,10 +7,8 @@ import { readControlPlaneSetupState } from "../../src/setup/control-plane-setup-
 import { writeControlPlaneSetupState } from "../../src/setup/control-plane-setup-state.js";
 import { summarizeLinearWorkspaceStatus } from "../../src/setup/control-plane-readiness.js";
 import { requiredCreatableStatuses } from "../../src/setup/linear-status-contract.js";
-import {
-  formatLinearEntityHealthLabel,
-  verifyLinearWorkspaceAssociations,
-} from "../../src/setup/linear-workspace-verify.js";
+import { formatLinearEntityHealthLabel } from "../../src/setup/linear-entity-health-label.js";
+import { verifyLinearWorkspaceAssociations } from "../../src/setup/linear-workspace-verify.js";
 import type { LinearClient } from "@linear/sdk";
 
 const tempDirs: string[] = [];

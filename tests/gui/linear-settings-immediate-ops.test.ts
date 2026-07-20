@@ -29,6 +29,8 @@ describe("linear settings immediate operations", () => {
   it("renders human-readable health labels instead of raw enums", () => {
     const source = readLinearEditor();
     expect(source).toContain("formatLinearEntityHealthLabel");
+    expect(source).toContain("@harness/setup/linear-entity-health-label");
+    expect(source).not.toContain("@harness/setup/linear-workspace-verify");
     expect(source).not.toContain(
       'teamEvidence?.health ?? "verification_pending"',
     );

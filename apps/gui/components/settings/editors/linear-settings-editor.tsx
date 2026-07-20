@@ -24,7 +24,7 @@ import {
   syncLinearAssociationCloudConfig,
 } from "@/lib/settings/settings-setup-client";
 import { pickDisplayedLinearWorkspaceName } from "@/lib/linear-workspace-identity";
-import { formatLinearEntityHealthLabel } from "@harness/setup/linear-workspace-verify";
+import { formatLinearEntityHealthLabel } from "@harness/setup/linear-entity-health-label";
 import { LinearProvisionForm } from "@/components/settings/linear-provision-form";
 
 type LinearEditorInitialData = {
