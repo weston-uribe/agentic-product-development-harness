@@ -37,6 +37,18 @@ export type PDevBridgeHealthStatus =
   | "unhealthy"
   | "verified";
 
+/**
+ * Aggregate semantics for canonical health facts.
+ * Do not collapse credential/bridge/webhook facts into a single "connected" bit.
+ */
+export type HealthAggregateStatus =
+  | "missing"
+  | "configured"
+  | "verification_pending"
+  | "verified"
+  | "degraded"
+  | "repairing";
+
 export function credentialHealthLabel(status: CredentialHealthStatus): string {
   switch (status) {
     case "missing":

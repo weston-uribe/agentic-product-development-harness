@@ -41,6 +41,7 @@ type LinearEditorInitialData = {
   workspaceId: string;
   workspaceName: string;
   driftWarnings: Array<{ code: string; message: string }>;
+  workspaceHealth?: import("@harness/setup/workspace-health-snapshot").WorkspaceHealthSnapshot;
 };
 
 type LinearSettingsEditorProps = {
@@ -292,7 +293,8 @@ export function LinearSettingsEditor({ initialData }: LinearSettingsEditorProps)
         <h3 className="text-sm font-semibold">Connected workspace</h3>
         <p className="text-sm">
           <span className="text-muted-foreground">Workspace:</span>{" "}
-          {initialData.workspaceName}
+          {initialData.workspaceHealth?.linear.workspaceName?.trim() ||
+            initialData.workspaceName}
         </p>
         <p className="text-sm">
           <span className="text-muted-foreground">Credential:</span>{" "}

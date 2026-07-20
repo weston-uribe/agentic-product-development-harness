@@ -17,9 +17,11 @@ import {
   applyVercelBridge,
   previewVercelBridge,
 } from "@/lib/settings/settings-setup-client";
+import type { WorkspaceHealthSnapshot } from "@harness/setup/workspace-health-snapshot";
 
 type DeploymentsSettingsEditorProps = {
   initialSummary: VercelSetupSummary;
+  workspaceHealth?: WorkspaceHealthSnapshot;
 };
 
 type ScopeOption = { id: string; label: string };
@@ -27,12 +29,23 @@ type ProjectOption = { id: string; name: string };
 
 export function DeploymentsSettingsEditor({
   initialSummary,
+  workspaceHealth,
 }: DeploymentsSettingsEditorProps) {
   const [summary, setSummary] = useState(initialSummary);
   const [scopes, setScopes] = useState<ScopeOption[]>([]);
   const [projects, setProjects] = useState<ProjectOption[]>([]);
-  const committedTeamId = summary.controlPlane?.vercel?.teamId ?? "";
-  const committedProjectId = summary.controlPlane?.vercel?.projectId ?? "";
+  const committedTeamId =
+    workspaceHealth?.vercel.selectedScope?.teamId ??
+    summary.controlPlane?.vercel?.teamId ??
+    "";
+  const committedProjectId =
+    workspaceHealth?.vercel.selectedProject?.projectId ??
+    summary.controlPlane?.vercel?.projectId ??
+    "";
+  const committedScopeLabel =
+    workspaceHealth?.vercel.selectedScope?.teamName ??
+    summary.controlPlane?.vercel?.teamName ??
+    (committedTeamId ? "Team" : "Personal");
   const [teamId, setTeamId] = useState(committedTeamId);
   const [projectId, setProjectId] = useState(committedProjectId);
   const [mutation, setMutation] =
@@ -257,19 +270,47 @@ export function DeploymentsSettingsEditor({
     <div className="space-y-6">
       <div className="rounded-md border border-border p-4 text-sm">
         <p>
+          <span className="text-muted-foreground">Scope:</span>{" "}
+          {committedScopeLabel}
+        </p>
+        <p className="mt-2">
           <span className="text-muted-foreground">Current project:</span>{" "}
-          {summary.controlPlane?.vercel?.projectName ?? "Not configured"}
+          {workspaceHealth?.vercel.selectedProject?.projectName ??
+            summary.controlPlane?.vercel?.projectName ??
+            "Not configured"}
         </p>
         <p className="mt-2">
           <span className="text-muted-foreground">Production URL:</span>{" "}
-          {summary.controlPlane?.vercel?.productionUrl ?? "—"}
+          {workspaceHealth?.vercel.productionUrl ??
+            summary.controlPlane?.vercel?.productionUrl ??
+            "—"}
+        </p>
+        <p className="mt-2">
+          <span className="text-muted-foreground">Bridge:</span>{" "}
+          {workspaceHealth
+            ? workspaceHealth.vercel.bridgeDeployed
+              ? workspaceHealth.vercel.bridgeReachable
+                ? "Deployed, reachable"
+                : "Deployed, not reachable"
+              : "Not deployed"
+            : "—"}
         </p>
         <p className="mt-2">
           <span className="text-muted-foreground">Linear webhook:</span>{" "}
-          {summary.controlPlane?.vercel?.linearWebhookVerified
+          {workspaceHealth?.vercel.webhookVerified
             ? "Verified"
-            : "Not verified"}
+            : workspaceHealth?.vercel.webhookConfigured
+              ? "Configured, not verified"
+              : summary.controlPlane?.vercel?.linearWebhookVerified
+                ? "Verified"
+                : "Not verified"}
         </p>
+        {workspaceHealth?.vercel.lastVerifiedAt ? (
+          <p className="mt-2">
+            <span className="text-muted-foreground">Last verified:</span>{" "}
+            {workspaceHealth.vercel.lastVerifiedAt}
+          </p>
+        ) : null}
       </div>
 
       {!summary.vercelTokenConfigured ? (
