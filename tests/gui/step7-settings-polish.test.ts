@@ -171,7 +171,7 @@ describe("GuidedSelect height usage in settings", () => {
       "apps/gui/components/workflow/workflow-model-control.tsx",
     );
 
-    expect(deployments).toContain("GuidedSelect");
+    expect(deployments).not.toContain("GuidedSelect");
     expect(deployments).not.toContain("selectClassName");
     expect(linear).toContain("GuidedSelect");
     expect(linear).not.toContain("selectClassName");
