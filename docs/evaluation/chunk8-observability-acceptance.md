@@ -28,6 +28,7 @@ Chunk 8C privacy + Langfuse acceptance evidence. No issue bodies, plan text, fin
 | 8D cloud SDK usage probe | **no-go** — finished cloud runs omit documented usage surfaces |
 | 8E CSV feasibility | Token arithmetic + agent/phase join accepted; Included cost; cache rates unpublished |
 | 8F scores-only import | Trace scores only; TT-14 Planning + Plan Review: token **pass**, proxy **pass**, exact cost **fail** |
+| 8F.1 fail-closed correction | Exact-ID + physical uniqueness; paginated raw fetch; per-phase gates; dry-run preview-only; TT-14 logical/physical **22→22** |
 
 Attribution is agent→phase (not per-run `provider_exact`). Proxies are not billed cost. Exact-cost gate intentionally not passed. Escalation: [cursor-composer-2-5-cache-pricing-escalation.md](cursor-composer-2-5-cache-pricing-escalation.md).
 

@@ -1,8 +1,9 @@
 import type { EvaluationScoreInput } from "../types.js";
 import type { PricingVariant } from "../telemetry/pricing-registry.js";
+import type { TraceScoreFetchEvidence } from "../langfuse-inspect/client.js";
 
 export const CURSOR_USAGE_CSV_SCHEMA_VERSION = 1 as const;
-export const CURSOR_USAGE_IMPORTER_VERSION = "8f.1" as const;
+export const CURSOR_USAGE_IMPORTER_VERSION = "8f.1.1" as const;
 
 export const ALL_INPUT_AT_LIST_RATE_COMMENT =
   "comparison proxy; all input categories valued at published non-cache input list rate" as const;
@@ -87,6 +88,37 @@ export interface CursorUsageImportVerdicts {
   exactMonetaryCostAcceptanceReason: string;
 }
 
+export interface CursorUsageImportPreview {
+  previewOnly: true;
+  wouldAttachPhaseCount: number;
+  wouldWriteScoreCount: number;
+  localArithmeticValid: boolean;
+  localAttributionValid: boolean;
+  readAfterWriteVerified: false;
+}
+
+export interface CursorUsageImportReadAfterWrite {
+  verified: boolean;
+  logicalScoreCountFirst: number;
+  logicalScoreCountSecond: number | null;
+  physicalMatchingScoreCountFirst: number;
+  physicalMatchingScoreCountSecond: number | null;
+  uniqueMatchingDeterministicIdsFirst: number;
+  uniqueMatchingDeterministicIdsSecond: number | null;
+  physicalRecordsMatchingExpectedTraceNameFirst: number;
+  physicalRecordsMatchingExpectedTraceNameSecond: number | null;
+  duplicatePhysicalRecordCountFirst: number;
+  duplicatePhysicalRecordCountSecond: number | null;
+  unrelatedPreExistingScoreCountFirst: number;
+  unrelatedPreExistingScoreCountSecond: number | null;
+  expectedDeterministicScoreIds: string[];
+  retrievalCompletenessProvenFirst: boolean;
+  retrievalCompletenessProvenSecond: boolean | null;
+  fetchEvidenceFirst?: TraceScoreFetchEvidence[];
+  fetchEvidenceSecond?: TraceScoreFetchEvidence[];
+  mismatches: string[];
+}
+
 export interface CursorUsageImportPrivateReport {
   schemaVersion: 1;
   kind: "cursor_usage_import_private";
@@ -116,12 +148,8 @@ export interface CursorUsageImportPrivateReport {
   skipped: Array<{ reason: string; cloudAgentIdHash?: string; phase?: string }>;
   observationMutationAttempted: false;
   verdicts: CursorUsageImportVerdicts;
-  readAfterWrite?: {
-    verified: boolean;
-    logicalScoreCountFirst: number;
-    logicalScoreCountSecond: number | null;
-    mismatches: string[];
-  };
+  preview?: CursorUsageImportPreview;
+  readAfterWrite?: CursorUsageImportReadAfterWrite;
   publicSummary: CursorUsageImportPublicSummary;
 }
 
@@ -130,7 +158,13 @@ export interface CursorUsageImportPublicSummary {
   kind: "cursor_usage_import_public";
   importerVersion: typeof CURSOR_USAGE_IMPORTER_VERSION;
   dryRun: boolean;
+  previewOnly?: boolean;
   arithmeticValid: boolean;
+  localArithmeticValid?: boolean;
+  localAttributionValid?: boolean;
+  wouldAttachPhaseCount?: number;
+  wouldWriteScoreCount?: number;
+  readAfterWriteVerified?: boolean;
   phasesAttached: string[];
   attachmentCount: number;
   observationMutationAttempted: false;

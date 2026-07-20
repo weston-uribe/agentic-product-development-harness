@@ -381,13 +381,25 @@ describe("cursor-usage-import", () => {
         timestamp: s.timestamp,
       })),
     );
-    const verify = verifyImportedScores({ attachments, fetchedScores: fetched });
+    const verify = verifyImportedScores({
+      attachments,
+      fetchedScores: fetched,
+      retrievalCompletenessProven: true,
+    });
     expect(verify.verified).toBe(true);
     expect(verify.logicalScoreCount).toBe(22);
+    expect(verify.physicalMatchingScoreCount).toBe(22);
 
-    // second pass same ids → same count
-    const verify2 = verifyImportedScores({ attachments, fetchedScores: fetched });
+    // second pass same ids → same logical and physical counts
+    const verify2 = verifyImportedScores({
+      attachments,
+      fetchedScores: fetched,
+      retrievalCompletenessProven: true,
+    });
     expect(verify2.logicalScoreCount).toBe(verify.logicalScoreCount);
+    expect(verify2.physicalMatchingScoreCount).toBe(
+      verify.physicalMatchingScoreCount,
+    );
 
     const verdicts = evaluateVerdicts({
       arithmeticValid: true,

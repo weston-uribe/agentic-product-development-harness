@@ -250,3 +250,50 @@ export function joinAggregatesToPhaseTraces(params: {
 
   return { joins, skipped };
 }
+
+/**
+ * After agent→trace joins, require exactly one canonical score-target trace
+ * per expected CSV phase (planning / plan_review).
+ */
+export function validateCanonicalCsvPhaseTraces(params: {
+  joins: JoinResult["joins"];
+  allowedPhases: AllowedImportPhase[];
+}): {
+  ok: boolean;
+  skipped: JoinResult["skipped"];
+  /** Phase → canonical traceId when unambiguous */
+  canonicalTraceByPhase: Map<AllowedImportPhase, string>;
+} {
+  const skipped: JoinResult["skipped"] = [];
+  const canonicalTraceByPhase = new Map<AllowedImportPhase, string>();
+
+  for (const phase of params.allowedPhases) {
+    const phaseJoins = params.joins.filter((j) => j.join.phase === phase);
+    if (phaseJoins.length === 0) {
+      skipped.push({ reason: `missing_csv_score_trace:${phase}`, phase });
+      continue;
+    }
+    const traceIds = [...new Set(phaseJoins.map((j) => j.join.traceId))];
+    if (traceIds.length > 1) {
+      skipped.push({
+        reason: `ambiguous_csv_score_trace:${phase}`,
+        phase,
+      });
+      // Also record split when multiple joins attach scores across traces
+      if (phaseJoins.length > 1) {
+        skipped.push({
+          reason: `csv_scores_split_across_traces:${phase}`,
+          phase,
+        });
+      }
+      continue;
+    }
+    canonicalTraceByPhase.set(phase, traceIds[0]!);
+  }
+
+  return {
+    ok: skipped.length === 0,
+    skipped,
+    canonicalTraceByPhase,
+  };
+}

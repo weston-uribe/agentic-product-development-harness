@@ -3,13 +3,17 @@ import path from "node:path";
 import type { LangfuseInspectReport } from "../langfuse-inspect/types.js";
 import {
   createLangfuseApiClient,
-  fetchSessionScoresOnly,
+  fetchTraceScoresRawForImport,
+  type FetchTraceScoresRawResult,
+  type LangfuseApiClient,
 } from "../langfuse-inspect/client.js";
 import { resolveEvaluationConfig } from "../runtime.js";
 import { deriveSessionId } from "../identifiers.js";
+import type { EvaluationRuntimeConfig, EvaluationScoreInput } from "../types.js";
 import { aggregateByCloudAgentId } from "./aggregate.js";
 import {
   joinAggregatesToPhaseTraces,
+  validateCanonicalCsvPhaseTraces,
   type AllowedImportPhase,
 } from "./join.js";
 import { digestCsvBytes, parseCursorUsageCsv, tokensSumValid } from "./parse.js";
@@ -21,25 +25,37 @@ import {
   evaluateVerdicts,
   verifyImportedScores,
   type FetchedScore,
+  type VerifyResult,
 } from "./verify.js";
 import {
   CURSOR_USAGE_CSV_SCHEMA_VERSION,
   CURSOR_USAGE_IMPORTER_VERSION,
+  CURSOR_USAGE_SCORE_NAMES,
   type CursorUsageImportPrivateReport,
   type CursorUsageImportPublicSummary,
+  type CursorUsageImportReadAfterWrite,
   type PhaseImportAttachment,
 } from "./types.js";
 
-function mapFetchedScores(
+export function mapFetchedScores(
   raw: Array<Record<string, unknown>>,
 ): FetchedScore[] {
   return raw.map((s) => {
+    const subject = s.subject as Record<string, unknown> | undefined;
+    const subjectId =
+      subject && typeof subject.id === "string" ? subject.id : null;
+    const subjectKind =
+      subject && typeof subject.kind === "string" ? subject.kind : null;
     const traceId =
       typeof s.traceId === "string"
         ? s.traceId
         : typeof s.trace_id === "string"
           ? s.trace_id
-          : null;
+          : typeof subject?.traceId === "string"
+            ? subject.traceId
+            : subjectKind === "trace"
+              ? subjectId
+              : null;
     return {
       id: typeof s.id === "string" ? s.id : "",
       name: typeof s.name === "string" ? s.name : "",
@@ -52,8 +68,110 @@ function mapFetchedScores(
           : typeof s.createdAt === "string"
             ? s.createdAt
             : null,
+      ...(typeof s.comment === "string" ? { comment: s.comment } : {}),
     };
   });
+}
+
+export interface CursorUsageImportDeps {
+  createScoreClient?: (
+    config: EvaluationRuntimeConfig,
+  ) => Promise<{
+    recordScore: (input: EvaluationScoreInput) => void;
+    flush: () => Promise<void>;
+  } | null>;
+  fetchScores?: (
+    client: LangfuseApiClient | null,
+    sessionId: string,
+    traceIds: string[],
+  ) => Promise<FetchTraceScoresRawResult>;
+  createApiClient?: (
+    config: EvaluationRuntimeConfig,
+  ) => Promise<LangfuseApiClient>;
+  sleep?: (ms: number) => Promise<void>;
+  resolveConfig?: typeof resolveEvaluationConfig;
+}
+
+function buildReadAfterWrite(params: {
+  verify1: VerifyResult;
+  verify2: VerifyResult | null;
+  firstRaw: FetchTraceScoresRawResult | null;
+  secondRaw: FetchTraceScoresRawResult | null;
+  skipSecond: boolean;
+}): { readAfterWrite: CursorUsageImportReadAfterWrite; verify: VerifyResult } {
+  const { verify1, verify2, firstRaw, secondRaw, skipSecond } = params;
+  const expectedCount = verify1.expectedDeterministicScoreIds.length;
+  const mismatches = [
+    ...verify1.mismatches,
+    ...(verify2?.mismatches.map((m) => `verify2:${m}`) ?? []),
+  ];
+  if (
+    verify2 &&
+    (verify2.logicalScoreCount !== verify1.logicalScoreCount ||
+      verify2.physicalMatchingScoreCount !==
+        verify1.physicalMatchingScoreCount)
+  ) {
+    mismatches.push("second_import_count_mismatch");
+  }
+
+  const secondOk =
+    skipSecond ||
+    (verify2 != null &&
+      verify2.verified &&
+      verify2.logicalScoreCount === expectedCount &&
+      verify2.physicalMatchingScoreCount === expectedCount &&
+      verify2.logicalScoreCount === verify1.logicalScoreCount &&
+      verify2.physicalMatchingScoreCount ===
+        verify1.physicalMatchingScoreCount);
+
+  const finalOk =
+    verify1.verified &&
+    verify1.logicalScoreCount === expectedCount &&
+    verify1.physicalMatchingScoreCount === expectedCount &&
+    secondOk &&
+    mismatches.length === 0;
+
+  const verify: VerifyResult = {
+    ...verify1,
+    verified: finalOk,
+    mismatches: [...new Set(mismatches)],
+  };
+
+  return {
+    verify,
+    readAfterWrite: {
+      verified: finalOk,
+      logicalScoreCountFirst: verify1.logicalScoreCount,
+      logicalScoreCountSecond: verify2?.logicalScoreCount ?? null,
+      physicalMatchingScoreCountFirst: verify1.physicalMatchingScoreCount,
+      physicalMatchingScoreCountSecond:
+        verify2?.physicalMatchingScoreCount ?? null,
+      uniqueMatchingDeterministicIdsFirst:
+        verify1.uniqueMatchingDeterministicIds,
+      uniqueMatchingDeterministicIdsSecond:
+        verify2?.uniqueMatchingDeterministicIds ?? null,
+      physicalRecordsMatchingExpectedTraceNameFirst:
+        verify1.physicalRecordsMatchingExpectedTraceName,
+      physicalRecordsMatchingExpectedTraceNameSecond:
+        verify2?.physicalRecordsMatchingExpectedTraceName ?? null,
+      duplicatePhysicalRecordCountFirst: verify1.duplicatePhysicalRecordCount,
+      duplicatePhysicalRecordCountSecond:
+        verify2?.duplicatePhysicalRecordCount ?? null,
+      unrelatedPreExistingScoreCountFirst:
+        verify1.unrelatedPreExistingScoreCount,
+      unrelatedPreExistingScoreCountSecond:
+        verify2?.unrelatedPreExistingScoreCount ?? null,
+      expectedDeterministicScoreIds: verify1.expectedDeterministicScoreIds,
+      retrievalCompletenessProvenFirst:
+        firstRaw?.retrievalCompletenessProven === true,
+      retrievalCompletenessProvenSecond: skipSecond
+        ? null
+        : secondRaw?.retrievalCompletenessProven === true,
+      fetchEvidenceFirst: firstRaw?.perTrace,
+      fetchEvidenceSecond: secondRaw?.perTrace,
+      mismatches: verify.mismatches,
+    },
+  };
 }
 
 export async function runCursorUsageImport(options: {
@@ -66,15 +184,22 @@ export async function runCursorUsageImport(options: {
   out?: string;
   publicOut?: string;
   skipSecondImportVerify?: boolean;
+  deps?: CursorUsageImportDeps;
 }): Promise<{
   report: CursorUsageImportPrivateReport;
   exitCode: number;
 }> {
+  const deps = options.deps ?? {};
+  const sleep =
+    deps.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
+  const resolveConfig = deps.resolveConfig ?? resolveEvaluationConfig;
+
   const issueKey = options.issueKey.trim();
   const allowedPhases = (options.phases?.length
     ? options.phases
     : ["planning", "plan_review"]) as AllowedImportPhase[];
   const dryRun = options.dryRun === true;
+  const skipSecond = options.skipSecondImportVerify === true;
 
   const csvRaw = await readFile(options.csvPath, "utf8");
   const csvDigestSha256 = digestCsvBytes(csvRaw);
@@ -88,9 +213,16 @@ export async function runCursorUsageImport(options: {
     "default";
 
   const { aggregates, rejected } = aggregateByCloudAgentId(parsed.rows);
-  const { joins, skipped: joinSkipped } = joinAggregatesToPhaseTraces({
-    report: inspectRaw,
-    aggregates,
+  const { joins: rawJoins, skipped: joinSkipped } = joinAggregatesToPhaseTraces(
+    {
+      report: inspectRaw,
+      aggregates,
+      allowedPhases,
+    },
+  );
+
+  const canonical = validateCanonicalCsvPhaseTraces({
+    joins: rawJoins,
     allowedPhases,
   });
 
@@ -100,50 +232,61 @@ export async function runCursorUsageImport(options: {
       cloudAgentIdHash: r.cloudAgentIdHash,
     })),
     ...joinSkipped,
+    ...canonical.skipped,
   ];
 
   const attachments: PhaseImportAttachment[] = [];
-  for (const { join, aggregate } of joins) {
-    if (!tokensSumValid(aggregate.tokens)) {
-      skipped.push({
-        reason: "aggregate_token_sum_invalid",
-        cloudAgentIdHash: aggregate.cloudAgentIdHash,
-        phase: join.phase,
+  if (canonical.ok) {
+    for (const { join, aggregate } of rawJoins) {
+      if (!tokensSumValid(aggregate.tokens)) {
+        skipped.push({
+          reason: "aggregate_token_sum_invalid",
+          cloudAgentIdHash: aggregate.cloudAgentIdHash,
+          phase: join.phase,
+        });
+        continue;
+      }
+      const proxies = computeCostProxies({
+        modelId: "composer-2.5",
+        effectiveVariant: join.effectiveVariant,
+        tokens: aggregate.tokens,
       });
-      continue;
+      if (!proxies) {
+        skipped.push({
+          reason: "pricing_lookup_failed",
+          cloudAgentIdHash: aggregate.cloudAgentIdHash,
+          phase: join.phase,
+        });
+        continue;
+      }
+      attachments.push(
+        attachmentFromJoin({
+          namespace,
+          join,
+          aggregate,
+          proxies,
+        }),
+      );
     }
-    const proxies = computeCostProxies({
-      modelId: "composer-2.5",
-      effectiveVariant: join.effectiveVariant,
-      tokens: aggregate.tokens,
-    });
-    if (!proxies) {
-      skipped.push({
-        reason: "pricing_lookup_failed",
-        cloudAgentIdHash: aggregate.cloudAgentIdHash,
-        phase: join.phase,
-      });
-      continue;
-    }
-    attachments.push(
-      attachmentFromJoin({
-        namespace,
-        join,
-        aggregate,
-        proxies,
-      }),
-    );
   }
 
-  let readAfterWrite: CursorUsageImportPrivateReport["readAfterWrite"];
-  let verifyResult = null;
+  const localArithmeticValid = parsed.arithmetic.identityHolds;
+  const localAttributionValid =
+    canonical.ok &&
+    attachments.length === allowedPhases.length &&
+    allowedPhases.every((p) => attachments.some((a) => a.join.phase === p));
+
+  let readAfterWrite: CursorUsageImportReadAfterWrite | undefined;
+  let verifyResult: VerifyResult | null = null;
 
   if (!dryRun && attachments.length > 0) {
-    const config = resolveEvaluationConfig(process.env);
+    const config = resolveConfig(process.env);
     if (!config.ok) {
       skipped.push({ reason: "langfuse_runtime_unavailable" });
     } else {
-      const scoreClient = await createScoreOnlyClient(config.config);
+      const createScore =
+        deps.createScoreClient ?? ((cfg) => createScoreOnlyClient(cfg));
+      const scoreClient = await createScore(config.config);
       if (!scoreClient) {
         skipped.push({ reason: "langfuse_score_client_unavailable" });
       } else {
@@ -151,99 +294,167 @@ export async function runCursorUsageImport(options: {
         projectUsageScoresOnly({ recorder: scoreClient, scores: allScores });
         await scoreClient.flush();
 
-        await new Promise((r) => setTimeout(r, 1500));
-
         const sessionId =
           inspectRaw.sessionId?.trim() ||
           deriveSessionId(namespace, issueKey);
         const attachedTraceIds = attachments.map((a) => a.join.traceId);
-        const apiClient = await createLangfuseApiClient(config.config);
-        const refetchScores = async (): Promise<FetchedScore[]> => {
-          const rawScores = await Promise.race([
-            fetchSessionScoresOnly(apiClient, sessionId, attachedTraceIds),
-            new Promise<Array<Record<string, unknown>>>((_, reject) =>
+        const expectedIds = new Set(allScores.map((s) => s.id));
+        const createApi =
+          deps.createApiClient ??
+          ((cfg) => createLangfuseApiClient(cfg));
+        const apiClient = deps.fetchScores
+          ? null
+          : await createApi(config.config);
+
+        const refetchOnce = async (): Promise<FetchTraceScoresRawResult> => {
+          if (deps.fetchScores) {
+            return deps.fetchScores(apiClient, sessionId, attachedTraceIds);
+          }
+          return Promise.race([
+            fetchTraceScoresRawForImport(apiClient!, attachedTraceIds),
+            new Promise<FetchTraceScoresRawResult>((_, reject) =>
               setTimeout(
                 () => reject(new Error("score_refetch_timeout")),
                 25_000,
               ),
             ),
           ]);
-          return mapFetchedScores(rawScores);
         };
 
-        let fetched: FetchedScore[] = [];
+        /** Langfuse score index lag — retry until expected IDs appear or budget expires. */
+        const refetchUntilReady = async (): Promise<FetchTraceScoresRawResult> => {
+          const budgetMs = deps.fetchScores ? 0 : 20_000;
+          const started = Date.now();
+          let last: FetchTraceScoresRawResult | null = null;
+          // Immediate attempt after a short settle; then backoff.
+          await sleep(deps.fetchScores ? 0 : 2500);
+          for (;;) {
+            last = await refetchOnce();
+            const mapped = mapFetchedScores(last.scores);
+            const found = mapped.filter((s) => expectedIds.has(s.id)).length;
+            if (found >= expectedIds.size || deps.fetchScores) {
+              return last;
+            }
+            if (Date.now() - started >= budgetMs) {
+              return last;
+            }
+            await sleep(2000);
+          }
+        };
+
+        let firstRaw: FetchTraceScoresRawResult | null = null;
+        let secondRaw: FetchTraceScoresRawResult | null = null;
+        let verify1: VerifyResult;
+        let verify2: VerifyResult | null = null;
+
         try {
-          fetched = await refetchScores();
+          firstRaw = await refetchUntilReady();
+          verify1 = verifyImportedScores({
+            attachments,
+            fetchedScores: mapFetchedScores(firstRaw.scores),
+            retrievalCompletenessProven: firstRaw.retrievalCompletenessProven,
+          });
         } catch (err) {
           skipped.push({
             reason: `score_refetch_failed:${
               err instanceof Error ? err.message.slice(0, 80) : "error"
             }`,
           });
-          fetched = [];
+          firstRaw = null;
+          verify1 = verifyImportedScores({
+            attachments,
+            fetchedScores: [],
+            retrievalCompletenessProven: false,
+          });
         }
-        verifyResult = verifyImportedScores({
-          attachments,
-          fetchedScores: fetched,
-        });
 
-        let logicalSecond: number | null = null;
-        if (!options.skipSecondImportVerify) {
+        if (!skipSecond) {
           projectUsageScoresOnly({
             recorder: scoreClient,
             scores: allScores,
           });
           await scoreClient.flush();
-          await new Promise((r) => setTimeout(r, 1500));
           try {
-            const fetched2 = await refetchScores();
-            const verify2 = verifyImportedScores({
+            secondRaw = await refetchUntilReady();
+            verify2 = verifyImportedScores({
               attachments,
-              fetchedScores: fetched2,
+              fetchedScores: mapFetchedScores(secondRaw.scores),
+              retrievalCompletenessProven:
+                secondRaw.retrievalCompletenessProven,
             });
-            logicalSecond = verify2.logicalScoreCount;
-            if (logicalSecond > verifyResult.logicalScoreCount) {
-              verifyResult.mismatches.push(
-                "second_import_increased_score_count",
-              );
-              verifyResult.verified = false;
-            }
           } catch {
-            verifyResult.mismatches.push("second_import_refetch_failed");
-            verifyResult.verified = false;
+            secondRaw = {
+              scores: [],
+              perTrace: [],
+              retrievalCompletenessProven: false,
+              truncationReason: "second_import_refetch_failed",
+            };
+            verify2 = verifyImportedScores({
+              attachments,
+              fetchedScores: [],
+              retrievalCompletenessProven: false,
+            });
+            verify2.mismatches = [
+              "second_import_refetch_failed",
+              ...verify2.mismatches,
+            ];
           }
         }
 
-        readAfterWrite = {
-          verified: verifyResult.verified,
-          logicalScoreCountFirst: verifyResult.logicalScoreCount,
-          logicalScoreCountSecond: logicalSecond,
-          mismatches: verifyResult.mismatches,
-        };
+        const built = buildReadAfterWrite({
+          verify1,
+          verify2,
+          firstRaw,
+          secondRaw,
+          skipSecond,
+        });
+        verifyResult = built.verify;
+        readAfterWrite = built.readAfterWrite;
       }
     }
-  } else if (dryRun) {
-    // Dry-run: treat local score payloads as verified for local verdict scaffolding
-    verifyResult = {
-      verified: true,
-      logicalScoreCount: attachments.length * 11,
-      mismatches: [],
-    };
   }
 
   const verdicts = evaluateVerdicts({
-    arithmeticValid: parsed.arithmetic.identityHolds,
+    arithmeticValid: localArithmeticValid,
     attachments,
-    verify: verifyResult,
-    generationCostComplete: inspectRaw.acceptance?.generationCostComplete === true,
+    verify: dryRun ? null : verifyResult,
+    generationCostComplete:
+      inspectRaw.acceptance?.generationCostComplete === true,
+    dryRun,
+    localAttributionValid,
   });
+
+  const preview = dryRun
+    ? ({
+        previewOnly: true as const,
+        wouldAttachPhaseCount: attachments.length,
+        wouldWriteScoreCount:
+          attachments.length * CURSOR_USAGE_SCORE_NAMES.length,
+        localArithmeticValid,
+        localAttributionValid,
+        readAfterWriteVerified: false as const,
+      })
+    : undefined;
 
   const publicSummary: CursorUsageImportPublicSummary = {
     schemaVersion: 1,
     kind: "cursor_usage_import_public",
     importerVersion: CURSOR_USAGE_IMPORTER_VERSION,
     dryRun,
-    arithmeticValid: parsed.arithmetic.identityHolds,
+    ...(dryRun
+      ? {
+          previewOnly: true,
+          localArithmeticValid,
+          localAttributionValid,
+          wouldAttachPhaseCount: attachments.length,
+          wouldWriteScoreCount:
+            attachments.length * CURSOR_USAGE_SCORE_NAMES.length,
+          readAfterWriteVerified: false,
+        }
+      : {
+          readAfterWriteVerified: readAfterWrite?.verified === true,
+        }),
+    arithmeticValid: localArithmeticValid,
     phasesAttached: [...new Set(attachments.map((a) => a.join.phase))],
     attachmentCount: attachments.length,
     observationMutationAttempted: false,
@@ -263,7 +474,7 @@ export async function runCursorUsageImport(options: {
     namespace,
     csvDigestSha256,
     dryRun,
-    arithmeticValid: parsed.arithmetic.identityHolds,
+    arithmeticValid: localArithmeticValid,
     rowsParsed: parsed.rows.length,
     distinctAgents: aggregates.length,
     attachments: attachments.map((a) => ({
@@ -283,6 +494,7 @@ export async function runCursorUsageImport(options: {
     skipped,
     observationMutationAttempted: false,
     verdicts,
+    preview,
     readAfterWrite,
     publicSummary,
   };
@@ -302,7 +514,13 @@ export async function runCursorUsageImport(options: {
     );
   }
 
-  const exitCode =
-    verdicts.tokenAcceptance && verdicts.costProxyAvailability ? 0 : 2;
+  const exitCode = dryRun
+    ? localArithmeticValid && localAttributionValid && canonical.ok
+      ? 0
+      : 2
+    : verdicts.tokenAcceptance && verdicts.costProxyAvailability
+      ? 0
+      : 2;
+
   return { report, exitCode };
 }

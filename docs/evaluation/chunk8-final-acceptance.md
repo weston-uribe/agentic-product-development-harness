@@ -123,17 +123,22 @@ Portfolio PR [#48](https://github.com/weston-uribe/weston-uribe-portfolio/pull/4
 Private evidence (maintainer only): `.harness/chunk8d-sdk-usage-probe.private.json`, `.harness/chunk8d-sdk-usage-surface.note.md`.  
 Checklist: [chunk8d-cursor-sdk-usage-todo.md](chunk8d-cursor-sdk-usage-todo.md).
 
-## Chunk 8F — scores-only CSV import (TT-14 proof)
+## Chunk 8F / 8F.1 — scores-only CSV import (TT-14 proof)
+
+Chunk 8F.1 made acceptance fail-closed: exact deterministic IDs, physical uniqueness, paginated raw fetch (no by-ID collapse), per-phase inspect gates, dry-run preview-only.
 
 | Item | Result |
 |------|--------|
 | Write surface | Trace scores only — `observationMutationAttempted=false` |
-| Phases attached | `planning`, `plan_review` only |
-| Read-after-write | Verified; logical score count `22` → second import `22` |
+| Canonical traces | Exactly one Planning + one Plan Review score-target trace |
+| Phases attached | `planning` (11 scores), `plan_review` (11 scores) |
+| Read-after-write | Verified; logical **22→22**, physical **22→22**; retrieval completeness proven |
+| Exact-ID verification | Pass (no by-name fallback for acceptance) |
 | Token acceptance | **Pass** (`score_backed_verified`) |
-| Cost-proxy availability | **Pass** (`cursor_known_noncache_cost_usd` + `cursor_all_input_at_list_rate_usd`) |
+| Cost-proxy availability | **Pass** |
 | Exact monetary | **Fail** (`generationCostComplete` unchanged / false) |
-| CLI | `npm run evaluation:import-cursor-usage` |
+| Dry-run | Exit 0 on local preview; `tokenAcceptance=false`, `previewOnly=true` |
+| CLI / importer | `npm run evaluation:import-cursor-usage` (`8f.1.1`) |
 
 Private evidence (maintainer only): `runs/evaluation-reports/TT-14-cursor-usage-import.private.json`.  
 Escalation: [cursor-composer-2-5-cache-pricing-escalation.md](cursor-composer-2-5-cache-pricing-escalation.md).  

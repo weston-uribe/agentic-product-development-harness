@@ -26,7 +26,8 @@ export async function runEvaluationImportCursorUsage(options: {
     ) {
       process.env.P_DEV_EVALUATION_PROVIDER = "langfuse";
     }
-    const issueKey = options.issueKey?.trim() || "";    if (!issueKey) {
+    const issueKey = options.issueKey?.trim() || "";
+    if (!issueKey) {
       process.stderr.write(
         "evaluation:import-cursor-usage requires --issue.\n",
       );
