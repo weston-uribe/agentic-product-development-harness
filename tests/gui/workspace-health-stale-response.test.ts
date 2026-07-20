@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { shouldAcceptHealthRefresh } from "../../src/setup/workspace-health-snapshot.js";
+import { shouldAcceptHealthRefresh } from "../../src/setup/workspace-health.js";
 
 describe("workspace health stale-response handling", () => {
   it("discards verify responses when the control-plane fingerprint drifted", () => {

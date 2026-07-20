@@ -436,14 +436,4 @@ export async function buildWorkspaceHealthSnapshot(options?: {
   };
 }
 
-/** Client helper: accept verify payload only when fingerprints match the mount snapshot. */
-export function shouldAcceptHealthRefresh(input: {
-  mountedControlPlaneFingerprint: string;
-  responseControlPlaneFingerprint: string | null | undefined;
-}): boolean {
-  if (!input.responseControlPlaneFingerprint) return false;
-  return (
-    input.mountedControlPlaneFingerprint ===
-    input.responseControlPlaneFingerprint
-  );
-}
+export { shouldAcceptHealthRefresh } from "./workspace-health.js";

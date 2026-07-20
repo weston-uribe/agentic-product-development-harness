@@ -106,3 +106,19 @@ export function bridgeHealthLabel(status: PDevBridgeHealthStatus): string {
       return "Verified";
   }
 }
+
+/**
+ * Client-safe helper: accept verify payload only when fingerprints match the
+ * mount snapshot. Lives here (not workspace-health-snapshot) so GUI client
+ * bundles never pull credential-health → @cursor/sdk.
+ */
+export function shouldAcceptHealthRefresh(input: {
+  mountedControlPlaneFingerprint: string;
+  responseControlPlaneFingerprint: string | null | undefined;
+}): boolean {
+  if (!input.responseControlPlaneFingerprint) return false;
+  return (
+    input.mountedControlPlaneFingerprint ===
+    input.responseControlPlaneFingerprint
+  );
+}

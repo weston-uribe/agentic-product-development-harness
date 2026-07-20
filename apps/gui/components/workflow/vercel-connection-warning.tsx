@@ -3,8 +3,10 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { CONNECTIONS_VERCEL_REPAIR_ROUTE } from "@harness/setup/gui-routes";
-import type { CredentialHealthStatus } from "@harness/setup/workspace-health";
-import { shouldAcceptHealthRefresh } from "@harness/setup/workspace-health-snapshot";
+import {
+  shouldAcceptHealthRefresh,
+  type CredentialHealthStatus,
+} from "@harness/setup/workspace-health";
 
 type SavedCredentialHealth = {
   status: CredentialHealthStatus;

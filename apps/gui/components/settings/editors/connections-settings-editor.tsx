@@ -19,7 +19,7 @@ import {
 } from "@/lib/verification-state";
 import type { SavedCredentialHealthMap } from "@harness/setup/credential-health";
 import type { CredentialPatchResult } from "@harness/setup/credential-patch";
-import { shouldAcceptHealthRefresh } from "@harness/setup/workspace-health-snapshot";
+import { shouldAcceptHealthRefresh } from "@harness/setup/workspace-health";
 
 const SERVICE_VALUE_KEY: Record<
   ServiceKey,
