@@ -21,6 +21,9 @@ export const AUTOMATED_PHASE_STALE_BLOCKED_MS = 180 * 60 * 1000;
 /** Max opaque HTTP dispatch attempts per plan_review_dispatch effect. */
 export const PLAN_REVIEW_DISPATCH_MAX_ATTEMPTS = 3;
 
+/** Max opaque HTTP dispatch attempts per implementation_dispatch effect. */
+export const IMPLEMENTATION_DISPATCH_MAX_ATTEMPTS = 3;
+
 export const RECONCILE_WORKFLOW_RELATIVE_PATH =
   ".github/workflows/harness-reconcile-revisions.yml";
 
@@ -187,7 +190,9 @@ export function evaluateAutomatedPhaseStaleness(input: {
   const anchor =
     input.state.sideEffects?.find(
       (e) =>
-        e.kind === "plan_review_dispatch" || e.kind === "code_review_dispatch",
+        e.kind === "plan_review_dispatch" ||
+        e.kind === "code_review_dispatch" ||
+        e.kind === "implementation_dispatch",
     )?.createdAt ??
     input.state.lastTransitionAt;
 

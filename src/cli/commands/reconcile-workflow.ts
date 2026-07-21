@@ -12,6 +12,9 @@ export interface ReconcileWorkflowCommandOptions {
   dryRun?: boolean;
   dispatch?: boolean;
   force?: boolean;
+  phase?: string;
+  subject?: string;
+  requestId?: string;
 }
 
 export async function runReconcileWorkflowCommand(
@@ -27,6 +30,12 @@ export async function runReconcileWorkflowCommand(
     const { config } = await loadHarnessConfig({ configPath: options.configPath });
     const issueKey =
       options.issueKey?.trim() || readPrivateIssueKey()?.trim() || undefined;
+    if ((options.phase || options.subject || options.requestId) && !issueKey) {
+      console.error(
+        "--issue is required when using --phase, --subject, or --request-id",
+      );
+      return EXIT_PLANNING_FAILURE;
+    }
     const summary = await runWorkflowReconcile({
       config,
       configPath: options.configPath,
@@ -35,6 +44,9 @@ export async function runReconcileWorkflowCommand(
       dryRun: options.dryRun,
       dispatch: options.dispatch,
       force: options.force,
+      phase: options.phase,
+      subject: options.subject,
+      requestId: options.requestId,
     });
 
     if (isPublicRunnerMode()) {

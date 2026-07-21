@@ -33,8 +33,14 @@ import {
   buildPlanReviewRequestId,
   ensurePlanReviewJobDispatched,
 } from "../workflow/plan-review-dispatch-effect.js";
+import {
+  buildImplementationRequestId,
+  ensureImplementationJobDispatched,
+} from "../workflow/implementation-dispatch-effect.js";
+import { resolveImplementationSubject } from "../workflow/resolve-implementation-subject.js";
 import { createReconcileJobAndDispatch } from "../workflow/job-request/dispatch-reconcile.js";
 import { dispatchMergeReconcileJob } from "../workflow/job-request/dispatch-merge-reconcile.js";
+import { createGithubJobRequestStoreFromEnv } from "../workflow/job-request/runtime-store.js";
 import { resolveMergeReconcileIdentity } from "./merge-reconcile-identity.js";
 import {
   buildReconcileHeartbeat,
@@ -46,6 +52,13 @@ import {
 } from "../workflow/reconcile-heartbeat-store.js";
 import { markRunStatusBlocked } from "../linear/run-status-comment.js";
 import { buildPlanReviewSubjectIdentity } from "../workflow/subject-identities.js";
+import {
+  getSideEffect,
+  isImplementationDispatchDurable,
+  isPlanReviewDispatchDurable,
+} from "../workflow/state/side-effects.js";
+import { buildPlanReviewDispatchEffectId } from "../workflow/plan-review-dispatch-effect.js";
+import { buildImplementationDispatchEffectId } from "../workflow/implementation-dispatch-effect.js";
 
 import { reconcileWorkflowStateTeamCandidates } from "./workflow-state-team-candidates.js";
 export { reconcileWorkflowStateTeamCandidates };
@@ -82,6 +95,11 @@ export interface WorkflowReconcileIssueResult {
   /** Plan Review recovery identity (dry-run / live preflight). */
   planReviewSubjectIdentity?: string | null;
   planReviewRequestId?: string | null;
+  /** Implementation (build) subject recovery identity. */
+  implementationSubjectIdentity?: string | null;
+  implementationRequestId?: string | null;
+  /** When set, reconcile was phase/subject/request pinned. */
+  pinMode?: "phase" | "subject" | "request_id" | null;
 }
 
 export interface WorkflowReconcileSummary {
@@ -206,6 +224,12 @@ export async function evaluateWorkflowReconcileIssue(input: {
   dryRun?: boolean;
   dispatch?: boolean;
   force?: boolean;
+  /** Phase-pin: inspect/recover only this phase; never reinterpret Linear status. */
+  phase?: string;
+  /** Subject-pin: inspect this subject only. */
+  subject?: string;
+  /** Request-pin: inspect this job-request envelope only. */
+  requestId?: string;
 }): Promise<WorkflowReconcileIssueResult> {
   const issueKey = input.issueKey.toUpperCase();
   const issue = await fetchLinearIssue(issueKey, input.linearApiKey);
@@ -264,6 +288,260 @@ export async function evaluateWorkflowReconcileIssue(input: {
     ? listIncompleteSideEffects(authoritativeState).map((effect) => effect.identity)
     : [];
 
+  const pinnedRequestId = input.requestId?.trim() || "";
+  const pinnedSubject = input.subject?.trim() || "";
+  const pinnedPhase = input.phase?.trim().toLowerCase() || "";
+
+  // --- Request-id pin: inspect envelope only; never launch another phase. ---
+  if (pinnedRequestId) {
+    try {
+      const jobStore = await createGithubJobRequestStoreFromEnv(process.env);
+      const record = await jobStore.load(pinnedRequestId);
+      if (!record) {
+        return {
+          issueKey,
+          linearStatus: issue.status,
+          phase: "none",
+          action: "noop",
+          reason: "pinned_request_not_found",
+          shouldRun: false,
+          dispatched: false,
+          pendingRecorded: false,
+          incompleteSideEffectIdentities: incompleteSideEffects,
+          workflowStateRevision: authoritativeState?.stateRevision ?? null,
+          pinMode: "request_id",
+        };
+      }
+      const phase = (record.phase || "none") as RunPhase;
+      return {
+        issueKey,
+        linearStatus: issue.status,
+        phase,
+        action: "noop",
+        reason: `pinned_request_${record.state}${record.completionState ? `:${record.completionState}` : ""}`,
+        shouldRun: false,
+        dispatched: false,
+        pendingRecorded: false,
+        incompleteSideEffectIdentities: incompleteSideEffects,
+        workflowStateRevision: authoritativeState?.stateRevision ?? null,
+        planReviewSubjectIdentity:
+          phase === "plan_review"
+            ? (record.reviewSubjectIdentity ?? null)
+            : null,
+        planReviewRequestId:
+          phase === "plan_review" ? pinnedRequestId : null,
+        implementationSubjectIdentity:
+          phase === "implementation"
+            ? (record.reviewSubjectIdentity ?? null)
+            : null,
+        implementationRequestId:
+          phase === "implementation" ? pinnedRequestId : null,
+        pinMode: "request_id",
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        issueKey,
+        linearStatus: issue.status,
+        phase: "none",
+        action: "blocker",
+        reason: `pinned_request_inspect_failed:${message.slice(0, 80)}`,
+        shouldRun: false,
+        dispatched: false,
+        pendingRecorded: false,
+        incompleteSideEffectIdentities: incompleteSideEffects,
+        workflowStateRevision: authoritativeState?.stateRevision ?? null,
+        pinMode: "request_id",
+      };
+    }
+  }
+
+  // --- Phase / subject pin for Plan Review (effect inspection after Linear advances). ---
+  if (
+    pinnedPhase === "plan_review" ||
+    (pinnedSubject &&
+      authoritativeState?.planReviewSubjectIdentity === pinnedSubject)
+  ) {
+    const subject =
+      pinnedSubject ||
+      authoritativeState?.planReviewSubjectIdentity ||
+      (authoritativeState?.latestPlanArtifact
+        ? buildPlanReviewSubjectIdentity({
+            issueKey,
+            planGenerationId:
+              authoritativeState.latestPlanArtifact.planGenerationId,
+            planHash: authoritativeState.latestPlanArtifact.planArtifactHash,
+            reviewCycle:
+              authoritativeState.cycleCounters.plan_review_cycles ?? 0,
+          })
+        : null);
+    if (!subject) {
+      return {
+        issueKey,
+        linearStatus: issue.status,
+        phase: "plan_review",
+        action: "noop",
+        reason: "pinned_plan_review_subject_missing",
+        shouldRun: false,
+        dispatched: false,
+        pendingRecorded: false,
+        incompleteSideEffectIdentities: incompleteSideEffects,
+        workflowStateRevision: authoritativeState?.stateRevision ?? null,
+        pinMode: pinnedSubject ? "subject" : "phase",
+      };
+    }
+    const requestId = buildPlanReviewRequestId(subject);
+    const effectId = buildPlanReviewDispatchEffectId(subject);
+    const effect = authoritativeState
+      ? getSideEffect(authoritativeState, effectId)
+      : null;
+    const durable = authoritativeState
+      ? isPlanReviewDispatchDurable(authoritativeState, effectId)
+      : false;
+    const hasReviewer = Boolean(authoritativeState?.planReviewerAgentId);
+    const accepted =
+      authoritativeState?.acceptedReviewSubjects?.[subject] ?? null;
+    let reason = "pinned_plan_review_pending";
+    if (accepted) reason = "pinned_plan_review_subject_already_accepted";
+    else if (hasReviewer) reason = "pinned_plan_review_reviewer_already_present";
+    else if (durable || effect?.status === "dispatched")
+      reason = "pinned_plan_review_already_dispatched";
+    else if (effect?.status === "completed")
+      reason = "pinned_plan_review_effect_completed";
+    return {
+      issueKey,
+      linearStatus: issue.status,
+      phase: "plan_review",
+      action: "noop",
+      reason,
+      shouldRun: false,
+      dispatched: false,
+      pendingRecorded: false,
+      incompleteSideEffectIdentities: incompleteSideEffects,
+      workflowStateRevision: authoritativeState?.stateRevision ?? null,
+      planReviewSubjectIdentity: subject,
+      planReviewRequestId: requestId,
+      pinMode: pinnedSubject ? "subject" : "phase",
+    };
+  }
+
+  // --- Phase / subject pin for implementation. ---
+  if (
+    pinnedPhase === "implementation" ||
+    (pinnedSubject &&
+      authoritativeState?.implementationSubjectIdentity === pinnedSubject)
+  ) {
+    const resolved = await resolveImplementationSubject({
+      config: input.config,
+      issueKey,
+      linearApiKey: input.linearApiKey,
+      state: authoritativeState,
+      stateStore,
+    });
+    const subject = pinnedSubject || resolved.subjectIdentity;
+    if (pinnedSubject && pinnedSubject !== resolved.subjectIdentity) {
+      return {
+        issueKey,
+        linearStatus: issue.status,
+        phase: "implementation",
+        action: "blocker",
+        reason: "pinned_implementation_subject_mismatch",
+        shouldRun: false,
+        dispatched: false,
+        pendingRecorded: false,
+        incompleteSideEffectIdentities: incompleteSideEffects,
+        workflowStateRevision: authoritativeState?.stateRevision ?? null,
+        implementationSubjectIdentity: pinnedSubject,
+        implementationRequestId: buildImplementationRequestId(pinnedSubject),
+        pinMode: "subject",
+      };
+    }
+    const requestId = buildImplementationRequestId(subject);
+    const effectId = buildImplementationDispatchEffectId(subject);
+    const effect = authoritativeState
+      ? getSideEffect(authoritativeState, effectId)
+      : null;
+    const durable = authoritativeState
+      ? isImplementationDispatchDurable(authoritativeState, effectId)
+      : false;
+    let reason = "pinned_implementation_pending";
+    if (authoritativeState?.latestImplementationArtifact)
+      reason = "pinned_implementation_subject_already_complete";
+    else if (authoritativeState?.builderAgentId)
+      reason = "pinned_implementation_builder_already_present";
+    else if (durable || effect?.status === "dispatched")
+      reason = "pinned_implementation_already_dispatched";
+    // Pinned mode never reinterprets as another phase and never auto-dispatches
+    // unless explicitly --dispatch and subject still missing (recover only).
+    if (
+      input.dispatch &&
+      !input.dryRun &&
+      reason === "pinned_implementation_pending" &&
+      resolved.stateStore
+    ) {
+      const dispatchResult = await ensureImplementationJobDispatched({
+        store: resolved.stateStore,
+        issueKey,
+        implementationSubjectIdentity: subject,
+        ownerGeneration: `reconcile-pin:${issueKey}:${Date.now()}`,
+        state: resolved.state ?? authoritativeState!,
+      });
+      return {
+        issueKey,
+        linearStatus: issue.status,
+        phase: "implementation",
+        action:
+          dispatchResult.outcome === "dispatched" ||
+          dispatchResult.outcome === "request_already_present" ||
+          dispatchResult.outcome === "already_dispatched"
+            ? "dispatch"
+            : dispatchResult.outcome === "missing_dispatch_token"
+              ? "blocker"
+              : "noop",
+        reason: `pinned_implementation_${dispatchResult.outcome}`,
+        shouldRun: dispatchResult.httpDispatched,
+        dispatched: dispatchResult.httpDispatched,
+        pendingRecorded: false,
+        incompleteSideEffectIdentities: incompleteSideEffects,
+        workflowStateRevision: dispatchResult.state.stateRevision,
+        implementationSubjectIdentity: subject,
+        implementationRequestId: dispatchResult.reviewRequestId,
+        pinMode: pinnedSubject ? "subject" : "phase",
+      };
+    }
+    return {
+      issueKey,
+      linearStatus: issue.status,
+      phase: "implementation",
+      action: "noop",
+      reason,
+      shouldRun: false,
+      dispatched: false,
+      pendingRecorded: false,
+      incompleteSideEffectIdentities: incompleteSideEffects,
+      workflowStateRevision: authoritativeState?.stateRevision ?? null,
+      implementationSubjectIdentity: subject,
+      implementationRequestId: requestId,
+      pinMode: pinnedSubject ? "subject" : "phase",
+    };
+  }
+
+  if (pinnedPhase || pinnedSubject) {
+    return {
+      issueKey,
+      linearStatus: issue.status,
+      phase: "none",
+      action: "blocker",
+      reason: "pinned_phase_or_subject_unsupported",
+      shouldRun: false,
+      dispatched: false,
+      pendingRecorded: false,
+      incompleteSideEffectIdentities: incompleteSideEffects,
+      workflowStateRevision: authoritativeState?.stateRevision ?? null,
+      pinMode: pinnedSubject ? "subject" : "phase",
+    };
+  }
+
   const route = await resolveRoute({
     issueKey,
     configPath: input.configPath,
@@ -278,8 +556,11 @@ export async function evaluateWorkflowReconcileIssue(input: {
   let dispatched = false;
   let codeReviewRecoveryHandled = false;
   let planReviewRecoveryHandled = false;
+  let implementationRecoveryHandled = false;
   let planReviewSubjectIdentityOut: string | null = null;
   let planReviewRequestIdOut: string | null = null;
+  let implementationSubjectIdentityOut: string | null = null;
+  let implementationRequestIdOut: string | null = null;
   let pmFeedbackCommentId = route.pmFeedbackCommentId ?? null;
   let mergePrUrl = route.mergePrUrl ?? null;
 
@@ -615,6 +896,143 @@ export async function evaluateWorkflowReconcileIssue(input: {
     }
   }
 
+  // Explicit Implementation recovery: webhook + reconcile must share impl-subject.
+  const readyForBuildName = getTransitionalStatus(input.config, "readyForBuild")
+    .trim()
+    .toLowerCase();
+  const buildingName = getTransitionalStatus(input.config, "buildingInProgress")
+    .trim()
+    .toLowerCase();
+  const durableImplementationEligible =
+    (route.phase === "implementation" ||
+      linearStatusLower === readyForBuildName ||
+      authoritativeState?.currentPhaseId === "implementation_dispatch" ||
+      authoritativeState?.currentPhaseId === "implementation") &&
+    (linearStatusLower === readyForBuildName ||
+      linearStatusLower === buildingName ||
+      linearStatusLower === "blocked" ||
+      route.phase === "implementation");
+  if (durableImplementationEligible && stateStore) {
+    const resolved = await resolveImplementationSubject({
+      config: input.config,
+      issueKey,
+      linearApiKey: input.linearApiKey,
+      state: authoritativeState,
+      stateStore,
+    });
+    const subjectIdentity = resolved.subjectIdentity;
+    const requestId = buildImplementationRequestId(subjectIdentity);
+    const leaseIdentity = `implementation:${subjectIdentity}`;
+    const { isActiveRunLeaseExpired } = await import("../workflow/state/apply.js");
+    const lease = authoritativeState?.activeRunLease;
+    const leaseActive =
+      lease?.identity === leaseIdentity &&
+      !isActiveRunLeaseExpired(lease, Date.now());
+    const hasBuilder = Boolean(authoritativeState?.builderAgentId);
+    const hasArtifact = Boolean(authoritativeState?.latestImplementationArtifact);
+    implementationSubjectIdentityOut = subjectIdentity;
+    implementationRequestIdOut = requestId;
+
+    if (hasArtifact) {
+      implementationRecoveryHandled = true;
+      action = "noop";
+      reason = "implementation_subject_already_complete";
+    } else if (hasBuilder || leaseActive) {
+      implementationRecoveryHandled = true;
+      action = "noop";
+      reason = hasBuilder
+        ? "implementation_builder_already_present"
+        : "implementation_lease_active";
+    } else {
+      action = "dispatch";
+      reason = "implementation_subject_missing_active_or_completed";
+      if (input.dryRun || !input.dispatch) {
+        return {
+          issueKey,
+          linearStatus: issue.status,
+          phase: "implementation",
+          action: "dispatch",
+          reason,
+          shouldRun: true,
+          dispatched: false,
+          pendingRecorded,
+          incompleteSideEffectIdentities: incompleteSideEffects,
+          workflowStateRevision:
+            authoritativeState?.stateRevision ??
+            resolved.workflowStateRevision,
+          pmFeedbackCommentId,
+          mergePrUrl,
+          implementationSubjectIdentity: subjectIdentity,
+          implementationRequestId: requestId,
+        };
+      }
+      if (input.dispatch && !input.dryRun) {
+        const baseState =
+          resolved.state ??
+          authoritativeState ??
+          (await import("../workflow/state/types.js")).createEmptyWorkflowState({
+            issueKey,
+            workflowSchemaVersion: "product-development-v2",
+          });
+        const dispatchResult = await ensureImplementationJobDispatched({
+          store: stateStore,
+          issueKey,
+          implementationSubjectIdentity: subjectIdentity,
+          ownerGeneration: `reconcile:${issueKey}:${Date.now()}`,
+          state: baseState,
+        });
+        authoritativeState = dispatchResult.state;
+        implementationRequestIdOut = dispatchResult.reviewRequestId;
+        if (dispatchResult.outcome === "missing_dispatch_token") {
+          return {
+            issueKey,
+            linearStatus: issue.status,
+            phase: "implementation",
+            action: "blocker",
+            reason: "missing_dispatch_token",
+            shouldRun: true,
+            dispatched: false,
+            pendingRecorded,
+            incompleteSideEffectIdentities: listIncompleteSideEffects(
+              dispatchResult.state,
+            ).map((effect) => effect.identity),
+            workflowStateRevision: dispatchResult.state.stateRevision,
+            pmFeedbackCommentId,
+            mergePrUrl,
+            implementationSubjectIdentity: subjectIdentity,
+            implementationRequestId: dispatchResult.reviewRequestId,
+          };
+        }
+        if (
+          dispatchResult.outcome === "dispatched" ||
+          dispatchResult.outcome === "request_already_present" ||
+          dispatchResult.outcome === "already_dispatched" ||
+          dispatchResult.outcome === "subject_already_complete"
+        ) {
+          implementationRecoveryHandled = true;
+          dispatched = dispatchResult.httpDispatched;
+          if (
+            dispatchResult.outcome === "request_already_present" ||
+            dispatchResult.outcome === "already_dispatched"
+          ) {
+            reason = "implementation_request_already_present";
+          } else if (dispatchResult.outcome === "subject_already_complete") {
+            action = "noop";
+            reason = "implementation_subject_already_complete";
+          }
+        } else if (dispatchResult.outcome === "claim_lost") {
+          implementationRecoveryHandled = true;
+          action = "noop";
+          reason = "implementation_dispatch_claim_lost";
+        } else if (dispatchResult.outcome === "max_attempts_exhausted") {
+          implementationRecoveryHandled = true;
+          action = "blocker";
+          reason = "implementation_max_dispatch_attempts_exhausted";
+        }
+      }
+    }
+  }
+
   let shouldRun = action === "dispatch";
 
   if (
@@ -623,7 +1041,8 @@ export async function evaluateWorkflowReconcileIssue(input: {
     !input.dryRun &&
     !dispatched &&
     !codeReviewRecoveryHandled &&
-    !planReviewRecoveryHandled
+    !planReviewRecoveryHandled &&
+    !implementationRecoveryHandled
   ) {
     if (route.phase === "merge") {
       const client = createLinearClient(input.linearApiKey);
@@ -714,8 +1133,26 @@ export async function evaluateWorkflowReconcileIssue(input: {
         pmFeedbackCommentId,
         mergePrUrl,
       };
+    } else if (route.phase === "implementation") {
+      return {
+        issueKey,
+        linearStatus: issue.status,
+        phase: route.phase,
+        action: "blocker",
+        reason: "implementation_requires_subject_dispatch",
+        shouldRun: true,
+        dispatched: false,
+        pendingRecorded,
+        incompleteSideEffectIdentities: incompleteSideEffects,
+        workflowStateRevision: route.workflowStateRevision ?? null,
+        pmFeedbackCommentId,
+        mergePrUrl,
+        implementationSubjectIdentity: implementationSubjectIdentityOut,
+        implementationRequestId: implementationRequestIdOut,
+      };
     } else {
       // Global opaque reconcile path — never emit legacy issueKey/status payloads.
+      // Never used for implementation (subject path above is required).
       try {
         const opaque = await createReconcileJobAndDispatch({
           issueKey,
@@ -786,6 +1223,11 @@ export async function evaluateWorkflowReconcileIssue(input: {
       authoritativeState?.planReviewSubjectIdentity ??
       null,
     planReviewRequestId: planReviewRequestIdOut,
+    implementationSubjectIdentity:
+      implementationSubjectIdentityOut ??
+      authoritativeState?.implementationSubjectIdentity ??
+      null,
+    implementationRequestId: implementationRequestIdOut,
   };
 }
 
@@ -797,6 +1239,9 @@ export async function runWorkflowReconcile(input: {
   dryRun?: boolean;
   dispatch?: boolean;
   force?: boolean;
+  phase?: string;
+  subject?: string;
+  requestId?: string;
 }): Promise<WorkflowReconcileSummary> {
   const candidates = await listWorkflowReconcileCandidates({
     config: input.config,
@@ -815,6 +1260,9 @@ export async function runWorkflowReconcile(input: {
         dryRun: input.dryRun,
         dispatch: input.dispatch,
         force: input.force,
+        phase: input.phase,
+        subject: input.subject,
+        requestId: input.requestId,
       }),
     );
   }
