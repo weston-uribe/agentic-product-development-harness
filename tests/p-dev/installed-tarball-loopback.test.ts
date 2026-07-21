@@ -7,7 +7,10 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { packCurrentTarballIfNeededAsync } from "./helpers/async-package-pack.js";
+import {
+  packCurrentTarballIfNeededAsync,
+  tarballSourceCommit,
+} from "./helpers/async-package-pack.js";
 import { assertNdjsonSentryBodyPrivacy } from "../observability/sentry-privacy-assertions.js";
 
 const repoRoot = path.resolve(

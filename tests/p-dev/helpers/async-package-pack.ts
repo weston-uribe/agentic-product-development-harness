@@ -33,7 +33,7 @@ export async function acquirePackagePackLockAsync(): Promise<() => void> {
   }
 }
 
-function tarballSourceCommit(tarballPath: string): string | null {
+export function tarballSourceCommit(tarballPath: string): string | null {
   if (!existsSync(tarballPath)) {
     return null;
   }
