@@ -1,13 +1,16 @@
 /**
- * Hermetic Vitest bootstrap: isolate HOME / P_DEV_HOME / TMPDIR and restore
- * harness-critical environment keys between tests so inherited live operator
- * state cannot silently redirect the suite.
+ * Hermetic Vitest bootstrap: isolate HOME / TMPDIR, clear inherited live
+ * operator config/credentials, and restore harness-critical env keys between
+ * tests so ambient machine state cannot silently redirect the suite.
+ *
+ * P_DEV_HOME is cleared (not forced) so tests that write operator fixtures via
+ * HARNESS_REPO_ROOT continue to resolve correctly. Tests that need an explicit
+ * operator workspace must set P_DEV_HOME themselves.
  */
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach } from "vitest";
-import { vi } from "vitest";
 
 /** Captured before hermetic TMPDIR override so tests can allocate truly external paths. */
 export const OS_TMPDIR = (() => {
@@ -57,7 +60,6 @@ type EnvSnapshot = Map<string, string | undefined>;
 
 let workerHome: string | undefined;
 let workerTmp: string | undefined;
-let workerPDevHome: string | undefined;
 let baselineSnapshot: EnvSnapshot | undefined;
 const initialCwd = process.cwd();
 
@@ -123,12 +125,17 @@ export async function withTestEnv<T>(
 export function getHermeticWorkerPaths(): {
   home: string;
   tmp: string;
+  /** Reserved workspace directory under HOME; not auto-exported as P_DEV_HOME. */
   pDevHome: string;
 } {
-  if (!workerHome || !workerTmp || !workerPDevHome) {
+  if (!workerHome || !workerTmp) {
     throw new Error("Hermetic worker paths are not initialized");
   }
-  return { home: workerHome, tmp: workerTmp, pDevHome: workerPDevHome };
+  return {
+    home: workerHome,
+    tmp: workerTmp,
+    pDevHome: path.join(workerHome, "workspace"),
+  };
 }
 
 beforeAll(() => {
@@ -139,7 +146,7 @@ beforeAll(() => {
 
   workerHome = realpathSync(mkdtempSync(path.join(OS_TMPDIR, "p-dev-test-home-")));
   workerTmp = path.join(workerHome, "tmp");
-  workerPDevHome = path.join(workerHome, "workspace");
+  const workerPDevHome = path.join(workerHome, "workspace");
   mkdirSync(workerTmp, { recursive: true });
   mkdirSync(workerPDevHome, { recursive: true });
 
@@ -147,18 +154,19 @@ beforeAll(() => {
   process.env.TMPDIR = workerTmp;
   process.env.TMP = workerTmp;
   process.env.TEMP = workerTmp;
-  process.env.P_DEV_HOME = workerPDevHome;
+
+  // Clear inherited operator workspace — do not force a fake P_DEV_HOME so
+  // HARNESS_REPO_ROOT / source-root resolution remains available to tests.
+  delete process.env.P_DEV_HOME;
 
   clearInheritedLiveConfigPath(workerHome);
 
-  // Strip inherited live credentials and config so tests must supply fixtures.
   for (const key of HARNESS_TEST_ENV_KEYS) {
     if (
       key === "HOME" ||
       key === "TMPDIR" ||
       key === "TMP" ||
-      key === "TEMP" ||
-      key === "P_DEV_HOME"
+      key === "TEMP"
     ) {
       continue;
     }
@@ -182,7 +190,8 @@ afterEach(() => {
   if (baselineSnapshot) {
     restoreKeys(baselineSnapshot);
   }
-  vi.unstubAllGlobals();
+  // Do not call vi.unstubAllGlobals() here — module-scoped fetch stubs (e.g.
+  // vercel client tests) must remain installed for the worker lifetime.
   if (process.cwd() !== initialCwd) {
     process.chdir(initialCwd);
   }

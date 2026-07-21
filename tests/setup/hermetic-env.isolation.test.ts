@@ -17,10 +17,10 @@ afterAll(() => {
 });
 
 describe("hermetic env bootstrap", () => {
-  it("isolates HOME and P_DEV_HOME under a temp worker tree", () => {
+  it("isolates HOME/TMPDIR and clears inherited P_DEV_HOME", () => {
     const paths = getHermeticWorkerPaths();
     expect(process.env.HOME).toBe(paths.home);
-    expect(process.env.P_DEV_HOME).toBe(paths.pDevHome);
+    expect(process.env.P_DEV_HOME).toBeUndefined();
     expect(process.env.TMPDIR).toBe(paths.tmp);
     expect(paths.home.startsWith(OS_TMPDIR)).toBe(true);
     expect(paths.pDevHome.startsWith(paths.home + path.sep)).toBe(true);
