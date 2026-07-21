@@ -249,14 +249,27 @@ console.log(JSON.stringify({
       const { stdout, stderr } = await execFileAsync(process.execPath, [scriptPath], {
         cwd: processCwd,
         env,
-        timeout: 240_000,
+        // Keep below the it() timeout (300s) but above slow snapshot-provision runs
+        // that previously died at 240s with empty stdout after SIGTERM.
+        timeout: 285_000,
         maxBuffer: 4 * 1024 * 1024,
-      }).catch((error: Error & { stdout?: string; stderr?: string }) => {
-        throw new Error(
-          `provision scenario failed: ${error.message}\nstdout=${error.stdout ?? ""}\nstderr=${error.stderr ?? ""}`,
-        );
-      });
-      void stderr;      const output = JSON.parse(
+      }).catch(
+        (
+          error: Error & {
+            stdout?: string;
+            stderr?: string;
+            code?: string | number | null;
+            signal?: NodeJS.Signals | null;
+            killed?: boolean;
+          },
+        ) => {
+          throw new Error(
+            `provision scenario failed: ${error.message}\ncode=${String(error.code)}\nsignal=${String(error.signal)}\nkilled=${String(error.killed)}\nstdout=${error.stdout ?? ""}\nstderr=${error.stderr ?? ""}`,
+          );
+        },
+      );
+      void stderr;
+      const output = JSON.parse(
         stdout.trim().split("\n").at(-1) ?? "{}",
       ) as {
         previewState?: string;
