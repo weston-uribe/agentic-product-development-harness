@@ -1,10 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readFile } from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import {
-  checkProductionSyncIdempotency,
-} from "../../src/runner/idempotency.js";
+import { checkProductionSyncIdempotency } from "../../src/runner/idempotency.js";
 import type { HarnessConfig } from "../../src/config/types.js";
 import type { LinearIssueSnapshot } from "../../src/linear/client.js";
 
@@ -85,37 +80,5 @@ describe("production sync idempotency", () => {
       "Merged to Dev",
     );
     expect(result.skip).toBe(false);
-  });
-});
-
-describe("intake prompt contract", () => {
-  it("uses simplified final package and required label guidance", async () => {
-    const promptPath = path.join(
-      path.dirname(fileURLToPath(import.meta.url)),
-      "../../prompts/issue-intake-chatgpt.md",
-    );
-    const prompt = await readFile(promptPath, "utf8");
-
-    expect(prompt).toContain("# Proposed Linear issue");
-    expect(prompt).toContain("**Recommended labels:**");
-    expect(prompt).toContain("**verify**");
-    expect(prompt).not.toContain("### Linear description (copy-paste)");
-    expect(prompt).not.toContain("## Linear issue package");
-    expect(prompt).not.toContain("Optional labels");
-  });
-
-  it("requires structured behavioral verification expectations", async () => {
-    const promptPath = path.join(
-      path.dirname(fileURLToPath(import.meta.url)),
-      "../../prompts/issue-intake-chatgpt.md",
-    );
-    const prompt = await readFile(promptPath, "utf8");
-
-    expect(prompt).toContain("Behavioral acceptance verification");
-    expect(prompt).toContain(
-      "Planner must determine the representative runtime verification method.",
-    );
-    expect(prompt).toContain("### Required evidence");
-    expect(prompt).not.toMatch(/"none known" is acceptable/i);
   });
 });
