@@ -90,7 +90,7 @@ User later moves this issue from Backlog to Ready for Build (or Ready for Planni
 
 **Request:** “Ship the new checkout API contract and update the web client to use it.”
 
-**Investigation:** Contract must land and be deployable before the client can safely switch; both target `acme-corp/checkout-web` or a split across API + web repos—here, same monorepo with clear rollback boundaries.
+**Investigation:** Contract must land and be deployable before the client can safely switch; this example is split across separate API and web repositories (`acme-corp/checkout-api` and `acme-corp/checkout-web`) with clear rollback boundaries.
 
 **Review outcome:** Two Backlog issues; Issue A blocks Issue B; no parent/child.
 
