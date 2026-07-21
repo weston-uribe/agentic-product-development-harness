@@ -144,7 +144,7 @@ Write for hiring managers and technical reviewers: clear, honest, structured. Ea
 
 Standard dev commands are documented in [`README.md`](README.md) and [`docs/getting-started.md`](docs/getting-started.md) (`npm ci`, `npm run build`, `npm test`, `npm run dev`). Non-obvious caveats:
 
-- **Node 22+ ESM/TypeScript project.** The CLI runs TS directly via `tsx`. `npm run build` runs `tsc` plus the Configure GUI build.
+- **Node 22+ ESM/TypeScript project** (canonical validation pin: **Node 22.23.1 / npm 10.9.8** via [`.nvmrc`](.nvmrc); CI/canary/runner workflows use `node-version-file: .nvmrc`). The CLI runs TS directly via `tsx`. `npm run build` runs `tsc` plus the Configure GUI build.
 - **No repo-level lint tooling.** There is no ESLint/Prettier/Biome config at the root and no `npm run lint` script for this repo (the `lint` command in `harness.config.json` runs against *target* repos, not here). The effective static check for this repo is the TypeScript typecheck run as part of `npm run build`.
 - **Configure GUI:** Operator mode is `p-dev` or `npm start` (immutable `next build`/`next start` under `apps/gui/.p-dev-runtime/`). Developer hot reload is `npm run dev` / `npm run gui:dev` (`next dev`, `apps/gui/.next`). Do not use `dev` as the operator runtime. See [`docs/gui-local.md`](docs/gui-local.md) and ADR 0005.
 - **Tests and the GUI run fully offline.** The vitest suite uses fixtures/mocks and needs no credentials. `LINEAR_API_KEY`, `CURSOR_API_KEY`, and `GITHUB_TOKEN` are only needed for *live* harness runs; `npm run harness:doctor` reporting them as missing is expected offline.

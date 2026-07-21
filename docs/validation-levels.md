@@ -28,6 +28,7 @@ Human-initiated confidence pass before treating a change as broadly safe.
 
 - `npm run validate:checkpoint` (`npm ci && npm run build && npm test`)
 - Or equivalently: full hermetic `npm test` / `npm run test:full` / `npm run test:clean`
+- Typecheck is included via `npm run build` (`tsc` emits); `npx tsc --noEmit` remains a separately useful check when you want typecheck without a GUI build. Checkpoint does **not** invoke `test:live`.
 - `npm run test:webhook` (subset shortcut; already included in full `npm test`)
 - Workflow and Configure browser matrices when UI/workflow surfaces are in scope
 - Broad regression relevant to the change
