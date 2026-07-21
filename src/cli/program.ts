@@ -433,7 +433,7 @@ export function createProgram(): Command {
     .option("--issue <key>", "Reconcile a single Linear issue key")
     .option(
       "--phase <phase>",
-      "Pin inspection/recovery to one phase (e.g. plan_review, implementation); never reinterpret current Linear status as another phase",
+      "Pin inspection/recovery to one phase (plan_review, implementation, code_review); never reinterpret current Linear status as another phase",
     )
     .option(
       "--subject <identity>",
