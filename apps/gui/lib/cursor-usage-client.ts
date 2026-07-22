@@ -228,10 +228,47 @@ export async function postCursorUsageInspect(
   return (await response.json()) as CursorUsageInspectResponse;
 }
 
-export async function postCursorUsagePreflight(
+export interface PreflightOperationStatus {
+  operationId: string;
+  state:
+    | "queued"
+    | "running"
+    | "committing"
+    | "succeeded"
+    | "failed"
+    | "cancelled";
+  phase: string | null;
+  elapsedMs: number;
+  tracePagesFetched: number;
+  tracesFetched: number;
+  observationPagesFetched: number;
+  observationsFetched: number;
+  targetObservationsRetained: number;
+  knownTotalPages: number | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  result?: PreflightResponse | null;
+}
+
+const PREFLIGHT_OP_STORAGE_KEY = "cursor-usage-preflight-operation-id";
+
+export function getStoredPreflightOperationId(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.sessionStorage.getItem(PREFLIGHT_OP_STORAGE_KEY);
+}
+
+export function storePreflightOperationId(operationId: string): void {
+  window.sessionStorage.setItem(PREFLIGHT_OP_STORAGE_KEY, operationId);
+}
+
+export function clearStoredPreflightOperationId(): void {
+  window.sessionStorage.removeItem(PREFLIGHT_OP_STORAGE_KEY);
+}
+
+export async function startCursorUsagePreflight(
   formData: FormData,
   nonce: string,
-): Promise<PreflightResponse> {
+): Promise<{ operationId: string }> {
   const response = await cursorUsageFetch(
     "/api/settings/cursor-usage/preflight",
     nonce,
@@ -240,17 +277,97 @@ export async function postCursorUsagePreflight(
       body: formData,
     },
   );
+  if (response.status !== 202) {
+    const payload = (await response.json().catch(() => ({}))) as {
+      error?: string;
+      code?: string;
+    };
+    throw new CursorUsageApiError(
+      payload.error ?? "Preflight failed to start.",
+      payload.code ?? "preflight_failed",
+    );
+  }
+  const payload = (await response.json()) as { operationId?: string };
+  if (!payload.operationId) {
+    throw new CursorUsageApiError(
+      "Preflight start did not return an operationId.",
+      "preflight_failed",
+    );
+  }
+  return { operationId: payload.operationId };
+}
+
+export async function fetchCursorUsagePreflightStatus(
+  operationId: string,
+  nonce: string,
+): Promise<PreflightOperationStatus> {
+  const response = await cursorUsageFetch(
+    `/api/settings/cursor-usage/preflight?operationId=${encodeURIComponent(operationId)}`,
+    nonce,
+    { method: "GET" },
+  );
   if (!response.ok) {
     const payload = (await response.json().catch(() => ({}))) as {
       error?: string;
       code?: string;
     };
     throw new CursorUsageApiError(
-      payload.error ?? "Preflight failed.",
-      payload.code ?? "preflight_failed",
+      payload.error ?? "Could not load preflight status.",
+      payload.code ?? "cursor_usage_preflight_operation_not_found",
     );
   }
-  return (await response.json()) as PreflightResponse;
+  return (await response.json()) as PreflightOperationStatus;
+}
+
+export async function cancelCursorUsagePreflight(
+  operationId: string,
+  nonce: string,
+): Promise<void> {
+  const response = await cursorUsageFetch(
+    `/api/settings/cursor-usage/preflight?operationId=${encodeURIComponent(operationId)}`,
+    nonce,
+    { method: "DELETE" },
+  );
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => ({}))) as {
+      error?: string;
+      code?: string;
+    };
+    throw new CursorUsageApiError(
+      payload.error ?? "Could not cancel preflight.",
+      payload.code ?? "preflight_cancel_failed",
+    );
+  }
+}
+
+/** Start async preflight and poll until terminal. Browser fetch abort does not cancel server work. */
+export async function postCursorUsagePreflight(
+  formData: FormData,
+  nonce: string,
+  options?: {
+    onStatus?: (status: PreflightOperationStatus) => void;
+    pollIntervalMs?: number;
+  },
+): Promise<PreflightResponse> {
+  const { operationId } = await startCursorUsagePreflight(formData, nonce);
+  storePreflightOperationId(operationId);
+  const pollIntervalMs = options?.pollIntervalMs ?? 750;
+  for (;;) {
+    const status = await fetchCursorUsagePreflightStatus(operationId, nonce);
+    options?.onStatus?.(status);
+    if (status.state === "succeeded" && status.result) {
+      clearStoredPreflightOperationId();
+      return status.result;
+    }
+    if (status.state === "failed" || status.state === "cancelled") {
+      clearStoredPreflightOperationId();
+      throw new CursorUsageApiError(
+        status.errorMessage ?? "Preflight failed.",
+        status.errorCode ?? "preflight_failed",
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+  }
 }
 
 export async function postCursorUsageApply(

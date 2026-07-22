@@ -4,12 +4,17 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { POST as preflightPost } from "../../apps/gui/app/api/settings/cursor-usage/preflight/route.js";
+import {
+  DELETE as preflightDelete,
+  GET as preflightGet,
+  POST as preflightPost,
+} from "../../apps/gui/app/api/settings/cursor-usage/preflight/route.js";
 import { POST as applyPost } from "../../apps/gui/app/api/settings/cursor-usage/apply/route.js";
 import { POST as inspectPost } from "../../apps/gui/app/api/settings/cursor-usage/inspect/route.js";
 import { GET as configGet } from "../../apps/gui/app/api/settings/cursor-usage/config/route.js";
 import { P_DEV_OBSERVABILITY_NONCE_ENV } from "../../src/observability/constants.js";
 import { installDiscoveryEnv } from "../evaluation/helpers/cursor-usage-discovery-test.js";
+import { resetPreflightOperationsForTests } from "../../src/evaluation/cursor-usage-import/preflight-operation-registry.js";
 
 vi.mock("server-only", () => ({}));
 
@@ -43,10 +48,14 @@ vi.mock("../../src/evaluation/cursor-usage-import/discovery.js", async (importOr
       retrievalComplete: true,
       pagesFetched: 1,
       tracesFetched: 0,
+      observationPagesFetched: 0,
+      observationsFetched: 0,
+      targetObservationsRetained: 0,
       requestCounters: {
         discoveryInvocationId: "route-test-discovery",
         traceListRequestCount: 1,
         observationRequestCount: 0,
+        perTraceObservationRequestCount: 0,
       },
     }),
   };
@@ -102,6 +111,65 @@ function buildApplyRequest(input: {
   });
 }
 
+function buildStatusRequest(input: {
+  operationId: string;
+  host?: string;
+  origin?: string;
+  nonce?: string;
+  method?: "GET" | "DELETE";
+}): NextRequest {
+  const host = input.host ?? "127.0.0.1:4317";
+  const headers = new Headers({
+    host,
+    origin: input.origin ?? `http://${host}`,
+  });
+  if (input.nonce) {
+    headers.set("x-p-dev-observability-nonce", input.nonce);
+  }
+  return new NextRequest(
+    `http://${host}/api/settings/cursor-usage/preflight?operationId=${encodeURIComponent(input.operationId)}`,
+    {
+      method: input.method ?? "GET",
+      headers,
+    },
+  );
+}
+
+async function awaitPreflightResult(operationId: string): Promise<{
+  importId: string;
+  fingerprint: string;
+  rows: Array<{ cloudAgentIdHash: string }>;
+  publicSummary: { observedWindow?: { startIso: string; endIso: string } };
+}> {
+  for (let i = 0; i < 100; i += 1) {
+    const response = await preflightGet(
+      buildStatusRequest({
+        operationId,
+        nonce: "cursor-usage-test-nonce",
+      }),
+    );
+    expect(response.status).toBe(200);
+    const status = (await response.json()) as {
+      state: string;
+      errorMessage?: string | null;
+      result?: {
+        importId: string;
+        fingerprint: string;
+        rows: Array<{ cloudAgentIdHash: string }>;
+        publicSummary: { observedWindow?: { startIso: string; endIso: string } };
+      } | null;
+    };
+    if (status.state === "succeeded" && status.result) {
+      return status.result;
+    }
+    if (status.state === "failed" || status.state === "cancelled") {
+      throw new Error(status.errorMessage ?? `preflight ${status.state}`);
+    }
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  throw new Error("preflight timed out waiting for terminal status");
+}
+
 describe("cursor usage routes", () => {
   let workspaceDir = "";
   const originalRepoRoot = process.env.HARNESS_REPO_ROOT;
@@ -139,6 +207,7 @@ describe("cursor usage routes", () => {
   });
 
   afterEach(async () => {
+    resetPreflightOperationsForTests();
     if (originalRepoRoot === undefined) {
       delete process.env.HARNESS_REPO_ROOT;
     } else {
@@ -261,13 +330,10 @@ describe("cursor usage routes", () => {
       }),
     );
 
-    expect(response.status).toBe(200);
-    const payload = (await response.json()) as {
-      importId: string;
-      fingerprint: string;
-      rows: Array<{ cloudAgentIdHash: string }>;
-      publicSummary: { observedWindow?: { startIso: string; endIso: string } };
-    };
+    expect(response.status).toBe(202);
+    const started = (await response.json()) as { operationId: string };
+    expect(started.operationId).toBeTruthy();
+    const payload = await awaitPreflightResult(started.operationId);
     expect(payload.importId).toBeTruthy();
     expect(payload.fingerprint).toBeTruthy();
     expect(payload.publicSummary.observedWindow?.startIso).toBe(
@@ -282,6 +348,51 @@ describe("cursor usage routes", () => {
     for (const row of payload.rows) {
       expect(row.cloudAgentIdHash.length).toBeLessThanOrEqual(12);
     }
+  });
+
+  it("requires operator auth to poll or cancel preflight status", async () => {
+    const csv = await readFile(fixtureCsv, "utf8");
+    const formData = new FormData();
+    formData.set("file", new File([csv], "sample-usage.csv", { type: "text/csv" }));
+    formData.set("boundsSource", "csv_row_extrema");
+    const started = await preflightPost(
+      buildMultipartRequest({
+        nonce: "cursor-usage-test-nonce",
+        body: formData,
+      }),
+    );
+    expect(started.status).toBe(202);
+    const { operationId } = (await started.json()) as { operationId: string };
+    await awaitPreflightResult(operationId);
+
+    const noNonce = await preflightGet(buildStatusRequest({ operationId }));
+    expect(noNonce.status).toBe(403);
+
+    const badOrigin = await preflightGet(
+      buildStatusRequest({
+        operationId,
+        origin: "http://evil.example:4317",
+        nonce: "cursor-usage-test-nonce",
+      }),
+    );
+    expect(badOrigin.status).toBe(403);
+
+    const missing = await preflightGet(
+      buildStatusRequest({
+        operationId: "does-not-exist",
+        nonce: "cursor-usage-test-nonce",
+      }),
+    );
+    expect(missing.status).toBe(404);
+
+    const cancelMissing = await preflightDelete(
+      buildStatusRequest({
+        operationId: "does-not-exist",
+        nonce: "cursor-usage-test-nonce",
+        method: "DELETE",
+      }),
+    );
+    expect(cancelMissing.status).toBe(404);
   });
 
   it("inspect rejects unauthorized, wrong-origin, oversized, and malformed input", async () => {
@@ -381,6 +492,9 @@ describe("cursor usage routes", () => {
         body: ok,
       }),
     );
-    expect(okResp.status).toBe(200);
+    expect(okResp.status).toBe(202);
+    const { operationId } = (await okResp.json()) as { operationId: string };
+    const result = await awaitPreflightResult(operationId);
+    expect(result.importId).toBeTruthy();
   });
 });

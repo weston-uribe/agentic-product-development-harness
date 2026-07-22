@@ -65,6 +65,16 @@ export interface CanonicalImportIdentity {
   langfuseProjectScopeDigest?: string | null;
   /** Provider identity for discovery (v12+). */
   discoveryProvider?: "langfuse" | null;
+  /** Discovery algorithm version (v13+). */
+  discoveryAlgorithmVersion?: string;
+  /** Observation eligibility contract (v13+). */
+  observationEligibilityContract?: string;
+  /** Trace pagination contract (v13+). */
+  tracePaginationContractVersion?: string;
+  /** Observation pagination contract (v13+). */
+  observationPaginationContractVersion?: string;
+  /** Digest of deterministic discovery evidence (v13+). */
+  deterministicDiscoveryEvidenceDigest?: string;
 }
 
 export interface ParserEvidenceArtifact {
@@ -92,7 +102,7 @@ export interface PublicPreflightAttributionRow {
 }
 
 export interface PreflightPrivateArtifact {
-  schemaVersion: 2 | 3;
+  schemaVersion: 2 | 3 | 4;
   importId: string;
   preparedAt: string;
   importerVersion: typeof CURSOR_USAGE_IMPORTER_VERSION | string;
@@ -130,6 +140,11 @@ export interface PreflightPrivateArtifact {
   canonicalEndpointIdentity?: string | null;
   langfuseProjectScopeDigest?: string | null;
   discoveryProvider?: "langfuse" | null;
+  discoveryAlgorithmVersion?: string;
+  observationEligibilityContract?: string;
+  tracePaginationContractVersion?: string;
+  observationPaginationContractVersion?: string;
+  deterministicDiscoveryEvidenceDigest?: string;
   discoveryDiagnostics?: import("./discovery-config.js").DiscoveryDiagnostics | null;
   attributionRows?: PublicPreflightAttributionRow[];
   conflictReasonCodes?: string[];
@@ -137,7 +152,7 @@ export interface PreflightPrivateArtifact {
 }
 
 export interface PublicSummaryArtifact {
-  schemaVersion: 2 | 3;
+  schemaVersion: 2 | 3 | 4;
   kind: "cursor_usage_import_staging_public";
   importId: string;
   preparedAt: string;
@@ -276,12 +291,10 @@ async function atomicWriteJson(
   await rename(tempPath, targetPath);
 }
 
-export async function writeStagingArtifacts(
-  logDirectory: string,
-  importId: string,
+async function writeStagingArtifactsIntoDir(
+  dir: string,
   artifacts: StagingArtifacts,
 ): Promise<void> {
-  const dir = stagingDir(logDirectory, importId);
   await mkdir(dir, { recursive: true });
   await atomicWriteJson(
     path.join(dir, "canonical-events.private.json"),
@@ -318,6 +331,52 @@ export async function writeStagingArtifacts(
       artifacts.sourceCapabilityExclusionManifest,
       0o600,
     );
+  }
+}
+
+export async function writeStagingArtifacts(
+  logDirectory: string,
+  importId: string,
+  artifacts: StagingArtifacts,
+): Promise<void> {
+  await writeStagingArtifactsIntoDir(
+    stagingDir(logDirectory, importId),
+    artifacts,
+  );
+}
+
+/**
+ * Write staging into an operation-owned temp directory, validate required
+ * files, then atomically rename to the final import directory.
+ */
+export async function writeStagingArtifactsAtomic(params: {
+  logDirectory: string;
+  importId: string;
+  artifacts: StagingArtifacts;
+  tempDirName?: string;
+}): Promise<void> {
+  const finalDir = stagingDir(params.logDirectory, params.importId);
+  const tempDir = path.join(
+    path.dirname(finalDir),
+    params.tempDirName ?? `.tmp-${params.importId}-${process.pid}`,
+  );
+  try {
+    await rm(tempDir, { recursive: true, force: true });
+    await writeStagingArtifactsIntoDir(tempDir, params.artifacts);
+    const required = [
+      "canonical-events.private.json",
+      "preflight.private.json",
+      "public-summary.json",
+      "ledger.json",
+    ];
+    for (const name of required) {
+      await stat(path.join(tempDir, name));
+    }
+    await rm(finalDir, { recursive: true, force: true }).catch(() => undefined);
+    await rename(tempDir, finalDir);
+  } catch (error) {
+    await rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+    throw error;
   }
 }
 
@@ -476,6 +535,11 @@ export function buildCanonicalImportIdentity(params: {
   canonicalEndpointIdentity?: string | null;
   langfuseProjectScopeDigest?: string | null;
   discoveryProvider?: "langfuse" | null;
+  discoveryAlgorithmVersion?: string | null;
+  observationEligibilityContract?: string | null;
+  tracePaginationContractVersion?: string | null;
+  observationPaginationContractVersion?: string | null;
+  deterministicDiscoveryEvidenceDigest?: string | null;
 }): CanonicalImportIdentity {
   return {
     namespace: params.namespace,
@@ -505,6 +569,15 @@ export function buildCanonicalImportIdentity(params: {
     canonicalEndpointIdentity: params.canonicalEndpointIdentity ?? null,
     langfuseProjectScopeDigest: params.langfuseProjectScopeDigest ?? null,
     discoveryProvider: params.discoveryProvider ?? null,
+    discoveryAlgorithmVersion: params.discoveryAlgorithmVersion ?? undefined,
+    observationEligibilityContract:
+      params.observationEligibilityContract ?? undefined,
+    tracePaginationContractVersion:
+      params.tracePaginationContractVersion ?? undefined,
+    observationPaginationContractVersion:
+      params.observationPaginationContractVersion ?? undefined,
+    deterministicDiscoveryEvidenceDigest:
+      params.deterministicDiscoveryEvidenceDigest ?? undefined,
   };
 }
 

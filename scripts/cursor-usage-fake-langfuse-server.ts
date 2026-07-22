@@ -19,8 +19,14 @@ let scoreCreateLog: Array<Record<string, unknown>> = [];
 let requestCounters = {
   traceListRequests: 0,
   observationRequests: 0,
+  windowObservationRequests: 0,
+  perTraceObservationRequests: 0,
   scoreListRequests: 0,
   ingestionRequests: 0,
+  activeRequests: 0,
+  abortedRequests: 0,
+  scoreCreateCount: 0,
+  nonLoopbackRequests: 0,
 };
 
 /** Scenario overrides for negative browser flows. */
@@ -68,6 +74,7 @@ const baseObservations = [
     startTime: "2026-07-19T12:00:00.000Z",
     endTime: "2026-07-19T12:01:30.000Z",
     model: "composer-2.5",
+    providedModelName: "composer-2.5",
     agentId: AGENT_PLANNING,
     phase: "planning",
     phaseExecutionId: "pe-plan",
@@ -88,6 +95,7 @@ const baseObservations = [
     startTime: "2026-07-19T12:59:00.000Z",
     endTime: "2026-07-19T13:00:00.000Z",
     model: "composer-2.5",
+    providedModelName: "composer-2.5",
     agentId: AGENT_PLAN_REVIEW,
     phase: "plan_review",
     phaseExecutionId: "pe-pr",
@@ -133,17 +141,23 @@ function currentObservations() {
   if (scenario === "model_conflict") {
     return baseObservations.map((obs) =>
       obs.traceId === TRACE_PLANNING
-        ? { ...obs, model: "totally-different-model" }
+        ? {
+            ...obs,
+            model: "totally-different-model",
+            providedModelName: "totally-different-model",
+          }
         : obs,
     );
   }
   if (scenario === "variant_conflict") {
-    // Candidate effectiveVariant=standard from a model-less obs; observed model is fast.
+    // Candidate effectiveVariant=standard from a model-less obs (must sort first by id);
+    // observed model evidence carries fast — reconciliation yields variant_identity_conflict.
     return baseObservations.flatMap((obs) => [
       {
         ...obs,
-        id: `${obs.id}-variant-authority`,
+        id: `${obs.id}-aaa-variant-authority`,
         model: undefined,
+        providedModelName: undefined,
         metadata: {
           ...obs.metadata,
           effectiveVariant: "standard",
@@ -152,7 +166,7 @@ function currentObservations() {
       },
       {
         ...obs,
-        id: `${obs.id}-fast-evidence`,
+        id: `${obs.id}-zzz-fast-evidence`,
         metadata: {
           ...obs.metadata,
           effectiveVariant: "fast",
@@ -268,13 +282,56 @@ function handleTraces(url: URL, res: ServerResponse): void {
 function handleObservations(url: URL, res: ServerResponse): void {
   requestCounters.observationRequests += 1;
   const traceId = url.searchParams.get("traceId");
-  const data = traceId
-    ? currentObservations().filter((obs) => obs.traceId === traceId)
-    : currentObservations();
-  sendJson(res, 200, {
-    data,
-    meta: { page: 1, limit: data.length, totalPages: 1 },
+  if (traceId) {
+    requestCounters.perTraceObservationRequests += 1;
+  } else {
+    requestCounters.windowObservationRequests += 1;
+  }
+  const fromStart = url.searchParams.get("fromStartTime");
+  const toStart = url.searchParams.get("toStartTime");
+  const limit = Number.parseInt(url.searchParams.get("limit") ?? "100", 10);
+  const cursorRaw = url.searchParams.get("cursor");
+  let offset = 0;
+  if (cursorRaw) {
+    try {
+      const decoded = Buffer.from(cursorRaw, "base64url").toString("utf8");
+      offset = Number.parseInt(decoded, 10) || 0;
+    } catch {
+      offset = 0;
+    }
+  }
+
+  let data = currentObservations().filter((obs) => {
+    if (traceId && obs.traceId !== traceId) return false;
+    const start = typeof obs.startTime === "string" ? obs.startTime : null;
+    if (fromStart && start && start < fromStart) return false;
+    if (toStart && start && start >= toStart) return false;
+    return true;
   });
+  // Sort by startTime then id (v2 contract)
+  data = [...data].sort((a, b) => {
+    const sa = String(a.startTime ?? "");
+    const sb = String(b.startTime ?? "");
+    if (sa !== sb) return sa.localeCompare(sb);
+    return String(a.id).localeCompare(String(b.id));
+  });
+
+  const pageSize = Math.min(Math.max(1, limit), 1000);
+  const slice = data.slice(offset, offset + pageSize);
+  const nextOffset = offset + slice.length;
+  const meta: Record<string, unknown> = {};
+  if (nextOffset < data.length) {
+    meta.cursor = Buffer.from(String(nextOffset), "utf8").toString("base64url");
+  }
+  // Map model → providedModelName for v2 shape when missing
+  const mapped = slice.map((obs) => ({
+    ...obs,
+    providedModelName:
+      (obs as { providedModelName?: string }).providedModelName ??
+      (obs as { model?: string }).model ??
+      null,
+  }));
+  sendJson(res, 200, { data: mapped, meta });
 }
 
 function handleScores(url: URL, res: ServerResponse): void {
@@ -316,6 +373,7 @@ async function handleIngestion(req: IncomingMessage, res: ServerResponse): Promi
     };
     scores.push(record);
     scoreCreateLog.push({ type: "score-create", ...record });
+    requestCounters.scoreCreateCount += 1;
   }
 
   sendJson(res, 200, { successes: (payload.batch ?? []).map((event) => event.id) });
@@ -341,8 +399,14 @@ const server = createServer(async (req, res) => {
     requestCounters = {
       traceListRequests: 0,
       observationRequests: 0,
+      windowObservationRequests: 0,
+      perTraceObservationRequests: 0,
       scoreListRequests: 0,
       ingestionRequests: 0,
+      activeRequests: 0,
+      abortedRequests: 0,
+      scoreCreateCount: 0,
+      nonLoopbackRequests: 0,
     };
     scenario = "default";
     sendJson(res, 200, { ok: true });
@@ -368,8 +432,14 @@ const server = createServer(async (req, res) => {
         requestCounters = {
           traceListRequests: 0,
           observationRequests: 0,
+          windowObservationRequests: 0,
+          perTraceObservationRequests: 0,
           scoreListRequests: 0,
           ingestionRequests: 0,
+          activeRequests: 0,
+          abortedRequests: 0,
+          scoreCreateCount: 0,
+          nonLoopbackRequests: 0,
         };
         sendJson(res, 200, { ok: true, scenario });
         return;

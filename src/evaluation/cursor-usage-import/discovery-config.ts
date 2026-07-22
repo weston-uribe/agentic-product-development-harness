@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 export const CURSOR_USAGE_DISCOVERY_CONFIG_CONTRACT_VERSION = "1" as const;
-export const DISCOVERY_DIAGNOSTICS_SCHEMA_VERSION = 1 as const;
+export const DISCOVERY_DIAGNOSTICS_SCHEMA_VERSION = 2 as const;
 
 export type CursorUsageDiscoveryConfigurationStatus =
   | "ready"
@@ -17,8 +17,14 @@ export type CursorUsageDiscoveryErrorCode =
   | "langfuse_namespace_missing"
   | "langfuse_authentication_failed"
   | "langfuse_discovery_timeout"
+  | "langfuse_discovery_cancelled"
   | "langfuse_retrieval_failed"
-  | "langfuse_retrieval_incomplete";
+  | "langfuse_retrieval_incomplete"
+  | "cursor_usage_discovery_already_running"
+  | "cursor_usage_preflight_operation_not_found"
+  | "cursor_usage_preflight_cancel_too_late"
+  | "staged_import_version_mismatch_requires_new_preflight"
+  | "requires_product_judgment";
 
 export interface CanonicalLangfuseEndpointIdentity {
   scheme: "https" | "http";
@@ -85,6 +91,15 @@ export function httpStatusForDiscoveryErrorCode(
       return 502;
     case "langfuse_discovery_timeout":
       return 504;
+    case "langfuse_discovery_cancelled":
+      return 200;
+    case "cursor_usage_discovery_already_running":
+    case "cursor_usage_preflight_cancel_too_late":
+    case "staged_import_version_mismatch_requires_new_preflight":
+    case "requires_product_judgment":
+      return 409;
+    case "cursor_usage_preflight_operation_not_found":
+      return 404;
     default:
       return 500;
   }
@@ -424,6 +439,30 @@ export function classifyDiscoveryThrownError(
 
   if (
     error instanceof Error &&
+    (error.message === "langfuse_discovery_cancelled" ||
+      error.name === "AbortError")
+  ) {
+    return new CursorUsageDiscoveryError(
+      "langfuse_discovery_cancelled",
+      "Langfuse discovery was cancelled.",
+      200,
+    );
+  }
+
+  if (
+    error instanceof Error &&
+    (error.message === "cursor_usage_discovery_already_running" ||
+      error.name === "DiscoveryAlreadyRunningError")
+  ) {
+    return new CursorUsageDiscoveryError(
+      "cursor_usage_discovery_already_running",
+      "A Cursor usage discovery operation is already running for this target.",
+      409,
+    );
+  }
+
+  if (
+    error instanceof Error &&
     error.message === "langfuse_retrieval_incomplete"
   ) {
     return new CursorUsageDiscoveryError(
@@ -474,9 +513,17 @@ export interface DiscoveryDiagnostics {
   status: DiscoveryDiagnosticsStatus;
   namespace: string;
   environmentFilter: string | null;
+  algorithmVersion?: string;
+  observationEligibilityContract?: string;
   pagesFetched: number;
   tracesFetched: number;
+  observationPagesFetched?: number;
+  observationsFetched?: number;
+  targetObservationsRetained?: number;
+  duplicateObservationCount?: number;
   retrievalComplete: boolean;
+  traceRetrievalComplete?: boolean;
+  observationRetrievalComplete?: boolean;
   viableCandidateCount: number;
   distinctCandidateAgentCount: number;
   distinctCsvAgentCount: number;
@@ -489,9 +536,13 @@ export interface DiscoveryDiagnostics {
   unmatchedAgentCount: number;
   ambiguousAgentCount: number;
   conflictAgentCount: number;
+  /** Operational only — never used in approval fingerprints. */
   discoveryInvocationId: string;
   traceListRequestCount: number;
   observationRequestCount: number;
+  /** Operational only. */
+  elapsedMs?: number;
+  deterministicDiscoveryEvidenceDigest?: string;
 }
 
 export function buildDiscoveryDiagnosticsStatus(params: {

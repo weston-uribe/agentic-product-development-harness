@@ -113,6 +113,26 @@ export async function guardCursorUsageGet(
   return { ok: true };
 }
 
+/**
+ * Operator-bound status/cancel: host + same-origin + nonce.
+ * High-entropy operationId alone is never authorization.
+ * GET status may omit Origin (browsers often do for same-origin GET);
+ * DELETE cancel still requires Origin via hostAndOriginGuard.
+ */
+export async function guardCursorUsageOperatorRequest(
+  request: NextRequest,
+): Promise<GuardedCursorUsageRequestResult> {
+  const hostFailure = hostAndOriginGuard(request);
+  if (hostFailure) return hostFailure;
+  if (!hasValidNonce(request)) {
+    return {
+      ok: false,
+      response: NextResponse.json({ error: "Invalid nonce." }, { status: 403 }),
+    };
+  }
+  return { ok: true };
+}
+
 export async function guardCursorUsageMultipartUpload(
   request: NextRequest,
 ): Promise<GuardedCursorUsageRequestResult> {

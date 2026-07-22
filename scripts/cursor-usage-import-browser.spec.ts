@@ -44,11 +44,15 @@ async function resetFakeLangfuse(
 async function fakeRequestCounts(): Promise<{
   traceListRequests: number;
   observationRequests: number;
+  windowObservationRequests: number;
+  perTraceObservationRequests: number;
 }> {
   const res = await fetch(`${FAKE_LANGFUSE}/__test__/request-counts`);
   return (await res.json()) as {
     traceListRequests: number;
     observationRequests: number;
+    windowObservationRequests: number;
+    perTraceObservationRequests: number;
   };
 }
 
@@ -104,6 +108,9 @@ async function runPreflight(
     );
   }
   await page.getByTestId("cursor-usage-preflight-button").click();
+  await expect(page.getByTestId("cursor-usage-preflight-panel")).toBeVisible({
+    timeout: 90_000,
+  });
 }
 
 test.describe("cursor usage import browser", () => {
@@ -159,6 +166,13 @@ test.describe("cursor usage import browser", () => {
     expect(traceLists).toBeGreaterThanOrEqual(2);
     expect(traceLists).toBeLessThanOrEqual(2);
     expect(afterPreflight.observationRequests - before.observationRequests).toBeGreaterThan(0);
+    expect(
+      afterPreflight.windowObservationRequests - before.windowObservationRequests,
+    ).toBeGreaterThan(0);
+    expect(
+      afterPreflight.perTraceObservationRequests -
+        before.perTraceObservationRequests,
+    ).toBe(0);
 
     // Table already rendered; no additional discovery traffic.
     await expect(page.getByTestId("cursor-usage-preflight-table")).toBeVisible();
@@ -166,6 +180,9 @@ test.describe("cursor usage import browser", () => {
     expect(afterRender.traceListRequests).toBe(afterPreflight.traceListRequests);
     expect(afterRender.observationRequests).toBe(
       afterPreflight.observationRequests,
+    );
+    expect(afterRender.perTraceObservationRequests).toBe(
+      afterPreflight.perTraceObservationRequests,
     );
 
     await expect(page.getByTestId("diag-traces-fetched")).toBeVisible();

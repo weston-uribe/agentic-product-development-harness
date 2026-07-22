@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { EvaluationRuntimeConfig } from "../types.js";
 import { resolveEvaluationConfig } from "../runtime.js";
 import {
@@ -22,10 +23,24 @@ import { inspectCursorUsageCsvSource } from "./source-inspection.js";
 import { IMPORT_SCOPE_ID } from "./import-scope.js";
 import type { TimestampDisambiguationPolicy } from "./timestamps.js";
 import {
+  buildObservationEligibilityWindow,
+  candidateSnapshotDigest,
   discoverUsageCandidates,
   type DiscoverUsageCandidatesResult,
   type UsageCandidate,
 } from "./discovery.js";
+import {
+  CURSOR_USAGE_DISCOVERY_ALGORITHM_VERSION,
+  CURSOR_USAGE_DISCOVERY_TIMEOUT_MS,
+  CURSOR_USAGE_OBSERVATION_ELIGIBILITY_CONTRACT,
+  CURSOR_USAGE_OBSERVATION_PAGINATION_CONTRACT_VERSION,
+  CURSOR_USAGE_TRACE_PAGINATION_CONTRACT_VERSION,
+  DETERMINISTIC_DISCOVERY_EVIDENCE_SCHEMA_VERSION,
+} from "./discovery-constants.js";
+import {
+  acquireDiscoveryLock,
+  DiscoveryAlreadyRunningError,
+} from "./discovery-operation-lock.js";
 import {
   attributeSegmentsToCandidates,
   buildSegmentsFromCanonicalEvents,
@@ -38,6 +53,7 @@ import {
   fingerprintPreflightApproval,
   readStagingArtifacts,
   writeStagingArtifacts,
+  writeStagingArtifactsAtomic,
   listLedgers,
   type ImportLedgerEntry,
   type ImportLifecycleState,
@@ -122,6 +138,23 @@ export interface PreflightCsvImportParams {
   /** Prior inspect response digest/token; required when binding inspect→preflight. */
   expectedSourceDigestSha256?: string | null;
   expectedInspectionToken?: string | null;
+  /** AbortSignal for operator cancellation (async preflight). */
+  signal?: AbortSignal;
+  /** Workspace identity for single-flight lock (defaults to logDirectory). */
+  workspaceIdentity?: string;
+  /** When true, skip single-flight lock (unit tests with injected discover). */
+  skipDiscoveryLock?: boolean;
+  /** Optional commit gate — return false to abort before atomic staging. */
+  beforeStagingCommit?: () => boolean | Promise<boolean>;
+  /** Best-effort discovery progress for async preflight status. */
+  onProgress?: (p: {
+    phase?: string;
+    pages: number;
+    traces: number;
+    observations?: number;
+    observationPages?: number;
+    targetObservationsRetained?: number;
+  }) => void;
   deps?: CursorUsageServiceDeps;
 }
 
@@ -236,7 +269,9 @@ function buildParserEvidenceArtifact(params: {
 
 function isLegacyImporterVersion(version: string | undefined): boolean {
   if (!version) return true;
-  return version.startsWith("10.");
+  // Importer ≤12 requires a new preflight under the v13 discovery contract.
+  const major = Number.parseInt(version.split(".")[0] ?? "", 10);
+  return !Number.isFinite(major) || major <= 12;
 }
 
 function agentHasRejectionOrAmbiguity(params: {
@@ -711,11 +746,18 @@ function assertDiscoveryConfigMatchesStaged(params: {
     !stagedEndpoint ||
     !stagedScope ||
     stagedProvider !== "langfuse" ||
-    params.staged.schemaVersion < 3 ||
+    params.staged.schemaVersion < 4 ||
     !params.staged.attributionSnapshotDigest ||
-    !params.staged.discoveryDiagnostics
+    !params.staged.discoveryDiagnostics ||
+    !params.staged.discoveryAlgorithmVersion ||
+    !params.staged.observationEligibilityContract ||
+    !params.staged.deterministicDiscoveryEvidenceDigest
   ) {
-    throw new Error("staged_import_version_mismatch_requires_new_preflight");
+    throw new CursorUsageDiscoveryError(
+      "staged_import_version_mismatch_requires_new_preflight",
+      "Staged import requires a new preflight under the current discovery contract.",
+      409,
+    );
   }
   if (
     stagedContract !== params.live.discoveryConfigContractVersion ||
@@ -723,10 +765,81 @@ function assertDiscoveryConfigMatchesStaged(params: {
     params.staged.namespace !== params.live.namespace ||
     (params.staged.environment ?? null) !== params.live.environmentFilter ||
     stagedEndpoint !== params.live.canonicalEndpointIdentity.canonicalUrl ||
-    stagedScope !== params.live.langfuseProjectScopeDigest
+    stagedScope !== params.live.langfuseProjectScopeDigest ||
+    params.staged.discoveryAlgorithmVersion !==
+      CURSOR_USAGE_DISCOVERY_ALGORITHM_VERSION ||
+    params.staged.observationEligibilityContract !==
+      CURSOR_USAGE_OBSERVATION_ELIGIBILITY_CONTRACT
   ) {
     throw new Error("discovery_configuration_changed_requires_new_preflight");
   }
+}
+
+function synthesizeDeterministicEvidence(
+  discovered: DiscoverUsageCandidatesResult,
+  params: {
+    namespace: string;
+    environmentFilter: string | null;
+    fromTimestamp: string;
+    toTimestamp: string;
+    sourceCoverageSafetyMarginMs: number;
+  },
+): DiscoverUsageCandidatesResult["deterministicEvidence"] {
+  if (discovered.deterministicEvidence) {
+    return discovered.deterministicEvidence;
+  }
+  const eligibility = buildObservationEligibilityWindow({
+    exportStartIso: params.fromTimestamp,
+    exportEndIso: params.toTimestamp,
+    sourceCoverageSafetyMarginMs: params.sourceCoverageSafetyMarginMs,
+  });
+  const emptyRetrieval = {
+    complete: discovered.retrievalComplete,
+    pagesFetched: discovered.pagesFetched ?? 0,
+    recordsFetched: discovered.tracesFetched ?? 0,
+    duplicateIdenticalCount: 0,
+    duplicateDivergentCount: 0,
+    pageLimit: 0,
+    maxPages: 0,
+    maxRecords: 0,
+  };
+  return {
+    schemaVersion: DETERMINISTIC_DISCOVERY_EVIDENCE_SCHEMA_VERSION,
+    algorithmVersion: CURSOR_USAGE_DISCOVERY_ALGORITHM_VERSION,
+    tracePaginationContractVersion: CURSOR_USAGE_TRACE_PAGINATION_CONTRACT_VERSION,
+    observationPaginationContractVersion:
+      CURSOR_USAGE_OBSERVATION_PAGINATION_CONTRACT_VERSION,
+    observationEligibilityContract: CURSOR_USAGE_OBSERVATION_ELIGIBILITY_CONTRACT,
+    namespace: params.namespace,
+    environmentFilter: params.environmentFilter,
+    traceFromTimestamp: params.fromTimestamp,
+    traceToTimestamp: params.toTimestamp,
+    observationFromStartTime: eligibility.fromStartTime,
+    observationToStartTime: eligibility.toStartTime,
+    sourceCoverageSafetyMarginMs: params.sourceCoverageSafetyMarginMs,
+    traceRetrieval: {
+      ...emptyRetrieval,
+      complete: discovered.retrievalComplete,
+    },
+    observationRetrieval: {
+      ...emptyRetrieval,
+      complete: discovered.retrievalComplete,
+      recordsFetched: discovered.observationsFetched ?? 0,
+      pagesFetched: discovered.observationPagesFetched ?? 0,
+    },
+    tracesDigest: digestCanonical([]),
+    retainedObservationsDigest: digestCanonical([]),
+    candidateSnapshotDigest: candidateSnapshotDigest(discovered.candidates),
+    viableCandidateCount: discovered.candidates.length,
+    distinctCandidateAgentHashCount: new Set(
+      discovered.candidates
+        .map((c) => c.cursorAgentIdHash)
+        .filter((h): h is string => Boolean(h)),
+    ).size,
+    observationsFetched: discovered.observationsFetched ?? 0,
+    targetObservationsRetained: discovered.targetObservationsRetained ?? 0,
+    observationsWithoutTraceId: 0,
+  };
 }
 
 async function runDiscoverWithFailClosed(params: {
@@ -735,30 +848,64 @@ async function runDiscoverWithFailClosed(params: {
   environmentFilter: string | null;
   fromTimestamp: string;
   toTimestamp: string;
+  sourceCoverageSafetyMarginMs: number;
   discoveryTimeoutMs: number;
+  signal?: AbortSignal;
   deps?: CursorUsageServiceDeps;
   filters?: CursorUsageImportFilters;
+  onProgress?: DiscoverUsageCandidatesResult extends never
+    ? never
+    : (p: {
+        phase?: string;
+        pages: number;
+        traces: number;
+        observations?: number;
+      }) => void;
 }): Promise<{
   candidates: UsageCandidate[];
   discovered: DiscoverUsageCandidatesResult;
 }> {
   const discoverFn = params.deps?.discover ?? discoverUsageCandidates;
+  const controller = new AbortController();
+  const onExternalAbort = () => {
+    controller.abort(
+      params.signal?.reason instanceof Error
+        ? params.signal.reason
+        : new Error("langfuse_discovery_cancelled"),
+    );
+  };
+  if (params.signal) {
+    if (params.signal.aborted) onExternalAbort();
+    else params.signal.addEventListener("abort", onExternalAbort, { once: true });
+  }
+
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  let timedOut = false;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      timedOut = true;
+      controller.abort(new Error("langfuse_discovery_timeout"));
+      reject(new Error("langfuse_discovery_timeout"));
+    }, params.discoveryTimeoutMs);
+  });
+
+  const discoveryPromise = discoverFn({
+    client: params.client,
+    namespace: params.namespace,
+    environment: params.environmentFilter ?? undefined,
+    fromTimestamp: params.fromTimestamp,
+    toTimestamp: params.toTimestamp,
+    sourceCoverageSafetyMarginMs: params.sourceCoverageSafetyMarginMs,
+    signal: controller.signal,
+    onProgress: params.onProgress,
+  });
+
   try {
-    const discovered = await Promise.race([
-      discoverFn({
-        client: params.client,
-        namespace: params.namespace,
-        environment: params.environmentFilter ?? undefined,
-        fromTimestamp: params.fromTimestamp,
-        toTimestamp: params.toTimestamp,
-      }),
-      new Promise<never>((_, reject) =>
-        setTimeout(
-          () => reject(new Error("langfuse_discovery_timeout")),
-          params.discoveryTimeoutMs,
-        ),
-      ),
-    ]);
+    const discovered = await Promise.race([discoveryPromise, timeoutPromise]);
+    if (timeoutId) clearTimeout(timeoutId);
+    // Ensure underlying work settled (already complete if race won by discover).
+    await discoveryPromise.catch(() => undefined);
+
     if (!discovered.retrievalComplete) {
       throw new CursorUsageDiscoveryError(
         "langfuse_retrieval_incomplete",
@@ -766,12 +913,27 @@ async function runDiscoverWithFailClosed(params: {
         502,
       );
     }
+    const evidence = synthesizeDeterministicEvidence(discovered, {
+      namespace: params.namespace,
+      environmentFilter: params.environmentFilter,
+      fromTimestamp: params.fromTimestamp,
+      toTimestamp: params.toTimestamp,
+      sourceCoverageSafetyMarginMs: params.sourceCoverageSafetyMarginMs,
+    });
     const withCounters: DiscoverUsageCandidatesResult = {
       ...discovered,
+      algorithmVersion:
+        discovered.algorithmVersion ?? CURSOR_USAGE_DISCOVERY_ALGORITHM_VERSION,
+      deterministicEvidence: evidence,
+      observationPagesFetched: discovered.observationPagesFetched ?? 0,
+      observationsFetched: discovered.observationsFetched ?? 0,
+      targetObservationsRetained: discovered.targetObservationsRetained ?? 0,
+      elapsedMs: discovered.elapsedMs ?? 0,
       requestCounters: discovered.requestCounters ?? {
         discoveryInvocationId: "injected-discovery",
         traceListRequestCount: discovered.pagesFetched ?? 0,
         observationRequestCount: 0,
+        perTraceObservationRequestCount: 0,
       },
     };
     return {
@@ -779,7 +941,24 @@ async function runDiscoverWithFailClosed(params: {
       discovered: withCounters,
     };
   } catch (error) {
+    if (timeoutId) clearTimeout(timeoutId);
+    // Abort and wait for settlement so counters stop before returning.
+    if (!controller.signal.aborted) {
+      controller.abort(
+        timedOut
+          ? new Error("langfuse_discovery_timeout")
+          : new Error("langfuse_discovery_cancelled"),
+      );
+    }
+    await discoveryPromise.catch(() => undefined);
+    if (params.signal) {
+      params.signal.removeEventListener("abort", onExternalAbort);
+    }
     throw classifyDiscoveryThrownError(error);
+  } finally {
+    if (params.signal) {
+      params.signal.removeEventListener("abort", onExternalAbort);
+    }
   }
 }
 
@@ -990,6 +1169,97 @@ export async function preflightCsvImport(
   const exclusionFingerprints =
     sourceCapabilityExclusionFingerprintSet(capabilityManifest);
 
+  const segments = buildSegmentsFromCanonicalEvents(events);
+  const hasUploadScopedRejection =
+    parsed.rejectionSummary.uploadScopedCount > 0;
+  const cloudAgentArithmeticComplete =
+    parsed.arithmetic.cloudAgentArithmeticComplete &&
+    !hasUploadScopedRejection;
+
+  let candidates: UsageCandidate[] = [];
+  let langfuseRetrievalComplete = false;
+  let discoveredMeta: DiscoverUsageCandidatesResult | null = null;
+  let discoveryDiagnostics: DiscoveryDiagnostics | null = null;
+  let discoveryScopeReason: SourceScopeIncompleteReason = null;
+  let deterministicEvidenceDigest: string | null = null;
+
+  const exportValidation = validateExportWindow(exportWindow);
+  let discoveryLock: Awaited<ReturnType<typeof acquireDiscoveryLock>> | null =
+    null;
+  if (shouldDiscover) {
+    if (!exportValidation.ok) {
+      throw new CursorUsageDiscoveryError(
+        "langfuse_configuration_invalid",
+        `Export window invalid before discovery: ${exportValidation.reason}`,
+        400,
+      );
+    }
+    const eligibility = buildObservationEligibilityWindow({
+      exportStartIso: exportValidation.window.startIso,
+      exportEndIso: exportValidation.window.endIso,
+      sourceCoverageSafetyMarginMs: margin,
+    });
+    if (!params.skipDiscoveryLock) {
+      try {
+        discoveryLock = await acquireDiscoveryLock({
+          identity: {
+            workspaceIdentity:
+              params.workspaceIdentity ?? path.resolve(params.logDirectory),
+            langfuseProjectScopeDigest:
+              discoveryConfig!.langfuseProjectScopeDigest,
+            canonicalEndpointIdentity:
+              discoveryConfig!.canonicalEndpointIdentity.canonicalUrl,
+            namespace,
+            environmentFilter,
+          },
+          logDirectory: params.logDirectory,
+          activeWindow: {
+            observationFromStartTime: eligibility.fromStartTime,
+            observationToStartTime: eligibility.toStartTime,
+          },
+        });
+      } catch (error) {
+        if (error instanceof DiscoveryAlreadyRunningError) {
+          throw new CursorUsageDiscoveryError(
+            "cursor_usage_discovery_already_running",
+            error.message,
+            409,
+          );
+        }
+        throw error;
+      }
+    }
+    try {
+      const client = await createApiClientFromDiscoveryConfig({
+        discoveryConfig: discoveryConfig!,
+        deps: params.deps,
+      });
+      const timeoutMs =
+        params.discoveryTimeoutMs ?? CURSOR_USAGE_DISCOVERY_TIMEOUT_MS;
+      const { candidates: found, discovered } = await runDiscoverWithFailClosed({
+        client,
+        namespace,
+        environmentFilter,
+        fromTimestamp: exportValidation.window.startIso,
+        toTimestamp: exportValidation.window.endIso,
+        sourceCoverageSafetyMarginMs: margin,
+        discoveryTimeoutMs: timeoutMs,
+        signal: params.signal,
+        deps: params.deps,
+        filters: params.filters,
+        onProgress: params.onProgress,
+      });
+      candidates = found;
+      discoveredMeta = discovered;
+      langfuseRetrievalComplete = true;
+      deterministicEvidenceDigest = digestCanonical(
+        discovered.deterministicEvidence,
+      );
+    } finally {
+      if (discoveryLock) await discoveryLock.release();
+    }
+  }
+
   const identity = buildCanonicalImportIdentity({
     namespace,
     environment: environmentFilter,
@@ -1008,50 +1278,21 @@ export async function preflightCsvImport(
     langfuseProjectScopeDigest:
       discoveryConfig?.langfuseProjectScopeDigest ?? null,
     discoveryProvider: discoveryConfig?.provider ?? null,
+    discoveryAlgorithmVersion: shouldDiscover
+      ? CURSOR_USAGE_DISCOVERY_ALGORITHM_VERSION
+      : null,
+    observationEligibilityContract: shouldDiscover
+      ? CURSOR_USAGE_OBSERVATION_ELIGIBILITY_CONTRACT
+      : null,
+    tracePaginationContractVersion: shouldDiscover
+      ? CURSOR_USAGE_TRACE_PAGINATION_CONTRACT_VERSION
+      : null,
+    observationPaginationContractVersion: shouldDiscover
+      ? CURSOR_USAGE_OBSERVATION_PAGINATION_CONTRACT_VERSION
+      : null,
+    deterministicDiscoveryEvidenceDigest: deterministicEvidenceDigest,
   });
   const canonicalImportIdentityFp = fingerprintCanonicalImportIdentity(identity);
-
-  const segments = buildSegmentsFromCanonicalEvents(events);
-  const hasUploadScopedRejection =
-    parsed.rejectionSummary.uploadScopedCount > 0;
-  const cloudAgentArithmeticComplete =
-    parsed.arithmetic.cloudAgentArithmeticComplete &&
-    !hasUploadScopedRejection;
-
-  let candidates: UsageCandidate[] = [];
-  let langfuseRetrievalComplete = false;
-  let discoveredMeta: DiscoverUsageCandidatesResult | null = null;
-  let discoveryDiagnostics: DiscoveryDiagnostics | null = null;
-  let discoveryScopeReason: SourceScopeIncompleteReason = null;
-
-  const exportValidation = validateExportWindow(exportWindow);
-  if (shouldDiscover) {
-    if (!exportValidation.ok) {
-      throw new CursorUsageDiscoveryError(
-        "langfuse_configuration_invalid",
-        `Export window invalid before discovery: ${exportValidation.reason}`,
-        400,
-      );
-    }
-    const client = await createApiClientFromDiscoveryConfig({
-      discoveryConfig: discoveryConfig!,
-      deps: params.deps,
-    });
-    const timeoutMs = params.discoveryTimeoutMs ?? 25_000;
-    const { candidates: found, discovered } = await runDiscoverWithFailClosed({
-      client,
-      namespace,
-      environmentFilter,
-      fromTimestamp: exportValidation.window.startIso,
-      toTimestamp: exportValidation.window.endIso,
-      discoveryTimeoutMs: timeoutMs,
-      deps: params.deps,
-      filters: params.filters,
-    });
-    candidates = found;
-    discoveredMeta = discovered;
-    langfuseRetrievalComplete = true;
-  }
 
   const attributed = attributeSegmentsToCandidates({
     segments,
@@ -1068,7 +1309,9 @@ export async function preflightCsvImport(
       discoveryInvocationId: "injected-discovery",
       traceListRequestCount: discoveredMeta.pagesFetched,
       observationRequestCount: 0,
+      perTraceObservationRequestCount: 0,
     };
+    const evidence = discoveredMeta.deterministicEvidence;
     const builtDiag = buildDiscoveryDiagnosticsFromAttribution({
       namespace,
       environmentFilter,
@@ -1081,7 +1324,23 @@ export async function preflightCsvImport(
       traceListRequestCount: counters.traceListRequestCount,
       observationRequestCount: counters.observationRequestCount,
     });
-    discoveryDiagnostics = builtDiag.diagnostics;
+    discoveryDiagnostics = {
+      ...builtDiag.diagnostics,
+      algorithmVersion: CURSOR_USAGE_DISCOVERY_ALGORITHM_VERSION,
+      observationEligibilityContract:
+        CURSOR_USAGE_OBSERVATION_ELIGIBILITY_CONTRACT,
+      observationPagesFetched: discoveredMeta.observationPagesFetched,
+      observationsFetched: discoveredMeta.observationsFetched,
+      targetObservationsRetained: discoveredMeta.targetObservationsRetained,
+      duplicateObservationCount:
+        (evidence?.observationRetrieval.duplicateIdenticalCount ?? 0) +
+        (evidence?.observationRetrieval.duplicateDivergentCount ?? 0),
+      traceRetrievalComplete: evidence?.traceRetrieval.complete,
+      observationRetrievalComplete: evidence?.observationRetrieval.complete,
+      elapsedMs: discoveredMeta.elapsedMs,
+      deterministicDiscoveryEvidenceDigest:
+        deterministicEvidenceDigest ?? undefined,
+    };
     discoveryScopeReason = builtDiag.discoveryScopeReason;
   }
 
@@ -1131,7 +1390,7 @@ export async function preflightCsvImport(
 
   const preparedAt = new Date().toISOString();
   const publicSummary: StagingArtifacts["publicSummary"] = {
-    schemaVersion: 3,
+    schemaVersion: 4,
     kind: "cursor_usage_import_staging_public",
     importId,
     preparedAt,
@@ -1173,7 +1432,7 @@ export async function preflightCsvImport(
   };
 
   const preflight: StagingArtifacts["preflight"] = {
-    schemaVersion: 3,
+    schemaVersion: 4,
     importId,
     preparedAt,
     importerVersion: CURSOR_USAGE_IMPORTER_VERSION,
@@ -1217,6 +1476,20 @@ export async function preflightCsvImport(
     langfuseProjectScopeDigest:
       discoveryConfig?.langfuseProjectScopeDigest ?? null,
     discoveryProvider: discoveryConfig?.provider ?? null,
+    discoveryAlgorithmVersion: shouldDiscover
+      ? CURSOR_USAGE_DISCOVERY_ALGORITHM_VERSION
+      : undefined,
+    observationEligibilityContract: shouldDiscover
+      ? CURSOR_USAGE_OBSERVATION_ELIGIBILITY_CONTRACT
+      : undefined,
+    tracePaginationContractVersion: shouldDiscover
+      ? CURSOR_USAGE_TRACE_PAGINATION_CONTRACT_VERSION
+      : undefined,
+    observationPaginationContractVersion: shouldDiscover
+      ? CURSOR_USAGE_OBSERVATION_PAGINATION_CONTRACT_VERSION
+      : undefined,
+    deterministicDiscoveryEvidenceDigest:
+      deterministicEvidenceDigest ?? undefined,
     discoveryDiagnostics,
     attributionRows: rows,
     conflictReasonCodes: conflicts,
@@ -1282,14 +1555,35 @@ export async function preflightCsvImport(
     reasonCodes: parsed.rejectionSummary.reasonCodes,
   });
 
-  await writeStagingArtifacts(params.logDirectory, importId, {
-    canonicalEvents: events,
-    preflight,
-    publicSummary,
-    ledger,
-    parserEvidence,
-    expectedScoreManifest: built.expectedScoreManifest,
-    sourceCapabilityExclusionManifest: capabilityManifest,
+  if (params.signal?.aborted) {
+    throw new CursorUsageDiscoveryError(
+      "langfuse_discovery_cancelled",
+      "Langfuse discovery was cancelled.",
+      200,
+    );
+  }
+  if (params.beforeStagingCommit) {
+    const ok = await params.beforeStagingCommit();
+    if (!ok) {
+      throw new CursorUsageDiscoveryError(
+        "langfuse_discovery_cancelled",
+        "Langfuse discovery was cancelled.",
+        200,
+      );
+    }
+  }
+  await writeStagingArtifactsAtomic({
+    logDirectory: params.logDirectory,
+    importId,
+    artifacts: {
+      canonicalEvents: events,
+      preflight,
+      publicSummary,
+      ledger,
+      parserEvidence,
+      expectedScoreManifest: built.expectedScoreManifest,
+      sourceCapabilityExclusionManifest: capabilityManifest,
+    },
   });
 
   return {
@@ -1373,7 +1667,7 @@ export async function applyCsvImport(
   // Fail before any score client is created.
   if (
     isLegacyImporterVersion(staged.preflight.importerVersion) ||
-    staged.preflight.schemaVersion < 3 ||
+    staged.preflight.schemaVersion < 4 ||
     staged.parserEvidence.schemaVersion < 2 ||
     !staged.preflight.discoveryConfigContractVersion ||
     !staged.preflight.langfuseProjectScopeDigest ||
@@ -1456,141 +1750,216 @@ export async function applyCsvImport(
   }
 
   // Identity / approval revalidation before score client creation.
-  const identity = buildCanonicalImportIdentity({
-    namespace,
-    environment: environmentFilter,
-    sourceDigestSha256: staged.preflight.sourceDigestSha256,
-    exportWindow,
+  const applyEligibility = buildObservationEligibilityWindow({
+    exportStartIso: exportValidation.window.startIso,
+    exportEndIso: exportValidation.window.endIso,
     sourceCoverageSafetyMarginMs: margin,
-    normalizedSourceExclusionSet: [],
-    sourceCapabilityExclusionDigest: rebuiltManifest.digest,
-    assumedTimezone: staged.preflight.assumedTimezone,
-    disambiguationPolicy: staged.preflight.disambiguationPolicy,
-    discoveryConfigContractVersion:
-      liveDiscovery.discoveryConfigContractVersion,
-    canonicalEndpointIdentity:
-      liveDiscovery.canonicalEndpointIdentity.canonicalUrl,
-    langfuseProjectScopeDigest: liveDiscovery.langfuseProjectScopeDigest,
-    discoveryProvider: liveDiscovery.provider,
   });
-  const identityFp = fingerprintCanonicalImportIdentity(identity);
-  if (identityFp !== staged.preflight.canonicalImportIdentity) {
-    throw new Error("discovery_configuration_changed_requires_new_preflight");
+  let applyLock: Awaited<ReturnType<typeof acquireDiscoveryLock>> | null = null;
+  const skipApplyLock = Boolean(params.deps?.discover);
+  if (!skipApplyLock) {
+    try {
+      applyLock = await acquireDiscoveryLock({
+        identity: {
+          workspaceIdentity: path.resolve(params.logDirectory),
+          langfuseProjectScopeDigest: liveDiscovery.langfuseProjectScopeDigest,
+          canonicalEndpointIdentity:
+            liveDiscovery.canonicalEndpointIdentity.canonicalUrl,
+          namespace,
+          environmentFilter,
+        },
+        logDirectory: params.logDirectory,
+        activeWindow: {
+          observationFromStartTime: applyEligibility.fromStartTime,
+          observationToStartTime: applyEligibility.toStartTime,
+        },
+      });
+    } catch (error) {
+      if (error instanceof DiscoveryAlreadyRunningError) {
+        throw new CursorUsageDiscoveryError(
+          "cursor_usage_discovery_already_running",
+          error.message,
+          409,
+        );
+      }
+      throw error;
+    }
   }
 
-  const client = await createApiClientFromDiscoveryConfig({
-    discoveryConfig: liveDiscovery,
-    deps: params.deps,
-  });
+  let candidates: UsageCandidate[];
+  let discovered: DiscoverUsageCandidatesResult;
+  let identityFp: string;
+  let client: LangfuseApiClient;
+  let built: ReturnType<typeof buildAttachmentsFromBundles>;
+  let bundles: ReturnType<typeof bundleAttributedSegments>["bundles"];
+  let attributed: ReturnType<typeof attributeSegmentsToCandidates>;
+  let skipped: ReturnType<typeof bundleAttributedSegments>["skipped"];
+  try {
+    client = await createApiClientFromDiscoveryConfig({
+      discoveryConfig: liveDiscovery,
+      deps: params.deps,
+    });
 
-  const { candidates, discovered } = await runDiscoverWithFailClosed({
-    client,
-    namespace,
-    environmentFilter,
-    fromTimestamp: exportValidation.window.startIso,
-    toTimestamp: exportValidation.window.endIso,
-    discoveryTimeoutMs: 25_000,
-    deps: params.deps,
-  });
+    const rediscovered = await runDiscoverWithFailClosed({
+      client,
+      namespace,
+      environmentFilter,
+      fromTimestamp: exportValidation.window.startIso,
+      toTimestamp: exportValidation.window.endIso,
+      sourceCoverageSafetyMarginMs: margin,
+      discoveryTimeoutMs: CURSOR_USAGE_DISCOVERY_TIMEOUT_MS,
+      deps: params.deps,
+    });
+    candidates = rediscovered.candidates;
+    discovered = rediscovered.discovered;
 
-  const attributed = attributeSegmentsToCandidates({
-    segments,
-    candidates,
-    canonicalEvents: events,
-  });
-  const { bundles, skipped } = bundleAttributedSegments({
-    attributed,
-    namespace,
-  });
-
-  const { attributionSnapshotDigest } = buildPublicAttributionSnapshot({
-    attributed,
-  });
-
-  const hasUploadScoped =
-    staged.parserEvidence.uploadScopedRejectionCount > 0 ||
-    staged.preflight.uploadScopedRejectionCount > 0;
-
-  const computeFn = params.deps?.computeCostProxies ?? computeCostProxies;
-  const built = buildAttachmentsFromBundles({
-    namespace,
-    bundles,
-    attributed,
-    skipped,
-    allSegments: segments,
-    exportWindow,
-    langfuseRetrievalComplete: discovered.retrievalComplete,
-    cloudAgentArithmeticComplete: arithmetic.cloudAgentArithmeticComplete,
-    hasUploadScopedRejection: hasUploadScoped,
-    parserEvidence: staged.parserEvidence.rows,
-    sourceCapabilityExcludedFingerprints: exclusionFingerprints,
-    sourceDigestPrefix: staged.preflight.sourceDigestSha256,
-    environment: environmentFilter ?? undefined,
-    sourceCoverageSafetyMarginMs: margin,
-    candidates,
-    computeCostProxiesFn: computeFn,
-  });
-
-  if (
-    built.expectedScoreManifest.expectedScoreManifestDigest !==
-      staged.expectedScoreManifest.expectedScoreManifestDigest ||
-    built.expectedScoreManifest.targetTraceSetDigest !==
-      staged.expectedScoreManifest.targetTraceSetDigest
-  ) {
-    throw new Error("preflight_plan_changed");
-  }
-
-  const rebuiltApproval = fingerprintPreflightApproval({
-    canonicalImportIdentity: identityFp,
-    discoverySnapshotDigest:
-      built.expectedScoreManifest.discoverySnapshotDigest,
-    targetTraceSetDigest: built.expectedScoreManifest.targetTraceSetDigest,
-    expectedScoreManifestDigest:
-      built.expectedScoreManifest.expectedScoreManifestDigest,
-    attributionSnapshotDigest,
-  });
-  if (rebuiltApproval !== staged.preflight.preflightApprovalFingerprint) {
-    throw new Error("preflight_plan_changed");
-  }
-  if (
-    attributionSnapshotDigest !== staged.preflight.attributionSnapshotDigest
-  ) {
-    throw new Error("preflight_plan_changed");
-  }
-
-  if (!built.sourceScopeComplete) {
-    const incompleteLifecycle: ImportLifecycleState = "incomplete";
-    const incompleteAnalytics = buildLedgerAnalyticsSummary({
-      importId: params.importId,
+    const identity = buildCanonicalImportIdentity({
+      namespace,
+      environment: environmentFilter,
       sourceDigestSha256: staged.preflight.sourceDigestSha256,
-      verifiedTotals: false,
-      attachments: built.attachments,
+      exportWindow,
+      sourceCoverageSafetyMarginMs: margin,
+      normalizedSourceExclusionSet: [],
+      sourceCapabilityExclusionDigest: rebuiltManifest.digest,
+      assumedTimezone: staged.preflight.assumedTimezone,
+      disambiguationPolicy: staged.preflight.disambiguationPolicy,
+      discoveryConfigContractVersion:
+        liveDiscovery.discoveryConfigContractVersion,
+      canonicalEndpointIdentity:
+        liveDiscovery.canonicalEndpointIdentity.canonicalUrl,
+      langfuseProjectScopeDigest: liveDiscovery.langfuseProjectScopeDigest,
+      discoveryProvider: liveDiscovery.provider,
+      discoveryAlgorithmVersion: CURSOR_USAGE_DISCOVERY_ALGORITHM_VERSION,
+      observationEligibilityContract:
+        CURSOR_USAGE_OBSERVATION_ELIGIBILITY_CONTRACT,
+      tracePaginationContractVersion:
+        CURSOR_USAGE_TRACE_PAGINATION_CONTRACT_VERSION,
+      observationPaginationContractVersion:
+        CURSOR_USAGE_OBSERVATION_PAGINATION_CONTRACT_VERSION,
+      deterministicDiscoveryEvidenceDigest: digestCanonical(
+        discovered.deterministicEvidence,
+      ),
+    });
+    identityFp = fingerprintCanonicalImportIdentity(identity);
+    if (identityFp !== staged.preflight.canonicalImportIdentity) {
+      throw new Error("discovery_configuration_changed_requires_new_preflight");
+    }
+    if (
+      staged.preflight.deterministicDiscoveryEvidenceDigest &&
+      digestCanonical(discovered.deterministicEvidence) !==
+        staged.preflight.deterministicDiscoveryEvidenceDigest
+    ) {
+      throw new Error("preflight_plan_changed:discovery_evidence");
+    }
+
+    attributed = attributeSegmentsToCandidates({
+      segments,
+      candidates,
+      canonicalEvents: events,
+    });
+    ({ bundles, skipped } = bundleAttributedSegments({
+      attributed,
+      namespace,
+    }));
+
+    const { attributionSnapshotDigest } = buildPublicAttributionSnapshot({
+      attributed,
+    });
+
+    const hasUploadScoped =
+      staged.parserEvidence.uploadScopedRejectionCount > 0 ||
+      staged.preflight.uploadScopedRejectionCount > 0;
+
+    const computeFn = params.deps?.computeCostProxies ?? computeCostProxies;
+    built = buildAttachmentsFromBundles({
+      namespace,
       bundles,
       attributed,
       skipped,
-      expectedScoreManifest: built.expectedScoreManifest,
-      pricingIncompleteSegmentCount: built.pricingIncompleteSegmentCount,
-      issueKeyByTraceId: built.issueKeyByTraceId,
+      allSegments: segments,
+      exportWindow,
+      langfuseRetrievalComplete: discovered.retrievalComplete,
+      cloudAgentArithmeticComplete: arithmetic.cloudAgentArithmeticComplete,
+      hasUploadScopedRejection: hasUploadScoped,
+      parserEvidence: staged.parserEvidence.rows,
+      sourceCapabilityExcludedFingerprints: exclusionFingerprints,
+      sourceDigestPrefix: staged.preflight.sourceDigestSha256,
+      environment: environmentFilter ?? undefined,
+      sourceCoverageSafetyMarginMs: margin,
+      candidates,
+      computeCostProxiesFn: computeFn,
     });
-    await writeStagingArtifacts(params.logDirectory, params.importId, {
-      ...staged,
-      preflight: { ...staged.preflight, lifecycle: incompleteLifecycle },
-      publicSummary: {
-        ...staged.publicSummary,
-        lifecycle: incompleteLifecycle,
-        sourceScopeComplete: false,
-      },
-      ledger: {
-        ...staged.ledger,
-        lifecycle: incompleteLifecycle,
-        sourceScopeComplete: false,
-        recordedAt: new Date().toISOString(),
-        analyticsSummary: incompleteAnalytics,
-      },
+
+    if (
+      built.expectedScoreManifest.expectedScoreManifestDigest !==
+        staged.expectedScoreManifest.expectedScoreManifestDigest ||
+      built.expectedScoreManifest.targetTraceSetDigest !==
+        staged.expectedScoreManifest.targetTraceSetDigest
+    ) {
+      throw new Error("preflight_plan_changed");
+    }
+
+    const rebuiltApproval = fingerprintPreflightApproval({
+      canonicalImportIdentity: identityFp,
+      discoverySnapshotDigest:
+        built.expectedScoreManifest.discoverySnapshotDigest,
+      targetTraceSetDigest: built.expectedScoreManifest.targetTraceSetDigest,
+      expectedScoreManifestDigest:
+        built.expectedScoreManifest.expectedScoreManifestDigest,
+      attributionSnapshotDigest,
     });
-    throw new Error(
-      `source_scope_incomplete:${built.sourceScopeIncompleteReason ?? "unknown"}`,
-    );
+    if (rebuiltApproval !== staged.preflight.preflightApprovalFingerprint) {
+      throw new Error("preflight_plan_changed");
+    }
+    if (
+      attributionSnapshotDigest !== staged.preflight.attributionSnapshotDigest
+    ) {
+      throw new Error("preflight_plan_changed");
+    }
+
+    if (!built.sourceScopeComplete) {
+      const incompleteLifecycle: ImportLifecycleState = "incomplete";
+      const incompleteAnalytics = buildLedgerAnalyticsSummary({
+        importId: params.importId,
+        sourceDigestSha256: staged.preflight.sourceDigestSha256,
+        verifiedTotals: false,
+        attachments: built.attachments,
+        bundles,
+        attributed,
+        skipped,
+        expectedScoreManifest: built.expectedScoreManifest,
+        pricingIncompleteSegmentCount: built.pricingIncompleteSegmentCount,
+        issueKeyByTraceId: built.issueKeyByTraceId,
+      });
+      await writeStagingArtifacts(params.logDirectory, params.importId, {
+        ...staged,
+        preflight: { ...staged.preflight, lifecycle: incompleteLifecycle },
+        publicSummary: {
+          ...staged.publicSummary,
+          lifecycle: incompleteLifecycle,
+          sourceScopeComplete: false,
+        },
+        ledger: {
+          ...staged.ledger,
+          lifecycle: incompleteLifecycle,
+          sourceScopeComplete: false,
+          recordedAt: new Date().toISOString(),
+          analyticsSummary: incompleteAnalytics,
+        },
+      });
+      throw new Error(
+        `source_scope_incomplete:${built.sourceScopeIncompleteReason ?? "unknown"}`,
+      );
+    }
+
+    // Discovery + approval comparisons passed — release single-flight before score client.
+    if (applyLock) {
+      await applyLock.release();
+      applyLock = null;
+    }
+  } catch (error) {
+    if (applyLock) await applyLock.release();
+    throw error;
   }
 
   const lockIdentity = {

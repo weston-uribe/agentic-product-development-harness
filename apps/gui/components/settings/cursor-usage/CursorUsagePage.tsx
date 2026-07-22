@@ -1,17 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  cancelCursorUsagePreflight,
+  clearStoredPreflightOperationId,
   fetchCursorUsageAnalytics,
   fetchCursorUsageConfig,
+  fetchCursorUsagePreflightStatus,
   fetchCursorUsageStatus,
+  getStoredPreflightOperationId,
   postCursorUsageApply,
   postCursorUsageInspect,
   postCursorUsagePreflight,
+  storePreflightOperationId,
   type AnalyticsResponse,
   type CursorUsageConfigResponse,
   type CursorUsageInspectResponse,
   type ImportStatusResponse,
+  type PreflightOperationStatus,
   type PreflightResponse,
 } from "@/lib/cursor-usage-client";
 import { UploadPanel } from "./UploadPanel";
@@ -46,6 +52,10 @@ export function CursorUsagePage({ nonce }: CursorUsagePageProps) {
   const [busy, setBusy] = useState(false);
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [opStatus, setOpStatus] = useState<PreflightOperationStatus | null>(
+    null,
+  );
+  const pollCancelRef = useRef(false);
 
   const refreshAnalytics = useCallback(async () => {
     try {
@@ -84,6 +94,56 @@ export function CursorUsagePage({ nonce }: CursorUsagePageProps) {
       void recoverStatus(stored);
     }
   }, [recoverStatus]);
+
+  // Resume in-flight async preflight across refresh (process-local registry).
+  useEffect(() => {
+    if (!nonce) return;
+    const operationId = getStoredPreflightOperationId();
+    if (!operationId) return;
+    let cancelled = false;
+    setBusy(true);
+    const poll = async () => {
+      while (!cancelled) {
+        try {
+          const next = await fetchCursorUsagePreflightStatus(operationId, nonce);
+          if (cancelled) return;
+          setOpStatus(next);
+          if (next.state === "succeeded" && next.result) {
+            clearStoredPreflightOperationId();
+            setPreflight(next.result);
+            window.sessionStorage.setItem(
+              "cursor-usage-import-id",
+              next.result.importId,
+            );
+            const importStatus = await fetchCursorUsageStatus(
+              next.result.importId,
+            );
+            setStatus(importStatus);
+            setBusy(false);
+            return;
+          }
+          if (next.state === "failed" || next.state === "cancelled") {
+            clearStoredPreflightOperationId();
+            setError(next.errorMessage ?? "Preflight failed.");
+            setBusy(false);
+            return;
+          }
+        } catch (err) {
+          clearStoredPreflightOperationId();
+          setError(
+            err instanceof Error ? err.message : "Preflight status unavailable.",
+          );
+          setBusy(false);
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 750));
+      }
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+    };
+  }, [nonce]);
 
   const runInspect = useCallback(
     async (nextFile: File) => {
@@ -128,6 +188,7 @@ export function CursorUsagePage({ nonce }: CursorUsagePageProps) {
     setInspection(null);
     setPreflight(null);
     setConfirmed(false);
+    setOpStatus(null);
     if (!advancedOverride) {
       setExportStart("");
       setExportEnd("");
@@ -158,6 +219,9 @@ export function CursorUsagePage({ nonce }: CursorUsagePageProps) {
     setBusy(true);
     setError(null);
     setConfirmed(false);
+    setPreflight(null);
+    setOpStatus(null);
+    pollCancelRef.current = false;
     try {
       const formData = new FormData();
       formData.set("file", file);
@@ -177,7 +241,12 @@ export function CursorUsagePage({ nonce }: CursorUsagePageProps) {
       if (assumedTimezone.trim()) {
         formData.set("assumedTimezone", assumedTimezone.trim());
       }
-      const result = await postCursorUsagePreflight(formData, nonce);
+      const result = await postCursorUsagePreflight(formData, nonce, {
+        onStatus: (next) => {
+          if (!pollCancelRef.current) setOpStatus(next);
+          if (next.operationId) storePreflightOperationId(next.operationId);
+        },
+      });
       setPreflight(result);
       window.sessionStorage.setItem("cursor-usage-import-id", result.importId);
       const nextStatus = await fetchCursorUsageStatus(result.importId);
@@ -186,6 +255,29 @@ export function CursorUsagePage({ nonce }: CursorUsagePageProps) {
       setError(err instanceof Error ? err.message : "Preflight failed.");
     } finally {
       setBusy(false);
+    }
+  };
+
+  const cancelPreflight = async () => {
+    if (!nonce || !opStatus?.operationId) return;
+    pollCancelRef.current = true;
+    try {
+      await cancelCursorUsagePreflight(opStatus.operationId, nonce);
+      clearStoredPreflightOperationId();
+      setError("Preflight cancelled.");
+      setBusy(false);
+      setOpStatus((prev) =>
+        prev
+          ? {
+              ...prev,
+              state: "cancelled",
+              errorCode: "langfuse_discovery_cancelled",
+              errorMessage: "Langfuse discovery was cancelled.",
+            }
+          : prev,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Cancel failed.");
     }
   };
 
@@ -223,6 +315,12 @@ export function CursorUsagePage({ nonce }: CursorUsagePageProps) {
   const hasConflicts = (preflight?.conflicts.length ?? 0) > 0;
   const alreadyVerified = status?.verified === true;
   const configReady = config?.configurationStatus === "ready";
+  const preflightActive =
+    busy &&
+    opStatus != null &&
+    (opStatus.state === "queued" ||
+      opStatus.state === "running" ||
+      opStatus.state === "committing");
 
   return (
     <div className="space-y-6" data-testid="cursor-usage-page">
@@ -261,7 +359,7 @@ export function CursorUsagePage({ nonce }: CursorUsagePageProps) {
         onAssumedTimezoneChange={setAssumedTimezone}
       />
 
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
           className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50"
@@ -283,7 +381,35 @@ export function CursorUsagePage({ nonce }: CursorUsagePageProps) {
               ? "Inspecting…"
               : "Run preflight"}
         </button>
+        {preflightActive ? (
+          <button
+            type="button"
+            className="inline-flex h-9 items-center justify-center rounded-md border border-border px-4 text-sm font-medium disabled:opacity-50"
+            disabled={opStatus?.state === "committing"}
+            onClick={() => void cancelPreflight()}
+            data-testid="cursor-usage-preflight-cancel"
+          >
+            Cancel
+          </button>
+        ) : null}
       </div>
+
+      {opStatus && busy ? (
+        <p
+          className="text-sm text-muted-foreground"
+          data-testid="cursor-usage-preflight-progress"
+        >
+          {opStatus.phase ?? opStatus.state}
+          {" · "}
+          {Math.round(opStatus.elapsedMs / 1000)}s
+          {" · "}
+          traces {opStatus.tracesFetched}
+          {" · "}
+          obs pages {opStatus.observationPagesFetched}
+          {" · "}
+          observations {opStatus.observationsFetched}
+        </p>
+      ) : null}
 
       {error ? (
         <p className="text-sm text-destructive" role="alert">
