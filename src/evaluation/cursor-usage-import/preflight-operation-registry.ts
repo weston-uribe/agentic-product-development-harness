@@ -29,6 +29,8 @@ export interface PreflightOperationPublicStatus {
   observationsFetched: number;
   targetObservationsRetained: number;
   knownTotalPages: number | null;
+  /** True after DELETE ack while discovery is still settling (nonterminal). */
+  cancelRequested: boolean;
   errorCode: CursorUsageDiscoveryErrorCode | string | null;
   errorMessage: string | null;
   /** Present only when succeeded. */
@@ -44,6 +46,7 @@ type InternalOp = {
   phase: PreflightOperationPhase | null;
   controller: AbortController;
   csvBytes: Buffer | null;
+  cancelRequested: boolean;
   progress: {
     tracePagesFetched: number;
     tracesFetched: number;
@@ -62,6 +65,16 @@ type InternalOp = {
 
 const TTL_MS = 15 * 60 * 1000;
 const ops = new Map<string, InternalOp>();
+
+const TERMINAL_STATES = new Set<PreflightOperationState>([
+  "succeeded",
+  "failed",
+  "cancelled",
+]);
+
+function isTerminal(state: PreflightOperationState): boolean {
+  return TERMINAL_STATES.has(state);
+}
 
 function newOperationId(): string {
   return randomBytes(24).toString("base64url");
@@ -92,6 +105,7 @@ export function createPreflightOperation(params: {
     phase: "source_inspection",
     controller,
     csvBytes: params.csvBytes,
+    cancelRequested: false,
     progress: {
       tracePagesFetched: 0,
       tracesFetched: 0,
@@ -136,6 +150,7 @@ export function getPreflightOperation(
 export function markPreflightRunning(operationId: string): void {
   const op = ops.get(operationId);
   if (!op) return;
+  if (isTerminal(op.state) || op.state === "committing") return;
   op.state = "running";
   op.startedAtMs = Date.now();
 }
@@ -146,6 +161,7 @@ export function updatePreflightProgress(
 ): void {
   const op = ops.get(operationId);
   if (!op) return;
+  if (isTerminal(op.state)) return;
   if (patch.phase) op.phase = patch.phase;
   const { phase: _p, ...rest } = patch;
   Object.assign(op.progress, rest);
@@ -154,7 +170,11 @@ export function updatePreflightProgress(
 export function beginPreflightCommit(operationId: string): boolean {
   const op = ops.get(operationId);
   if (!op) return false;
-  if (op.controller.signal.aborted || op.state === "cancelled") return false;
+  if (op.controller.signal.aborted || op.cancelRequested || op.state === "cancelled") {
+    return false;
+  }
+  if (isTerminal(op.state)) return false;
+  if (op.state !== "queued" && op.state !== "running") return false;
   op.commitStarted = true;
   op.state = "committing";
   op.phase = "committing";
@@ -169,6 +189,26 @@ export function completePreflightSuccess(
 ): void {
   const op = ops.get(operationId);
   if (!op) return;
+  // Terminal monotonicity: late success cannot replace failed/cancelled.
+  if (isTerminal(op.state)) return;
+  // Success is only valid from queued/running/committing (commit path).
+  if (
+    op.state !== "queued" &&
+    op.state !== "running" &&
+    op.state !== "committing"
+  ) {
+    return;
+  }
+  // Cancellation request wins over a racing success.
+  if (op.cancelRequested) {
+    op.state = "cancelled";
+    op.errorCode = "langfuse_discovery_cancelled";
+    op.errorMessage = "Langfuse discovery was cancelled.";
+    op.csvBytes = null;
+    op.phase = null;
+    op.result = null;
+    return;
+  }
   op.state = "succeeded";
   op.result = result;
   op.csvBytes = null;
@@ -182,10 +222,38 @@ export function completePreflightFailure(
 ): void {
   const op = ops.get(operationId);
   if (!op) return;
-  op.state = code === "langfuse_discovery_cancelled" ? "cancelled" : "failed";
-  op.errorCode = code;
-  op.errorMessage = message;
-  op.csvBytes = null;
+
+  // Terminal monotonicity: never leave succeeded/failed/cancelled.
+  if (isTerminal(op.state)) return;
+
+  const isCancelCode = code === "langfuse_discovery_cancelled";
+  const treatAsCancel = op.cancelRequested || isCancelCode;
+
+  if (treatAsCancel) {
+    // From committing, cancel is too late — only succeeded|failed allowed.
+    if (op.state === "committing") {
+      op.state = "failed";
+      op.errorCode = code === "langfuse_discovery_cancelled"
+        ? "preflight_failed"
+        : code;
+      op.errorMessage = message;
+      op.csvBytes = null;
+      return;
+    }
+    op.state = "cancelled";
+    // Preserve original cancellation details; never replace with SDK retrieval text.
+    op.errorCode = "langfuse_discovery_cancelled";
+    op.errorMessage = "Langfuse discovery was cancelled.";
+    op.csvBytes = null;
+    return;
+  }
+
+  if (op.state === "queued" || op.state === "running" || op.state === "committing") {
+    op.state = "failed";
+    op.errorCode = code;
+    op.errorMessage = message;
+    op.csvBytes = null;
+  }
 }
 
 export function requestPreflightCancel(
@@ -202,15 +270,12 @@ export function requestPreflightCancel(
   if (op.commitStarted || op.state === "committing") {
     return { ok: false, code: "cursor_usage_preflight_cancel_too_late" };
   }
-  if (
-    op.state === "succeeded" ||
-    op.state === "failed" ||
-    op.state === "cancelled"
-  ) {
+  if (isTerminal(op.state)) {
     return { ok: true, alreadyTerminal: true };
   }
+  // Acknowledge cancellation without publishing terminal cancelled yet.
+  op.cancelRequested = true;
   op.controller.abort(new Error("langfuse_discovery_cancelled"));
-  op.state = "cancelled";
   op.errorCode = "langfuse_discovery_cancelled";
   op.errorMessage = "Langfuse discovery was cancelled.";
   op.csvBytes = null;
@@ -230,6 +295,7 @@ export function toPublicStatus(op: InternalOp): PreflightOperationPublicStatus {
     observationsFetched: op.progress.observationsFetched,
     targetObservationsRetained: op.progress.targetObservationsRetained,
     knownTotalPages: op.progress.knownTotalPages,
+    cancelRequested: op.cancelRequested,
     errorCode: op.errorCode,
     errorMessage: op.errorMessage,
     result: op.state === "succeeded" ? op.result : null,
@@ -247,4 +313,11 @@ export function takePreflightCsvBytes(operationId: string): Buffer | null {
 /** Test helper */
 export function resetPreflightOperationsForTests(): void {
   ops.clear();
+}
+
+/** Test helper — inspect internal cancelRequested / work without publishing secrets. */
+export function getPreflightOperationForTests(
+  operationId: string,
+): InternalOp | null {
+  return ops.get(operationId) ?? null;
 }

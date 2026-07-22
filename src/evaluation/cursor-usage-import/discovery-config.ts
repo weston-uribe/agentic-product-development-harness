@@ -415,6 +415,40 @@ export function throwIfDiscoveryNotReady(
   throw new CursorUsageDiscoveryError(code, message);
 }
 
+/** Exact SDK abort message observed from @langfuse/client when AbortSignal fires. */
+export const LANGFUSE_SDK_USER_ABORTED_MESSAGE =
+  "The user aborted a request" as const;
+
+const INTENTIONAL_ABORT_CAUSE_MAX_DEPTH = 8;
+
+function nodeIsIntentionalAbort(node: unknown): boolean {
+  if (!node || typeof node !== "object") return false;
+  const record = node as { name?: unknown; message?: unknown };
+  if (record.name === "AbortError") return true;
+  if (record.message === "langfuse_discovery_cancelled") return true;
+  if (record.message === LANGFUSE_SDK_USER_ABORTED_MESSAGE) return true;
+  return false;
+}
+
+/**
+ * Narrow intentional-abort detector. Exact name/message matches only; traverses
+ * nested `cause` with a depth bound and cycle guard. Never substring-matches
+ * loose words such as "abort" / "aborted".
+ */
+export function isIntentionalDiscoveryAbort(error: unknown): boolean {
+  const visited = new Set<unknown>();
+  let current: unknown = error;
+  for (let depth = 0; depth <= INTENTIONAL_ABORT_CAUSE_MAX_DEPTH; depth += 1) {
+    if (current == null) return false;
+    if (visited.has(current)) return false;
+    visited.add(current);
+    if (nodeIsIntentionalAbort(current)) return true;
+    if (typeof current !== "object" || !("cause" in current)) return false;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
 export function classifyDiscoveryThrownError(
   error: unknown,
 ): CursorUsageDiscoveryError {
@@ -437,11 +471,7 @@ export function classifyDiscoveryThrownError(
     );
   }
 
-  if (
-    error instanceof Error &&
-    (error.message === "langfuse_discovery_cancelled" ||
-      error.name === "AbortError")
-  ) {
+  if (isIntentionalDiscoveryAbort(error)) {
     return new CursorUsageDiscoveryError(
       "langfuse_discovery_cancelled",
       "Langfuse discovery was cancelled.",
@@ -483,8 +513,16 @@ export function classifyDiscoveryThrownError(
   );
 }
 
-function extractHttpStatus(error: unknown): number | null {
+function extractHttpStatus(
+  error: unknown,
+  visited: Set<unknown> = new Set(),
+  depth = 0,
+): number | null {
   if (!error || typeof error !== "object") return null;
+  if (visited.has(error) || depth > INTENTIONAL_ABORT_CAUSE_MAX_DEPTH) {
+    return null;
+  }
+  visited.add(error);
   const record = error as Record<string, unknown>;
   for (const key of ["status", "statusCode", "httpStatusCode", "httpStatus"]) {
     const value = record[key];
@@ -497,7 +535,7 @@ function extractHttpStatus(error: unknown): number | null {
   }
   const cause = record.cause;
   if (cause && cause !== error) {
-    return extractHttpStatus(cause);
+    return extractHttpStatus(cause, visited, depth + 1);
   }
   return null;
 }

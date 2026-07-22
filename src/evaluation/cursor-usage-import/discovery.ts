@@ -18,6 +18,7 @@ import {
   CURSOR_USAGE_OBSERVATION_PAGE_LIMIT,
   CURSOR_USAGE_OBSERVATION_PAGINATION_CONTRACT_VERSION,
   CURSOR_USAGE_OBSERVATION_V2_FIELDS,
+  CURSOR_USAGE_TRACE_LIST_FIELDS,
   CURSOR_USAGE_TRACE_MAX_PAGES,
   CURSOR_USAGE_TRACE_MAX_RECORDS,
   CURSOR_USAGE_TRACE_PAGE_LIMIT,
@@ -603,7 +604,7 @@ async function listAllTraces(params: {
       limit: CURSOR_USAGE_TRACE_PAGE_LIMIT,
       fromTimestamp: params.fromTimestamp,
       toTimestamp: params.toTimestamp,
-      fields: "core,scores,io",
+      fields: CURSOR_USAGE_TRACE_LIST_FIELDS,
     };
     if (params.environment?.trim()) {
       listParams.environment = params.environment.trim();

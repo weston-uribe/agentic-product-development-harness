@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   cancelCursorUsagePreflight,
   clearStoredPreflightOperationId,
@@ -55,7 +55,6 @@ export function CursorUsagePage({ nonce }: CursorUsagePageProps) {
   const [opStatus, setOpStatus] = useState<PreflightOperationStatus | null>(
     null,
   );
-  const pollCancelRef = useRef(false);
 
   const refreshAnalytics = useCallback(async () => {
     try {
@@ -221,7 +220,6 @@ export function CursorUsagePage({ nonce }: CursorUsagePageProps) {
     setConfirmed(false);
     setPreflight(null);
     setOpStatus(null);
-    pollCancelRef.current = false;
     try {
       const formData = new FormData();
       formData.set("file", file);
@@ -243,7 +241,7 @@ export function CursorUsagePage({ nonce }: CursorUsagePageProps) {
       }
       const result = await postCursorUsagePreflight(formData, nonce, {
         onStatus: (next) => {
-          if (!pollCancelRef.current) setOpStatus(next);
+          setOpStatus(next);
           if (next.operationId) storePreflightOperationId(next.operationId);
         },
       });
@@ -259,18 +257,15 @@ export function CursorUsagePage({ nonce }: CursorUsagePageProps) {
   };
 
   const cancelPreflight = async () => {
-    if (!nonce || !opStatus?.operationId) return;
-    pollCancelRef.current = true;
+    if (!nonce || !opStatus?.operationId || opStatus.cancelRequested) return;
     try {
       await cancelCursorUsagePreflight(opStatus.operationId, nonce);
-      clearStoredPreflightOperationId();
-      setError("Preflight cancelled.");
-      setBusy(false);
+      // Keep polling until terminal cancelled — do not claim completion yet.
       setOpStatus((prev) =>
         prev
           ? {
               ...prev,
-              state: "cancelled",
+              cancelRequested: true,
               errorCode: "langfuse_discovery_cancelled",
               errorMessage: "Langfuse discovery was cancelled.",
             }
@@ -381,7 +376,7 @@ export function CursorUsagePage({ nonce }: CursorUsagePageProps) {
               ? "Inspecting…"
               : "Run preflight"}
         </button>
-        {preflightActive ? (
+        {preflightActive && !opStatus?.cancelRequested ? (
           <button
             type="button"
             className="inline-flex h-9 items-center justify-center rounded-md border border-border px-4 text-sm font-medium disabled:opacity-50"
@@ -399,7 +394,9 @@ export function CursorUsagePage({ nonce }: CursorUsagePageProps) {
           className="text-sm text-muted-foreground"
           data-testid="cursor-usage-preflight-progress"
         >
-          {opStatus.phase ?? opStatus.state}
+          {opStatus.cancelRequested && opStatus.state !== "cancelled"
+            ? "Cancelling…"
+            : (opStatus.phase ?? opStatus.state)}
           {" · "}
           {Math.round(opStatus.elapsedMs / 1000)}s
           {" · "}

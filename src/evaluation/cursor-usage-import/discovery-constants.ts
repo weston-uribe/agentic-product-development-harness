@@ -22,6 +22,12 @@ export const CURSOR_USAGE_OBSERVATION_PAGE_LIMIT = 100;
 export const CURSOR_USAGE_OBSERVATION_MAX_PAGES = 5_000;
 export const CURSOR_USAGE_OBSERVATION_MAX_RECORDS = 500_000;
 
+/**
+ * Production trace.list field groups for candidate construction.
+ * Intentionally excludes `io` (prompt/output bodies and unused IO-derived metadata).
+ */
+export const CURSOR_USAGE_TRACE_LIST_FIELDS = "core,scores" as const;
+
 /** Field groups required for candidate construction (no io/usage/prompt bodies). */
 export const CURSOR_USAGE_OBSERVATION_V2_FIELDS =
   "core,basic,metadata,model" as const;

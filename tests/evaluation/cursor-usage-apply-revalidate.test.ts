@@ -758,4 +758,66 @@ describe("cursor usage apply revalidation", () => {
       discoveryConfig.langfuseProjectScopeDigest,
     );
   });
+
+  it("fails Apply on 13.0.0 deterministic evidence drift before score client", async () => {
+    const logDirectory = mkdtempSync(path.join(tmpdir(), "cursor-usage-1300-"));
+    let scoreClientCalls = 0;
+    const preflight = await preflightCsvImport({
+      csvBytes: sampleCsv,
+      exportWindow,
+      namespace: "default",
+      environment: "test",
+      logDirectory,
+      langfuseConfig,
+      deps: {
+        ...serviceDeps,
+        discover: async () => ({
+          candidates: readyDiscoverCandidates,
+          retrievalComplete: true,
+        }),
+      },
+    });
+    expect(preflight.sourceScopeComplete).toBe(true);
+
+    const stagingRoot = path.join(
+      logDirectory,
+      "evaluation-reports/cursor-usage-imports",
+      preflight.importId,
+    );
+    const preflightPath = path.join(stagingRoot, "preflight.private.json");
+    const preflightJson = JSON.parse(readFileSync(preflightPath, "utf8")) as {
+      importerVersion: string;
+      deterministicDiscoveryEvidenceDigest?: string;
+    };
+    preflightJson.importerVersion = "13.0.0";
+    // Simulate IO-era tracesDigest drift vs core,scores-only rediscovery.
+    preflightJson.deterministicDiscoveryEvidenceDigest = "stale-io-era-digest";
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(preflightPath, `${JSON.stringify(preflightJson, null, 2)}\n`);
+
+    await expect(
+      applyCsvImport({
+        importId: preflight.importId,
+        fingerprint: preflight.fingerprint,
+        preflightApprovalFingerprint: preflight.preflightApprovalFingerprint,
+        confirmed: true,
+        logDirectory,
+        namespace: "default",
+        environment: "test",
+        langfuseConfig,
+        deps: {
+          ...serviceDeps,
+          discover: async () => ({
+            candidates: readyDiscoverCandidates,
+            retrievalComplete: true,
+          }),
+          createScoreClient: async () => {
+            scoreClientCalls += 1;
+            return { recordScore() {}, flush: async () => {} };
+          },
+        },
+      }),
+    ).rejects.toThrow("preflight_plan_changed:discovery_evidence");
+    expect(scoreClientCalls).toBe(0);
+  });
 });

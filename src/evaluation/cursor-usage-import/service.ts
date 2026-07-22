@@ -867,7 +867,12 @@ async function runDiscoverWithFailClosed(params: {
 }> {
   const discoverFn = params.deps?.discover ?? discoverUsageCandidates;
   const controller = new AbortController();
+  let timedOut = false;
+  let userCancelled = false;
   const onExternalAbort = () => {
+    // Timeout aborts the composed controller directly; external signal = user cancel.
+    if (timedOut) return;
+    userCancelled = true;
     controller.abort(
       params.signal?.reason instanceof Error
         ? params.signal.reason
@@ -880,7 +885,6 @@ async function runDiscoverWithFailClosed(params: {
   }
 
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
-  let timedOut = false;
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(() => {
       timedOut = true;
@@ -953,6 +957,21 @@ async function runDiscoverWithFailClosed(params: {
     await discoveryPromise.catch(() => undefined);
     if (params.signal) {
       params.signal.removeEventListener("abort", onExternalAbort);
+    }
+    // Causal precedence: timeout > explicit user cancel > classified error.
+    if (timedOut) {
+      throw new CursorUsageDiscoveryError(
+        "langfuse_discovery_timeout",
+        "Langfuse discovery timed out.",
+        504,
+      );
+    }
+    if (userCancelled) {
+      throw new CursorUsageDiscoveryError(
+        "langfuse_discovery_cancelled",
+        "Langfuse discovery was cancelled.",
+        200,
+      );
     }
     throw classifyDiscoveryThrownError(error);
   } finally {

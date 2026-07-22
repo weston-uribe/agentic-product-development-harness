@@ -141,7 +141,9 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
   return NextResponse.json(
     {
       ok: true,
+      /** Acknowledgement only — terminal cancelled is published after settlement. */
       code: "langfuse_discovery_cancelled",
+      cancelRequested: !result.alreadyTerminal,
       alreadyTerminal: result.alreadyTerminal,
     },
     { status: 200 },

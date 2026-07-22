@@ -245,6 +245,8 @@ export interface PreflightOperationStatus {
   observationsFetched: number;
   targetObservationsRetained: number;
   knownTotalPages: number | null;
+  /** True after DELETE ack while discovery is still settling (nonterminal). */
+  cancelRequested: boolean;
   errorCode: string | null;
   errorMessage: string | null;
   result?: PreflightResponse | null;

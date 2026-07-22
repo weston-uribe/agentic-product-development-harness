@@ -48,6 +48,8 @@ Approval is bound to provider, namespace, nullable environment filter, full cano
 
 Production discovery uses **public Langfuse Observations API v2** with **sequential cursor pagination** over the export window (expanded only by the approved source-coverage safety margin; default `0` ms). It does **not** use per-trace observation N+1 calls, page-number / `totalPages` observation pagination, or private dashboard endpoints.
 
+Trace.list requests use field group **`core,scores` only** (no `io`). Candidate construction needs core identity fields, metadata, and shallow score-name diagnostics; prompt/output bodies are never fetched.
+
 ### Observation eligibility (`cursor_usage_observation_eligibility_v1`)
 
 - Query interval is half-open **`[fromStartTime, toStartTime)`** in canonical UTC.
@@ -57,21 +59,22 @@ Production discovery uses **public Langfuse Observations API v2** with **sequent
 ### Completeness, timeout, cancel
 
 - Shared discovery ceiling: **180s** (`CURSOR_USAGE_DISCOVERY_TIMEOUT_MS`). Timeout / cancel aborts in-flight requests, waits for settlement, and creates **no** staging, ledger, analytics entry, or score client.
+- Explicit cancel (`DELETE`) acknowledges with `cancelRequested=true` while discovery remains **nonterminal**. Terminal state becomes **`cancelled`** with code `langfuse_discovery_cancelled` only after the discovery promise settles. The GUI keeps polling and may show “Cancelling…” until then. Timeout finishes as **`failed`** with `langfuse_discovery_timeout`, never as cancelled.
 - Trace-list embedded scores are **non-authoritative diagnostics only**. Apply still performs complete score-fetch + manifest validation before any write.
 
 ### Single-flight (`process_local_single_flight`)
 
 - One discovery at a time per operator workspace + Langfuse project-scope + endpoint + namespace + environment filter (window **excluded** from the lock key).
 - A second preflight/Apply against the same target returns `cursor_usage_discovery_already_running` (409), even for a different CSV window.
-- Enforcement is process-local plus a workspace-scoped advisory filesystem lease. Different operator workspaces may run independently.
+- Enforcement scope: **`same_host_shared_workspace`** — process-local map plus a workspace-scoped advisory filesystem lease (`wx` + PID liveness). This is **not** distributed locking across separate hosts or serverless/multi-instance deployments.
 - Process-local operation resume after refresh is supported only on the **persistent PDev GUI** topology (`npm start` / `p-dev`). Do not claim refresh-safe recovery on serverless/multi-instance hosts.
 
 ### Async preflight lifecycle
 
 1. `POST /api/settings/cursor-usage/preflight` returns **202** with `operationId` only after auth, upload validation, source inspection, config validation, digest/token binding, and single-flight acquisition.
-2. GUI polls `GET` status (operator auth + workspace binding; operationId alone is not authorization) and may `DELETE` to cancel **before** atomic staging commit begins.
+2. GUI polls `GET` status (operator auth + workspace binding; operationId alone is not authorization) and may `DELETE` to cancel **before** atomic staging commit begins. DELETE is an acknowledgement only; continue polling until terminal `cancelled`.
 3. Staging writes to an operation-owned temp directory, then **atomically renames** into the final import id. Cancel during `committing` returns `cursor_usage_preflight_cancel_too_late` (409).
-4. Retained CSV bytes are released on any terminal state or when successful atomic commit begins. Status TTL retains only public-safe terminal results (~15 min), not CSV bytes.
+4. Retained CSV bytes are released on cancel acknowledgement, any terminal state, or when successful atomic commit begins. Status TTL retains only public-safe terminal results (~15 min), not CSV bytes.
 5. Browser fetch abort ≠ server cancel — use **Cancel** to abort server discovery.
 
 ### Apply parity
@@ -79,6 +82,8 @@ Production discovery uses **public Langfuse Observations API v2** with **sequent
 Apply re-runs the **same** window-scoped v2 discovery + eligibility contract under the same single-flight lock, then compares deterministic evidence / approval fingerprints. Score client creation happens only after those comparisons pass. Timeout, incomplete retrieval, integrity failure, or API failure → zero scores, no score client, approved staging left intact. Successful preflight is **not** Apply authorization.
 
 Legacy staged imports from importer ≤12 require a new preflight (`staged_import_version_mismatch_requires_new_preflight`).
+
+Importer **13.0.0** staged (nonverified) preflights remain readable, but Apply under **13.0.1+** rediscovers and compares deterministic discovery evidence. Because trace list fields no longer include `io`, unused IO-derived metadata (`resourceAttributes` / `scope`) is absent and `tracesDigest` may change — a mismatch fails Apply before score-client creation (`preflight_plan_changed:discovery_evidence`) and requires a **new preflight**. Old verified ledgers are never rewritten.
 
 ## Primary workflow (GUI)
 
