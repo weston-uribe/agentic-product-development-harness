@@ -14,6 +14,15 @@ import { PRICING_REGISTRY_VERSION } from "../telemetry/pricing-registry.js";
 import type { ExpectedScoreManifest } from "./expected-score-manifest.js";
 import { digestCanonical } from "./expected-score-manifest.js";
 import { DEFAULT_SOURCE_COVERAGE_SAFETY_MARGIN_MS } from "./source-scope.js";
+import {
+  CLOUD_AGENT_ID_VALIDATOR_VERSION,
+  IMPORT_SCOPE_ID,
+  NO_TOKEN_EVENT_RULE_VERSION,
+  SOURCE_CAPABILITY_EXCLUSION_CONTRACT_VERSION,
+  type ImportScopeId,
+} from "./import-scope.js";
+import type { SourceCapabilityExclusionManifest } from "./capability-exclusion.js";
+import type { TimestampDisambiguationPolicy } from "./timestamps.js";
 
 export type ImportLifecycleState =
   | "uploaded"
@@ -32,7 +41,15 @@ export interface CanonicalImportIdentity {
   sourceDigestSha256: string;
   exportWindow: ExportWindow | null;
   sourceCoverageSafetyMarginMs: number;
+  /** Operator-selected filter exclusions only; empty unless operator filters exist. */
   normalizedSourceExclusionSet: string[];
+  importScopeId: ImportScopeId;
+  sourceCapabilityExclusionDigest: string;
+  cloudAgentIdValidatorVersion: number;
+  noTokenEventRuleVersion: number;
+  sourceCapabilityExclusionContractVersion: number;
+  assumedTimezone: string | null;
+  disambiguationPolicy: TimestampDisambiguationPolicy;
   importerVersion: string;
   scoreContractVersion: string;
   parserSchemaVersion: number;
@@ -43,23 +60,27 @@ export interface CanonicalImportIdentity {
 }
 
 export interface ParserEvidenceArtifact {
-  schemaVersion: 1;
+  schemaVersion: 2;
   parserSchemaVersion: typeof PARSER_SCHEMA_VERSION;
   rows: ParserRowEvidence[];
   canonicalEventDigest: string;
   rowsTested: number;
   rowsSatisfying: number;
   rowsViolating: number;
+  cloudAgentArithmeticComplete: boolean;
+  nonCloudAggregateArithmeticComplete: boolean;
+  allParsedRowsArithmeticComplete: boolean;
   agentScopedRejectionCount: number;
   uploadScopedRejectionCount: number;
   rejectionReasonCodes: string[];
 }
 
 export interface PreflightPrivateArtifact {
-  schemaVersion: 1;
+  schemaVersion: 2;
   importId: string;
   preparedAt: string;
   importerVersion: typeof CURSOR_USAGE_IMPORTER_VERSION;
+  importScopeId: ImportScopeId;
   namespace: string;
   environment: string | null;
   sourceDigestSha256: string;
@@ -76,6 +97,12 @@ export interface PreflightPrivateArtifact {
   canonicalEventCount: number;
   sourceCoverageSafetyMarginMs: number;
   normalizedSourceExclusionSet: string[];
+  sourceCapabilityExclusionDigest: string;
+  cloudAgentArithmeticComplete: boolean;
+  nonCloudAggregateArithmeticComplete: boolean;
+  allParsedRowsArithmeticComplete: boolean;
+  assumedTimezone: string | null;
+  disambiguationPolicy: TimestampDisambiguationPolicy;
   uploadScopedRejectionCount: number;
   agentScopedRejectionCount: number;
   rejectionReasonCodes: string[];
@@ -85,25 +112,40 @@ export interface PreflightPrivateArtifact {
 }
 
 export interface PublicSummaryArtifact {
-  schemaVersion: 1;
+  schemaVersion: 2;
   kind: "cursor_usage_import_staging_public";
   importId: string;
   preparedAt: string;
   importerVersion: typeof CURSOR_USAGE_IMPORTER_VERSION;
+  importScopeId: ImportScopeId;
   lifecycle: ImportLifecycleState;
   namespace: string;
   sourceDigestPrefix: string;
   bundleCount: number;
   sourceScopeComplete: boolean;
   sourceScopeIncompleteReason: string | null;
+  sourceRowCount: number;
+  cloudAgentAttributableRowCount: number;
+  nonCloudAgentExcludedRowCount: number;
+  nonCloudAgentNoTokenEventCount: number;
+  invalidNonblankAgentIdCount: number;
   uploadScopedRejectionCount: number;
   agentScopedRejectionCount: number;
   rejectionReasonCodes: string[];
+  tokenBearingRowCount: number;
+  tokenArithmeticValidCount: number;
+  tokenArithmeticInvalidCount: number;
+  cloudAgentArithmeticComplete: boolean;
+  nonCloudAggregateArithmeticComplete: boolean;
+  observedWindow: ExportWindow | null;
+  timezoneEvidence: string | null;
+  sortOrder: string | null;
+  sourceCapabilityExclusionDigest: string;
   observationMutationAttempted: false;
 }
 
 export interface ImportLedgerEntry {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2;
   importId: string;
   recordedAt: string;
   lifecycle: ImportLifecycleState;
@@ -118,6 +160,12 @@ export interface ImportLedgerEntry {
   uploadScopedRejectionCount?: number;
   agentScopedRejectionCount?: number;
   rejectionReasonCodes?: string[];
+  importerVersion?: string;
+  importScopeId?: ImportScopeId | "legacy_v10";
+  sourceCapabilityExclusionDigest?: string;
+  cloudAgentArithmeticComplete?: boolean;
+  nonCloudAggregateArithmeticComplete?: boolean;
+  coverageLabel?: "verified_v11" | "verified_legacy_v10" | "incomplete" | "legacy_default";
   localEvidenceCompleteness?: "complete" | "partial" | "none";
   langfuseReconciliationStatus?:
     | "not_run"
@@ -165,6 +213,7 @@ export interface StagingArtifacts {
   ledger: ImportLedgerEntry;
   parserEvidence?: ParserEvidenceArtifact;
   expectedScoreManifest?: ExpectedScoreManifest;
+  sourceCapabilityExclusionManifest?: SourceCapabilityExclusionManifest;
 }
 
 const STAGING_SUBDIR = "evaluation-reports/cursor-usage-imports";
@@ -230,6 +279,13 @@ export async function writeStagingArtifacts(
       0o600,
     );
   }
+  if (artifacts.sourceCapabilityExclusionManifest) {
+    await atomicWriteJson(
+      path.join(dir, "source-capability-exclusion.private.json"),
+      artifacts.sourceCapabilityExclusionManifest,
+      0o600,
+    );
+  }
 }
 
 export async function readStagingArtifacts(
@@ -246,6 +302,9 @@ export async function readStagingArtifacts(
     ]);
     let parserEvidence: ParserEvidenceArtifact | undefined;
     let expectedScoreManifest: ExpectedScoreManifest | undefined;
+    let sourceCapabilityExclusionManifest:
+      | SourceCapabilityExclusionManifest
+      | undefined;
     try {
       parserEvidence = JSON.parse(
         await readFile(path.join(dir, "parser-evidence.private.json"), "utf8"),
@@ -263,6 +322,16 @@ export async function readStagingArtifacts(
     } catch {
       expectedScoreManifest = undefined;
     }
+    try {
+      sourceCapabilityExclusionManifest = JSON.parse(
+        await readFile(
+          path.join(dir, "source-capability-exclusion.private.json"),
+          "utf8",
+        ),
+      ) as SourceCapabilityExclusionManifest;
+    } catch {
+      sourceCapabilityExclusionManifest = undefined;
+    }
     return {
       canonicalEvents: JSON.parse(canonicalRaw) as CanonicalUsageEvent[],
       preflight: JSON.parse(preflightRaw) as PreflightPrivateArtifact,
@@ -270,6 +339,7 @@ export async function readStagingArtifacts(
       ledger: JSON.parse(ledgerRaw) as ImportLedgerEntry,
       parserEvidence,
       expectedScoreManifest,
+      sourceCapabilityExclusionManifest,
     };
   } catch {
     return null;
@@ -366,6 +436,9 @@ export function buildCanonicalImportIdentity(params: {
   exportWindow: ExportWindow | null;
   sourceCoverageSafetyMarginMs?: number;
   normalizedSourceExclusionSet?: string[];
+  sourceCapabilityExclusionDigest: string;
+  assumedTimezone?: string | null;
+  disambiguationPolicy?: TimestampDisambiguationPolicy;
 }): CanonicalImportIdentity {
   return {
     namespace: params.namespace,
@@ -375,6 +448,14 @@ export function buildCanonicalImportIdentity(params: {
     sourceCoverageSafetyMarginMs:
       params.sourceCoverageSafetyMarginMs ?? DEFAULT_SOURCE_COVERAGE_SAFETY_MARGIN_MS,
     normalizedSourceExclusionSet: params.normalizedSourceExclusionSet ?? [],
+    importScopeId: IMPORT_SCOPE_ID,
+    sourceCapabilityExclusionDigest: params.sourceCapabilityExclusionDigest,
+    cloudAgentIdValidatorVersion: CLOUD_AGENT_ID_VALIDATOR_VERSION,
+    noTokenEventRuleVersion: NO_TOKEN_EVENT_RULE_VERSION,
+    sourceCapabilityExclusionContractVersion:
+      SOURCE_CAPABILITY_EXCLUSION_CONTRACT_VERSION,
+    assumedTimezone: params.assumedTimezone?.trim() || null,
+    disambiguationPolicy: params.disambiguationPolicy ?? "reject_ambiguous",
     importerVersion: CURSOR_USAGE_IMPORTER_VERSION,
     scoreContractVersion: SCORE_CONTRACT_VERSION,
     parserSchemaVersion: PARSER_SCHEMA_VERSION,
@@ -414,9 +495,14 @@ export function fingerprintStaging(params: {
   exportWindow: ExportWindow | null;
   environment?: string | null;
   sourceCoverageSafetyMarginMs?: number;
+  sourceCapabilityExclusionDigest?: string;
 }): string {
   return fingerprintCanonicalImportIdentity(
-    buildCanonicalImportIdentity(params),
+    buildCanonicalImportIdentity({
+      ...params,
+      sourceCapabilityExclusionDigest:
+        params.sourceCapabilityExclusionDigest ?? "",
+    }),
   );
 }
 

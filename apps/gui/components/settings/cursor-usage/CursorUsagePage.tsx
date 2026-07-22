@@ -6,14 +6,17 @@ import {
   fetchCursorUsageConfig,
   fetchCursorUsageStatus,
   postCursorUsageApply,
+  postCursorUsageInspect,
   postCursorUsagePreflight,
   type AnalyticsResponse,
   type CursorUsageConfigResponse,
+  type CursorUsageInspectResponse,
   type ImportStatusResponse,
   type PreflightResponse,
 } from "@/lib/cursor-usage-client";
 import { UploadPanel } from "./UploadPanel";
 import { ExportWindowFields } from "./ExportWindowFields";
+import { SourceSummaryPanel } from "./SourceSummaryPanel";
 import { PreflightTable } from "./PreflightTable";
 import { ApplyConfirm } from "./ApplyConfirm";
 import { ResultsPanel } from "./ResultsPanel";
@@ -26,9 +29,15 @@ interface CursorUsagePageProps {
 export function CursorUsagePage({ nonce }: CursorUsagePageProps) {
   const [config, setConfig] = useState<CursorUsageConfigResponse | null>(null);
   const [file, setFile] = useState<File | null>(null);
+  const [inspection, setInspection] = useState<CursorUsageInspectResponse | null>(
+    null,
+  );
   const [exportStart, setExportStart] = useState("");
   const [exportEnd, setExportEnd] = useState("");
   const [timezone, setTimezone] = useState("UTC");
+  const [advancedOverride, setAdvancedOverride] = useState(false);
+  const [assumedTimezone, setAssumedTimezone] = useState("");
+  const [inspecting, setInspecting] = useState(false);
   const [preflight, setPreflight] = useState<PreflightResponse | null>(null);
   const [status, setStatus] = useState<ImportStatusResponse | null>(null);
   const [analytics, setAnalytics] = useState<AnalyticsResponse | null>(null);
@@ -57,19 +66,16 @@ export function CursorUsagePage({ nonce }: CursorUsagePageProps) {
     void refreshAnalytics();
   }, [refreshAnalytics]);
 
-  const recoverStatus = useCallback(
-    async (importId: string) => {
-      try {
-        const next = await fetchCursorUsageStatus(importId);
-        if (next) {
-          setStatus(next);
-        }
-      } catch {
-        // ignore recovery errors
+  const recoverStatus = useCallback(async (importId: string) => {
+    try {
+      const next = await fetchCursorUsageStatus(importId);
+      if (next) {
+        setStatus(next);
       }
-    },
-    [],
-  );
+    } catch {
+      // ignore recovery errors
+    }
+  }, []);
 
   useEffect(() => {
     const stored = window.sessionStorage.getItem("cursor-usage-import-id");
@@ -77,6 +83,59 @@ export function CursorUsagePage({ nonce }: CursorUsagePageProps) {
       void recoverStatus(stored);
     }
   }, [recoverStatus]);
+
+  const runInspect = useCallback(
+    async (nextFile: File) => {
+      if (!nonce) {
+        setError("Security token unavailable. Reload the page.");
+        return;
+      }
+      setInspecting(true);
+      setError(null);
+      setPreflight(null);
+      try {
+        const formData = new FormData();
+        formData.set("file", nextFile);
+        if (assumedTimezone.trim()) {
+          formData.set("assumedTimezone", assumedTimezone.trim());
+        }
+        const result = await postCursorUsageInspect(formData, nonce);
+        setInspection(result);
+        if (result.observedWindow) {
+          setExportStart(result.observedWindow.startIso);
+          setExportEnd(result.observedWindow.endIso);
+          setTimezone(result.observedWindow.timezone);
+        } else if (result.minTimestampIso && result.maxTimestampIso) {
+          setExportStart(result.minTimestampIso);
+          setExportEnd(result.maxTimestampIso);
+        }
+        if (result.timezoneEvidence === "UTC") {
+          setTimezone("UTC");
+        }
+      } catch (err) {
+        setInspection(null);
+        setError(err instanceof Error ? err.message : "Inspection failed.");
+      } finally {
+        setInspecting(false);
+      }
+    },
+    [assumedTimezone, nonce],
+  );
+
+  const onFileSelected = (next: File | null) => {
+    setFile(next);
+    setInspection(null);
+    setPreflight(null);
+    setConfirmed(false);
+    if (!advancedOverride) {
+      setExportStart("");
+      setExportEnd("");
+      setTimezone("UTC");
+    }
+    if (next) {
+      void runInspect(next);
+    }
+  };
 
   const runPreflight = async () => {
     if (!nonce) {
@@ -87,8 +146,12 @@ export function CursorUsagePage({ nonce }: CursorUsagePageProps) {
       setError("Select a CSV file first.");
       return;
     }
-    if (!exportStart || !exportEnd) {
-      setError("Export window start and end are required.");
+    if (!inspection) {
+      setError("Wait for source inspection to finish.");
+      return;
+    }
+    if (advancedOverride && (!exportStart || !exportEnd)) {
+      setError("Manual override requires start and end.");
       return;
     }
     setBusy(true);
@@ -97,9 +160,22 @@ export function CursorUsagePage({ nonce }: CursorUsagePageProps) {
     try {
       const formData = new FormData();
       formData.set("file", file);
+      formData.set(
+        "boundsSource",
+        advancedOverride ? "operator_gui_fields" : "csv_row_extrema",
+      );
+      formData.set("advancedOverride", advancedOverride ? "true" : "false");
       formData.set("exportStart", exportStart);
       formData.set("exportEnd", exportEnd);
       formData.set("timezone", timezone);
+      formData.set(
+        "expectedSourceDigestSha256",
+        inspection.sourceDigestSha256,
+      );
+      formData.set("expectedInspectionToken", inspection.inspectionToken);
+      if (assumedTimezone.trim()) {
+        formData.set("assumedTimezone", assumedTimezone.trim());
+      }
       const result = await postCursorUsagePreflight(formData, nonce);
       setPreflight(result);
       window.sessionStorage.setItem("cursor-usage-import-id", result.importId);
@@ -139,7 +215,10 @@ export function CursorUsagePage({ nonce }: CursorUsagePageProps) {
     }
   };
 
-  const exportWindowReady = exportStart.trim().length > 0 && exportEnd.trim().length > 0;
+  const windowReady =
+    advancedOverride
+      ? exportStart.trim().length > 0 && exportEnd.trim().length > 0
+      : Boolean(inspection?.observedWindow);
   const hasConflicts = (preflight?.conflicts.length ?? 0) > 0;
   const alreadyVerified = status?.verified === true;
 
@@ -149,25 +228,22 @@ export function CursorUsagePage({ nonce }: CursorUsagePageProps) {
         className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm"
         data-testid="cursor-usage-langfuse-banner"
       >
-        Importing Cursor usage scores does not repair the historical native
+        PDev Cloud Agent trace enrichment does not repair the historical native
         Langfuse generation cost dashboard. It only adds deterministic phase
-        trace scores from CSV attribution.
+        trace scores from attributable Cloud Agent CSV rows.
       </div>
 
       {config ? (
         <p className="text-sm text-muted-foreground">
-          Namespace: <span className="font-medium text-foreground">{config.namespace}</span>
+          Namespace:{" "}
+          <span className="font-medium text-foreground">{config.namespace}</span>
           {config.environment ? (
             <>
               {" "}
               · Environment:{" "}
-              <span className="font-medium text-foreground">{config.environment}</span>
-            </>
-          ) : null}
-          {config.adminKeyConfigured ? (
-            <>
-              {" "}
-              · Admin API key configured (bulk API import not yet exposed in GUI)
+              <span className="font-medium text-foreground">
+                {config.environment}
+              </span>
             </>
           ) : null}
         </p>
@@ -175,29 +251,48 @@ export function CursorUsagePage({ nonce }: CursorUsagePageProps) {
 
       <UploadPanel
         file={file}
-        disabled={busy || applying}
-        onFileSelected={setFile}
+        disabled={busy || applying || inspecting}
+        onFileSelected={onFileSelected}
       />
+
+      <SourceSummaryPanel inspection={inspection} />
 
       <ExportWindowFields
         exportStart={exportStart}
         exportEnd={exportEnd}
         timezone={timezone}
-        disabled={busy || applying}
+        timezoneEvidence={inspection?.timezoneEvidence ?? null}
+        sortOrder={inspection?.sortOrder ?? null}
+        advancedOverride={advancedOverride}
+        assumedTimezone={assumedTimezone}
+        disabled={busy || applying || inspecting}
         onExportStartChange={setExportStart}
         onExportEndChange={setExportEnd}
         onTimezoneChange={setTimezone}
+        onAdvancedOverrideChange={setAdvancedOverride}
+        onAssumedTimezoneChange={setAssumedTimezone}
       />
 
       <div className="flex items-center gap-3">
         <button
           type="button"
           className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50"
-          disabled={busy || applying || !file || !exportWindowReady}
+          disabled={
+            busy ||
+            applying ||
+            inspecting ||
+            !file ||
+            !inspection ||
+            !windowReady
+          }
           onClick={() => void runPreflight()}
           data-testid="cursor-usage-preflight-button"
         >
-          {busy ? "Running preflight…" : "Run preflight"}
+          {busy
+            ? "Running preflight…"
+            : inspecting
+              ? "Inspecting…"
+              : "Run preflight"}
         </button>
       </div>
 
@@ -235,7 +330,10 @@ export function CursorUsagePage({ nonce }: CursorUsagePageProps) {
         </>
       ) : null}
 
-      <ResultsPanel status={status} publicSummary={preflight?.publicSummary ?? null} />
+      <ResultsPanel
+        status={status}
+        publicSummary={preflight?.publicSummary ?? null}
+      />
       <AnalyticsPanel analytics={analytics} />
     </div>
   );

@@ -22,6 +22,8 @@ import type { ExportWindow } from "@harness/evaluation/cursor-usage-import/canon
 import type { AttributionState } from "@harness/evaluation/cursor-usage-import/attribution.js";
 import { validateExportWindow } from "@harness/evaluation/cursor-usage-import/source-scope.js";
 import { readStagingArtifacts } from "@harness/evaluation/cursor-usage-import/staging.js";
+import { inspectCursorUsageCsvSource } from "@harness/evaluation/cursor-usage-import/source-inspection.js";
+import type { TimestampDisambiguationPolicy } from "@harness/evaluation/cursor-usage-import/timestamps.js";
 
 export interface PublicPreflightRow {
   cloudAgentIdHash: string;
@@ -88,9 +90,21 @@ export function buildExportWindow(params: {
     startIso: params.exportStart.trim(),
     endIso: params.exportEnd.trim(),
     timezone: params.exportTimezone?.trim() || "UTC",
-    precision: "second",
+    precision: "millisecond",
     boundsSource: "operator_gui_fields",
   };
+}
+
+export function runCursorUsageInspect(params: {
+  csvBytes: Buffer;
+  assumedTimezone?: string | null;
+  disambiguation?: TimestampDisambiguationPolicy;
+}) {
+  const raw = params.csvBytes.toString("utf8");
+  return inspectCursorUsageCsvSource(raw, {
+    assumedTimezone: params.assumedTimezone,
+    disambiguation: params.disambiguation,
+  });
 }
 
 export async function buildPublicPreflightRows(params: {
@@ -155,6 +169,10 @@ export async function buildPublicPreflightRows(params: {
 export async function runPreflightCsvImport(params: {
   csvBytes: Buffer;
   exportWindow: ExportWindow;
+  assumedTimezone?: string | null;
+  disambiguationPolicy?: TimestampDisambiguationPolicy;
+  expectedSourceDigestSha256?: string | null;
+  expectedInspectionToken?: string | null;
 }) {
   const ctx = await resolveCursorUsageServerContext();
   const result = await preflightCsvImport({
@@ -163,6 +181,10 @@ export async function runPreflightCsvImport(params: {
     namespace: ctx.namespace,
     environment: ctx.environment ?? undefined,
     logDirectory: ctx.logDirectory,
+    assumedTimezone: params.assumedTimezone,
+    disambiguationPolicy: params.disambiguationPolicy,
+    expectedSourceDigestSha256: params.expectedSourceDigestSha256,
+    expectedInspectionToken: params.expectedInspectionToken,
   });
   const { rows, conflicts } = await buildPublicPreflightRows({
     logDirectory: ctx.logDirectory,
@@ -198,6 +220,5 @@ export async function readImportStatus(importId: string) {
 
 export async function readImportAnalytics(): Promise<ImportAnalytics> {
   const ctx = await resolveCursorUsageServerContext();
-  // Credentials alone never imply Langfuse reconciliation ran.
   return getAnalyticsFromLedgers(ctx.logDirectory);
 }

@@ -122,6 +122,55 @@ export interface AnalyticsResponse {
   pricingIncompleteSegmentCount?: number;
 }
 
+export interface CursorUsageInspectResponse {
+  sourceDigestSha256: string;
+  sourceDigestPrefix: string;
+  inspectionToken: string;
+  sourceRowCount: number;
+  validTimestampCount: number;
+  invalidTimestampCount: number;
+  minTimestampIso: string | null;
+  maxTimestampIso: string | null;
+  sortOrder: "ascending" | "descending" | "unsorted";
+  timestampPrecision: string;
+  timezoneEvidence: string;
+  cloudAgentAttributableRowCount: number;
+  nonCloudAgentExcludedRowCount: number;
+  nonCloudAgentNoTokenEventCount: number;
+  nonCloudAgentInvalidCount: number;
+  invalidNonblankAgentIdCount: number;
+  agentScopedRejectionCount: number;
+  uploadScopedRejectionCount: number;
+  tokenBearingRowCount: number;
+  tokenArithmeticValidCount: number;
+  tokenArithmeticInvalidCount: number;
+  cloudAgentArithmeticComplete: boolean;
+  nonCloudAggregateArithmeticComplete: boolean;
+  tokenBucketNonzeroCounts: {
+    inputTokens: number;
+    cacheWriteTokens: number;
+    cacheReadTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
+  tokenBucketTotals: {
+    inputTokens: number;
+    cacheWriteTokens: number;
+    cacheReadTokens: number;
+    outputTokens: number;
+    totalTokens: number;
+  };
+  observedWindow: {
+    startIso: string;
+    endIso: string;
+    timezone: string;
+    precision: string;
+    boundsSource: string;
+  } | null;
+  assumedTimezone: string | null;
+  disambiguationPolicy: string;
+}
+
 export async function fetchCursorUsageConfig(): Promise<CursorUsageConfigResponse> {
   const response = await fetch("/api/settings/cursor-usage/config", {
     credentials: "same-origin",
@@ -130,6 +179,27 @@ export async function fetchCursorUsageConfig(): Promise<CursorUsageConfigRespons
     throw new Error("Could not load Cursor usage configuration.");
   }
   return (await response.json()) as CursorUsageConfigResponse;
+}
+
+export async function postCursorUsageInspect(
+  formData: FormData,
+  nonce: string,
+): Promise<CursorUsageInspectResponse> {
+  const response = await cursorUsageFetch(
+    "/api/settings/cursor-usage/inspect",
+    nonce,
+    {
+      method: "POST",
+      body: formData,
+    },
+  );
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => ({}))) as {
+      error?: string;
+    };
+    throw new Error(payload.error ?? "Inspection failed.");
+  }
+  return (await response.json()) as CursorUsageInspectResponse;
 }
 
 export async function postCursorUsagePreflight(

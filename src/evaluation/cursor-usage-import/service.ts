@@ -7,12 +7,20 @@ import {
 } from "../langfuse-inspect/client.js";
 import { deriveScoreId } from "../identifiers.js";
 import {
+  deriveRowCapabilityFromEvidence,
   hashCloudAgentId,
   PARSER_SCHEMA_VERSION,
   recomputeArithmeticFromEvidence,
   type ParserRowEvidence,
 } from "./parse.js";
 import { parseCsvSource } from "./sources/csv.js";
+import {
+  buildSourceCapabilityExclusionManifest,
+  sourceCapabilityExclusionFingerprintSet,
+} from "./capability-exclusion.js";
+import { inspectCursorUsageCsvSource } from "./source-inspection.js";
+import { IMPORT_SCOPE_ID } from "./import-scope.js";
+import type { TimestampDisambiguationPolicy } from "./timestamps.js";
 import { discoverUsageCandidates, type UsageCandidate } from "./discovery.js";
 import {
   attributeSegmentsToCandidates,
@@ -90,6 +98,11 @@ export interface PreflightCsvImportParams {
   /** Bound discovery wait; fail closed to retrieval-incomplete on timeout. */
   discoveryTimeoutMs?: number;
   sourceCoverageSafetyMarginMs?: number;
+  assumedTimezone?: string | null;
+  disambiguationPolicy?: TimestampDisambiguationPolicy;
+  /** Prior inspect response digest/token; required when binding inspect→preflight. */
+  expectedSourceDigestSha256?: string | null;
+  expectedInspectionToken?: string | null;
   deps?: CursorUsageServiceDeps;
 }
 
@@ -174,22 +187,34 @@ function buildParserEvidenceArtifact(params: {
   rowsTested: number;
   rowsSatisfying: number;
   rowsViolating: number;
+  cloudAgentArithmeticComplete: boolean;
+  nonCloudAggregateArithmeticComplete: boolean;
+  allParsedRowsArithmeticComplete: boolean;
   agentScopedCount: number;
   uploadScopedCount: number;
   reasonCodes: string[];
 }): ParserEvidenceArtifact {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     parserSchemaVersion: PARSER_SCHEMA_VERSION,
     rows: params.rowEvidence,
     canonicalEventDigest: params.eventsDigest,
     rowsTested: params.rowsTested,
     rowsSatisfying: params.rowsSatisfying,
     rowsViolating: params.rowsViolating,
+    cloudAgentArithmeticComplete: params.cloudAgentArithmeticComplete,
+    nonCloudAggregateArithmeticComplete:
+      params.nonCloudAggregateArithmeticComplete,
+    allParsedRowsArithmeticComplete: params.allParsedRowsArithmeticComplete,
     agentScopedRejectionCount: params.agentScopedCount,
     uploadScopedRejectionCount: params.uploadScopedCount,
     rejectionReasonCodes: params.reasonCodes,
   };
+}
+
+function isLegacyImporterVersion(version: string | undefined): boolean {
+  if (!version) return true;
+  return version.startsWith("10.");
 }
 
 function agentHasRejectionOrAmbiguity(params: {
@@ -299,9 +324,10 @@ function buildAttachmentsFromBundles(params: {
   allSegments: UsageSegment[];
   exportWindow: ExportWindow | null;
   langfuseRetrievalComplete: boolean;
-  tokenArithmeticComplete: boolean;
+  cloudAgentArithmeticComplete: boolean;
   hasUploadScopedRejection: boolean;
   parserEvidence: ParserRowEvidence[];
+  sourceCapabilityExcludedFingerprints: Set<string>;
   sourceDigestPrefix: string;
   environment?: string;
   sourceCoverageSafetyMarginMs: number;
@@ -338,12 +364,16 @@ function buildAttachmentsFromBundles(params: {
           : "unaccounted_source_segment");
   }
 
-  // Every CSV segment must be deterministically matched (exclusion set empty).
+  // Every score-bound CSV segment must be deterministically matched.
+  // Source-capability exclusions are accounted separately (not unaccounted).
   const matchedFingerprints = new Set(
     params.bundles.flatMap((b) => b.matchedFingerprints),
   );
   for (const seg of params.allSegments) {
     for (const fp of seg.fingerprints) {
+      if (params.sourceCapabilityExcludedFingerprints.has(fp)) {
+        continue;
+      }
       if (!matchedFingerprints.has(fp)) {
         sourceScopeIncompleteReason =
           sourceScopeIncompleteReason ?? "unaccounted_source_segment";
@@ -373,7 +403,7 @@ function buildAttachmentsFromBundles(params: {
       hasRejectedOrAmbiguousForAgent: hasRejected,
       hasUploadScopedRejection: params.hasUploadScopedRejection,
       langfuseRetrievalComplete: params.langfuseRetrievalComplete,
-      tokenArithmeticComplete: params.tokenArithmeticComplete,
+      tokenArithmeticComplete: params.cloudAgentArithmeticComplete,
       sourceCoverageSafetyMarginMs: params.sourceCoverageSafetyMarginMs,
     });
 
@@ -588,7 +618,7 @@ function buildAttachmentsFromBundles(params: {
 
   const sourceScopeComplete =
     !params.hasUploadScopedRejection &&
-    params.tokenArithmeticComplete &&
+    params.cloudAgentArithmeticComplete &&
     params.langfuseRetrievalComplete &&
     params.skipped.length === 0 &&
     sourceScopeIncompleteReason == null &&
@@ -767,30 +797,77 @@ export async function preflightCsvImport(
   const margin =
     params.sourceCoverageSafetyMarginMs ??
     DEFAULT_SOURCE_COVERAGE_SAFETY_MARGIN_MS;
-  const { events, digestSha256, parsed } = await parseCsvSource({
-    buffer: params.csvBytes,
+  const assumedTimezone = params.assumedTimezone?.trim() || null;
+  const disambiguationPolicy =
+    params.disambiguationPolicy ?? "reject_ambiguous";
+
+  const raw =
+    typeof params.csvBytes === "string"
+      ? params.csvBytes
+      : Buffer.from(params.csvBytes).toString("utf8");
+
+  // Server-authoritative inspection for csv_row_extrema (and digest binding).
+  const inspection = inspectCursorUsageCsvSource(raw, {
+    assumedTimezone,
+    disambiguation: disambiguationPolicy,
   });
+
+  if (
+    params.expectedSourceDigestSha256 &&
+    params.expectedSourceDigestSha256 !== inspection.sourceDigestSha256
+  ) {
+    throw new Error("inspection_digest_mismatch");
+  }
+  if (
+    params.expectedInspectionToken &&
+    params.expectedInspectionToken !== inspection.inspectionToken
+  ) {
+    throw new Error("inspection_token_mismatch");
+  }
+
+  let exportWindow = params.exportWindow;
+  if (exportWindow?.boundsSource === "csv_row_extrema") {
+    if (!inspection.observedWindow) {
+      throw new Error("export_window_unproven");
+    }
+    exportWindow = inspection.observedWindow;
+  }
+
+  const { events, digestSha256, parsed } = await parseCsvSource({
+    buffer: raw,
+    parseOptions: { assumedTimezone, disambiguation: disambiguationPolicy },
+  });
+
+  const capabilityManifest = buildSourceCapabilityExclusionManifest(
+    parsed.rowEvidence,
+  );
+  const exclusionFingerprints =
+    sourceCapabilityExclusionFingerprintSet(capabilityManifest);
 
   const identity = buildCanonicalImportIdentity({
     namespace: params.namespace,
     environment: params.environment,
     sourceDigestSha256: digestSha256,
-    exportWindow: params.exportWindow,
+    exportWindow,
     sourceCoverageSafetyMarginMs: margin,
     normalizedSourceExclusionSet: [],
+    sourceCapabilityExclusionDigest: capabilityManifest.digest,
+    assumedTimezone,
+    disambiguationPolicy,
   });
   const canonicalImportIdentityFp = fingerprintCanonicalImportIdentity(identity);
 
   const segments = buildSegmentsFromCanonicalEvents(events);
   const hasUploadScopedRejection =
     parsed.rejectionSummary.uploadScopedCount > 0;
-  const tokenArithmeticComplete =
-    parsed.arithmetic.identityHolds && !hasUploadScopedRejection;
+  const cloudAgentArithmeticComplete =
+    parsed.arithmetic.cloudAgentArithmeticComplete &&
+    !hasUploadScopedRejection;
 
   let candidates: UsageCandidate[] = [];
   let langfuseRetrievalComplete = false;
 
-  const exportValidation = validateExportWindow(params.exportWindow);
+  const exportValidation = validateExportWindow(exportWindow);
   const shouldDiscover = params.discoverLangfuse !== false;
   if (exportValidation.ok && shouldDiscover) {
     const client = await resolveLangfuseClient(params);
@@ -839,11 +916,12 @@ export async function preflightCsvImport(
     attributed,
     skipped,
     allSegments: segments,
-    exportWindow: params.exportWindow,
+    exportWindow,
     langfuseRetrievalComplete,
-    tokenArithmeticComplete,
+    cloudAgentArithmeticComplete,
     hasUploadScopedRejection,
     parserEvidence: parsed.rowEvidence,
+    sourceCapabilityExcludedFingerprints: exclusionFingerprints,
     sourceDigestPrefix: digestSha256,
     environment: params.environment,
     sourceCoverageSafetyMarginMs: margin,
@@ -865,32 +943,50 @@ export async function preflightCsvImport(
 
   const preparedAt = new Date().toISOString();
   const publicSummary: StagingArtifacts["publicSummary"] = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     kind: "cursor_usage_import_staging_public",
     importId,
     preparedAt,
     importerVersion: CURSOR_USAGE_IMPORTER_VERSION,
+    importScopeId: IMPORT_SCOPE_ID,
     lifecycle,
     namespace: params.namespace,
     sourceDigestPrefix: digestSha256.slice(0, 16),
     bundleCount: bundles.length,
     sourceScopeComplete: built.sourceScopeComplete,
     sourceScopeIncompleteReason: built.sourceScopeIncompleteReason,
+    sourceRowCount: inspection.sourceRowCount,
+    cloudAgentAttributableRowCount: inspection.cloudAgentAttributableRowCount,
+    nonCloudAgentExcludedRowCount: inspection.nonCloudAgentExcludedRowCount,
+    nonCloudAgentNoTokenEventCount: inspection.nonCloudAgentNoTokenEventCount,
+    invalidNonblankAgentIdCount: inspection.invalidNonblankAgentIdCount,
     uploadScopedRejectionCount: parsed.rejectionSummary.uploadScopedCount,
     agentScopedRejectionCount: parsed.rejectionSummary.agentScopedCount,
     rejectionReasonCodes: parsed.rejectionSummary.reasonCodes,
+    tokenBearingRowCount: inspection.tokenBearingRowCount,
+    tokenArithmeticValidCount: inspection.tokenArithmeticValidCount,
+    tokenArithmeticInvalidCount: inspection.tokenArithmeticInvalidCount,
+    cloudAgentArithmeticComplete:
+      parsed.arithmetic.cloudAgentArithmeticComplete,
+    nonCloudAggregateArithmeticComplete:
+      parsed.arithmetic.nonCloudAggregateArithmeticComplete,
+    observedWindow: exportWindow,
+    timezoneEvidence: inspection.timezoneEvidence,
+    sortOrder: inspection.sortOrder,
+    sourceCapabilityExclusionDigest: capabilityManifest.digest,
     observationMutationAttempted: false,
   };
 
   const preflight: StagingArtifacts["preflight"] = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     importId,
     preparedAt,
     importerVersion: CURSOR_USAGE_IMPORTER_VERSION,
+    importScopeId: IMPORT_SCOPE_ID,
     namespace: params.namespace,
     environment: params.environment?.trim() ?? null,
     sourceDigestSha256: digestSha256,
-    exportWindow: params.exportWindow,
+    exportWindow,
     fingerprint: approvalFp,
     canonicalImportIdentity: canonicalImportIdentityFp,
     preflightApprovalFingerprint: approvalFp,
@@ -902,6 +998,15 @@ export async function preflightCsvImport(
     canonicalEventCount: events.length,
     sourceCoverageSafetyMarginMs: margin,
     normalizedSourceExclusionSet: [],
+    sourceCapabilityExclusionDigest: capabilityManifest.digest,
+    cloudAgentArithmeticComplete:
+      parsed.arithmetic.cloudAgentArithmeticComplete,
+    nonCloudAggregateArithmeticComplete:
+      parsed.arithmetic.nonCloudAggregateArithmeticComplete,
+    allParsedRowsArithmeticComplete:
+      parsed.arithmetic.allParsedRowsArithmeticComplete,
+    assumedTimezone,
+    disambiguationPolicy,
     uploadScopedRejectionCount: parsed.rejectionSummary.uploadScopedCount,
     agentScopedRejectionCount: parsed.rejectionSummary.agentScopedCount,
     rejectionReasonCodes: parsed.rejectionSummary.reasonCodes,
@@ -925,13 +1030,13 @@ export async function preflightCsvImport(
   });
 
   const ledger: ImportLedgerEntry = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     importId,
     recordedAt: preparedAt,
     lifecycle,
     namespace: params.namespace,
     sourceDigestSha256: digestSha256,
-    exportWindow: params.exportWindow,
+    exportWindow,
     bundleCount: bundles.length,
     scoreCount: 0,
     verified: false,
@@ -940,6 +1045,14 @@ export async function preflightCsvImport(
     uploadScopedRejectionCount: parsed.rejectionSummary.uploadScopedCount,
     agentScopedRejectionCount: parsed.rejectionSummary.agentScopedCount,
     rejectionReasonCodes: parsed.rejectionSummary.reasonCodes,
+    importerVersion: CURSOR_USAGE_IMPORTER_VERSION,
+    importScopeId: IMPORT_SCOPE_ID,
+    sourceCapabilityExclusionDigest: capabilityManifest.digest,
+    cloudAgentArithmeticComplete:
+      parsed.arithmetic.cloudAgentArithmeticComplete,
+    nonCloudAggregateArithmeticComplete:
+      parsed.arithmetic.nonCloudAggregateArithmeticComplete,
+    coverageLabel: "incomplete",
     localEvidenceCompleteness: "none",
     langfuseReconciliationStatus: "not_run",
     analyticsSummary,
@@ -951,6 +1064,12 @@ export async function preflightCsvImport(
     rowsTested: parsed.arithmetic.rowsTested,
     rowsSatisfying: parsed.arithmetic.rowsSatisfying,
     rowsViolating: parsed.arithmetic.rowsViolating,
+    cloudAgentArithmeticComplete:
+      parsed.arithmetic.cloudAgentArithmeticComplete,
+    nonCloudAggregateArithmeticComplete:
+      parsed.arithmetic.nonCloudAggregateArithmeticComplete,
+    allParsedRowsArithmeticComplete:
+      parsed.arithmetic.allParsedRowsArithmeticComplete,
     agentScopedCount: parsed.rejectionSummary.agentScopedCount,
     uploadScopedCount: parsed.rejectionSummary.uploadScopedCount,
     reasonCodes: parsed.rejectionSummary.reasonCodes,
@@ -963,6 +1082,7 @@ export async function preflightCsvImport(
     ledger,
     parserEvidence,
     expectedScoreManifest: built.expectedScoreManifest,
+    sourceCapabilityExclusionManifest: capabilityManifest,
   });
 
   return {
@@ -1039,19 +1159,94 @@ export async function applyCsvImport(
     throw new Error("expected_score_manifest_missing");
   }
 
+  // Version-10 staged imports cannot be applied under version 11.
+  // Fail before any score client is created.
+  if (
+    isLegacyImporterVersion(staged.preflight.importerVersion) ||
+    staged.preflight.schemaVersion < 2 ||
+    staged.parserEvidence.schemaVersion < 2
+  ) {
+    throw new Error("staged_import_version_mismatch_requires_new_preflight");
+  }
+
+  // Rederive capabilities from staged operands and compare with staged values.
+  for (const row of staged.parserEvidence.rows) {
+    const derived = deriveRowCapabilityFromEvidence(row);
+    if (derived !== row.rowCapability) {
+      throw new Error("preflight_plan_changed:row_capability");
+    }
+  }
+
+  const rebuiltManifest = buildSourceCapabilityExclusionManifest(
+    staged.parserEvidence.rows,
+  );
+  if (
+    rebuiltManifest.digest !==
+    (staged.preflight.sourceCapabilityExclusionDigest ??
+      staged.sourceCapabilityExclusionManifest?.digest)
+  ) {
+    throw new Error("preflight_plan_changed:source_capability_exclusion");
+  }
+
   const arithmetic = recomputeArithmeticFromEvidence(staged.parserEvidence.rows);
-  if (!arithmetic.identityHolds) {
+  if (!arithmetic.cloudAgentArithmeticComplete) {
     throw new Error("token_arithmetic_incomplete");
+  }
+  if (
+    arithmetic.cloudAgentArithmeticComplete !==
+      staged.preflight.cloudAgentArithmeticComplete ||
+    arithmetic.nonCloudAggregateArithmeticComplete !==
+      staged.preflight.nonCloudAggregateArithmeticComplete
+  ) {
+    throw new Error("preflight_plan_changed:arithmetic_verdicts");
+  }
+
+  // Rebuild observed window evidence for csv_row_extrema from staged timestamps.
+  const exportWindow = staged.preflight.exportWindow;
+  if (exportWindow?.boundsSource === "csv_row_extrema") {
+    let minIso: string | null = null;
+    let maxIso: string | null = null;
+    for (const row of staged.parserEvidence.rows) {
+      if (!row.timestampUtcIso) continue;
+      if (minIso == null || row.timestampUtcIso < minIso) minIso = row.timestampUtcIso;
+      if (maxIso == null || row.timestampUtcIso > maxIso) maxIso = row.timestampUtcIso;
+    }
+    if (
+      !minIso ||
+      !maxIso ||
+      minIso !== exportWindow.startIso ||
+      maxIso !== exportWindow.endIso
+    ) {
+      throw new Error("preflight_plan_changed:observed_window");
+    }
   }
 
   const events = staged.canonicalEvents;
   const segments = buildSegmentsFromCanonicalEvents(events);
-  const exportWindow = staged.preflight.exportWindow;
   const margin = staged.preflight.sourceCoverageSafetyMarginMs;
+  const exclusionFingerprints =
+    sourceCapabilityExclusionFingerprintSet(rebuiltManifest);
 
   const exportValidation = validateExportWindow(exportWindow);
   if (!exportValidation.ok) {
     throw new Error(`source_scope_incomplete:${exportValidation.reason}`);
+  }
+
+  // Identity / approval revalidation before score client creation.
+  const identity = buildCanonicalImportIdentity({
+    namespace: params.namespace,
+    environment: params.environment ?? staged.preflight.environment,
+    sourceDigestSha256: staged.preflight.sourceDigestSha256,
+    exportWindow,
+    sourceCoverageSafetyMarginMs: margin,
+    normalizedSourceExclusionSet: [],
+    sourceCapabilityExclusionDigest: rebuiltManifest.digest,
+    assumedTimezone: staged.preflight.assumedTimezone,
+    disambiguationPolicy: staged.preflight.disambiguationPolicy,
+  });
+  const identityFp = fingerprintCanonicalImportIdentity(identity);
+  if (identityFp !== staged.preflight.canonicalImportIdentity) {
+    throw new Error("preflight_plan_changed:canonical_import_identity");
   }
 
   const client = await resolveLangfuseClient(params);
@@ -1091,30 +1286,16 @@ export async function applyCsvImport(
     allSegments: segments,
     exportWindow,
     langfuseRetrievalComplete: discovered.retrievalComplete,
-    tokenArithmeticComplete: arithmetic.identityHolds,
+    cloudAgentArithmeticComplete: arithmetic.cloudAgentArithmeticComplete,
     hasUploadScopedRejection: hasUploadScoped,
     parserEvidence: staged.parserEvidence.rows,
+    sourceCapabilityExcludedFingerprints: exclusionFingerprints,
     sourceDigestPrefix: staged.preflight.sourceDigestSha256,
     environment: params.environment ?? staged.preflight.environment ?? undefined,
     sourceCoverageSafetyMarginMs: margin,
     candidates: discovered.candidates,
     computeCostProxiesFn: computeFn,
   });
-
-  // Rebuild identity + approval fingerprints and compare.
-  const identity = buildCanonicalImportIdentity({
-    namespace: params.namespace,
-    environment: params.environment ?? staged.preflight.environment,
-    sourceDigestSha256: staged.preflight.sourceDigestSha256,
-    exportWindow,
-    sourceCoverageSafetyMarginMs: margin,
-    normalizedSourceExclusionSet:
-      staged.preflight.normalizedSourceExclusionSet ?? [],
-  });
-  const identityFp = fingerprintCanonicalImportIdentity(identity);
-  if (identityFp !== staged.preflight.canonicalImportIdentity) {
-    throw new Error("preflight_plan_changed:canonical_import_identity");
-  }
 
   if (
     built.expectedScoreManifest.expectedScoreManifestDigest !==
@@ -1360,7 +1541,7 @@ export async function applyCsvImport(
           bundleCount: bundles.length,
         },
         ledger: {
-          schemaVersion: 1,
+          schemaVersion: 2,
           importId: params.importId,
           recordedAt: new Date().toISOString(),
           lifecycle: finalLifecycle,
@@ -1371,12 +1552,23 @@ export async function applyCsvImport(
           scoreCount,
           verified,
           sourceScopeComplete: true,
+          importerVersion: CURSOR_USAGE_IMPORTER_VERSION,
+          importScopeId: IMPORT_SCOPE_ID,
+          sourceCapabilityExclusionDigest:
+            staged.preflight.sourceCapabilityExclusionDigest,
+          cloudAgentArithmeticComplete:
+            staged.preflight.cloudAgentArithmeticComplete,
+          nonCloudAggregateArithmeticComplete:
+            staged.preflight.nonCloudAggregateArithmeticComplete,
+          coverageLabel: verified ? "verified_v11" : "incomplete",
           localEvidenceCompleteness: verified ? "complete" : "partial",
           langfuseReconciliationStatus: "not_run",
           analyticsSummary: finalAnalytics,
         },
         parserEvidence: staged.parserEvidence,
         expectedScoreManifest: staged.expectedScoreManifest,
+        sourceCapabilityExclusionManifest:
+          staged.sourceCapabilityExclusionManifest,
       });
     },
   );
@@ -1487,6 +1679,16 @@ export async function getAnalyticsFromLedgers(
   };
 
   for (const ledger of ledgers) {
+    // Legacy v10 verified ledgers remain readable; missing fields get defaults.
+    if (ledger.verified && !ledger.coverageLabel) {
+      ledger.coverageLabel = isLegacyImporterVersion(ledger.importerVersion)
+        ? "verified_legacy_v10"
+        : "legacy_default";
+    }
+    if (ledger.verified && !ledger.importScopeId) {
+      ledger.importScopeId = "legacy_v10";
+    }
+
     const ns = ledger.namespace;
     byNamespace[ns] ??= { imports: 0, bundles: 0 };
     byNamespace[ns]!.imports += 1;

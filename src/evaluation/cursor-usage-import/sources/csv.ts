@@ -8,6 +8,7 @@ import { CURSOR_USAGE_IMPORTER_VERSION } from "../types.js";
 import {
   digestCsvBytes,
   parseCursorUsageCsv,
+  type ParseCsvOptions,
   type ParseCsvResult,
 } from "../parse.js";
 
@@ -15,6 +16,7 @@ export interface ParseCsvSourceResult {
   events: CanonicalUsageEvent[];
   digestSha256: string;
   parsed: ParseCsvResult;
+  raw: string;
 }
 
 function costClassFromCategory(
@@ -33,10 +35,12 @@ function costClassFromCategory(
 
 /**
  * Parse a Cursor usage CSV file or buffer into canonical usage events.
+ * Only cloud_agent_attributable rows become score-bound canonical events.
  */
 export async function parseCsvSource(params: {
   filePath?: string;
   buffer?: Buffer | Uint8Array | string;
+  parseOptions?: ParseCsvOptions;
 }): Promise<ParseCsvSourceResult> {
   let raw: string;
   if (params.buffer != null) {
@@ -51,7 +55,7 @@ export async function parseCsvSource(params: {
   }
 
   const digestSha256 = digestCsvBytes(raw);
-  const parsed = parseCursorUsageCsv(raw);
+  const parsed = parseCursorUsageCsv(raw, params.parseOptions);
   const events: CanonicalUsageEvent[] = parsed.rows.map((row) =>
     eventFromCsvRow({
       importerVersion: CURSOR_USAGE_IMPORTER_VERSION,
@@ -68,7 +72,7 @@ export async function parseCsvSource(params: {
     }),
   );
 
-  return { events, digestSha256, parsed };
+  return { events, digestSha256, parsed, raw };
 }
 
 export function digestCsvSource(raw: string): string {

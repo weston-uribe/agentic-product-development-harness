@@ -535,4 +535,130 @@ describe("cursor usage apply revalidation", () => {
 
     expect(scoreClientCalls).toBe(0);
   });
+
+  it("rejects legacy v10 staged imports before creating a score client", async () => {
+    const logDirectory = mkdtempSync(path.join(tmpdir(), "cursor-usage-v10-"));
+    let scoreClientCalls = 0;
+    const preflight = await preflightCsvImport({
+      csvBytes: sampleCsv,
+      exportWindow,
+      namespace: "default",
+      environment: "test",
+      logDirectory,
+      langfuseConfig,
+      deps: {
+        ...serviceDeps,
+        discover: async () => ({
+          candidates: readyDiscoverCandidates,
+          retrievalComplete: true,
+        }),
+      },
+    });
+    expect(preflight.sourceScopeComplete).toBe(true);
+
+    const stagingRoot = path.join(
+      logDirectory,
+      "evaluation-reports/cursor-usage-imports",
+      preflight.importId,
+    );
+    const preflightPath = path.join(stagingRoot, "preflight.private.json");
+    const evidencePath = path.join(stagingRoot, "parser-evidence.private.json");
+    const preflightJson = JSON.parse(readFileSync(preflightPath, "utf8")) as {
+      importerVersion: string;
+      schemaVersion: number;
+    };
+    const evidenceJson = JSON.parse(readFileSync(evidencePath, "utf8")) as {
+      schemaVersion: number;
+    };
+    preflightJson.importerVersion = "10.0.0";
+    preflightJson.schemaVersion = 1;
+    evidenceJson.schemaVersion = 1;
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(preflightPath, `${JSON.stringify(preflightJson, null, 2)}\n`);
+    writeFileSync(evidencePath, `${JSON.stringify(evidenceJson, null, 2)}\n`);
+
+    await expect(
+      applyCsvImport({
+        importId: preflight.importId,
+        fingerprint: preflight.fingerprint,
+        preflightApprovalFingerprint: preflight.preflightApprovalFingerprint,
+        confirmed: true,
+        logDirectory,
+        namespace: "default",
+        environment: "test",
+        langfuseConfig,
+        deps: {
+          ...serviceDeps,
+          createScoreClient: async () => {
+            scoreClientCalls += 1;
+            return { recordScore() {}, flush: async () => {} };
+          },
+        },
+      }),
+    ).rejects.toThrow("staged_import_version_mismatch_requires_new_preflight");
+    expect(scoreClientCalls).toBe(0);
+  });
+
+  it("fails closed when blank-ID capability classification changes before apply", async () => {
+    const mixedCsv = [
+      "Date,Cloud Agent ID,Automation ID,Kind,Model,Max Mode,Input (w/ Cache Write),Input (w/o Cache Write),Cache Read,Output Tokens,Total Tokens,Cost",
+      "2026-07-19T12:00:00.000Z,bc-agent-planning-001,,Included,composer-2.5,false,0,100,0,50,150,Included",
+      "2026-07-19T12:30:00.000Z,,,Included,composer-2.5,false,0,20,0,5,25,Included",
+      "2026-07-19T13:00:00.000Z,bc-agent-planreview-001,,Included,composer-2.5,false,0,80,0,40,120,Included",
+    ].join("\n");
+    const logDirectory = mkdtempSync(path.join(tmpdir(), "cursor-usage-cap-"));
+    let scoreClientCalls = 0;
+    const preflight = await preflightCsvImport({
+      csvBytes: mixedCsv,
+      exportWindow,
+      namespace: "default",
+      environment: "test",
+      logDirectory,
+      langfuseConfig,
+      deps: {
+        ...serviceDeps,
+        discover: async () => ({
+          candidates: readyDiscoverCandidates,
+          retrievalComplete: true,
+        }),
+      },
+    });
+    expect(preflight.publicSummary.nonCloudAgentExcludedRowCount).toBe(1);
+
+    const evidencePath = path.join(
+      logDirectory,
+      "evaluation-reports/cursor-usage-imports",
+      preflight.importId,
+      "parser-evidence.private.json",
+    );
+    const evidence = JSON.parse(readFileSync(evidencePath, "utf8")) as {
+      rows: Array<{ agentCellBlank: boolean; rowCapability: string }>;
+    };
+    const blank = evidence.rows.find((r) => r.agentCellBlank);
+    expect(blank).toBeTruthy();
+    blank!.rowCapability = "cloud_agent_attributable";
+    const { writeFileSync } = await import("node:fs");
+    writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
+
+    await expect(
+      applyCsvImport({
+        importId: preflight.importId,
+        fingerprint: preflight.fingerprint,
+        preflightApprovalFingerprint: preflight.preflightApprovalFingerprint,
+        confirmed: true,
+        logDirectory,
+        namespace: "default",
+        environment: "test",
+        langfuseConfig,
+        deps: {
+          ...serviceDeps,
+          createScoreClient: async () => {
+            scoreClientCalls += 1;
+            return { recordScore() {}, flush: async () => {} };
+          },
+        },
+      }),
+    ).rejects.toThrow(/preflight_plan_changed/);
+    expect(scoreClientCalls).toBe(0);
+  });
 });

@@ -24,16 +24,27 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const file = formData.get("file");
+  const boundsSource = String(formData.get("boundsSource") ?? "csv_row_extrema").trim();
   const exportStart = String(formData.get("exportStart") ?? "").trim();
   const exportEnd = String(formData.get("exportEnd") ?? "").trim();
   const exportTimezone = String(formData.get("timezone") ?? "UTC").trim();
+  const assumedTimezone = String(formData.get("assumedTimezone") ?? "").trim();
+  const disambiguation = String(formData.get("disambiguation") ?? "").trim();
+  const expectedSourceDigestSha256 = String(
+    formData.get("expectedSourceDigestSha256") ?? "",
+  ).trim();
+  const expectedInspectionToken = String(
+    formData.get("expectedInspectionToken") ?? "",
+  ).trim();
+  const advancedOverride =
+    String(formData.get("advancedOverride") ?? "") === "true";
 
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "CSV file is required." }, { status: 400 });
   }
-  if (!exportStart || !exportEnd) {
+  if (!file.name.toLowerCase().endsWith(".csv")) {
     return NextResponse.json(
-      { error: "Export window start and end are required." },
+      { error: "CSV filename required." },
       { status: 400 },
     );
   }
@@ -41,15 +52,39 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Payload too large." }, { status: 413 });
   }
 
+  const useManual =
+    advancedOverride && boundsSource === "operator_gui_fields";
+  if (useManual && (!exportStart || !exportEnd)) {
+    return NextResponse.json(
+      { error: "Export window start and end are required for manual override." },
+      { status: 400 },
+    );
+  }
+
   const csvBytes = Buffer.from(await file.arrayBuffer());
   try {
     const result = await runPreflightCsvImport({
       csvBytes,
-      exportWindow: buildExportWindow({
-        exportStart,
-        exportEnd,
-        exportTimezone,
-      }),
+      exportWindow: useManual
+        ? buildExportWindow({
+            exportStart,
+            exportEnd,
+            exportTimezone,
+          })
+        : {
+            startIso: "",
+            endIso: "",
+            timezone: "UTC",
+            precision: "millisecond",
+            boundsSource: "csv_row_extrema",
+          },
+      assumedTimezone: assumedTimezone || null,
+      disambiguationPolicy:
+        disambiguation === "earlier" || disambiguation === "later"
+          ? disambiguation
+          : "reject_ambiguous",
+      expectedSourceDigestSha256: expectedSourceDigestSha256 || null,
+      expectedInspectionToken: expectedInspectionToken || null,
     });
     return NextResponse.json({
       importId: result.importId,
@@ -69,12 +104,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       rejectionReasonCodes: result.publicSummary.rejectionReasonCodes,
     });
   } catch (error) {
-    return NextResponse.json(
-      {
-        error:
-          error instanceof Error ? error.message : "Preflight import failed.",
-      },
-      { status: 500 },
-    );
+    const message =
+      error instanceof Error ? error.message : "Preflight import failed.";
+    if (
+      message === "inspection_digest_mismatch" ||
+      message === "inspection_token_mismatch" ||
+      message === "export_window_unproven" ||
+      message === "invalid_assumed_timezone" ||
+      message.startsWith("Missing required CSV column")
+    ) {
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

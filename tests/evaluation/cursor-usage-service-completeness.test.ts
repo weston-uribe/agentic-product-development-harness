@@ -29,19 +29,19 @@ function csvWithRows(...rows: string[]): string {
 }
 
 describe("cursor usage parse rejection classes", () => {
-  it("rejects malformed row without Cloud Agent ID as upload_scoped_rejection", () => {
+  it("classifies blank Cloud Agent ID as non-attributable, not upload rejection", () => {
     const parsed = parseCursorUsageCsv(
       csvWithRows(
         VALID_ROW,
         "2026-07-19T12:01:00.000Z,,,Included,composer-2.5,false,0,150,400,25,575,Included",
       ),
     );
-    expect(parsed.arithmetic.identityHolds).toBe(false);
-    expect(parsed.rejectionSummary.uploadScopedCount).toBe(1);
-    const rejected = parsed.rowEvidence.find(
-      (r) => r.rejectionClass === "upload_scoped_rejection",
-    );
-    expect(rejected?.rejectionReason).toBe("cloud_agent_id_missing");
+    expect(parsed.arithmetic.cloudAgentArithmeticComplete).toBe(true);
+    expect(parsed.rejectionSummary.uploadScopedCount).toBe(0);
+    const blank = parsed.rowEvidence.find((r) => r.agentCellBlank);
+    expect(blank?.rowCapability).toBe("non_cloud_agent_usage");
+    expect(blank?.rejectionClass).toBeNull();
+    expect(parsed.rows).toHaveLength(1);
   });
 
   it("rejects invalid short Cloud Agent ID as upload_scoped_rejection", () => {
@@ -90,35 +90,43 @@ describe("cursor usage parse rejection classes", () => {
 });
 
 describe("cursor usage preflight completeness", () => {
-  it("preflight with upload-scoped rejection marks sourceScopeComplete false", async () => {
+  it("preflight with blank-ID rows does not upload-reject; invalid nonblank still blocks", async () => {
     const logDirectory = mkdtempSync(
       path.join(tmpdir(), "cursor-usage-preflight-"),
     );
-    const csv = csvWithRows(
-      VALID_ROW,
-      "2026-07-19T12:01:00.000Z,,,Included,composer-2.5,false,0,150,400,25,575,Included",
-    );
-
-    const result = await preflightCsvImport({
-      csvBytes: csv,
+    const blankOk = await preflightCsvImport({
+      csvBytes: csvWithRows(
+        VALID_ROW,
+        "2026-07-19T12:01:00.000Z,,,Included,composer-2.5,false,0,150,400,25,575,Included",
+      ),
       exportWindow,
       namespace: "default",
       logDirectory,
       discoverLangfuse: false,
     });
+    expect(blankOk.publicSummary.uploadScopedRejectionCount).toBe(0);
+    expect(blankOk.publicSummary.nonCloudAgentExcludedRowCount).toBe(1);
+    expect(blankOk.publicSummary.sourceCapabilityExclusionDigest).toBeTruthy();
 
-    expect(result.sourceScopeComplete).toBe(false);
-    expect(result.publicSummary.uploadScopedRejectionCount).toBeGreaterThan(0);
-    expect(result.publicSummary.rejectionReasonCodes).toContain(
-      "cloud_agent_id_missing",
+    const blocked = await preflightCsvImport({
+      csvBytes: csvWithRows(
+        VALID_ROW,
+        "2026-07-19T12:01:00.000Z,not-a-bc-id,,Included,composer-2.5,false,0,150,400,25,575,Included",
+      ),
+      exportWindow,
+      namespace: "default",
+      logDirectory,
+      discoverLangfuse: false,
+    });
+    expect(blocked.sourceScopeComplete).toBe(false);
+    expect(blocked.publicSummary.uploadScopedRejectionCount).toBeGreaterThan(0);
+    expect(blocked.publicSummary.rejectionReasonCodes).toContain(
+      "cloud_agent_id_invalid",
     );
 
-    const summaryJson = JSON.stringify(result.publicSummary);
+    const summaryJson = JSON.stringify(blocked.publicSummary);
     expect(summaryJson).not.toContain("bc-agent-planning-001");
-    expect(summaryJson).not.toMatch(/Included,composer-2\.5/);
-    for (const code of result.publicSummary.rejectionReasonCodes) {
-      expect(code).toMatch(/^[a-z0-9_]+$/);
-    }
+    expect(summaryJson).not.toContain("not-a-bc-id");
   });
 
   it("persists incomplete analytics diagnostics without contaminating verified totals", async () => {

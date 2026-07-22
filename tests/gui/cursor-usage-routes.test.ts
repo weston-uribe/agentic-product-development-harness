@@ -6,6 +6,7 @@ import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST as preflightPost } from "../../apps/gui/app/api/settings/cursor-usage/preflight/route.js";
 import { POST as applyPost } from "../../apps/gui/app/api/settings/cursor-usage/apply/route.js";
+import { POST as inspectPost } from "../../apps/gui/app/api/settings/cursor-usage/inspect/route.js";
 import { GET as configGet } from "../../apps/gui/app/api/settings/cursor-usage/config/route.js";
 import { P_DEV_OBSERVABILITY_NONCE_ENV } from "../../src/observability/constants.js";
 
@@ -21,6 +22,7 @@ function buildMultipartRequest(input: {
   origin?: string;
   nonce?: string;
   body: FormData;
+  path?: string;
 }): NextRequest {
   const host = input.host ?? "127.0.0.1:4317";
   const headers = new Headers({
@@ -30,7 +32,8 @@ function buildMultipartRequest(input: {
   if (input.nonce) {
     headers.set("x-p-dev-observability-nonce", input.nonce);
   }
-  return new NextRequest(`http://${host}/api/settings/cursor-usage/preflight`, {
+  const routePath = input.path ?? "/api/settings/cursor-usage/preflight";
+  return new NextRequest(`http://${host}${routePath}`, {
     method: "POST",
     headers,
     body: input.body,
@@ -161,8 +164,8 @@ describe("cursor usage routes", () => {
     const csv = await readFile(fixtureCsv, "utf8");
     const formData = new FormData();
     formData.set("file", new File([csv], "sample-usage.csv", { type: "text/csv" }));
-    formData.set("exportStart", "2026-07-19T00:00:00.000Z");
-    formData.set("exportEnd", "2026-07-19T23:59:59.000Z");
+    formData.set("boundsSource", "csv_row_extrema");
+    formData.set("advancedOverride", "false");
 
     const response = await preflightPost(
       buildMultipartRequest({
@@ -176,14 +179,121 @@ describe("cursor usage routes", () => {
       importId: string;
       fingerprint: string;
       rows: Array<{ cloudAgentIdHash: string }>;
+      publicSummary: { observedWindow?: { startIso: string; endIso: string } };
     };
     expect(payload.importId).toBeTruthy();
     expect(payload.fingerprint).toBeTruthy();
+    expect(payload.publicSummary.observedWindow?.startIso).toBe(
+      "2026-07-19T12:00:00.000Z",
+    );
+    expect(payload.publicSummary.observedWindow?.endIso).toBe(
+      "2026-07-19T13:00:00.000Z",
+    );
     const serialized = JSON.stringify(payload);
     expect(serialized).not.toContain("bc-agent-planning-001");
     expect(serialized).not.toContain("bc-agent-planreview-001");
     for (const row of payload.rows) {
       expect(row.cloudAgentIdHash.length).toBeLessThanOrEqual(12);
     }
+  });
+
+  it("inspect rejects unauthorized, wrong-origin, oversized, and malformed input", async () => {
+    const csv = await readFile(fixtureCsv, "utf8");
+    const formData = new FormData();
+    formData.set("file", new File([csv], "sample-usage.csv", { type: "text/csv" }));
+
+    const noNonce = await inspectPost(
+      buildMultipartRequest({
+        path: "/api/settings/cursor-usage/inspect",
+        body: formData,
+      }),
+    );
+    expect(noNonce.status).toBe(403);
+
+    const badOrigin = await inspectPost(
+      buildMultipartRequest({
+        path: "/api/settings/cursor-usage/inspect",
+        origin: "http://evil.example:4317",
+        nonce: "cursor-usage-test-nonce",
+        body: formData,
+      }),
+    );
+    expect(badOrigin.status).toBe(403);
+
+    const noFile = new FormData();
+    const missing = await inspectPost(
+      buildMultipartRequest({
+        path: "/api/settings/cursor-usage/inspect",
+        nonce: "cursor-usage-test-nonce",
+        body: noFile,
+      }),
+    );
+    expect(missing.status).toBe(400);
+
+    const badName = new FormData();
+    badName.set("file", new File(["x"], "usage.txt", { type: "text/plain" }));
+    const badExt = await inspectPost(
+      buildMultipartRequest({
+        path: "/api/settings/cursor-usage/inspect",
+        nonce: "cursor-usage-test-nonce",
+        body: badName,
+      }),
+    );
+    expect(badExt.status).toBe(400);
+  });
+
+  it("inspect returns secret-safe source summary and binds digest for preflight", async () => {
+    const csv = await readFile(fixtureCsv, "utf8");
+    const inspectForm = new FormData();
+    inspectForm.set(
+      "file",
+      new File([csv], "sample-usage.csv", { type: "text/csv" }),
+    );
+    const inspected = await inspectPost(
+      buildMultipartRequest({
+        path: "/api/settings/cursor-usage/inspect",
+        nonce: "cursor-usage-test-nonce",
+        body: inspectForm,
+      }),
+    );
+    expect(inspected.status).toBe(200);
+    const inspection = (await inspected.json()) as {
+      sourceDigestSha256: string;
+      inspectionToken: string;
+      minTimestampIso: string;
+      maxTimestampIso: string;
+      timezoneEvidence: string;
+      cloudAgentAttributableRowCount: number;
+    };
+    expect(inspection.timezoneEvidence).toBe("UTC");
+    expect(inspection.minTimestampIso < inspection.maxTimestampIso).toBe(true);
+    expect(inspection.cloudAgentAttributableRowCount).toBe(3);
+    expect(JSON.stringify(inspection)).not.toContain("bc-agent-planning-001");
+
+    const stale = new FormData();
+    stale.set("file", new File([csv], "sample-usage.csv", { type: "text/csv" }));
+    stale.set("boundsSource", "csv_row_extrema");
+    stale.set("expectedSourceDigestSha256", "0".repeat(64));
+    stale.set("expectedInspectionToken", inspection.inspectionToken);
+    const staleResp = await preflightPost(
+      buildMultipartRequest({
+        nonce: "cursor-usage-test-nonce",
+        body: stale,
+      }),
+    );
+    expect(staleResp.status).toBe(400);
+
+    const ok = new FormData();
+    ok.set("file", new File([csv], "sample-usage.csv", { type: "text/csv" }));
+    ok.set("boundsSource", "csv_row_extrema");
+    ok.set("expectedSourceDigestSha256", inspection.sourceDigestSha256);
+    ok.set("expectedInspectionToken", inspection.inspectionToken);
+    const okResp = await preflightPost(
+      buildMultipartRequest({
+        nonce: "cursor-usage-test-nonce",
+        body: ok,
+      }),
+    );
+    expect(okResp.status).toBe(200);
   });
 });

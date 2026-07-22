@@ -67,8 +67,8 @@ function writeTempCsv(name: string, body: string): string {
 async function runPreflight(
   page: import("@playwright/test").Page,
   csvPath: string,
-  exportStart: string,
-  exportEnd: string,
+  exportStart?: string,
+  exportEnd?: string,
 ): Promise<void> {
   await page.goto("/settings/cursor-usage");
   await page.waitForLoadState("networkidle");
@@ -76,8 +76,21 @@ async function runPreflight(
     sessionStorage.removeItem("cursor-usage-import-id");
   });
   await page.getByTestId("cursor-usage-file-input").setInputFiles(csvPath);
-  await page.getByTestId("cursor-usage-export-start").fill(exportStart);
-  await page.getByTestId("cursor-usage-export-end").fill(exportEnd);
+  await expect(page.getByTestId("cursor-usage-source-summary")).toBeVisible({
+    timeout: 30_000,
+  });
+  if (exportStart != null && exportEnd != null) {
+    await page.getByTestId("cursor-usage-advanced-override").check();
+    await page.getByTestId("cursor-usage-export-start").fill(exportStart);
+    await page.getByTestId("cursor-usage-export-end").fill(exportEnd);
+  } else {
+    await expect(page.getByTestId("cursor-usage-export-start")).not.toHaveValue(
+      "",
+    );
+    await expect(page.getByTestId("cursor-usage-export-end")).not.toHaveValue(
+      "",
+    );
+  }
   await page.getByTestId("cursor-usage-preflight-button").click();
 }
 
@@ -87,15 +100,45 @@ test.describe("cursor usage import browser", () => {
     await resetFakeLangfuse("default");
   });
 
+  test("newest-first CSV auto-populates observed window start < end", async ({
+    page,
+  }) => {
+    const newestFirst = writeTempCsv(
+      "newest-first.csv",
+      [
+        CSV_HEADER,
+        "2026-07-22T16:47:19.615Z,bc-agent-planning-001,,Included,composer-2.5,false,100,200,300,50,650,Included",
+        "2026-07-16T01:27:44.299Z,,,Included,composer-2.5,false,10,20,30,5,65,Included",
+        "2026-07-16T01:27:44.299Z,bc-agent-planreview-001,,Included,composer-2.5,false,50,100,200,40,390,Included",
+      ].join("\n"),
+    );
+    await page.goto("/settings/cursor-usage");
+    await page.waitForLoadState("networkidle");
+    await page.getByTestId("cursor-usage-file-input").setInputFiles(newestFirst);
+    await expect(page.getByTestId("cursor-usage-source-summary")).toBeVisible({
+      timeout: 30_000,
+    });
+    const start = await page.getByTestId("cursor-usage-export-start").inputValue();
+    const end = await page.getByTestId("cursor-usage-export-end").inputValue();
+    expect(start < end).toBe(true);
+    await expect(page.getByTestId("cursor-usage-timezone-evidence")).toContainText(
+      "UTC",
+    );
+    await expect(page.getByTestId("cursor-usage-attributable-count")).toHaveText(
+      "2",
+    );
+    await expect(page.getByTestId("cursor-usage-excluded-count")).toHaveText("1");
+    await expect(page.getByTestId("cursor-usage-cache-write-summary")).toBeVisible();
+    await expect(page.getByTestId("cursor-usage-cache-read-summary")).toBeVisible();
+    const html = await page.content();
+    expect(html).not.toContain("bc-agent-planning-001");
+    expect(html).not.toContain("bc-agent-planreview-001");
+  });
+
   test("happy path: bulk CSV import stays secret-safe and duplicate-click safe", async ({
     page,
   }) => {
-    await runPreflight(
-      page,
-      fixtureCsv,
-      "2026-07-19T00:00:00.000Z",
-      "2026-07-19T23:59:59.000Z",
-    );
+    await runPreflight(page, fixtureCsv);
     await expect(page.getByTestId("cursor-usage-preflight-table")).toBeVisible();
     await expect(page.getByTestId("preflight-state-matched").first()).toBeVisible();
 
@@ -253,32 +296,27 @@ test.describe("cursor usage import browser", () => {
     expect(Number.parseInt(incompleteText, 10)).toBeGreaterThan(0);
   });
 
-  test("upload-scoped rejection (no agent id): blocks apply, zero score-creates", async ({
+  test("upload-scoped rejection (invalid nonblank agent id): blocks apply, zero score-creates", async ({
     page,
   }) => {
     await resetFakeLangfuse("default");
     const csv = writeTempCsv(
-      "no-agent.csv",
+      "bad-agent.csv",
       [
         CSV_HEADER,
-        "2026-07-19T12:00:00.000Z,, ,Included,composer-2.5,false,100,200,300,50,650,Included",
+        "2026-07-19T12:00:00.000Z,not-a-bc-id,,Included,composer-2.5,false,100,200,300,50,650,Included",
       ].join("\n"),
     );
     const before = await scoreCreateCount();
-    await runPreflight(
-      page,
-      csv,
-      "2026-07-19T00:00:00.000Z",
-      "2026-07-19T23:59:59.000Z",
-    );
+    await runPreflight(page, csv);
     await expect(page.getByTestId("cursor-usage-rejection-summary")).toBeVisible();
     await expect(page.getByTestId("cursor-usage-apply-button")).toBeDisabled();
     const summary = await page
       .getByTestId("cursor-usage-rejection-summary")
       .innerText();
     expect(summary).toMatch(/upload-scoped:\s*[1-9]/);
+    expect(summary).not.toContain("not-a-bc-id");
     expect(summary).not.toContain("Included,composer");
-    expect(summary).not.toContain("100,200,300");
     expect(await scoreCreateCount()).toBe(before);
   });
 
