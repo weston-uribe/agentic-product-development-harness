@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { CsvRowNormalized, TokenBuckets } from "./types.js";
+import type { CsvCostCategory, CsvRowNormalized, TokenBuckets } from "./types.js";
 
 export const CSV_COLUMNS = {
   date: "Date",
@@ -15,6 +15,8 @@ export const CSV_COLUMNS = {
   total: "Total Tokens",
   cost: "Cost",
 } as const;
+
+const FORMULA_PREFIX = /^=|^[+@]|^-/;
 
 function parseCsvLine(line: string): string[] {
   const cells: string[] = [];
@@ -42,22 +44,32 @@ function parseCsvLine(line: string): string[] {
   return cells;
 }
 
+function isFormulaUnsafe(raw: string): boolean {
+  const s = raw.trim();
+  return s.length > 0 && FORMULA_PREFIX.test(s) && !/^-?\d+(\.\d+)?$/.test(s);
+}
+
 function parseToken(raw: string): number | null {
   const s = raw.trim();
   if (s === "") return null;
+  if (isFormulaUnsafe(s)) return null;
   const normalized = s.replace(/,/g, "");
   if (!/^-?\d+(\.\d+)?$/.test(normalized)) return null;
   const n = Number(normalized);
   return Number.isFinite(n) ? n : null;
 }
 
-function classifyCost(
-  raw: string,
-): CsvRowNormalized["costCategory"] {
+/**
+ * Numeric Cost cells are classified as provider_cost_numeric_untyped until
+ * current Cursor export documentation or a sanitized real export proves USD.
+ * "Included in …" is never treated as actual $0.
+ */
+function classifyCost(raw: string): CsvCostCategory {
   const s = raw.trim();
   if (s === "") return "empty";
+  if (isFormulaUnsafe(s)) return "other";
   if (/included/i.test(s)) return "included_like";
-  if (/^\$?-?\d+(\.\d+)?$/.test(s)) return "numeric";
+  if (/^\$?-?\d+(\.\d+)?$/.test(s)) return "provider_cost_numeric_untyped";
   return "other";
 }
 
@@ -156,6 +168,7 @@ export function parseCursorUsageCsv(raw: string): ParseCsvResult {
     const costCategory = classifyCost(get(CSV_COLUMNS.cost));
     const cloudAgentId = get(CSV_COLUMNS.cloudAgentId);
     const automationId = get(CSV_COLUMNS.automationId);
+    const kind = get(CSV_COLUMNS.kind);
     const model = get(CSV_COLUMNS.model);
     const maxMode = get(CSV_COLUMNS.maxMode);
     const timestampIso = get(CSV_COLUMNS.date);
@@ -176,6 +189,7 @@ export function parseCursorUsageCsv(raw: string): ParseCsvResult {
       timestampIso,
       cloudAgentId,
       automationId,
+      kind,
       model,
       maxMode,
       tokens,

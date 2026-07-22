@@ -1,4 +1,4 @@
-import { CURSOR_USAGE_SCORE_NAMES, type PhaseImportAttachment } from "./types.js";
+import type { PhaseImportAttachment } from "./types.js";
 
 export interface FetchedScore {
   id: string;
@@ -291,7 +291,10 @@ export function evaluateVerdicts(params: {
         a.aggregate.tokens.cacheReadTokens +
         a.aggregate.tokens.outputTokens,
   );
-  const expectedScoreCount = attachments.length * CURSOR_USAGE_SCORE_NAMES.length;
+  const expectedScoreCount = attachments.reduce(
+    (n, a) => n + a.scores.length,
+    0,
+  );
   const verifyOk =
     verify != null &&
     verify.verified &&
