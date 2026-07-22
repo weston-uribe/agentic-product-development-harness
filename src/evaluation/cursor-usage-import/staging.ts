@@ -2,7 +2,18 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { CanonicalUsageEvent, ExportWindow } from "./canonical.js";
+import {
+  CANONICAL_USAGE_SCHEMA_VERSION,
+  SCORE_CONTRACT_VERSION,
+} from "./canonical.js";
+import { PARSER_SCHEMA_VERSION, type ParserRowEvidence } from "./parse.js";
+import { MODEL_ALIAS_REGISTRY_VERSION } from "./model-aliases.js";
+import { MODEL_RECONCILIATION_CONTRACT_VERSION } from "./model-reconciliation.js";
 import { CURSOR_USAGE_IMPORTER_VERSION } from "./types.js";
+import { PRICING_REGISTRY_VERSION } from "../telemetry/pricing-registry.js";
+import type { ExpectedScoreManifest } from "./expected-score-manifest.js";
+import { digestCanonical } from "./expected-score-manifest.js";
+import { DEFAULT_SOURCE_COVERAGE_SAFETY_MARGIN_MS } from "./source-scope.js";
 
 export type ImportLifecycleState =
   | "uploaded"
@@ -15,6 +26,35 @@ export type ImportLifecycleState =
   | "incomplete"
   | "failed_recoverable";
 
+export interface CanonicalImportIdentity {
+  namespace: string;
+  environment: string | null;
+  sourceDigestSha256: string;
+  exportWindow: ExportWindow | null;
+  sourceCoverageSafetyMarginMs: number;
+  normalizedSourceExclusionSet: string[];
+  importerVersion: string;
+  scoreContractVersion: string;
+  parserSchemaVersion: number;
+  canonicalUsageSchemaVersion: number;
+  modelAliasRegistryVersion: string;
+  modelReconciliationContractVersion: string;
+  pricingRegistryVersion: string;
+}
+
+export interface ParserEvidenceArtifact {
+  schemaVersion: 1;
+  parserSchemaVersion: typeof PARSER_SCHEMA_VERSION;
+  rows: ParserRowEvidence[];
+  canonicalEventDigest: string;
+  rowsTested: number;
+  rowsSatisfying: number;
+  rowsViolating: number;
+  agentScopedRejectionCount: number;
+  uploadScopedRejectionCount: number;
+  rejectionReasonCodes: string[];
+}
+
 export interface PreflightPrivateArtifact {
   schemaVersion: 1;
   importId: string;
@@ -24,13 +64,24 @@ export interface PreflightPrivateArtifact {
   environment: string | null;
   sourceDigestSha256: string;
   exportWindow: ExportWindow | null;
+  /** @deprecated Prefer canonicalImportIdentity + preflightApprovalFingerprint */
   fingerprint: string;
+  canonicalImportIdentity: string;
+  preflightApprovalFingerprint: string;
   lifecycle: ImportLifecycleState;
   candidateCount: number;
   bundleCount: number;
   sourceScopeComplete: boolean;
   sourceScopeIncompleteReason: string | null;
   canonicalEventCount: number;
+  sourceCoverageSafetyMarginMs: number;
+  normalizedSourceExclusionSet: string[];
+  uploadScopedRejectionCount: number;
+  agentScopedRejectionCount: number;
+  rejectionReasonCodes: string[];
+  discoverySnapshotDigest: string;
+  targetTraceSetDigest: string;
+  expectedScoreManifestDigest: string;
 }
 
 export interface PublicSummaryArtifact {
@@ -44,6 +95,10 @@ export interface PublicSummaryArtifact {
   sourceDigestPrefix: string;
   bundleCount: number;
   sourceScopeComplete: boolean;
+  sourceScopeIncompleteReason: string | null;
+  uploadScopedRejectionCount: number;
+  agentScopedRejectionCount: number;
+  rejectionReasonCodes: string[];
   observationMutationAttempted: false;
 }
 
@@ -59,6 +114,27 @@ export interface ImportLedgerEntry {
   scoreCount: number;
   verified: boolean;
   sourceScopeComplete: boolean;
+  sourceScopeIncompleteReason?: string | null;
+  uploadScopedRejectionCount?: number;
+  agentScopedRejectionCount?: number;
+  rejectionReasonCodes?: string[];
+  localEvidenceCompleteness?: "complete" | "partial" | "none";
+  langfuseReconciliationStatus?:
+    | "not_run"
+    | "unavailable"
+    | "complete"
+    | "divergent";
+  analyticsSummary?: LedgerAnalyticsSummary;
+}
+
+export interface LedgerAnalyticsSummary {
+  byIssue: Record<string, { bundles: number; inputTokens: number; outputTokens: number }>;
+  byPhase: Record<string, { bundles: number; inputTokens: number; outputTokens: number }>;
+  bySourceModel: Record<string, { bundles: number; inputTokens: number }>;
+  byCanonicalModel: Record<string, { bundles: number; inputTokens: number }>;
+  byEffectiveVariant: Record<string, { bundles: number; inputTokens: number }>;
+  unresolvedSegmentCount: number;
+  pricingIncompleteSegmentCount: number;
 }
 
 export interface StagingArtifacts {
@@ -66,6 +142,8 @@ export interface StagingArtifacts {
   preflight: PreflightPrivateArtifact;
   publicSummary: PublicSummaryArtifact;
   ledger: ImportLedgerEntry;
+  parserEvidence?: ParserEvidenceArtifact;
+  expectedScoreManifest?: ExpectedScoreManifest;
 }
 
 const STAGING_SUBDIR = "evaluation-reports/cursor-usage-imports";
@@ -117,6 +195,20 @@ export async function writeStagingArtifacts(
     artifacts.publicSummary,
   );
   await atomicWriteJson(path.join(dir, "ledger.json"), artifacts.ledger);
+  if (artifacts.parserEvidence) {
+    await atomicWriteJson(
+      path.join(dir, "parser-evidence.private.json"),
+      artifacts.parserEvidence,
+      0o600,
+    );
+  }
+  if (artifacts.expectedScoreManifest) {
+    await atomicWriteJson(
+      path.join(dir, "expected-score-manifest.private.json"),
+      artifacts.expectedScoreManifest,
+      0o600,
+    );
+  }
 }
 
 export async function readStagingArtifacts(
@@ -131,11 +223,32 @@ export async function readStagingArtifacts(
       readFile(path.join(dir, "public-summary.json"), "utf8"),
       readFile(path.join(dir, "ledger.json"), "utf8"),
     ]);
+    let parserEvidence: ParserEvidenceArtifact | undefined;
+    let expectedScoreManifest: ExpectedScoreManifest | undefined;
+    try {
+      parserEvidence = JSON.parse(
+        await readFile(path.join(dir, "parser-evidence.private.json"), "utf8"),
+      ) as ParserEvidenceArtifact;
+    } catch {
+      parserEvidence = undefined;
+    }
+    try {
+      expectedScoreManifest = JSON.parse(
+        await readFile(
+          path.join(dir, "expected-score-manifest.private.json"),
+          "utf8",
+        ),
+      ) as ExpectedScoreManifest;
+    } catch {
+      expectedScoreManifest = undefined;
+    }
     return {
       canonicalEvents: JSON.parse(canonicalRaw) as CanonicalUsageEvent[],
       preflight: JSON.parse(preflightRaw) as PreflightPrivateArtifact,
       publicSummary: JSON.parse(publicRaw) as PublicSummaryArtifact,
       ledger: JSON.parse(ledgerRaw) as ImportLedgerEntry,
+      parserEvidence,
+      expectedScoreManifest,
     };
   } catch {
     return null;
@@ -216,7 +329,6 @@ export async function cleanupExpiredImports(
       continue;
     }
 
-    // Abandoned, failed, incomplete, and recoverable partials: 7d minimum retention.
     if (ageMs >= ABANDONED_RETENTION_MS) {
       await rm(dir, { recursive: true, force: true });
       removed.push(entry);
@@ -226,18 +338,67 @@ export async function cleanupExpiredImports(
   return removed;
 }
 
+export function buildCanonicalImportIdentity(params: {
+  namespace: string;
+  environment?: string | null;
+  sourceDigestSha256: string;
+  exportWindow: ExportWindow | null;
+  sourceCoverageSafetyMarginMs?: number;
+  normalizedSourceExclusionSet?: string[];
+}): CanonicalImportIdentity {
+  return {
+    namespace: params.namespace,
+    environment: params.environment?.trim() || null,
+    sourceDigestSha256: params.sourceDigestSha256,
+    exportWindow: params.exportWindow,
+    sourceCoverageSafetyMarginMs:
+      params.sourceCoverageSafetyMarginMs ?? DEFAULT_SOURCE_COVERAGE_SAFETY_MARGIN_MS,
+    normalizedSourceExclusionSet: params.normalizedSourceExclusionSet ?? [],
+    importerVersion: CURSOR_USAGE_IMPORTER_VERSION,
+    scoreContractVersion: SCORE_CONTRACT_VERSION,
+    parserSchemaVersion: PARSER_SCHEMA_VERSION,
+    canonicalUsageSchemaVersion: CANONICAL_USAGE_SCHEMA_VERSION,
+    modelAliasRegistryVersion: MODEL_ALIAS_REGISTRY_VERSION,
+    modelReconciliationContractVersion: MODEL_RECONCILIATION_CONTRACT_VERSION,
+    pricingRegistryVersion: PRICING_REGISTRY_VERSION,
+  };
+}
+
+export function fingerprintCanonicalImportIdentity(
+  identity: CanonicalImportIdentity,
+): string {
+  return digestCanonical(identity);
+}
+
+export function fingerprintPreflightApproval(params: {
+  canonicalImportIdentity: string;
+  discoverySnapshotDigest: string;
+  targetTraceSetDigest: string;
+  expectedScoreManifestDigest: string;
+}): string {
+  return digestCanonical({
+    canonicalImportIdentity: params.canonicalImportIdentity,
+    discoverySnapshotDigest: params.discoverySnapshotDigest,
+    targetTraceSetDigest: params.targetTraceSetDigest,
+    expectedScoreManifestDigest: params.expectedScoreManifestDigest,
+  });
+}
+
+/**
+ * Legacy helper retained for callers; now fingerprints the full import identity.
+ */
 export function fingerprintStaging(params: {
   namespace: string;
   sourceDigestSha256: string;
   exportWindow: ExportWindow | null;
+  environment?: string | null;
+  sourceCoverageSafetyMarginMs?: number;
 }): string {
-  return createHash("sha256")
-    .update(
-      JSON.stringify({
-        namespace: params.namespace,
-        sourceDigestSha256: params.sourceDigestSha256,
-        exportWindow: params.exportWindow,
-      }),
-    )
-    .digest("hex");
+  return fingerprintCanonicalImportIdentity(
+    buildCanonicalImportIdentity(params),
+  );
+}
+
+export function sha256Hex(input: string): string {
+  return createHash("sha256").update(input).digest("hex");
 }

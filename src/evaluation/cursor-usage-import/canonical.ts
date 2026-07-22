@@ -4,7 +4,7 @@ import { resolveCanonicalModelId } from "./model-aliases.js";
 import type { TokenBuckets } from "./types.js";
 
 export const CANONICAL_USAGE_SCHEMA_VERSION = 1 as const;
-export const SCORE_CONTRACT_VERSION = "9.0.0" as const;
+export const SCORE_CONTRACT_VERSION = "10.0.0" as const;
 
 export type CanonicalSourceType = "cursor_csv" | "cursor_admin_api";
 

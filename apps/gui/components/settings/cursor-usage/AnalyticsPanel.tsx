@@ -6,10 +6,23 @@ interface AnalyticsPanelProps {
   analytics: AnalyticsResponse | null;
 }
 
-const COMPLETENESS_LABELS: Record<AnalyticsResponse["completeness"], string> = {
-  local_ledger: "Local ledger (import staging)",
-  langfuse: "Langfuse-connected",
-  partial: "Partial / mixed",
+const LOCAL_LABELS: Record<
+  AnalyticsResponse["localEvidenceCompleteness"],
+  string
+> = {
+  complete: "Complete (verified local ledgers)",
+  partial: "Partial",
+  none: "None",
+};
+
+const LANGFUSE_LABELS: Record<
+  AnalyticsResponse["langfuseReconciliationStatus"],
+  string
+> = {
+  not_run: "Not run",
+  unavailable: "Unavailable",
+  complete: "Complete",
+  divergent: "Divergent",
 };
 
 export function AnalyticsPanel({ analytics }: AnalyticsPanelProps) {
@@ -24,15 +37,21 @@ export function AnalyticsPanel({ analytics }: AnalyticsPanelProps) {
     >
       <h3 className="font-medium">Analytics</h3>
       <p className="mt-2 text-muted-foreground">
-        Source of truth:{" "}
-        <span
-          className="font-medium text-foreground"
-          data-testid="cursor-usage-analytics-completeness"
-        >
-          {COMPLETENESS_LABELS[analytics.completeness]}
-        </span>
+        Totals cover only ledgers in the current operator workspace.
       </p>
       <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+        <div>
+          <dt className="text-muted-foreground">Local evidence</dt>
+          <dd data-testid="cursor-usage-analytics-local-evidence">
+            {LOCAL_LABELS[analytics.localEvidenceCompleteness]}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground">Langfuse reconciliation</dt>
+          <dd data-testid="cursor-usage-analytics-langfuse-status">
+            {LANGFUSE_LABELS[analytics.langfuseReconciliationStatus]}
+          </dd>
+        </div>
         <div>
           <dt className="text-muted-foreground">Imports</dt>
           <dd>{analytics.ledgerCount}</dd>
@@ -42,12 +61,24 @@ export function AnalyticsPanel({ analytics }: AnalyticsPanelProps) {
           <dd>{analytics.verifiedCount}</dd>
         </div>
         <div>
+          <dt className="text-muted-foreground">Incomplete imports</dt>
+          <dd>{analytics.incompleteCount ?? 0}</dd>
+        </div>
+        <div>
           <dt className="text-muted-foreground">Total bundles</dt>
           <dd>{analytics.totalBundles}</dd>
         </div>
         <div>
           <dt className="text-muted-foreground">Total scores</dt>
           <dd>{analytics.totalScores}</dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground">Unresolved segments</dt>
+          <dd>{analytics.unresolvedSegmentCount ?? 0}</dd>
+        </div>
+        <div>
+          <dt className="text-muted-foreground">Pricing-incomplete segments</dt>
+          <dd>{analytics.pricingIncompleteSegmentCount ?? 0}</dd>
         </div>
       </dl>
     </div>

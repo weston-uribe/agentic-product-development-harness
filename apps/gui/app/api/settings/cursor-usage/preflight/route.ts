@@ -54,12 +54,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({
       importId: result.importId,
       fingerprint: result.fingerprint,
+      preflightApprovalFingerprint: result.preflightApprovalFingerprint,
       lifecycle: result.lifecycle,
       sourceScopeComplete: result.sourceScopeComplete,
+      sourceScopeIncompleteReason:
+        result.publicSummary.sourceScopeIncompleteReason ?? null,
       bundleCount: result.bundleCount,
       publicSummary: result.publicSummary,
       rows: result.rows,
       conflicts: result.conflicts,
+      uploadScopedRejectionCount:
+        result.publicSummary.uploadScopedRejectionCount,
+      agentScopedRejectionCount: result.publicSummary.agentScopedRejectionCount,
+      rejectionReasonCodes: result.publicSummary.rejectionReasonCodes,
     });
   } catch (error) {
     return NextResponse.json(

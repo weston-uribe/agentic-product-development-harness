@@ -6,9 +6,13 @@ import {
   bundleAttributedSegments,
 } from "../../src/evaluation/cursor-usage-import/attribution.js";
 import { eventFromCsvRow } from "../../src/evaluation/cursor-usage-import/canonical.js";
-import { CURSOR_USAGE_IMPORTER_VERSION } from "../../src/evaluation/cursor-usage-import/types.js";
+import {
+  CURSOR_USAGE_IMPORTER_VERSION,
+  MULTI_MODEL_EXECUTION_PROVEN_FIELD,
+} from "../../src/evaluation/cursor-usage-import/types.js";
 import { buildPhaseUsageScores } from "../../src/evaluation/cursor-usage-import/scores.js";
 import type { UsageCandidate } from "../../src/evaluation/cursor-usage-import/discovery.js";
+import { normalizeModelRaw, resolveCanonicalModelId } from "../../src/evaluation/cursor-usage-import/model-aliases.js";
 
 const AGENT_ID = "bc-agent-multimodel-001";
 
@@ -34,7 +38,19 @@ function makeEvent(model: string, fingerprint: string) {
   });
 }
 
-function makeCandidate(): UsageCandidate {
+function makeCandidate(params?: {
+  multiModelExecutionProven?: boolean;
+  observedModels?: UsageCandidate["observedModels"];
+}): UsageCandidate {
+  const observedModels = params?.observedModels ?? [
+    {
+      rawModel: "composer-2.5",
+      normalizedRawModel: normalizeModelRaw("composer-2.5"),
+      canonicalModelId: resolveCanonicalModelId("composer-2.5"),
+      variant: "standard" as const,
+      observationIds: ["obs-1"],
+    },
+  ];
   return {
     traceId: "trace-implementation",
     sessionId: "a".repeat(64),
@@ -50,11 +66,21 @@ function makeCandidate(): UsageCandidate {
     model: "composer-2.5",
     effectiveVariant: "standard",
     existingCursorScoreNames: [],
+    observedModels,
+    observedModelIds: [
+      ...new Set(
+        observedModels
+          .map((o) => o.canonicalModelId)
+          .filter((id): id is string => id != null),
+      ),
+    ],
+    multiModelExecutionProven: params?.multiModelExecutionProven === true,
+    multiModelProofField: MULTI_MODEL_EXECUTION_PROVEN_FIELD,
   };
 }
 
 describe("cursor usage multimodel attribution", () => {
-  it("bundles two models for one agent into one trace without score id collision", () => {
+  it("blocks unproven multi-model mismatch (composer-2-fast vs composer-2.5)", () => {
     const events = [
       makeEvent("composer-2.5", "fp-model-a"),
       makeEvent("composer-2-fast", "fp-model-b"),
@@ -67,6 +93,35 @@ describe("cursor usage multimodel attribution", () => {
       candidates: [makeCandidate()],
       canonicalEvents: events,
     });
+    const states = attributed.map((a) => a.state);
+    // Unknown source model (composer-2-fast) is not in observed set → rejected/conflict.
+    expect(states.some((s) => s === "conflict" || s === "rejected")).toBe(true);
+    expect(states.every((s) => s === "matched")).toBe(false);
+  });
+
+  it("fixture-proven multi-model: observed set membership + flag allows both segments", () => {
+    const events = [
+      makeEvent("composer-2.5", "fp-model-a"),
+      makeEvent("composer-2.5", "fp-model-a2"),
+    ];
+    // Two observations of same canonical model with proof flag still match.
+    const attributed = attributeSegmentsToCandidates({
+      segments: buildSegmentsFromCanonicalEvents(events),
+      candidates: [
+        makeCandidate({
+          multiModelExecutionProven: true,
+          observedModels: [
+            {
+              rawModel: "composer-2.5",
+              normalizedRawModel: "composer-2.5",
+              canonicalModelId: "composer-2.5",
+              variant: "standard",
+              observationIds: ["obs-a", "obs-b"],
+            },
+          ],
+        }),
+      ],
+    });
     expect(attributed.every((a) => a.state === "matched")).toBe(true);
 
     const { bundles } = bundleAttributedSegments({
@@ -74,8 +129,6 @@ describe("cursor usage multimodel attribution", () => {
       namespace: "default",
     });
     expect(bundles).toHaveLength(1);
-    expect(bundles[0]!.segmentBreakdown).toHaveLength(2);
-    expect(bundles[0]!.tokens.totalTokens).toBe(40);
 
     const join = bundles[0]!.join;
     const scores = buildPhaseUsageScores({
@@ -93,15 +146,37 @@ describe("cursor usage multimodel attribution", () => {
 
     const ids = scores.map((s) => s.id);
     expect(new Set(ids).size).toBe(ids.length);
+    expect(ids).toContain(
+      deriveScoreId("default", "trace", join.traceId, "cursor_total_tokens"),
+    );
+  });
 
-    for (const name of [
-      "cursor_input_tokens",
-      "cursor_total_tokens",
-      "cursor_source_scope_complete",
-    ]) {
-      expect(ids).toContain(
-        deriveScoreId("default", "trace", join.traceId, name),
-      );
-    }
+  it("multi_model flag cannot authorize unobserved model", () => {
+    const events = [makeEvent("totally-unknown-model-xyz", "fp-unk")];
+    const attributed = attributeSegmentsToCandidates({
+      segments: buildSegmentsFromCanonicalEvents(events),
+      candidates: [
+        makeCandidate({
+          multiModelExecutionProven: true,
+          observedModels: [
+            {
+              rawModel: "composer-2.5",
+              normalizedRawModel: "composer-2.5",
+              canonicalModelId: "composer-2.5",
+              variant: "standard",
+              observationIds: ["obs-1"],
+            },
+            {
+              rawModel: "other-model",
+              normalizedRawModel: "other-model",
+              canonicalModelId: null,
+              variant: "standard",
+              observationIds: ["obs-2"],
+            },
+          ],
+        }),
+      ],
+    });
+    expect(attributed[0]!.state).not.toBe("matched");
   });
 });

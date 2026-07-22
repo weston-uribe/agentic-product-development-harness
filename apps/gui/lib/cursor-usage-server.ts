@@ -138,7 +138,15 @@ export async function buildPublicPreflightRows(params: {
   }));
 
   const conflicts = attributed
-    .filter((row) => row.state === "ambiguous" || row.state === "conflict")
+    .filter(
+      (row) =>
+        row.state === "ambiguous" ||
+        row.state === "conflict" ||
+        (row.state === "rejected" &&
+          (row.reason?.includes("model") ||
+            row.reason?.includes("variant") ||
+            row.reason?.includes("observed"))),
+    )
     .map((row) => row.reason ?? `segment_${row.state}`);
 
   return { rows, conflicts };
@@ -168,11 +176,14 @@ export async function runPreflightCsvImport(params: {
 export async function runApplyCsvImport(params: {
   importId: string;
   fingerprint: string;
+  preflightApprovalFingerprint?: string;
 }) {
   const ctx = await resolveCursorUsageServerContext();
   return applyCsvImport({
     importId: params.importId,
     fingerprint: params.fingerprint,
+    preflightApprovalFingerprint:
+      params.preflightApprovalFingerprint ?? params.fingerprint,
     confirmed: true,
     logDirectory: ctx.logDirectory,
     namespace: ctx.namespace,
@@ -185,18 +196,8 @@ export async function readImportStatus(importId: string) {
   return getImportStatus(ctx.logDirectory, importId);
 }
 
-export async function readImportAnalytics(): Promise<
-  ImportAnalytics & { completeness: "local_ledger" | "langfuse" | "partial" }
-> {
+export async function readImportAnalytics(): Promise<ImportAnalytics> {
   const ctx = await resolveCursorUsageServerContext();
-  const analytics = await getAnalyticsFromLedgers(ctx.logDirectory);
-  let completeness: "local_ledger" | "langfuse" | "partial" = "partial";
-  if (analytics.ledgerCount === 0) {
-    completeness = ctx.langfuseConfigured ? "langfuse" : "local_ledger";
-  } else if (ctx.langfuseConfigured && analytics.verifiedCount > 0) {
-    completeness = "langfuse";
-  } else if (analytics.ledgerCount > 0) {
-    completeness = "local_ledger";
-  }
-  return { ...analytics, completeness };
+  // Credentials alone never imply Langfuse reconciliation ran.
+  return getAnalyticsFromLedgers(ctx.logDirectory);
 }

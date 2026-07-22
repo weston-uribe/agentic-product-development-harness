@@ -6,39 +6,60 @@ import {
   type LangfuseApiClient,
 } from "../langfuse-inspect/client.js";
 import { deriveScoreId } from "../identifiers.js";
-import { hashCloudAgentId } from "./parse.js";
+import {
+  hashCloudAgentId,
+  PARSER_SCHEMA_VERSION,
+  recomputeArithmeticFromEvidence,
+  type ParserRowEvidence,
+} from "./parse.js";
 import { parseCsvSource } from "./sources/csv.js";
-import { discoverUsageCandidates } from "./discovery.js";
+import { discoverUsageCandidates, type UsageCandidate } from "./discovery.js";
 import {
   attributeSegmentsToCandidates,
   buildSegmentsFromCanonicalEvents,
   bundleAttributedSegments,
 } from "./attribution.js";
 import {
+  buildCanonicalImportIdentity,
   createImportId,
-  fingerprintStaging,
+  fingerprintCanonicalImportIdentity,
+  fingerprintPreflightApproval,
   readStagingArtifacts,
   writeStagingArtifacts,
   listLedgers,
   type ImportLedgerEntry,
   type ImportLifecycleState,
+  type ParserEvidenceArtifact,
   type StagingArtifacts,
 } from "./staging.js";
-import {
-  withImportLock,
-} from "./import-lock.js";
+import { withImportLock } from "./import-lock.js";
 import { computeCostProxies } from "./proxy-cost.js";
 import { projectUsageScoresOnly } from "./project.js";
 import { createScoreOnlyClient } from "./score-client.js";
 import { buildPhaseUsageScores } from "./scores.js";
-import { evaluateSourceScope, validateExportWindow } from "./source-scope.js";
+import {
+  DEFAULT_SOURCE_COVERAGE_SAFETY_MARGIN_MS,
+  evaluateSourceScope,
+  validateExportWindow,
+} from "./source-scope.js";
 import { verifyImportedScores, type FetchedScore } from "./verify.js";
 import { mapFetchedScores } from "./run.js";
-import type { ExportWindow } from "./canonical.js";
+import type { ExportWindow, UsageSegment } from "./canonical.js";
 import type { PhaseImportAttachment } from "./types.js";
 import { CURSOR_USAGE_IMPORTER_VERSION } from "./types.js";
 import { resolveCanonicalModelId } from "./model-aliases.js";
 import { tokensSumValid } from "./parse.js";
+import {
+  buildExpectedScoreManifest,
+  discoverySnapshotDigestFromCandidates,
+  type ExpectedScoreManifest,
+  type SegmentPricingManifestEntry,
+} from "./expected-score-manifest.js";
+import { fingerprintEvents } from "./sources/csv.js";
+import {
+  addMicrosStrings,
+  microsStringToLangfuseUsdNumber,
+} from "./money.js";
 
 export interface CursorUsageImportFilters {
   issueKeys?: string[];
@@ -57,12 +78,16 @@ export interface PreflightCsvImportParams {
   discoverLangfuse?: boolean;
   /** Bound discovery wait; fail closed to retrieval-incomplete on timeout. */
   discoveryTimeoutMs?: number;
+  sourceCoverageSafetyMarginMs?: number;
   deps?: CursorUsageServiceDeps;
 }
 
 export interface ApplyCsvImportParams {
   importId: string;
+  /** Must match staged preflightApprovalFingerprint (or legacy fingerprint). */
   fingerprint: string;
+  /** Explicit approval fingerprint preferred over legacy fingerprint. */
+  preflightApprovalFingerprint?: string;
   confirmed: true;
   logDirectory: string;
   namespace: string;
@@ -84,9 +109,25 @@ export interface ImportStatus {
 export interface ImportAnalytics {
   ledgerCount: number;
   verifiedCount: number;
+  incompleteCount: number;
   totalBundles: number;
   totalScores: number;
   byNamespace: Record<string, { imports: number; bundles: number }>;
+  localEvidenceCompleteness: "complete" | "partial" | "none";
+  langfuseReconciliationStatus:
+    | "not_run"
+    | "unavailable"
+    | "complete"
+    | "divergent";
+  grouped: {
+    byIssue: Record<string, { bundles: number; inputTokens: number; outputTokens: number }>;
+    byPhase: Record<string, { bundles: number; inputTokens: number; outputTokens: number }>;
+    bySourceModel: Record<string, { bundles: number; inputTokens: number }>;
+    byCanonicalModel: Record<string, { bundles: number; inputTokens: number }>;
+    byEffectiveVariant: Record<string, { bundles: number; inputTokens: number }>;
+  };
+  unresolvedSegmentCount: number;
+  pricingIncompleteSegmentCount: number;
 }
 
 export interface CursorUsageServiceDeps {
@@ -97,6 +138,8 @@ export interface CursorUsageServiceDeps {
   resolveConfig?: typeof resolveEvaluationConfig;
   discover?: typeof discoverUsageCandidates;
   sleep?: (ms: number) => Promise<void>;
+  /** Test seam: override pricing lookup used during apply revalidation. */
+  computeCostProxies?: typeof computeCostProxies;
 }
 
 function publicAgentHash(cloudAgentId: string): string {
@@ -104,41 +147,147 @@ function publicAgentHash(cloudAgentId: string): string {
 }
 
 function filterCandidates(
-  candidates: Awaited<ReturnType<typeof discoverUsageCandidates>>["candidates"],
+  candidates: UsageCandidate[],
   filters?: CursorUsageImportFilters,
 ) {
-  let out = candidates;
-  if (filters?.issueKeys?.length) {
-    const keys = new Set(filters.issueKeys.map((k) => k.trim()));
-    out = out.filter((c) => keys.has(c.issueKey));
+  // No operator filters this checkpoint — full CSV is source scope.
+  void filters;
+  return candidates;
+}
+
+function buildParserEvidenceArtifact(params: {
+  rowEvidence: ParserRowEvidence[];
+  eventsDigest: string;
+  rowsTested: number;
+  rowsSatisfying: number;
+  rowsViolating: number;
+  agentScopedCount: number;
+  uploadScopedCount: number;
+  reasonCodes: string[];
+}): ParserEvidenceArtifact {
+  return {
+    schemaVersion: 1,
+    parserSchemaVersion: PARSER_SCHEMA_VERSION,
+    rows: params.rowEvidence,
+    canonicalEventDigest: params.eventsDigest,
+    rowsTested: params.rowsTested,
+    rowsSatisfying: params.rowsSatisfying,
+    rowsViolating: params.rowsViolating,
+    agentScopedRejectionCount: params.agentScopedCount,
+    uploadScopedRejectionCount: params.uploadScopedCount,
+    rejectionReasonCodes: params.reasonCodes,
+  };
+}
+
+function agentHasRejectionOrAmbiguity(params: {
+  cloudAgentIdHash: string;
+  skipped: Array<{ reason: string; cloudAgentIdHash?: string }>;
+  attributed: ReturnType<typeof attributeSegmentsToCandidates>;
+  parserEvidence: ParserRowEvidence[];
+}): boolean {
+  if (
+    params.skipped.some(
+      (s) =>
+        s.cloudAgentIdHash === params.cloudAgentIdHash &&
+        (s.reason.includes("ambiguous") ||
+          s.reason.includes("rejected") ||
+          s.reason.includes("conflict") ||
+          s.reason.includes("unmatched") ||
+          s.reason.includes("no_candidate")),
+    )
+  ) {
+    return true;
   }
-  if (filters?.phases?.length) {
-    const phases = new Set(filters.phases.map((p) => p.trim()));
-    out = out.filter((c) => c.phase && phases.has(c.phase));
+  if (
+    params.attributed.some(
+      (a) =>
+        a.segment.cloudAgentIdHash === params.cloudAgentIdHash &&
+        a.state !== "matched" &&
+        a.state !== "aggregate_only",
+    )
+  ) {
+    return true;
   }
-  return out;
+  return params.parserEvidence.some(
+    (r) =>
+      r.cloudAgentIdHash === params.cloudAgentIdHash &&
+      r.rejectionClass === "agent_scoped_rejection",
+  );
+}
+
+interface BuiltAttachments {
+  attachments: PhaseImportAttachment[];
+  sourceScopeComplete: boolean;
+  sourceScopeIncompleteReason: string | null;
+  expectedScoreManifest: ExpectedScoreManifest;
+  pricingIncompleteSegmentCount: number;
+  privateSegmentPricing: Array<{
+    traceId: string;
+    modelRaw: string;
+    pricingManifest: SegmentPricingManifestEntry | null;
+    knownNoncacheCostUsd: number | null;
+  }>;
 }
 
 function buildAttachmentsFromBundles(params: {
   namespace: string;
   bundles: ReturnType<typeof bundleAttributedSegments>["bundles"];
+  attributed: ReturnType<typeof attributeSegmentsToCandidates>;
+  skipped: ReturnType<typeof bundleAttributedSegments>["skipped"];
+  allSegments: UsageSegment[];
   exportWindow: ExportWindow | null;
   langfuseRetrievalComplete: boolean;
   tokenArithmeticComplete: boolean;
+  hasUploadScopedRejection: boolean;
+  parserEvidence: ParserRowEvidence[];
   sourceDigestPrefix: string;
   environment?: string;
-}): {
-  attachments: PhaseImportAttachment[];
-  sourceScopeComplete: boolean;
-  sourceScopeIncompleteReason: string | null;
-} {
+  sourceCoverageSafetyMarginMs: number;
+  candidates: UsageCandidate[];
+  computeCostProxiesFn: typeof computeCostProxies;
+}): BuiltAttachments {
   const attachments: PhaseImportAttachment[] = [];
-  let sourceScopeComplete = false;
   let sourceScopeIncompleteReason: string | null = null;
+  let pricingIncompleteSegmentCount = 0;
+  const privateSegmentPricing: BuiltAttachments["privateSegmentPricing"] = [];
+  const pricingByScoreId: Record<string, SegmentPricingManifestEntry | null> =
+    {};
+  const issueKeyByTraceId: Record<string, string> = {};
+  const phaseByTraceId: Record<string, string> = {};
+  const sourceBundleFingerprintByTraceId: Record<string, string> = {};
 
   const exportValidation = validateExportWindow(params.exportWindow);
   if (!exportValidation.ok) {
     sourceScopeIncompleteReason = exportValidation.reason;
+  }
+
+  if (params.hasUploadScopedRejection) {
+    sourceScopeIncompleteReason =
+      sourceScopeIncompleteReason ?? "upload_scoped_rejection";
+  }
+
+  // Unmatched / skipped segments outside any bundle still block write-ready.
+  if (params.skipped.length > 0) {
+    sourceScopeIncompleteReason =
+      sourceScopeIncompleteReason ??
+      (params.skipped.some((s) => s.reason.includes("ambiguous"))
+        ? "rejected_or_ambiguous_row_for_agent"
+        : params.skipped.some((s) => s.reason.includes("conflict"))
+          ? "model_identity_conflict"
+          : "unaccounted_source_segment");
+  }
+
+  // Every CSV segment must be deterministically matched (exclusion set empty).
+  const matchedFingerprints = new Set(
+    params.bundles.flatMap((b) => b.matchedFingerprints),
+  );
+  for (const seg of params.allSegments) {
+    for (const fp of seg.fingerprints) {
+      if (!matchedFingerprints.has(fp)) {
+        sourceScopeIncompleteReason =
+          sourceScopeIncompleteReason ?? "unaccounted_source_segment";
+      }
+    }
   }
 
   for (const bundle of params.bundles) {
@@ -146,21 +295,13 @@ function buildAttachmentsFromBundles(params: {
       sourceScopeIncompleteReason = "token_arithmetic_incomplete";
       continue;
     }
-    const modelRaw =
-      bundle.segmentBreakdown[0]?.modelRaw ??
-      bundle.join.effectiveVariant ??
-      "unknown";
-    const modelId =
-      resolveCanonicalModelId(modelRaw) ?? modelRaw.trim().toLowerCase();
-    const proxies = computeCostProxies({
-      modelId,
-      effectiveVariant: bundle.join.effectiveVariant,
-      tokens: bundle.tokens,
+
+    const hasRejected = agentHasRejectionOrAmbiguity({
+      cloudAgentIdHash: publicAgentHash(bundle.join.cursorAgentId),
+      skipped: params.skipped,
+      attributed: params.attributed,
+      parserEvidence: params.parserEvidence,
     });
-    if (!proxies) {
-      sourceScopeIncompleteReason = "pricing_lookup_failed";
-      continue;
-    }
 
     const scope = evaluateSourceScope({
       exportWindow: params.exportWindow,
@@ -168,9 +309,11 @@ function buildAttachmentsFromBundles(params: {
       executionWindowEndIso: bundle.join.windowEnd,
       agentSegments: bundle.segmentBreakdown,
       accountedSegmentFingerprints: new Set(bundle.matchedFingerprints),
-      hasRejectedOrAmbiguousForAgent: false,
+      hasRejectedOrAmbiguousForAgent: hasRejected,
+      hasUploadScopedRejection: params.hasUploadScopedRejection,
       langfuseRetrievalComplete: params.langfuseRetrievalComplete,
       tokenArithmeticComplete: params.tokenArithmeticComplete,
+      sourceCoverageSafetyMarginMs: params.sourceCoverageSafetyMarginMs,
     });
 
     if (!scope.sourceScopeComplete) {
@@ -178,20 +321,138 @@ function buildAttachmentsFromBundles(params: {
         sourceScopeIncompleteReason ?? scope.sourceScopeIncompleteReason;
     }
 
+    // Per-segment pricing
+    let allSegmentsPriced = true;
+    let knownNoncacheSum = 0;
+    let allInputAtListSum = 0;
+    const segmentPricingEntries: SegmentPricingManifestEntry[] = [];
+
+    for (const seg of bundle.segmentBreakdown) {
+      const modelId =
+        seg.modelIdCanonical ??
+        resolveCanonicalModelId(seg.modelRaw) ??
+        null;
+      if (!modelId) {
+        allSegmentsPriced = false;
+        pricingIncompleteSegmentCount += 1;
+        privateSegmentPricing.push({
+          traceId: bundle.traceId,
+          modelRaw: seg.modelRaw,
+          pricingManifest: null,
+          knownNoncacheCostUsd: null,
+        });
+        continue;
+      }
+      const proxies = params.computeCostProxiesFn({
+        modelId,
+        effectiveVariant: bundle.join.effectiveVariant,
+        tokens: seg.tokens,
+      });
+      if (!proxies || proxies.pricingManifest.completenessResult !== "complete") {
+        allSegmentsPriced = false;
+        pricingIncompleteSegmentCount += 1;
+        privateSegmentPricing.push({
+          traceId: bundle.traceId,
+          modelRaw: seg.modelRaw,
+          pricingManifest: proxies?.pricingManifest ?? null,
+          knownNoncacheCostUsd: proxies?.knownNoncacheCostUsd ?? null,
+        });
+        if (proxies) {
+          knownNoncacheSum += proxies.knownNoncacheCostUsd;
+          allInputAtListSum += proxies.allInputAtListRateUsd;
+          segmentPricingEntries.push(proxies.pricingManifest);
+        }
+        continue;
+      }
+      knownNoncacheSum += proxies.knownNoncacheCostUsd;
+      allInputAtListSum += proxies.allInputAtListRateUsd;
+      segmentPricingEntries.push(proxies.pricingManifest);
+      privateSegmentPricing.push({
+        traceId: bundle.traceId,
+        modelRaw: seg.modelRaw,
+        pricingManifest: proxies.pricingManifest,
+        knownNoncacheCostUsd: proxies.knownNoncacheCostUsd,
+      });
+    }
+
+    // Cost totals require every segment priced AND no candidate_model_unknown
+    // tokens-only attribution on the bundle (costAllowed semantics).
+    const tokensOnlyModelUnknown = bundle.states.some(
+      (s) => s === "matched",
+    ) &&
+      params.attributed.some(
+        (a) =>
+          a.state === "matched" &&
+          a.candidate?.traceId === bundle.traceId &&
+          a.reason === "no_observed_models_tokens_only",
+      );
+    const numericCostTotalsComplete =
+      allSegmentsPriced &&
+      scope.sourceScopeComplete &&
+      !tokensOnlyModelUnknown;
+    const providerMicros = bundle.segmentBreakdown
+      .map((s) => s.providerActualUsdMicros)
+      .filter((m): m is string => m != null);
+    let providerActualUsd: number | null = null;
+    let providerActualComplete = false;
+    if (providerMicros.length > 0 && providerMicros.length === bundle.segmentBreakdown.length) {
+      let sumMicros: string | null = null;
+      for (const m of providerMicros) {
+        if (sumMicros == null) sumMicros = m;
+        else {
+          const added = addMicrosStrings(sumMicros, m);
+          if (!added.ok) {
+            sumMicros = null;
+            break;
+          }
+          sumMicros = added.microsString;
+        }
+      }
+      if (sumMicros) {
+        providerActualUsd = microsStringToLangfuseUsdNumber(sumMicros);
+        providerActualComplete = providerActualUsd != null;
+      }
+    }
+
     const scores = buildPhaseUsageScores({
       namespace: params.namespace,
       join: bundle.join,
       tokens: bundle.tokens,
-      knownNoncacheCostUsd: proxies.knownNoncacheCostUsd,
-      allInputAtListRateUsd: proxies.allInputAtListRateUsd,
+      knownNoncacheCostUsd: knownNoncacheSum,
+      allInputAtListRateUsd: allInputAtListSum,
       tokenUsageComplete: scope.sourceScopeComplete,
       sourceScopeComplete: scope.sourceScopeComplete,
       listPriceEquivalentComplete: false,
-      providerActualCostComplete: false,
-      costProxyAvailable: true,
+      providerActualUsd,
+      providerActualCostComplete: providerActualComplete,
+      costProxyAvailable: allSegmentsPriced && !tokensOnlyModelUnknown,
+      numericCostTotalsComplete,
       sourceDigestPrefix: params.sourceDigestPrefix,
       environment: params.environment,
     });
+
+    const primaryPricing = segmentPricingEntries[0] ?? null;
+    for (const score of scores) {
+      if (
+        score.name === "cursor_known_noncache_cost_usd" ||
+        score.name === "cursor_all_input_at_list_rate_usd"
+      ) {
+        pricingByScoreId[score.id] = primaryPricing;
+      }
+    }
+
+    issueKeyByTraceId[bundle.traceId] =
+      params.candidates.find((c) => c.traceId === bundle.traceId)?.issueKey ??
+      "";
+    phaseByTraceId[bundle.traceId] = bundle.join.phase;
+    sourceBundleFingerprintByTraceId[bundle.traceId] = fingerprintEvents(
+      // Placeholder: use matched fingerprints digest
+      [],
+    );
+    // Prefer deterministic bundle fingerprint from matched fps
+    sourceBundleFingerprintByTraceId[bundle.traceId] = hashCloudAgentId(
+      [...bundle.matchedFingerprints].sort().join("|"),
+    );
 
     attachments.push({
       join: bundle.join,
@@ -215,12 +476,44 @@ function buildAttachmentsFromBundles(params: {
             .sort()
             .at(-1) ?? null,
       },
-      proxies,
+      proxies: {
+        knownNoncacheCostUsd: knownNoncacheSum,
+        allInputAtListRateUsd: allInputAtListSum,
+        pricingRegistryVersion:
+          primaryPricing?.pricingRegistryVersion ?? "none",
+        effectiveVariant: bundle.join.effectiveVariant,
+      },
       scores,
     });
   }
 
-  sourceScopeComplete =
+  const discoverySnapshotDigest = discoverySnapshotDigestFromCandidates(
+    params.candidates.map((c) => ({
+      traceId: c.traceId,
+      cursorAgentIdHash: c.cursorAgentIdHash,
+      issueKey: c.issueKey,
+      phase: c.phase,
+      observedModelIds: c.observedModelIds ?? [],
+      multiModelExecutionProven: c.multiModelExecutionProven === true,
+    })),
+  );
+
+  const allScores = attachments.flatMap((a) => a.scores);
+  const expectedScoreManifest = buildExpectedScoreManifest({
+    scores: allScores,
+    issueKeyByTraceId,
+    phaseByTraceId,
+    sourceBundleFingerprintByTraceId,
+    pricingByScoreId,
+    discoverySnapshotDigest,
+  });
+
+  const sourceScopeComplete =
+    !params.hasUploadScopedRejection &&
+    params.tokenArithmeticComplete &&
+    params.langfuseRetrievalComplete &&
+    params.skipped.length === 0 &&
+    sourceScopeIncompleteReason == null &&
     attachments.length > 0 &&
     attachments.every((a) =>
       a.scores.some(
@@ -228,22 +521,30 @@ function buildAttachmentsFromBundles(params: {
       ),
     );
 
-  return { attachments, sourceScopeComplete, sourceScopeIncompleteReason };
+  if (!sourceScopeComplete && sourceScopeIncompleteReason == null) {
+    sourceScopeIncompleteReason = "unaccounted_source_segment";
+  }
+
+  return {
+    attachments,
+    sourceScopeComplete,
+    sourceScopeIncompleteReason,
+    expectedScoreManifest,
+    pricingIncompleteSegmentCount,
+    privateSegmentPricing,
+  };
 }
 
-async function resolveLangfuseClient(
-  params: {
-    langfuseConfig?: EvaluationRuntimeConfig;
-    deps?: CursorUsageServiceDeps;
-  },
-): Promise<LangfuseApiClient | null> {
+async function resolveLangfuseClient(params: {
+  langfuseConfig?: EvaluationRuntimeConfig;
+  deps?: CursorUsageServiceDeps;
+}): Promise<LangfuseApiClient | null> {
   const resolveConfig = params.deps?.resolveConfig ?? resolveEvaluationConfig;
   const resolved = params.langfuseConfig
     ? { ok: true as const, config: params.langfuseConfig }
     : resolveConfig(process.env);
   if (!resolved.ok) return null;
-  const createApi =
-    params.deps?.createApiClient ?? createLangfuseApiClient;
+  const createApi = params.deps?.createApiClient ?? createLangfuseApiClient;
   return createApi(resolved.config);
 }
 
@@ -267,31 +568,56 @@ function detectExistingScoreConflicts(
   return mismatches;
 }
 
+function allowedApplyLifecycle(
+  lifecycle: ImportLifecycleState,
+  intent: "fresh" | "recovery" | "verify",
+): boolean {
+  if (intent === "verify") return lifecycle === "verified";
+  if (intent === "fresh") return lifecycle === "ready";
+  return (
+    lifecycle === "failed_recoverable" ||
+    lifecycle === "applying" ||
+    lifecycle === "verifying"
+  );
+}
+
 export async function preflightCsvImport(
   params: PreflightCsvImportParams,
 ): Promise<{
   importId: string;
   fingerprint: string;
+  preflightApprovalFingerprint: string;
+  canonicalImportIdentity: string;
   lifecycle: ImportLifecycleState;
   sourceScopeComplete: boolean;
   bundleCount: number;
   publicSummary: StagingArtifacts["publicSummary"];
 }> {
   const importId = createImportId();
+  const margin =
+    params.sourceCoverageSafetyMarginMs ??
+    DEFAULT_SOURCE_COVERAGE_SAFETY_MARGIN_MS;
   const { events, digestSha256, parsed } = await parseCsvSource({
     buffer: params.csvBytes,
   });
-  const fingerprint = fingerprintStaging({
+
+  const identity = buildCanonicalImportIdentity({
     namespace: params.namespace,
+    environment: params.environment,
     sourceDigestSha256: digestSha256,
     exportWindow: params.exportWindow,
+    sourceCoverageSafetyMarginMs: margin,
+    normalizedSourceExclusionSet: [],
   });
+  const canonicalImportIdentityFp = fingerprintCanonicalImportIdentity(identity);
 
   const segments = buildSegmentsFromCanonicalEvents(events);
-  const tokenArithmeticComplete = parsed.arithmetic.identityHolds;
+  const hasUploadScopedRejection =
+    parsed.rejectionSummary.uploadScopedCount > 0;
+  const tokenArithmeticComplete =
+    parsed.arithmetic.identityHolds && !hasUploadScopedRejection;
 
-  let candidates: Awaited<ReturnType<typeof discoverUsageCandidates>>["candidates"] =
-    [];
+  let candidates: UsageCandidate[] = [];
   let langfuseRetrievalComplete = false;
 
   const exportValidation = validateExportWindow(params.exportWindow);
@@ -335,16 +661,32 @@ export async function preflightCsvImport(
     attributed,
     namespace: params.namespace,
   });
-  void skipped;
 
+  const computeFn = params.deps?.computeCostProxies ?? computeCostProxies;
   const built = buildAttachmentsFromBundles({
     namespace: params.namespace,
     bundles,
+    attributed,
+    skipped,
+    allSegments: segments,
     exportWindow: params.exportWindow,
     langfuseRetrievalComplete,
     tokenArithmeticComplete,
+    hasUploadScopedRejection,
+    parserEvidence: parsed.rowEvidence,
     sourceDigestPrefix: digestSha256,
     environment: params.environment,
+    sourceCoverageSafetyMarginMs: margin,
+    candidates,
+    computeCostProxiesFn: computeFn,
+  });
+
+  const approvalFp = fingerprintPreflightApproval({
+    canonicalImportIdentity: canonicalImportIdentityFp,
+    discoverySnapshotDigest: built.expectedScoreManifest.discoverySnapshotDigest,
+    targetTraceSetDigest: built.expectedScoreManifest.targetTraceSetDigest,
+    expectedScoreManifestDigest:
+      built.expectedScoreManifest.expectedScoreManifestDigest,
   });
 
   const lifecycle: ImportLifecycleState = built.sourceScopeComplete
@@ -363,11 +705,15 @@ export async function preflightCsvImport(
     sourceDigestPrefix: digestSha256.slice(0, 16),
     bundleCount: bundles.length,
     sourceScopeComplete: built.sourceScopeComplete,
+    sourceScopeIncompleteReason: built.sourceScopeIncompleteReason,
+    uploadScopedRejectionCount: parsed.rejectionSummary.uploadScopedCount,
+    agentScopedRejectionCount: parsed.rejectionSummary.agentScopedCount,
+    rejectionReasonCodes: parsed.rejectionSummary.reasonCodes,
     observationMutationAttempted: false,
   };
 
-  const preflight = {
-    schemaVersion: 1 as const,
+  const preflight: StagingArtifacts["preflight"] = {
+    schemaVersion: 1,
     importId,
     preparedAt,
     importerVersion: CURSOR_USAGE_IMPORTER_VERSION,
@@ -375,13 +721,24 @@ export async function preflightCsvImport(
     environment: params.environment?.trim() ?? null,
     sourceDigestSha256: digestSha256,
     exportWindow: params.exportWindow,
-    fingerprint,
+    fingerprint: approvalFp,
+    canonicalImportIdentity: canonicalImportIdentityFp,
+    preflightApprovalFingerprint: approvalFp,
     lifecycle,
     candidateCount: candidates.length,
     bundleCount: bundles.length,
     sourceScopeComplete: built.sourceScopeComplete,
     sourceScopeIncompleteReason: built.sourceScopeIncompleteReason,
     canonicalEventCount: events.length,
+    sourceCoverageSafetyMarginMs: margin,
+    normalizedSourceExclusionSet: [],
+    uploadScopedRejectionCount: parsed.rejectionSummary.uploadScopedCount,
+    agentScopedRejectionCount: parsed.rejectionSummary.agentScopedCount,
+    rejectionReasonCodes: parsed.rejectionSummary.reasonCodes,
+    discoverySnapshotDigest: built.expectedScoreManifest.discoverySnapshotDigest,
+    targetTraceSetDigest: built.expectedScoreManifest.targetTraceSetDigest,
+    expectedScoreManifestDigest:
+      built.expectedScoreManifest.expectedScoreManifestDigest,
   };
 
   const ledger: ImportLedgerEntry = {
@@ -396,18 +753,39 @@ export async function preflightCsvImport(
     scoreCount: 0,
     verified: false,
     sourceScopeComplete: built.sourceScopeComplete,
+    sourceScopeIncompleteReason: built.sourceScopeIncompleteReason,
+    uploadScopedRejectionCount: parsed.rejectionSummary.uploadScopedCount,
+    agentScopedRejectionCount: parsed.rejectionSummary.agentScopedCount,
+    rejectionReasonCodes: parsed.rejectionSummary.reasonCodes,
+    localEvidenceCompleteness: "none",
+    langfuseReconciliationStatus: "not_run",
   };
+
+  const parserEvidence = buildParserEvidenceArtifact({
+    rowEvidence: parsed.rowEvidence,
+    eventsDigest: fingerprintEvents(events),
+    rowsTested: parsed.arithmetic.rowsTested,
+    rowsSatisfying: parsed.arithmetic.rowsSatisfying,
+    rowsViolating: parsed.arithmetic.rowsViolating,
+    agentScopedCount: parsed.rejectionSummary.agentScopedCount,
+    uploadScopedCount: parsed.rejectionSummary.uploadScopedCount,
+    reasonCodes: parsed.rejectionSummary.reasonCodes,
+  });
 
   await writeStagingArtifacts(params.logDirectory, importId, {
     canonicalEvents: events,
     preflight,
     publicSummary,
     ledger,
+    parserEvidence,
+    expectedScoreManifest: built.expectedScoreManifest,
   });
 
   return {
     importId,
-    fingerprint,
+    fingerprint: approvalFp,
+    preflightApprovalFingerprint: approvalFp,
+    canonicalImportIdentity: canonicalImportIdentityFp,
     lifecycle,
     sourceScopeComplete: built.sourceScopeComplete,
     bundleCount: bundles.length,
@@ -435,13 +813,57 @@ export async function applyCsvImport(
   if (!staged) {
     throw new Error(`import_not_found:${params.importId}`);
   }
-  if (staged.preflight.fingerprint !== params.fingerprint) {
+
+  const approvalFp =
+    params.preflightApprovalFingerprint ?? params.fingerprint;
+  if (
+    staged.preflight.preflightApprovalFingerprint !== approvalFp &&
+    staged.preflight.fingerprint !== approvalFp
+  ) {
     throw new Error("import_fingerprint_mismatch");
+  }
+
+  const lifecycle = staged.preflight.lifecycle;
+  const isRecovery =
+    lifecycle === "failed_recoverable" ||
+    lifecycle === "applying" ||
+    lifecycle === "verifying";
+  const isFresh = lifecycle === "ready";
+  const isVerifyOnly = lifecycle === "verified";
+
+  if (isVerifyOnly) {
+    return {
+      lifecycle: "verified",
+      verified: true,
+      scoreCount: staged.ledger.scoreCount,
+      conflicts: [],
+      verifyMismatches: [],
+    };
+  }
+
+  if (!allowedApplyLifecycle(lifecycle, isRecovery ? "recovery" : "fresh")) {
+    throw new Error(`import_lifecycle_not_applicable:${lifecycle}`);
+  }
+  if (!isFresh && !isRecovery) {
+    throw new Error(`import_lifecycle_not_applicable:${lifecycle}`);
+  }
+
+  if (!staged.parserEvidence) {
+    throw new Error("parser_evidence_missing");
+  }
+  if (!staged.expectedScoreManifest) {
+    throw new Error("expected_score_manifest_missing");
+  }
+
+  const arithmetic = recomputeArithmeticFromEvidence(staged.parserEvidence.rows);
+  if (!arithmetic.identityHolds) {
+    throw new Error("token_arithmetic_incomplete");
   }
 
   const events = staged.canonicalEvents;
   const segments = buildSegmentsFromCanonicalEvents(events);
   const exportWindow = staged.preflight.exportWindow;
+  const margin = staged.preflight.sourceCoverageSafetyMarginMs;
 
   const exportValidation = validateExportWindow(exportWindow);
   if (!exportValidation.ok) {
@@ -467,34 +889,83 @@ export async function applyCsvImport(
     candidates: discovered.candidates,
     canonicalEvents: events,
   });
-  const { bundles } = bundleAttributedSegments({
+  const { bundles, skipped } = bundleAttributedSegments({
     attributed,
     namespace: params.namespace,
   });
 
+  const hasUploadScoped =
+    staged.parserEvidence.uploadScopedRejectionCount > 0 ||
+    staged.preflight.uploadScopedRejectionCount > 0;
+
+  const computeFn = params.deps?.computeCostProxies ?? computeCostProxies;
   const built = buildAttachmentsFromBundles({
     namespace: params.namespace,
     bundles,
+    attributed,
+    skipped,
+    allSegments: segments,
     exportWindow,
     langfuseRetrievalComplete: discovered.retrievalComplete,
-    tokenArithmeticComplete: true,
+    tokenArithmeticComplete: arithmetic.identityHolds,
+    hasUploadScopedRejection: hasUploadScoped,
+    parserEvidence: staged.parserEvidence.rows,
     sourceDigestPrefix: staged.preflight.sourceDigestSha256,
     environment: params.environment ?? staged.preflight.environment ?? undefined,
+    sourceCoverageSafetyMarginMs: margin,
+    candidates: discovered.candidates,
+    computeCostProxiesFn: computeFn,
   });
 
+  // Rebuild identity + approval fingerprints and compare.
+  const identity = buildCanonicalImportIdentity({
+    namespace: params.namespace,
+    environment: params.environment ?? staged.preflight.environment,
+    sourceDigestSha256: staged.preflight.sourceDigestSha256,
+    exportWindow,
+    sourceCoverageSafetyMarginMs: margin,
+    normalizedSourceExclusionSet:
+      staged.preflight.normalizedSourceExclusionSet ?? [],
+  });
+  const identityFp = fingerprintCanonicalImportIdentity(identity);
+  if (identityFp !== staged.preflight.canonicalImportIdentity) {
+    throw new Error("preflight_plan_changed:canonical_import_identity");
+  }
+
+  if (
+    built.expectedScoreManifest.expectedScoreManifestDigest !==
+      staged.expectedScoreManifest.expectedScoreManifestDigest ||
+    built.expectedScoreManifest.targetTraceSetDigest !==
+      staged.expectedScoreManifest.targetTraceSetDigest
+  ) {
+    throw new Error("preflight_plan_changed");
+  }
+
+  const rebuiltApproval = fingerprintPreflightApproval({
+    canonicalImportIdentity: identityFp,
+    discoverySnapshotDigest:
+      built.expectedScoreManifest.discoverySnapshotDigest,
+    targetTraceSetDigest: built.expectedScoreManifest.targetTraceSetDigest,
+    expectedScoreManifestDigest:
+      built.expectedScoreManifest.expectedScoreManifestDigest,
+  });
+  if (rebuiltApproval !== staged.preflight.preflightApprovalFingerprint) {
+    throw new Error("preflight_plan_changed");
+  }
+
   if (!built.sourceScopeComplete) {
-    const lifecycle: ImportLifecycleState = "incomplete";
+    const incompleteLifecycle: ImportLifecycleState = "incomplete";
     await writeStagingArtifacts(params.logDirectory, params.importId, {
       ...staged,
-      preflight: { ...staged.preflight, lifecycle },
+      preflight: { ...staged.preflight, lifecycle: incompleteLifecycle },
       publicSummary: {
         ...staged.publicSummary,
-        lifecycle,
+        lifecycle: incompleteLifecycle,
         sourceScopeComplete: false,
       },
       ledger: {
         ...staged.ledger,
-        lifecycle,
+        lifecycle: incompleteLifecycle,
         sourceScopeComplete: false,
         recordedAt: new Date().toISOString(),
       },
@@ -504,7 +975,7 @@ export async function applyCsvImport(
     );
   }
 
-  const identity = {
+  const lockIdentity = {
     namespace: params.namespace,
     environment: params.environment ?? staged.preflight.environment,
     sourceType: "cursor_csv" as const,
@@ -522,7 +993,7 @@ export async function applyCsvImport(
     {
       logDirectory: params.logDirectory,
       importId: params.importId,
-      identity,
+      identity: lockIdentity,
       traceIds: bundles.map((b) => b.traceId),
     },
     async () => {
@@ -539,6 +1010,8 @@ export async function applyCsvImport(
           lifecycle: applyingLifecycle,
           recordedAt: new Date().toISOString(),
         },
+        expectedScoreManifest: staged.expectedScoreManifest,
+        parserEvidence: staged.parserEvidence,
       });
 
       const resolveConfig = params.deps?.resolveConfig ?? resolveEvaluationConfig;
@@ -558,16 +1031,60 @@ export async function applyCsvImport(
 
       const traceIds = built.attachments.map((a) => a.join.traceId);
       const rawExisting = await fetchTraceScoresRawForImport(client, traceIds);
-      conflicts = detectExistingScoreConflicts(
-        built.attachments,
-        mapFetchedScores(rawExisting.scores),
+      const existingMapped = mapFetchedScores(rawExisting.scores);
+
+      // Recovery: same-ID/same-value reuse; same-ID/different-value blocks.
+      const stagedById = new Map(
+        staged.expectedScoreManifest!.scores.map((s) => [s.scoreId, s]),
       );
+      for (const score of allScores) {
+        const stagedEntry = stagedById.get(score.id);
+        if (!stagedEntry) continue;
+        if (stagedEntry.targetTraceId !== score.traceId) {
+          throw new Error(`same_id_different_target:${score.id}`);
+        }
+        const existing = existingMapped.find((e) => e.id === score.id);
+        if (existing) {
+          if (
+            String(existing.value) !==
+            stagedEntry.canonicalValueSerialization &&
+            String(existing.value) !== String(score.value)
+          ) {
+            throw new Error(`same_id_different_value:${score.id}`);
+          }
+        }
+      }
+
+      // Unexpected cursor-import scores on same traces → block if uncertain.
+      const expectedIds = new Set(allScores.map((s) => s.id));
+      for (const existing of existingMapped) {
+        if (
+          existing.id &&
+          !expectedIds.has(existing.id) &&
+          typeof existing.name === "string" &&
+          existing.name.startsWith("cursor_")
+        ) {
+          conflicts.push(`unexpected_cursor_import_score:${existing.id}`);
+        }
+      }
+
+      conflicts = [
+        ...conflicts,
+        ...detectExistingScoreConflicts(built.attachments, existingMapped),
+      ];
       if (conflicts.length > 0) {
         throw new Error(conflicts[0]);
       }
 
-      projectUsageScoresOnly({ recorder: scoreClient, scores: allScores });
-      await scoreClient.flush();
+      // Write only scores that are missing (recovery reuse).
+      const toWrite = allScores.filter(
+        (s) => !existingMapped.some((e) => e.id === s.id),
+      );
+      if (toWrite.length > 0) {
+        projectUsageScoresOnly({ recorder: scoreClient, scores: toWrite });
+        await scoreClient.flush();
+      }
+      scoreCount = allScores.length;
 
       const verifyingLifecycle: ImportLifecycleState = "verifying";
       await writeStagingArtifacts(params.logDirectory, params.importId, {
@@ -583,11 +1100,12 @@ export async function applyCsvImport(
           scoreCount,
           recordedAt: new Date().toISOString(),
         },
+        expectedScoreManifest: staged.expectedScoreManifest,
+        parserEvidence: staged.parserEvidence,
       });
 
       const sleep =
         params.deps?.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
-      // Live Langfuse score list lag can exceed 30s after ingestion.batch.
       const budgetMs = params.deps?.sleep ? 0 : 60_000;
       const started = Date.now();
       let verify = verifyImportedScores({
@@ -643,7 +1161,11 @@ export async function applyCsvImport(
           scoreCount,
           verified,
           sourceScopeComplete: true,
+          localEvidenceCompleteness: verified ? "complete" : "partial",
+          langfuseReconciliationStatus: "not_run",
         },
+        parserEvidence: staged.parserEvidence,
+        expectedScoreManifest: staged.expectedScoreManifest,
       });
     },
   );
@@ -666,7 +1188,7 @@ export async function getImportStatus(
   return {
     importId,
     lifecycle: staged.ledger.lifecycle,
-    fingerprint: staged.preflight.fingerprint,
+    fingerprint: staged.preflight.preflightApprovalFingerprint,
     sourceScopeComplete: staged.ledger.sourceScopeComplete,
     bundleCount: staged.ledger.bundleCount,
     verified: staged.ledger.verified,
@@ -680,8 +1202,19 @@ export async function getAnalyticsFromLedgers(
   const ledgers = await listLedgers(logDirectory);
   const byNamespace: Record<string, { imports: number; bundles: number }> = {};
   let verifiedCount = 0;
+  let incompleteCount = 0;
   let totalBundles = 0;
   let totalScores = 0;
+  let unresolvedSegmentCount = 0;
+  let pricingIncompleteSegmentCount = 0;
+
+  const grouped = {
+    byIssue: {} as Record<string, { bundles: number; inputTokens: number; outputTokens: number }>,
+    byPhase: {} as Record<string, { bundles: number; inputTokens: number; outputTokens: number }>,
+    bySourceModel: {} as Record<string, { bundles: number; inputTokens: number }>,
+    byCanonicalModel: {} as Record<string, { bundles: number; inputTokens: number }>,
+    byEffectiveVariant: {} as Record<string, { bundles: number; inputTokens: number }>,
+  };
 
   for (const ledger of ledgers) {
     const ns = ledger.namespace;
@@ -691,14 +1224,85 @@ export async function getAnalyticsFromLedgers(
     totalBundles += ledger.bundleCount;
     totalScores += ledger.scoreCount;
     if (ledger.verified) verifiedCount += 1;
+    if (!ledger.sourceScopeComplete || ledger.lifecycle === "incomplete") {
+      incompleteCount += 1;
+    }
+    if (ledger.analyticsSummary) {
+      unresolvedSegmentCount += ledger.analyticsSummary.unresolvedSegmentCount;
+      pricingIncompleteSegmentCount +=
+        ledger.analyticsSummary.pricingIncompleteSegmentCount;
+      for (const [k, v] of Object.entries(ledger.analyticsSummary.byIssue)) {
+        const cur = grouped.byIssue[k] ?? {
+          bundles: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+        };
+        cur.bundles += v.bundles;
+        cur.inputTokens += v.inputTokens;
+        cur.outputTokens += v.outputTokens;
+        grouped.byIssue[k] = cur;
+      }
+      for (const [k, v] of Object.entries(ledger.analyticsSummary.byPhase)) {
+        const cur = grouped.byPhase[k] ?? {
+          bundles: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+        };
+        cur.bundles += v.bundles;
+        cur.inputTokens += v.inputTokens;
+        cur.outputTokens += v.outputTokens;
+        grouped.byPhase[k] = cur;
+      }
+      for (const [k, v] of Object.entries(ledger.analyticsSummary.bySourceModel)) {
+        const cur = grouped.bySourceModel[k] ?? { bundles: 0, inputTokens: 0 };
+        cur.bundles += v.bundles;
+        cur.inputTokens += v.inputTokens;
+        grouped.bySourceModel[k] = cur;
+      }
+      for (const [k, v] of Object.entries(
+        ledger.analyticsSummary.byCanonicalModel,
+      )) {
+        const cur = grouped.byCanonicalModel[k] ?? {
+          bundles: 0,
+          inputTokens: 0,
+        };
+        cur.bundles += v.bundles;
+        cur.inputTokens += v.inputTokens;
+        grouped.byCanonicalModel[k] = cur;
+      }
+      for (const [k, v] of Object.entries(
+        ledger.analyticsSummary.byEffectiveVariant,
+      )) {
+        const cur = grouped.byEffectiveVariant[k] ?? {
+          bundles: 0,
+          inputTokens: 0,
+        };
+        cur.bundles += v.bundles;
+        cur.inputTokens += v.inputTokens;
+        grouped.byEffectiveVariant[k] = cur;
+      }
+    }
   }
+
+  let localEvidenceCompleteness: ImportAnalytics["localEvidenceCompleteness"] =
+    "none";
+  if (ledgers.length === 0) localEvidenceCompleteness = "none";
+  else if (verifiedCount === ledgers.length) localEvidenceCompleteness = "complete";
+  else if (verifiedCount > 0 || totalScores > 0) localEvidenceCompleteness = "partial";
+  else localEvidenceCompleteness = "none";
 
   return {
     ledgerCount: ledgers.length,
     verifiedCount,
+    incompleteCount,
     totalBundles,
     totalScores,
     byNamespace,
+    localEvidenceCompleteness,
+    langfuseReconciliationStatus: "not_run",
+    grouped,
+    unresolvedSegmentCount,
+    pricingIncompleteSegmentCount,
   };
 }
 

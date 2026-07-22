@@ -1,6 +1,7 @@
 import type { ExportWindow, UsageSegment } from "./canonical.js";
 
-const DEFAULT_GUARD_SLACK_MS = 6 * 60 * 60 * 1000;
+/** Default source-coverage safety margin: exact containment (no expansion). */
+export const DEFAULT_SOURCE_COVERAGE_SAFETY_MARGIN_MS = 0;
 
 export type SourceScopeIncompleteReason =
   | "export_window_unproven"
@@ -8,9 +9,13 @@ export type SourceScopeIncompleteReason =
   | "export_window_invalid"
   | "execution_outside_export_window"
   | "rejected_or_ambiguous_row_for_agent"
+  | "upload_scoped_rejection"
   | "langfuse_retrieval_incomplete"
   | "token_arithmetic_incomplete"
   | "unaccounted_source_segment"
+  | "model_identity_conflict"
+  | "variant_identity_conflict"
+  | "pricing_incomplete"
   | null;
 
 export interface SourceScopeVerdict {
@@ -42,8 +47,15 @@ export function validateExportWindow(
 
 /**
  * A trace bundle is source-scope complete only when the agent execution window
- * is contained in the export window (with slack), every segment for that agent
- * is accounted for, and no rejected/ambiguous row could belong to the execution.
+ * is contained in the export window (with optional safety margin), every segment
+ * for that agent is accounted for, and no rejected/ambiguous row could belong
+ * to the execution.
+ *
+ * Containment (margin default 0):
+ *   exportStart <= executionStart - safetyMarginMs
+ *   exportEnd   >= executionEnd   + safetyMarginMs
+ *
+ * Attribution ingestion slack must NOT be used here.
  */
 export function evaluateSourceScope(params: {
   exportWindow: ExportWindow | null | undefined;
@@ -52,15 +64,24 @@ export function evaluateSourceScope(params: {
   agentSegments: UsageSegment[];
   accountedSegmentFingerprints: Set<string>;
   hasRejectedOrAmbiguousForAgent: boolean;
+  hasUploadScopedRejection?: boolean;
   langfuseRetrievalComplete: boolean;
   tokenArithmeticComplete: boolean;
-  guardSlackMs?: number;
+  /** Source-coverage safety margin in ms (default 0). Not attribution slack. */
+  sourceCoverageSafetyMarginMs?: number;
 }): SourceScopeVerdict {
   const validated = validateExportWindow(params.exportWindow);
   if (!validated.ok) {
     return {
       sourceScopeComplete: false,
       sourceScopeIncompleteReason: validated.reason,
+    };
+  }
+
+  if (params.hasUploadScopedRejection) {
+    return {
+      sourceScopeComplete: false,
+      sourceScopeIncompleteReason: "upload_scoped_rejection",
     };
   }
 
@@ -83,7 +104,8 @@ export function evaluateSourceScope(params: {
     };
   }
 
-  const slack = params.guardSlackMs ?? DEFAULT_GUARD_SLACK_MS;
+  const margin =
+    params.sourceCoverageSafetyMarginMs ?? DEFAULT_SOURCE_COVERAGE_SAFETY_MARGIN_MS;
   const execStart = params.executionWindowStartIso
     ? parseIso(params.executionWindowStartIso)
     : null;
@@ -99,8 +121,8 @@ export function evaluateSourceScope(params: {
       sourceScopeIncompleteReason: "execution_outside_export_window",
     };
   }
-  // Complete execution window must be contained within export window (+slack on edges).
-  if (execStart < exportStart - slack || execEnd > exportEnd + slack) {
+  // exportStart <= execStart - margin  AND  exportEnd >= execEnd + margin
+  if (exportStart > execStart - margin || exportEnd < execEnd + margin) {
     return {
       sourceScopeComplete: false,
       sourceScopeIncompleteReason: "execution_outside_export_window",

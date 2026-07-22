@@ -123,6 +123,8 @@ export function CursorUsagePage({ nonce }: CursorUsagePageProps) {
         {
           importId: preflight.importId,
           fingerprint: preflight.fingerprint,
+          preflightApprovalFingerprint:
+            preflight.preflightApprovalFingerprint ?? preflight.fingerprint,
           confirmed: true,
         },
         nonce,
@@ -207,7 +209,15 @@ export function CursorUsagePage({ nonce }: CursorUsagePageProps) {
 
       {preflight ? (
         <>
-          <PreflightTable rows={preflight.rows} />
+          <PreflightTable
+            rows={preflight.rows}
+            sourceScopeComplete={preflight.sourceScopeComplete}
+            sourceScopeIncompleteReason={preflight.sourceScopeIncompleteReason}
+            uploadScopedRejectionCount={preflight.uploadScopedRejectionCount}
+            agentScopedRejectionCount={preflight.agentScopedRejectionCount}
+            rejectionReasonCodes={preflight.rejectionReasonCodes}
+            conflicts={preflight.conflicts}
+          />
           <ApplyConfirm
             confirmed={confirmed}
             disabled={
@@ -215,6 +225,7 @@ export function CursorUsagePage({ nonce }: CursorUsagePageProps) {
               alreadyVerified ||
               !preflight.sourceScopeComplete ||
               hasConflicts ||
+              (preflight.uploadScopedRejectionCount ?? 0) > 0 ||
               preflight.bundleCount === 0
             }
             applying={applying}

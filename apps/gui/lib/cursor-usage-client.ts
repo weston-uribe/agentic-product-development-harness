@@ -33,12 +33,17 @@ export interface PublicPreflightRow {
 export interface PreflightResponse {
   importId: string;
   fingerprint: string;
+  preflightApprovalFingerprint?: string;
   lifecycle: string;
   sourceScopeComplete: boolean;
+  sourceScopeIncompleteReason?: string | null;
   bundleCount: number;
   publicSummary: Record<string, unknown>;
   rows: PublicPreflightRow[];
   conflicts: string[];
+  uploadScopedRejectionCount?: number;
+  agentScopedRejectionCount?: number;
+  rejectionReasonCodes?: string[];
 }
 
 export interface ApplyResponse {
@@ -61,10 +66,25 @@ export interface ImportStatusResponse {
 export interface AnalyticsResponse {
   ledgerCount: number;
   verifiedCount: number;
+  incompleteCount?: number;
   totalBundles: number;
   totalScores: number;
   byNamespace: Record<string, { imports: number; bundles: number }>;
-  completeness: "local_ledger" | "langfuse" | "partial";
+  localEvidenceCompleteness: "complete" | "partial" | "none";
+  langfuseReconciliationStatus:
+    | "not_run"
+    | "unavailable"
+    | "complete"
+    | "divergent";
+  grouped?: {
+    byIssue: Record<string, { bundles: number; inputTokens: number; outputTokens: number }>;
+    byPhase: Record<string, { bundles: number; inputTokens: number; outputTokens: number }>;
+    bySourceModel: Record<string, { bundles: number; inputTokens: number }>;
+    byCanonicalModel: Record<string, { bundles: number; inputTokens: number }>;
+    byEffectiveVariant: Record<string, { bundles: number; inputTokens: number }>;
+  };
+  unresolvedSegmentCount?: number;
+  pricingIncompleteSegmentCount?: number;
 }
 
 export async function fetchCursorUsageConfig(): Promise<CursorUsageConfigResponse> {
@@ -99,7 +119,12 @@ export async function postCursorUsagePreflight(
 }
 
 export async function postCursorUsageApply(
-  body: { importId: string; fingerprint: string; confirmed: true },
+  body: {
+    importId: string;
+    fingerprint: string;
+    preflightApprovalFingerprint?: string;
+    confirmed: true;
+  },
   nonce: string,
 ): Promise<ApplyResponse> {
   const response = await cursorUsageFetch(

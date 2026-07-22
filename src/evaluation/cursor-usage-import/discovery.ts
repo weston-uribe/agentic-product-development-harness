@@ -6,7 +6,13 @@ import {
   type LangfuseApiClient,
 } from "../langfuse-inspect/client.js";
 import { hashCloudAgentId } from "./parse.js";
-import { CURSOR_USAGE_SCORE_NAMES, type AllowedImportPhase } from "./types.js";
+import { normalizeModelRaw, resolveCanonicalModelId } from "./model-aliases.js";
+import {
+  CURSOR_USAGE_SCORE_NAMES,
+  MULTI_MODEL_EXECUTION_PROVEN_FIELD,
+  type AllowedImportPhase,
+  type ObservedModelEvidence,
+} from "./types.js";
 
 const TRACE_PAGE_LIMIT = 50;
 const OBS_PAGE_LIMIT = 100;
@@ -117,6 +123,17 @@ export interface UsageCandidate {
   model: string | null;
   effectiveVariant: PricingVariant | null;
   existingCursorScoreNames: string[];
+  /** Authoritative observed models with raw + canonical provenance. */
+  observedModels: ObservedModelEvidence[];
+  /** Convenience view of non-null canonical IDs. */
+  observedModelIds: string[];
+  /**
+   * True only when agent observation metadata has authoritative
+   * `multiModelExecutionProven === true` AND ≥2 distinct observed models.
+   * No production producer this checkpoint (contract B).
+   */
+  multiModelExecutionProven: boolean;
+  multiModelProofField: typeof MULTI_MODEL_EXECUTION_PROVEN_FIELD;
 }
 
 export interface DiscoverUsageCandidatesResult {
@@ -199,15 +216,52 @@ function buildCandidateFromTrace(params: {
     phaseExecutionId: string | null;
     cursorAgentId: string | null;
     model: string | null;
+    multiModelFlag: boolean;
   };
 
   const agentsOnTrace = new Map<string, AgentWin>();
   let effectiveVariant: PricingVariant | null = null;
+  /** Dedup key → evidence (normalized raw + variant). */
+  const observedByKey = new Map<string, ObservedModelEvidence>();
 
   for (const obs of params.observations) {
     const obsPhase = resolveObsPhase(obs, tracePhase);
     const aid = agentIdFromObs(obs);
+    const meta = asRecord(obs.metadata) ?? {};
+    const obsId = typeof obs.id === "string" ? obs.id : null;
+
+    // Collect model provenance from agent/generation observations (no prompt/output bodies).
+    const rawModel =
+      (typeof obs.model === "string" && obs.model.trim()
+        ? obs.model
+        : null) ??
+      (typeof meta.model === "string" && meta.model.trim()
+        ? meta.model
+        : null);
+    if (rawModel && obsId && aid) {
+      const normalizedRawModel = normalizeModelRaw(rawModel);
+      const canonicalModelId = resolveCanonicalModelId(rawModel);
+      const variant = resolveVariantFromMeta(meta) ?? "unknown";
+      const key = `${normalizedRawModel}|${variant}|${canonicalModelId ?? "null"}`;
+      const existing = observedByKey.get(key);
+      if (existing) {
+        if (!existing.observationIds.includes(obsId)) {
+          existing.observationIds.push(obsId);
+          existing.observationIds.sort();
+        }
+      } else {
+        observedByKey.set(key, {
+          rawModel,
+          normalizedRawModel,
+          canonicalModelId,
+          variant,
+          observationIds: [obsId],
+        });
+      }
+    }
+
     if (aid && obsPhase) {
+      const flagFromMeta = meta[MULTI_MODEL_EXECUTION_PROVEN_FIELD] === true;
       const cur = agentsOnTrace.get(aid) ?? {
         phases: new Set<AllowedImportPhase>(),
         windowStart: null,
@@ -216,8 +270,10 @@ function buildCandidateFromTrace(params: {
         phaseExecutionId: null,
         cursorAgentId: aid,
         model: typeof obs.model === "string" ? obs.model : null,
+        multiModelFlag: flagFromMeta,
       };
       cur.phases.add(obsPhase);
+      cur.multiModelFlag = cur.multiModelFlag || flagFromMeta;
       const start =
         typeof obs.startTime === "string"
           ? obs.startTime
@@ -254,7 +310,6 @@ function buildCandidateFromTrace(params: {
       agentsOnTrace.set(aid, cur);
     }
     if (!effectiveVariant) {
-      const meta = asRecord(obs.metadata) ?? {};
       effectiveVariant = resolveVariantFromMeta(meta);
     }
   }
@@ -268,6 +323,26 @@ function buildCandidateFromTrace(params: {
     typeof params.trace.timestamp === "string"
       ? params.trace.timestamp
       : win.windowEnd;
+
+  const observedModels = [...observedByKey.values()].sort((a, b) =>
+    a.normalizedRawModel.localeCompare(b.normalizedRawModel),
+  );
+  const observedModelIds = [
+    ...new Set(
+      observedModels
+        .map((o) => o.canonicalModelId)
+        .filter((id): id is string => id != null),
+    ),
+  ].sort();
+  const distinctModels =
+    new Set(observedModels.map((o) => o.normalizedRawModel)).size +
+    observedModelIds.length;
+  const multiModelExecutionProven =
+    win.multiModelFlag &&
+    (observedModelIds.length >= 2 ||
+      new Set(observedModels.map((o) => o.normalizedRawModel)).size >= 2);
+
+  void distinctModels;
 
   return {
     traceId,
@@ -286,6 +361,10 @@ function buildCandidateFromTrace(params: {
     model: win.model,
     effectiveVariant,
     existingCursorScoreNames: extractExistingCursorScores(params.trace),
+    observedModels,
+    observedModelIds,
+    multiModelExecutionProven,
+    multiModelProofField: MULTI_MODEL_EXECUTION_PROVEN_FIELD,
   };
 }
 

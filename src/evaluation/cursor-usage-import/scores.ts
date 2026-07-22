@@ -72,6 +72,11 @@ export interface BuildPhaseUsageScoresParams {
   providerActualUsd?: number | null;
   providerActualCostComplete: boolean;
   costProxyAvailable: boolean;
+  /**
+   * When false, omit incomplete numeric cost totals under existing score names
+   * (known_noncache / all_input_at_list_rate). Token scores still emit.
+   */
+  numericCostTotalsComplete?: boolean;
   sourceDigestPrefix?: string;
   metadata?: Record<string, unknown>;
   environment?: string;
@@ -142,20 +147,6 @@ export function buildPhaseUsageScores(
       value: params.sourceScopeComplete,
       comment,
     }),
-    numericScore({
-      ...base,
-      name: "cursor_known_noncache_cost_usd",
-      value: params.knownNoncacheCostUsd,
-      comment,
-    }),
-    numericScore({
-      ...base,
-      name: "cursor_all_input_at_list_rate_usd",
-      value: params.allInputAtListRateUsd,
-      comment: params.defaultComment
-        ? `${ALL_INPUT_AT_LIST_RATE_COMMENT}; ${params.defaultComment}`.slice(0, 480)
-        : ALL_INPUT_AT_LIST_RATE_COMMENT,
-    }),
     booleanScore({
       ...base,
       name: "cursor_cost_proxy_available",
@@ -187,6 +178,42 @@ export function buildPhaseUsageScores(
       comment,
     }),
   ];
+
+  const numericCostTotalsComplete =
+    params.numericCostTotalsComplete ?? params.costProxyAvailable;
+
+  if (
+    numericCostTotalsComplete &&
+    Number.isFinite(params.knownNoncacheCostUsd)
+  ) {
+    scores.push(
+      numericScore({
+        ...base,
+        name: "cursor_known_noncache_cost_usd",
+        value: params.knownNoncacheCostUsd,
+        comment,
+      }),
+    );
+  }
+
+  if (
+    numericCostTotalsComplete &&
+    Number.isFinite(params.allInputAtListRateUsd)
+  ) {
+    scores.push(
+      numericScore({
+        ...base,
+        name: "cursor_all_input_at_list_rate_usd",
+        value: params.allInputAtListRateUsd,
+        comment: params.defaultComment
+          ? `${ALL_INPUT_AT_LIST_RATE_COMMENT}; ${params.defaultComment}`.slice(
+              0,
+              480,
+            )
+          : ALL_INPUT_AT_LIST_RATE_COMMENT,
+      }),
+    );
+  }
 
   if (
     params.listPriceEquivalentComplete &&

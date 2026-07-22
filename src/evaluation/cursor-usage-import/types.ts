@@ -5,7 +5,19 @@ import type { TraceScoreFetchEvidence } from "../langfuse-inspect/client.js";
 import type { ExportWindow } from "./canonical.js";
 
 export const CURSOR_USAGE_CSV_SCHEMA_VERSION = 1 as const;
-export const CURSOR_USAGE_IMPORTER_VERSION = "9.0.0" as const;
+export const CURSOR_USAGE_IMPORTER_VERSION = "10.0.0" as const;
+
+/** Reserved durable producer field on agent observation metadata (contract B). */
+export const MULTI_MODEL_EXECUTION_PROVEN_FIELD =
+  "multiModelExecutionProven" as const;
+
+export interface ObservedModelEvidence {
+  rawModel: string;
+  normalizedRawModel: string;
+  canonicalModelId: string | null;
+  variant: PricingVariant | "unknown";
+  observationIds: string[];
+}
 
 export const ALL_INPUT_AT_LIST_RATE_COMMENT =
   "comparison proxy; all input categories valued at published non-cache input list rate" as const;

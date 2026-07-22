@@ -6,9 +6,31 @@ import {
   type UsageSegment,
 } from "./canonical.js";
 import { hashCloudAgentId } from "./parse.js";
-import { resolveCanonicalModelId } from "./model-aliases.js";
-import type { PhaseJoinTarget, TokenBuckets } from "./types.js";
+import {
+  normalizeModelRaw,
+  resolveCanonicalModelId,
+} from "./model-aliases.js";
+import type { ObservedModelEvidence, PhaseJoinTarget, TokenBuckets } from "./types.js";
 import type { UsageCandidate } from "./discovery.js";
+import { addMicrosStrings } from "./money.js";
+import { reconcileSourceModel } from "./model-reconciliation.js";
+
+function observedModelsForCandidate(
+  candidate: UsageCandidate,
+): ObservedModelEvidence[] {
+  if (candidate.observedModels?.length) return candidate.observedModels;
+  if (!candidate.model?.trim()) return [];
+  const rawModel = candidate.model;
+  return [
+    {
+      rawModel,
+      normalizedRawModel: normalizeModelRaw(rawModel),
+      canonicalModelId: resolveCanonicalModelId(rawModel),
+      variant: candidate.effectiveVariant ?? "unknown",
+      observationIds: [],
+    },
+  ];
+}
 
 export type AttributionState =
   | "matched"
@@ -137,7 +159,17 @@ export function buildSegmentsFromCanonicalEvents(
         seg.timestampMax = event.timestampIso;
       }
       if (event.providerActualUsdMicros) {
-        seg.providerActualUsdMicros = event.providerActualUsdMicros;
+        if (!seg.providerActualUsdMicros) {
+          seg.providerActualUsdMicros = event.providerActualUsdMicros;
+        } else {
+          const summed = addMicrosStrings(
+            seg.providerActualUsdMicros,
+            event.providerActualUsdMicros,
+          );
+          if (summed.ok) {
+            seg.providerActualUsdMicros = summed.microsString;
+          }
+        }
       }
     }
   }
@@ -229,10 +261,40 @@ export function attributeSegmentsToCandidates(params: {
       };
     }
 
+    const reconciliation = reconcileSourceModel({
+      sourceModelRaw: segment.modelRaw,
+      sourceModelCanonical: segment.modelIdCanonical,
+      observedModels: observedModelsForCandidate(candidate),
+      multiModelExecutionProven: candidate.multiModelExecutionProven === true,
+      candidateVariant: candidate.effectiveVariant,
+    });
+
+    if (
+      reconciliation.outcome === "model_identity_conflict" ||
+      reconciliation.outcome === "variant_identity_conflict"
+    ) {
+      return {
+        segment,
+        state: "conflict" as const,
+        candidate: null,
+        reason: reconciliation.reason,
+      };
+    }
+
+    if (!reconciliation.tokensAllowed) {
+      return {
+        segment,
+        state: "rejected" as const,
+        candidate: null,
+        reason: reconciliation.reason,
+      };
+    }
+
     return {
       segment,
       state: "matched" as const,
       candidate,
+      reason: reconciliation.outcome,
     };
   });
 }

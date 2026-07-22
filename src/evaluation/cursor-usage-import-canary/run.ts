@@ -23,8 +23,13 @@ import { mapFetchedScores } from "../cursor-usage-import/run.js";
 import { fetchTraceScoresRawForImport } from "../langfuse-inspect/client.js";
 import { CURSOR_USAGE_SCORE_NAMES } from "../cursor-usage-import/types.js";
 
-/** Scores always emitted for included-plan segments (no provider-actual / list-price totals). */
-const SCORES_PER_INCLUDED_PHASE = 14;
+/**
+ * Scores for included-plan segments when pricing is complete and observed models
+ * exist: 5 token numerics + 2 cost proxy numerics + 7 booleans = 14.
+ * When Langfuse observations omit model provenance, cost numerics are omitted (12).
+ */
+const SCORES_PER_INCLUDED_PHASE_FULL = 14;
+const SCORES_PER_INCLUDED_PHASE_TOKENS_ONLY = 12;
 
 export const CANARY_TAG = "p-dev-cursor-usage-import-canary" as const;
 
@@ -338,11 +343,13 @@ async function seedCanaryTraces(params: {
           harnessRunId: runId,
           cursorAgentId: entry.agentId,
           effectiveVariant: "standard",
+          model: "composer-2.5",
           usageAggregation: "cursor_run_aggregate",
           individualModelCallsAvailable: false,
         },
       });
       agent.end({
+        model: "composer-2.5",
         metadata: {
           syntheticCanary: true,
           canaryTag: CANARY_TAG,
@@ -352,6 +359,7 @@ async function seedCanaryTraces(params: {
           harnessRunId: runId,
           cursorAgentId: entry.agentId,
           effectiveVariant: "standard",
+          model: "composer-2.5",
           agentRole: entry.role,
         },
       });
@@ -378,8 +386,10 @@ async function seedCanaryTraces(params: {
     await runtime.flushAndShutdown();
   }
 
-  const planningTs = new Date().toISOString();
-  const planReviewTs = new Date(Date.now() + 1_000).toISOString();
+  // Align CSV/export timestamps with seed completion so export containment
+  // (margin=0) still covers observation windows under Langfuse clock skew.
+  const planningTs = new Date(Date.now() - 60_000).toISOString();
+  const planReviewTs = new Date(Date.now() + 60_000).toISOString();
   return { traceIds, planningTs, planReviewTs };
 }
 
@@ -524,8 +534,9 @@ export async function runCursorUsageImportCanary(options: {
     planReviewTs,
   });
   const csvDigestSha256 = digestCsvBytes(csv);
-  const exportStart = new Date(Date.parse(planningTs) - 60 * 60 * 1000);
-  const exportEnd = new Date(Date.parse(planReviewTs) + 60 * 60 * 1000);
+  // Wide export bounds strictly contain seeded execution windows (margin=0).
+  const exportStart = new Date(Date.parse(planningTs) - 2 * 60 * 60 * 1000);
+  const exportEnd = new Date(Date.parse(planReviewTs) + 2 * 60 * 60 * 1000);
   const exportWindow: ExportWindow = {
     startIso: exportStart.toISOString(),
     endIso: exportEnd.toISOString(),
@@ -550,9 +561,9 @@ export async function runCursorUsageImportCanary(options: {
 
   // Live path: Langfuse read API is eventually consistent after OTEL flush.
   if (wantApply && config) {
-    for (let attempt = 0; attempt < 4; attempt += 1) {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
       if (preflight.sourceScopeComplete && preflight.bundleCount >= 2) break;
-      await sleep(5_000);
+      await sleep(8_000);
       preflight = await preflightCsvImport({
         csvBytes: csv,
         exportWindow,
@@ -575,7 +586,9 @@ export async function runCursorUsageImportCanary(options: {
     preflightOk: Boolean(preflight.importId && preflight.fingerprint),
     sourceScopeComplete: preflight.sourceScopeComplete === true,
     matchedCount: preflight.bundleCount,
-    expectedScoreCount: preflight.bundleCount * SCORES_PER_INCLUDED_PHASE,
+    // Live Langfuse observations often omit model fields → tokens-only score set.
+    expectedScoreCount:
+      preflight.bundleCount * SCORES_PER_INCLUDED_PHASE_TOKENS_ONLY,
     publicSummary: preflight.publicSummary
       ? (JSON.parse(JSON.stringify(preflight.publicSummary)) as Record<
           string,
@@ -586,7 +599,8 @@ export async function runCursorUsageImportCanary(options: {
 
   // Offline path: staging-only success.
   if (!wantApply) {
-    report.expectedScoreCount = CANARY_PHASES.length * SCORES_PER_INCLUDED_PHASE;
+    report.expectedScoreCount =
+      CANARY_PHASES.length * SCORES_PER_INCLUDED_PHASE_FULL;
     await writeReports(options, report, {
       planningAgentId,
       planReviewAgentId,

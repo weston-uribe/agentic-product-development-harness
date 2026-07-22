@@ -10,8 +10,17 @@ Bulk import of Cursor usage CSV into Langfuse as **score-only** enrichment on ex
 | Use Cloud Agent ID → Cursor Agent ID join | Treat Admin API events as issue/phase attribution (aggregate-only under current docs) |
 | Require an explicit Cursor export window for source-scope completeness | Invent export bounds from the first/last CSV row |
 | Keep private Cloud Agent IDs in server-side staged artifacts only | Fix the native Langfuse generation cost dashboard |
+| Revalidate the approved score plan (manifest digests) on Apply | Silently apply when discovery targets or pricing inputs changed |
 
 Native `generationCostComplete` / `cursor_exact_cost_complete` remain false until Cursor reports truthful generation usage.
+
+## Source scope (locked)
+
+- Export window must **contain** the agent execution window (default safety margin `0` ms).
+- Attribution may use a separate ingestion slack for candidate matching; that slack does **not** expand the export window.
+- Every CSV row is in scope. There are no operator issue/phase exclusion filters in this checkpoint.
+- Parser rejections without recoverable Cloud Agent identity are **upload-scoped** and block the entire upload.
+- Model/variant conflicts make source scope incomplete and disable Apply.
 
 ## Primary workflow (GUI)
 
@@ -19,10 +28,11 @@ Native `generationCostComplete` / `cursor_exact_cost_complete` remain false unti
 2. Open **Settings → Cursor usage**.
 3. Drag-and-drop an official Cursor usage CSV (≤ 25 MiB).
 4. Enter the **export start** and **export end** from the Cursor export UI (required).
-5. Run **Preflight**. Review matched / conflict / unresolved rows.
-6. Apply is disabled when source scope is incomplete or conflicts exist.
-7. Confirm and **Apply**. Refresh-safe: state is recovered from durable staging/ledger.
-8. Use **Analytics** for local-ledger completeness (not organization-wide unless every machine’s ledger is present).
+5. Run **Preflight**. Review matched / conflict / unresolved rows and rejection reason codes (never raw rejected cells).
+6. Apply is disabled when source scope is incomplete, upload-scoped rejections exist, or conflicts exist.
+7. Confirm and **Apply**. The GUI sends the preflight approval fingerprint; Apply rebuilds discovery, pricing, and the expected-score manifest and fails closed if they differ.
+8. Refresh-safe: state is recovered from durable staging/ledger (`failed_recoverable` / interrupted apply may retry under recovery rules).
+9. Use **Analytics** for local ledger evidence completeness and Langfuse reconciliation status (credentials alone never mark reconciliation complete). Totals cover **only ledgers in the current operator workspace**.
 
 ## CLI recovery
 
@@ -49,9 +59,15 @@ Do not use `cursor.com/api/dashboard/export-usage-events-csv` or browser cookie 
 ## Canary
 
 ```bash
+# Offline / staged validation only (no Langfuse writes)
 npm run evaluation:canary-cursor-usage-import
-npm run evaluation:canary-cursor-usage-import -- --apply   # live, when creds + traces exist
+
+# Live apply: requires Langfuse credentials. Creates disposable deterministic
+# traces before import — no operator-created traces required.
+npm run evaluation:canary-cursor-usage-import -- --apply
 ```
+
+Dry mode = staged validation. `--apply` self-seeds planning + plan_review traces, then imports and verifies scores.
 
 ## Browser E2E
 

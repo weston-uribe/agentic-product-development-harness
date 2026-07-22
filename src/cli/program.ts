@@ -1121,14 +1121,14 @@ export function createProgram(): Command {
   evalCmd
     .command("canary-cursor-usage-import")
     .description(
-      "Dedicated Cursor usage CSV→Langfuse score-import canary (does not overload projection canary)",
+      "Cursor usage CSV→Langfuse score-import canary. Dry = staged only; --apply self-seeds disposable traces (requires Langfuse credentials; no operator-created traces).",
     )
     .option("--issue <key>", "Synthetic issue key (default: auto-generated SYN-CUR-*)")
     .option("--namespace <namespace>", "Evaluation namespace")
     .option("--log-directory <path>", "Override harness logDirectory")
     .option(
       "--apply",
-      "Apply import to Langfuse when source-scope complete (requires credentials + traces)",
+      "Live apply: create disposable traces, then import/verify scores (requires Langfuse credentials)",
       false,
     )
     .option("--out <path>", "Write canary report JSON")
