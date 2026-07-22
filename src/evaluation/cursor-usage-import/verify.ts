@@ -9,6 +9,11 @@ export interface FetchedScore {
   timestamp: string | null;
   /** Optional; used to distinguish import scores from unrelated pre-existing scores. */
   comment?: string | null;
+  /**
+   * Present only when the provider score-list response exposes metadata.
+   * Absence means metadata was not live-retrievable — do not claim verification.
+   */
+  metadata?: Record<string, unknown>;
 }
 
 function normalizeBool(value: unknown): boolean | null {

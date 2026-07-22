@@ -33,7 +33,11 @@ import {
   type StagingArtifacts,
 } from "./staging.js";
 import { withImportLock } from "./import-lock.js";
-import { computeCostProxies } from "./proxy-cost.js";
+import { buildLedgerAnalyticsSummary } from "./analytics-summary.js";
+import {
+  computeCostProxies,
+  incompleteSegmentPricingEntry,
+} from "./proxy-cost.js";
 import { projectUsageScoresOnly } from "./project.js";
 import { createScoreOnlyClient } from "./score-client.js";
 import { buildPhaseUsageScores } from "./scores.js";
@@ -47,12 +51,17 @@ import { mapFetchedScores } from "./run.js";
 import type { ExportWindow, UsageSegment } from "./canonical.js";
 import type { PhaseImportAttachment } from "./types.js";
 import { CURSOR_USAGE_IMPORTER_VERSION } from "./types.js";
-import { resolveCanonicalModelId } from "./model-aliases.js";
+import {
+  normalizeModelRaw,
+  resolveCanonicalModelId,
+} from "./model-aliases.js";
 import { tokensSumValid } from "./parse.js";
 import {
   buildExpectedScoreManifest,
+  digestCanonical,
   discoverySnapshotDigestFromCandidates,
   type ExpectedScoreManifest,
+  type ExpectedScoreManifestEntry,
   type SegmentPricingManifestEntry,
 } from "./expected-score-manifest.js";
 import { fingerprintEvents } from "./sources/csv.js";
@@ -60,6 +69,8 @@ import {
   addMicrosStrings,
   microsStringToLangfuseUsdNumber,
 } from "./money.js";
+import type { PricingVariant } from "../telemetry/pricing-registry.js";
+import type { LedgerAnalyticsSummary } from "./staging.js";
 
 export interface CursorUsageImportFilters {
   issueKeys?: string[];
@@ -120,11 +131,13 @@ export interface ImportAnalytics {
     | "complete"
     | "divergent";
   grouped: {
-    byIssue: Record<string, { bundles: number; inputTokens: number; outputTokens: number }>;
-    byPhase: Record<string, { bundles: number; inputTokens: number; outputTokens: number }>;
-    bySourceModel: Record<string, { bundles: number; inputTokens: number }>;
-    byCanonicalModel: Record<string, { bundles: number; inputTokens: number }>;
-    byEffectiveVariant: Record<string, { bundles: number; inputTokens: number }>;
+    byIssue: LedgerAnalyticsSummary["byIssue"];
+    byPhase: LedgerAnalyticsSummary["byPhase"];
+    bySourceModel: LedgerAnalyticsSummary["bySourceModel"];
+    byCanonicalModel: LedgerAnalyticsSummary["byCanonicalModel"];
+    byEffectiveVariant: LedgerAnalyticsSummary["byEffectiveVariant"];
+    bySourceDigest: LedgerAnalyticsSummary["bySourceDigest"];
+    byPricingRegistryVersion: LedgerAnalyticsSummary["byPricingRegistryVersion"];
   };
   unresolvedSegmentCount: number;
   pricingIncompleteSegmentCount: number;
@@ -227,6 +240,55 @@ interface BuiltAttachments {
     pricingManifest: SegmentPricingManifestEntry | null;
     knownNoncacheCostUsd: number | null;
   }>;
+  issueKeyByTraceId: Record<string, string>;
+}
+
+function sourceSegmentFingerprint(seg: UsageSegment): string {
+  return hashCloudAgentId([...seg.fingerprints].sort().join("|"));
+}
+
+function bundleProviderActual(params: {
+  attributedSegments: ReturnType<
+    typeof bundleAttributedSegments
+  >["bundles"][number]["attributedSegments"];
+}): { providerActualUsd: number | null; providerActualComplete: boolean } {
+  // Every deterministically attributed usage segment is applicable unless the
+  // source contract explicitly proves it is outside provider-actual billing scope.
+  // Current contract has no out-of-scope proof → all attributed segments apply.
+  const micros: string[] = [];
+  for (const row of params.attributedSegments) {
+    const seg = row.segment;
+    if (
+      !seg.providerActualAggregationComplete ||
+      seg.providerActualUsdMicros == null
+    ) {
+      return { providerActualUsd: null, providerActualComplete: false };
+    }
+    micros.push(seg.providerActualUsdMicros);
+  }
+  if (micros.length === 0) {
+    return { providerActualUsd: null, providerActualComplete: false };
+  }
+  let sumMicros: string | null = null;
+  for (const m of micros) {
+    if (sumMicros == null) {
+      sumMicros = m;
+      continue;
+    }
+    const added = addMicrosStrings(sumMicros, m);
+    if (!added.ok) {
+      return { providerActualUsd: null, providerActualComplete: false };
+    }
+    sumMicros = added.microsString;
+  }
+  if (!sumMicros) {
+    return { providerActualUsd: null, providerActualComplete: false };
+  }
+  const usd = microsStringToLangfuseUsdNumber(sumMicros);
+  if (usd == null) {
+    return { providerActualUsd: null, providerActualComplete: false };
+  }
+  return { providerActualUsd: usd, providerActualComplete: true };
 }
 
 function buildAttachmentsFromBundles(params: {
@@ -250,8 +312,7 @@ function buildAttachmentsFromBundles(params: {
   let sourceScopeIncompleteReason: string | null = null;
   let pricingIncompleteSegmentCount = 0;
   const privateSegmentPricing: BuiltAttachments["privateSegmentPricing"] = [];
-  const pricingByScoreId: Record<string, SegmentPricingManifestEntry | null> =
-    {};
+  const segmentPricingManifest: SegmentPricingManifestEntry[] = [];
   const issueKeyByTraceId: Record<string, string> = {};
   const phaseByTraceId: Record<string, string> = {};
   const sourceBundleFingerprintByTraceId: Record<string, string> = {};
@@ -321,52 +382,115 @@ function buildAttachmentsFromBundles(params: {
         sourceScopeIncompleteReason ?? scope.sourceScopeIncompleteReason;
     }
 
-    // Per-segment pricing
+    // Per-segment pricing using matched observed model/variant (not join variant).
     let allSegmentsPriced = true;
+    let allSegmentsCostAllowed = true;
     let knownNoncacheSum = 0;
     let allInputAtListSum = 0;
-    const segmentPricingEntries: SegmentPricingManifestEntry[] = [];
+    const bundlePricingEntries: SegmentPricingManifestEntry[] = [];
 
-    for (const seg of bundle.segmentBreakdown) {
+    for (const row of bundle.attributedSegments) {
+      const seg = row.segment;
+      const evidence = row.reconciliation;
+      const fp = sourceSegmentFingerprint(seg);
       const modelId =
+        evidence?.matchedCanonicalModelId ??
         seg.modelIdCanonical ??
         resolveCanonicalModelId(seg.modelRaw) ??
         null;
-      if (!modelId) {
+      const matchedVariant = evidence?.matchedObservedVariant ?? null;
+      const costAllowed = evidence?.costAllowed === true;
+      if (!costAllowed) {
+        allSegmentsCostAllowed = false;
+      }
+
+      if (
+        !modelId ||
+        matchedVariant == null ||
+        matchedVariant === "unknown" ||
+        !costAllowed
+      ) {
         allSegmentsPriced = false;
         pricingIncompleteSegmentCount += 1;
+        const incomplete = incompleteSegmentPricingEntry({
+          sourceSegmentFingerprint: fp,
+          canonicalModelId: modelId,
+          normalizedRawModel:
+            evidence?.matchedNormalizedRawModel ??
+            normalizeModelRaw(seg.modelRaw),
+          matchedObservedVariant: matchedVariant,
+          matchedObservationIds: evidence?.matchedObservationIds ?? [],
+          costAllowed,
+          completenessReason:
+            evidence?.reason ??
+            (!modelId ? "unknown_model" : "pricing_incomplete"),
+          providerActualAggregationComplete:
+            seg.providerActualAggregationComplete,
+          providerActualAggregationFailureReason:
+            seg.providerActualAggregationFailureReason,
+          tokens: seg.tokens,
+        });
+        bundlePricingEntries.push(incomplete);
+        segmentPricingManifest.push(incomplete);
         privateSegmentPricing.push({
           traceId: bundle.traceId,
           modelRaw: seg.modelRaw,
-          pricingManifest: null,
+          pricingManifest: incomplete,
           knownNoncacheCostUsd: null,
         });
         continue;
       }
+
       const proxies = params.computeCostProxiesFn({
         modelId,
-        effectiveVariant: bundle.join.effectiveVariant,
+        effectiveVariant: matchedVariant as PricingVariant,
         tokens: seg.tokens,
+        sourceSegmentFingerprint: fp,
+        normalizedRawModel:
+          evidence?.matchedNormalizedRawModel ?? normalizeModelRaw(seg.modelRaw),
+        matchedObservedVariant: matchedVariant,
+        matchedObservationIds: evidence?.matchedObservationIds ?? [],
+        costAllowed,
+        providerActualAggregationComplete:
+          seg.providerActualAggregationComplete,
+        providerActualAggregationFailureReason:
+          seg.providerActualAggregationFailureReason,
       });
       if (!proxies || proxies.pricingManifest.completenessResult !== "complete") {
         allSegmentsPriced = false;
         pricingIncompleteSegmentCount += 1;
+        const entry =
+          proxies?.pricingManifest ??
+          incompleteSegmentPricingEntry({
+            sourceSegmentFingerprint: fp,
+            canonicalModelId: modelId,
+            normalizedRawModel:
+              evidence?.matchedNormalizedRawModel ??
+              normalizeModelRaw(seg.modelRaw),
+            matchedObservedVariant: matchedVariant,
+            matchedObservationIds: evidence?.matchedObservationIds ?? [],
+            costAllowed,
+            completenessReason: "pricing_lookup_incomplete",
+            providerActualAggregationComplete:
+              seg.providerActualAggregationComplete,
+            providerActualAggregationFailureReason:
+              seg.providerActualAggregationFailureReason,
+            tokens: seg.tokens,
+          });
+        bundlePricingEntries.push(entry);
+        segmentPricingManifest.push(entry);
         privateSegmentPricing.push({
           traceId: bundle.traceId,
           modelRaw: seg.modelRaw,
-          pricingManifest: proxies?.pricingManifest ?? null,
+          pricingManifest: entry,
           knownNoncacheCostUsd: proxies?.knownNoncacheCostUsd ?? null,
         });
-        if (proxies) {
-          knownNoncacheSum += proxies.knownNoncacheCostUsd;
-          allInputAtListSum += proxies.allInputAtListRateUsd;
-          segmentPricingEntries.push(proxies.pricingManifest);
-        }
         continue;
       }
       knownNoncacheSum += proxies.knownNoncacheCostUsd;
       allInputAtListSum += proxies.allInputAtListRateUsd;
-      segmentPricingEntries.push(proxies.pricingManifest);
+      bundlePricingEntries.push(proxies.pricingManifest);
+      segmentPricingManifest.push(proxies.pricingManifest);
       privateSegmentPricing.push({
         traceId: bundle.traceId,
         modelRaw: seg.modelRaw,
@@ -375,44 +499,13 @@ function buildAttachmentsFromBundles(params: {
       });
     }
 
-    // Cost totals require every segment priced AND no candidate_model_unknown
-    // tokens-only attribution on the bundle (costAllowed semantics).
-    const tokensOnlyModelUnknown = bundle.states.some(
-      (s) => s === "matched",
-    ) &&
-      params.attributed.some(
-        (a) =>
-          a.state === "matched" &&
-          a.candidate?.traceId === bundle.traceId &&
-          a.reason === "no_observed_models_tokens_only",
-      );
     const numericCostTotalsComplete =
       allSegmentsPriced &&
-      scope.sourceScopeComplete &&
-      !tokensOnlyModelUnknown;
-    const providerMicros = bundle.segmentBreakdown
-      .map((s) => s.providerActualUsdMicros)
-      .filter((m): m is string => m != null);
-    let providerActualUsd: number | null = null;
-    let providerActualComplete = false;
-    if (providerMicros.length > 0 && providerMicros.length === bundle.segmentBreakdown.length) {
-      let sumMicros: string | null = null;
-      for (const m of providerMicros) {
-        if (sumMicros == null) sumMicros = m;
-        else {
-          const added = addMicrosStrings(sumMicros, m);
-          if (!added.ok) {
-            sumMicros = null;
-            break;
-          }
-          sumMicros = added.microsString;
-        }
-      }
-      if (sumMicros) {
-        providerActualUsd = microsStringToLangfuseUsdNumber(sumMicros);
-        providerActualComplete = providerActualUsd != null;
-      }
-    }
+      allSegmentsCostAllowed &&
+      scope.sourceScopeComplete;
+    const { providerActualUsd, providerActualComplete } = bundleProviderActual({
+      attributedSegments: bundle.attributedSegments,
+    });
 
     const scores = buildPhaseUsageScores({
       namespace: params.namespace,
@@ -425,31 +518,16 @@ function buildAttachmentsFromBundles(params: {
       listPriceEquivalentComplete: false,
       providerActualUsd,
       providerActualCostComplete: providerActualComplete,
-      costProxyAvailable: allSegmentsPriced && !tokensOnlyModelUnknown,
+      costProxyAvailable: allSegmentsPriced && allSegmentsCostAllowed,
       numericCostTotalsComplete,
       sourceDigestPrefix: params.sourceDigestPrefix,
       environment: params.environment,
     });
 
-    const primaryPricing = segmentPricingEntries[0] ?? null;
-    for (const score of scores) {
-      if (
-        score.name === "cursor_known_noncache_cost_usd" ||
-        score.name === "cursor_all_input_at_list_rate_usd"
-      ) {
-        pricingByScoreId[score.id] = primaryPricing;
-      }
-    }
-
     issueKeyByTraceId[bundle.traceId] =
       params.candidates.find((c) => c.traceId === bundle.traceId)?.issueKey ??
       "";
     phaseByTraceId[bundle.traceId] = bundle.join.phase;
-    sourceBundleFingerprintByTraceId[bundle.traceId] = fingerprintEvents(
-      // Placeholder: use matched fingerprints digest
-      [],
-    );
-    // Prefer deterministic bundle fingerprint from matched fps
     sourceBundleFingerprintByTraceId[bundle.traceId] = hashCloudAgentId(
       [...bundle.matchedFingerprints].sort().join("|"),
     );
@@ -480,7 +558,7 @@ function buildAttachmentsFromBundles(params: {
         knownNoncacheCostUsd: knownNoncacheSum,
         allInputAtListRateUsd: allInputAtListSum,
         pricingRegistryVersion:
-          primaryPricing?.pricingRegistryVersion ?? "none",
+          bundlePricingEntries[0]?.pricingRegistryVersion ?? "none",
         effectiveVariant: bundle.join.effectiveVariant,
       },
       scores,
@@ -504,7 +582,7 @@ function buildAttachmentsFromBundles(params: {
     issueKeyByTraceId,
     phaseByTraceId,
     sourceBundleFingerprintByTraceId,
-    pricingByScoreId,
+    segmentPricingManifest,
     discoverySnapshotDigest,
   });
 
@@ -532,6 +610,7 @@ function buildAttachmentsFromBundles(params: {
     expectedScoreManifest,
     pricingIncompleteSegmentCount,
     privateSegmentPricing,
+    issueKeyByTraceId,
   };
 }
 
@@ -566,6 +645,97 @@ function detectExistingScoreConflicts(
     }
   }
   return mismatches;
+}
+
+function normalizeIsoTimestamp(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const ms = Date.parse(value);
+  if (!Number.isFinite(ms)) return null;
+  return new Date(ms).toISOString();
+}
+
+/**
+ * Full staged-score identity check before any missing-score projection.
+ * Fail closed when an existing expected score is present but comment is not
+ * retrievable. Metadata equality is required only when the API returns metadata.
+ */
+export function validateExistingScoresAgainstManifest(params: {
+  stagedScores: ExpectedScoreManifestEntry[];
+  existingMapped: FetchedScore[];
+}): string[] {
+  const errors: string[] = [];
+  const byId = new Map(params.existingMapped.map((s) => [s.id, s]));
+
+  for (const staged of params.stagedScores) {
+    const existing = byId.get(staged.scoreId);
+    if (!existing) continue;
+
+    if (existing.traceId !== staged.targetTraceId) {
+      errors.push(`existing_score_trace_mismatch:${staged.scoreId}`);
+    }
+    if (existing.name !== staged.scoreName) {
+      errors.push(`existing_score_name_mismatch:${staged.scoreId}`);
+    }
+    if (existing.dataType !== staged.dataType) {
+      errors.push(`existing_score_data_type_mismatch:${staged.scoreId}`);
+    }
+    if (
+      String(existing.value) !== staged.canonicalValueSerialization &&
+      serializeFetchedValue(existing.value) !== staged.canonicalValueSerialization
+    ) {
+      errors.push(`existing_score_value_mismatch:${staged.scoreId}`);
+    }
+    const stagedTs = normalizeIsoTimestamp(staged.scoreTimestamp);
+    const gotTs = normalizeIsoTimestamp(existing.timestamp);
+    if (!stagedTs || !gotTs || stagedTs !== gotTs) {
+      errors.push(`existing_score_timestamp_mismatch:${staged.scoreId}`);
+    }
+    if (existing.comment == null) {
+      errors.push(`existing_score_comment_not_retrievable:${staged.scoreId}`);
+    } else if (
+      digestCanonical(existing.comment) !== staged.commentProvenanceFingerprint
+    ) {
+      errors.push(`existing_score_comment_mismatch:${staged.scoreId}`);
+    }
+    if (existing.metadata !== undefined) {
+      const publicMeta = { ...(existing.metadata ?? {}) };
+      delete (publicMeta as Record<string, unknown>).cloudAgentId;
+      delete (publicMeta as Record<string, unknown>).prompt;
+      delete (publicMeta as Record<string, unknown>).output;
+      if (digestCanonical(publicMeta) !== staged.publicSafeMetadataDigest) {
+        errors.push(`existing_score_metadata_mismatch:${staged.scoreId}`);
+      }
+    }
+  }
+
+  return errors;
+}
+
+function serializeFetchedValue(value: unknown): string {
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (typeof value === "number" && Number.isFinite(value)) {
+    if (Number.isInteger(value)) return String(value);
+    const fixed = value.toFixed(12).replace(/\.?0+$/, "");
+    return fixed === "-0" ? "0" : fixed;
+  }
+  if (typeof value === "string") return value;
+  return digestCanonical(value);
+}
+
+export function commentProvenanceVerifiedAfterWrite(params: {
+  stagedScores: ExpectedScoreManifestEntry[];
+  fetchedScores: FetchedScore[];
+}): boolean {
+  const byId = new Map(params.fetchedScores.map((s) => [s.id, s]));
+  for (const staged of params.stagedScores) {
+    const got = byId.get(staged.scoreId);
+    if (!got) return false;
+    if (got.comment == null) return false;
+    if (digestCanonical(got.comment) !== staged.commentProvenanceFingerprint) {
+      return false;
+    }
+  }
+  return params.stagedScores.length > 0;
 }
 
 function allowedApplyLifecycle(
@@ -741,6 +911,19 @@ export async function preflightCsvImport(
       built.expectedScoreManifest.expectedScoreManifestDigest,
   };
 
+  const analyticsSummary = buildLedgerAnalyticsSummary({
+    importId,
+    sourceDigestSha256: digestSha256,
+    verifiedTotals: false,
+    attachments: built.attachments,
+    bundles,
+    attributed,
+    skipped,
+    expectedScoreManifest: built.expectedScoreManifest,
+    pricingIncompleteSegmentCount: built.pricingIncompleteSegmentCount,
+    issueKeyByTraceId: built.issueKeyByTraceId,
+  });
+
   const ledger: ImportLedgerEntry = {
     schemaVersion: 1,
     importId,
@@ -759,6 +942,7 @@ export async function preflightCsvImport(
     rejectionReasonCodes: parsed.rejectionSummary.reasonCodes,
     localEvidenceCompleteness: "none",
     langfuseReconciliationStatus: "not_run",
+    analyticsSummary,
   };
 
   const parserEvidence = buildParserEvidenceArtifact({
@@ -955,6 +1139,18 @@ export async function applyCsvImport(
 
   if (!built.sourceScopeComplete) {
     const incompleteLifecycle: ImportLifecycleState = "incomplete";
+    const incompleteAnalytics = buildLedgerAnalyticsSummary({
+      importId: params.importId,
+      sourceDigestSha256: staged.preflight.sourceDigestSha256,
+      verifiedTotals: false,
+      attachments: built.attachments,
+      bundles,
+      attributed,
+      skipped,
+      expectedScoreManifest: built.expectedScoreManifest,
+      pricingIncompleteSegmentCount: built.pricingIncompleteSegmentCount,
+      issueKeyByTraceId: built.issueKeyByTraceId,
+    });
     await writeStagingArtifacts(params.logDirectory, params.importId, {
       ...staged,
       preflight: { ...staged.preflight, lifecycle: incompleteLifecycle },
@@ -968,6 +1164,7 @@ export async function applyCsvImport(
         lifecycle: incompleteLifecycle,
         sourceScopeComplete: false,
         recordedAt: new Date().toISOString(),
+        analyticsSummary: incompleteAnalytics,
       },
     });
     throw new Error(
@@ -1033,26 +1230,13 @@ export async function applyCsvImport(
       const rawExisting = await fetchTraceScoresRawForImport(client, traceIds);
       const existingMapped = mapFetchedScores(rawExisting.scores);
 
-      // Recovery: same-ID/same-value reuse; same-ID/different-value blocks.
-      const stagedById = new Map(
-        staged.expectedScoreManifest!.scores.map((s) => [s.scoreId, s]),
-      );
-      for (const score of allScores) {
-        const stagedEntry = stagedById.get(score.id);
-        if (!stagedEntry) continue;
-        if (stagedEntry.targetTraceId !== score.traceId) {
-          throw new Error(`same_id_different_target:${score.id}`);
-        }
-        const existing = existingMapped.find((e) => e.id === score.id);
-        if (existing) {
-          if (
-            String(existing.value) !==
-            stagedEntry.canonicalValueSerialization &&
-            String(existing.value) !== String(score.value)
-          ) {
-            throw new Error(`same_id_different_value:${score.id}`);
-          }
-        }
+      // Full identity validation for every existing expected score BEFORE any write.
+      const identityErrors = validateExistingScoresAgainstManifest({
+        stagedScores: staged.expectedScoreManifest!.scores,
+        existingMapped,
+      });
+      if (identityErrors.length > 0) {
+        throw new Error(identityErrors[0]);
       }
 
       // Unexpected cursor-import scores on same traces → block if uncertain.
@@ -1113,12 +1297,13 @@ export async function applyCsvImport(
         fetchedScores: [],
         retrievalCompletenessProven: false,
       });
+      let lastMapped: FetchedScore[] = [];
       for (;;) {
         const rawAfter = await fetchTraceScoresRawForImport(client, traceIds);
-        const mapped = mapFetchedScores(rawAfter.scores);
+        lastMapped = mapFetchedScores(rawAfter.scores);
         verify = verifyImportedScores({
           attachments: built.attachments,
-          fetchedScores: mapped,
+          fetchedScores: lastMapped,
           retrievalCompletenessProven: rawAfter.retrievalCompletenessProven,
         });
         if (verify.verified) {
@@ -1129,12 +1314,37 @@ export async function applyCsvImport(
         }
         await sleep(2_000);
       }
-      verified = verify.verified && conflicts.length === 0;
-      verifyMismatches = verify.mismatches;
+      const commentVerified = commentProvenanceVerifiedAfterWrite({
+        stagedScores: staged.expectedScoreManifest!.scores,
+        fetchedScores: lastMapped,
+      });
+      if (!commentVerified) {
+        verifyMismatches = [
+          ...verify.mismatches,
+          "comment_provenance_not_verified_after_write",
+        ];
+      }
+      verified =
+        verify.verified && conflicts.length === 0 && commentVerified;
+      verifyMismatches =
+        verifyMismatches.length > 0 ? verifyMismatches : verify.mismatches;
 
       const finalLifecycle: ImportLifecycleState = verified
         ? "verified"
         : "failed_recoverable";
+
+      const finalAnalytics = buildLedgerAnalyticsSummary({
+        importId: params.importId,
+        sourceDigestSha256: staged.preflight.sourceDigestSha256,
+        verifiedTotals: verified,
+        attachments: built.attachments,
+        bundles,
+        attributed,
+        skipped,
+        expectedScoreManifest: staged.expectedScoreManifest ?? null,
+        pricingIncompleteSegmentCount: built.pricingIncompleteSegmentCount,
+        issueKeyByTraceId: built.issueKeyByTraceId,
+      });
 
       await writeStagingArtifacts(params.logDirectory, params.importId, {
         canonicalEvents: events,
@@ -1163,6 +1373,7 @@ export async function applyCsvImport(
           sourceScopeComplete: true,
           localEvidenceCompleteness: verified ? "complete" : "partial",
           langfuseReconciliationStatus: "not_run",
+          analyticsSummary: finalAnalytics,
         },
         parserEvidence: staged.parserEvidence,
         expectedScoreManifest: staged.expectedScoreManifest,
@@ -1196,6 +1407,63 @@ export async function getImportStatus(
   };
 }
 
+function mergeAnalyticsGroup(
+  into: LedgerAnalyticsSummary["byIssue"],
+  from: LedgerAnalyticsSummary["byIssue"],
+): void {
+  for (const [k, v] of Object.entries(from)) {
+    const cur = into[k] ?? {
+      bundles: 0,
+      inputTokens: 0,
+      cacheWriteTokens: 0,
+      cacheReadTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      providerActualUsd: null as number | null,
+      knownNoncacheCostUsd: null as number | null,
+      allInputAtListRateUsd: null as number | null,
+      completeness: "incomplete" as const,
+      coverage: "incomplete_import" as const,
+    };
+    cur.bundles += v.bundles;
+    cur.inputTokens += v.inputTokens;
+    cur.cacheWriteTokens += v.cacheWriteTokens;
+    cur.cacheReadTokens += v.cacheReadTokens;
+    cur.outputTokens += v.outputTokens;
+    cur.totalTokens += v.totalTokens;
+    if (
+      v.completeness === "incomplete" ||
+      cur.completeness === "incomplete" ||
+      v.coverage === "incomplete_import" ||
+      cur.coverage === "incomplete_import"
+    ) {
+      cur.completeness = "incomplete";
+      cur.coverage =
+        cur.coverage === "verified" || v.coverage === "verified"
+          ? "mixed"
+          : "incomplete_import";
+      cur.providerActualUsd = null;
+      cur.knownNoncacheCostUsd = null;
+      cur.allInputAtListRateUsd = null;
+    } else {
+      cur.completeness = "complete";
+      cur.coverage = "verified";
+      if (v.providerActualUsd != null) {
+        cur.providerActualUsd = (cur.providerActualUsd ?? 0) + v.providerActualUsd;
+      }
+      if (v.knownNoncacheCostUsd != null) {
+        cur.knownNoncacheCostUsd =
+          (cur.knownNoncacheCostUsd ?? 0) + v.knownNoncacheCostUsd;
+      }
+      if (v.allInputAtListRateUsd != null) {
+        cur.allInputAtListRateUsd =
+          (cur.allInputAtListRateUsd ?? 0) + v.allInputAtListRateUsd;
+      }
+    }
+    into[k] = cur;
+  }
+}
+
 export async function getAnalyticsFromLedgers(
   logDirectory: string,
 ): Promise<ImportAnalytics> {
@@ -1208,12 +1476,14 @@ export async function getAnalyticsFromLedgers(
   let unresolvedSegmentCount = 0;
   let pricingIncompleteSegmentCount = 0;
 
-  const grouped = {
-    byIssue: {} as Record<string, { bundles: number; inputTokens: number; outputTokens: number }>,
-    byPhase: {} as Record<string, { bundles: number; inputTokens: number; outputTokens: number }>,
-    bySourceModel: {} as Record<string, { bundles: number; inputTokens: number }>,
-    byCanonicalModel: {} as Record<string, { bundles: number; inputTokens: number }>,
-    byEffectiveVariant: {} as Record<string, { bundles: number; inputTokens: number }>,
+  const grouped: ImportAnalytics["grouped"] = {
+    byIssue: {},
+    byPhase: {},
+    bySourceModel: {},
+    byCanonicalModel: {},
+    byEffectiveVariant: {},
+    bySourceDigest: {},
+    byPricingRegistryVersion: {},
   };
 
   for (const ledger of ledgers) {
@@ -1231,55 +1501,30 @@ export async function getAnalyticsFromLedgers(
       unresolvedSegmentCount += ledger.analyticsSummary.unresolvedSegmentCount;
       pricingIncompleteSegmentCount +=
         ledger.analyticsSummary.pricingIncompleteSegmentCount;
-      for (const [k, v] of Object.entries(ledger.analyticsSummary.byIssue)) {
-        const cur = grouped.byIssue[k] ?? {
-          bundles: 0,
-          inputTokens: 0,
-          outputTokens: 0,
-        };
-        cur.bundles += v.bundles;
-        cur.inputTokens += v.inputTokens;
-        cur.outputTokens += v.outputTokens;
-        grouped.byIssue[k] = cur;
-      }
-      for (const [k, v] of Object.entries(ledger.analyticsSummary.byPhase)) {
-        const cur = grouped.byPhase[k] ?? {
-          bundles: 0,
-          inputTokens: 0,
-          outputTokens: 0,
-        };
-        cur.bundles += v.bundles;
-        cur.inputTokens += v.inputTokens;
-        cur.outputTokens += v.outputTokens;
-        grouped.byPhase[k] = cur;
-      }
-      for (const [k, v] of Object.entries(ledger.analyticsSummary.bySourceModel)) {
-        const cur = grouped.bySourceModel[k] ?? { bundles: 0, inputTokens: 0 };
-        cur.bundles += v.bundles;
-        cur.inputTokens += v.inputTokens;
-        grouped.bySourceModel[k] = cur;
-      }
-      for (const [k, v] of Object.entries(
-        ledger.analyticsSummary.byCanonicalModel,
-      )) {
-        const cur = grouped.byCanonicalModel[k] ?? {
-          bundles: 0,
-          inputTokens: 0,
-        };
-        cur.bundles += v.bundles;
-        cur.inputTokens += v.inputTokens;
-        grouped.byCanonicalModel[k] = cur;
-      }
-      for (const [k, v] of Object.entries(
-        ledger.analyticsSummary.byEffectiveVariant,
-      )) {
-        const cur = grouped.byEffectiveVariant[k] ?? {
-          bundles: 0,
-          inputTokens: 0,
-        };
-        cur.bundles += v.bundles;
-        cur.inputTokens += v.inputTokens;
-        grouped.byEffectiveVariant[k] = cur;
+      // Verified totals: only merge groups from ledgers that included them.
+      if (ledger.analyticsSummary.verifiedTotalsIncluded) {
+        mergeAnalyticsGroup(grouped.byIssue, ledger.analyticsSummary.byIssue);
+        mergeAnalyticsGroup(grouped.byPhase, ledger.analyticsSummary.byPhase);
+        mergeAnalyticsGroup(
+          grouped.bySourceModel,
+          ledger.analyticsSummary.bySourceModel,
+        );
+        mergeAnalyticsGroup(
+          grouped.byCanonicalModel,
+          ledger.analyticsSummary.byCanonicalModel,
+        );
+        mergeAnalyticsGroup(
+          grouped.byEffectiveVariant,
+          ledger.analyticsSummary.byEffectiveVariant,
+        );
+        mergeAnalyticsGroup(
+          grouped.bySourceDigest,
+          ledger.analyticsSummary.bySourceDigest,
+        );
+        mergeAnalyticsGroup(
+          grouped.byPricingRegistryVersion,
+          ledger.analyticsSummary.byPricingRegistryVersion,
+        );
       }
     }
   }

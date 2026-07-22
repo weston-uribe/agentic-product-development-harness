@@ -56,5 +56,32 @@ describe("cursor usage provider actual micros aggregation", () => {
       makeEvent({ fingerprint: "fp-b", providerActualUsdMicros: "6789" }),
     ]);
     expect(segments[0]!.providerActualUsdMicros).toBe("19134");
+    expect(segments[0]!.providerActualAggregationComplete).toBe(true);
+  });
+
+  it("fails closed on aggregation overflow without retaining a partial total", () => {
+    const nearMax = "1000000000000000000"; // MAX_PROVIDER_ACTUAL_USD_MICROS
+    const segments = buildSegmentsFromCanonicalEvents([
+      makeEvent({ fingerprint: "fp-1", providerActualUsdMicros: nearMax }),
+      makeEvent({ fingerprint: "fp-2", providerActualUsdMicros: "1" }),
+    ]);
+    expect(segments).toHaveLength(1);
+    expect(segments[0]!.providerActualUsdMicros).toBeNull();
+    expect(segments[0]!.providerActualAggregationComplete).toBe(false);
+    expect(segments[0]!.providerActualAggregationFailureReason).toBe(
+      "aggregation_overflow",
+    );
+  });
+
+  it("fails closed on invalid micros without retaining a partial total", () => {
+    const segments = buildSegmentsFromCanonicalEvents([
+      makeEvent({ fingerprint: "fp-1", providerActualUsdMicros: "10000" }),
+      makeEvent({ fingerprint: "fp-2", providerActualUsdMicros: "not-a-number" }),
+    ]);
+    expect(segments[0]!.providerActualUsdMicros).toBeNull();
+    expect(segments[0]!.providerActualAggregationComplete).toBe(false);
+    expect(segments[0]!.providerActualAggregationFailureReason).toBe(
+      "invalid_provider_actual_micros",
+    );
   });
 });

@@ -35,6 +35,33 @@ export interface ReconcileModelParams {
 }
 
 /**
+ * Collapse an observation to a single identity key.
+ * - Canonical (or alias-resolvable) models share identity by canonical ID.
+ * - Unresolved normalized raws share identity only by exact normalized raw.
+ * Multiple raw aliases of the same canonical are one identity.
+ */
+export function observedModelIdentityKey(o: ObservedModelEvidence): string {
+  const canonical =
+    o.canonicalModelId ??
+    resolveCanonicalModelId(o.rawModel) ??
+    resolveCanonicalModelId(o.normalizedRawModel);
+  if (canonical != null) {
+    return `canonical:${canonical}`;
+  }
+  return `unresolved:${o.normalizedRawModel}`;
+}
+
+/**
+ * Distinct observed model identities after alias-aware collapse.
+ * Do not use raw-string cardinality alone — aliases of one canonical are one identity.
+ */
+export function distinctObservedIdentities(
+  observed: ObservedModelEvidence[],
+): Set<string> {
+  return new Set(observed.map(observedModelIdentityKey));
+}
+
+/**
  * Never treat two null canonical IDs as compatible merely because both are unknown.
  * Raw fallback requires exact normalizedRawModel equality and permits tokens only.
  */
@@ -58,46 +85,19 @@ export function reconcileSourceModel(
     };
   }
 
-  const distinctCanonical = new Set(
-    observed.map((o) => o.canonicalModelId).filter((id): id is string => id != null),
-  );
-  const distinctNormalizedRaw = new Set(observed.map((o) => o.normalizedRawModel));
+  const identities = distinctObservedIdentities(observed);
+  const contradictory = identities.size > 1;
 
-  // Conflicting unknown raw strings with null canonicals → conflict.
-  const unknownRaws = observed.filter((o) => o.canonicalModelId == null);
-  if (unknownRaws.length >= 2) {
-    const rawSet = new Set(unknownRaws.map((o) => o.normalizedRawModel));
-    if (rawSet.size > 1) {
-      return {
-        outcome: "model_identity_conflict",
-        tokensAllowed: false,
-        costAllowed: false,
-        matchedObserved: null,
-        reason: "conflicting_unknown_raw_models",
-      };
-    }
-  }
-
-  // Multiple distinct observed models without proof → conflict for single-model source.
-  if (
-    (distinctCanonical.size > 1 || distinctNormalizedRaw.size > 1) &&
-    !params.multiModelExecutionProven
-  ) {
-    // Still allow if source matches exactly one observed entry.
-    const match = findObservedMatch({
-      sourceCanonical,
-      sourceNormalized,
-      observed,
-    });
-    if (!match) {
-      return {
-        outcome: "model_identity_conflict",
-        tokensAllowed: false,
-        costAllowed: false,
-        matchedObserved: null,
-        reason: "unproven_multi_model_observations",
-      };
-    }
+  // Without proof, any genuinely contradictory set fails closed — even if the
+  // source matches one member. No match escape hatch.
+  if (contradictory && !params.multiModelExecutionProven) {
+    return {
+      outcome: "model_identity_conflict",
+      tokensAllowed: false,
+      costAllowed: false,
+      matchedObserved: null,
+      reason: "unproven_multi_model_observations",
+    };
   }
 
   const match = findObservedMatch({
@@ -118,9 +118,20 @@ export function reconcileSourceModel(
     }
     if (
       params.multiModelExecutionProven &&
-      !observed.some(
-        (o) => o.canonicalModelId === sourceCanonical || o.normalizedRawModel === sourceNormalized,
-      )
+      !observed.some((o) => {
+        const key = observedModelIdentityKey(o);
+        const sourceKey =
+          sourceCanonical != null
+            ? `canonical:${sourceCanonical}`
+            : `unresolved:${sourceNormalized}`;
+        return (
+          key === sourceKey ||
+          o.normalizedRawModel === sourceNormalized ||
+          (sourceCanonical != null &&
+            (o.canonicalModelId === sourceCanonical ||
+              resolveCanonicalModelId(o.rawModel) === sourceCanonical))
+        );
+      })
     ) {
       return {
         outcome: "model_identity_conflict",
@@ -139,9 +150,7 @@ export function reconcileSourceModel(
     };
   }
 
-  const multiProven =
-    params.multiModelExecutionProven &&
-    (distinctCanonical.size >= 2 || distinctNormalizedRaw.size >= 2);
+  const multiProven = params.multiModelExecutionProven && contradictory;
 
   // Variant checks
   const candidateVariant = params.candidateVariant;
@@ -176,22 +185,26 @@ export function reconcileSourceModel(
 
   // Raw-only match (null canonicals equal by normalized raw): tokens only.
   if (sourceCanonical == null || match.canonicalModelId == null) {
-    if (match.normalizedRawModel !== sourceNormalized) {
+    const matchCanonical =
+      match.canonicalModelId ?? resolveCanonicalModelId(match.rawModel);
+    if (sourceCanonical == null && matchCanonical == null) {
+      if (match.normalizedRawModel !== sourceNormalized) {
+        return {
+          outcome: "model_identity_conflict",
+          tokensAllowed: false,
+          costAllowed: false,
+          matchedObserved: null,
+          reason: "unknown_raw_mismatch",
+        };
+      }
       return {
-        outcome: "model_identity_conflict",
-        tokensAllowed: false,
+        outcome: "source_model_unknown",
+        tokensAllowed: true,
         costAllowed: false,
-        matchedObserved: null,
-        reason: "unknown_raw_mismatch",
+        matchedObserved: match,
+        reason: "unknown_raw_fallback_tokens_only",
       };
     }
-    return {
-      outcome: "source_model_unknown",
-      tokensAllowed: true,
-      costAllowed: false,
-      matchedObserved: match,
-      reason: "unknown_raw_fallback_tokens_only",
-    };
   }
 
   return {
@@ -211,20 +224,20 @@ function findObservedMatch(params: {
   observed: ObservedModelEvidence[];
 }): ObservedModelEvidence | null {
   if (params.sourceCanonical) {
-    const byCanonical = params.observed.find(
-      (o) => o.canonicalModelId === params.sourceCanonical,
-    );
+    const byCanonical = params.observed.find((o) => {
+      const canonical =
+        o.canonicalModelId ??
+        resolveCanonicalModelId(o.rawModel) ??
+        resolveCanonicalModelId(o.normalizedRawModel);
+      return canonical === params.sourceCanonical;
+    });
     if (byCanonical) return byCanonical;
   }
   // Raw fallback: exact normalized equality only.
   const byRaw = params.observed.filter(
     (o) => o.normalizedRawModel === params.sourceNormalized,
   );
-  if (byRaw.length === 1) return byRaw[0]!;
-  if (byRaw.length > 1) {
-    // Same normalized raw — collapse to first with merged observationIds conceptually.
-    return byRaw[0]!;
-  }
+  if (byRaw.length >= 1) return byRaw[0]!;
   return null;
 }
 

@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
@@ -14,13 +14,21 @@ const FAKE_LANGFUSE = "http://127.0.0.1:18999";
 const CSV_HEADER =
   "Date,Cloud Agent ID,Automation ID,Kind,Model,Max Mode,Input (w/ Cache Write),Input (w/o Cache Write),Cache Read,Output Tokens,Total Tokens,Cost";
 
+function browserWorkspace(): string {
+  const fromEnv = process.env.CURSOR_USAGE_BROWSER_WORKSPACE?.trim();
+  if (fromEnv) return fromEnv;
+  return readFileSync("/tmp/cursor-usage-browser-workspace.txt", "utf8").trim();
+}
+
 async function resetFakeLangfuse(
   scenario:
     | "default"
     | "cut_through"
     | "unmatched_extra"
     | "ambiguous"
-    | "model_conflict" = "default",
+    | "model_conflict"
+    | "variant_conflict"
+    | "unknown_pricing" = "default",
 ): Promise<void> {
   await fetch(`${FAKE_LANGFUSE}/__test__/reset`, { method: "POST" });
   if (scenario !== "default") {
@@ -30,6 +38,16 @@ async function resetFakeLangfuse(
       body: JSON.stringify({ scenario }),
     });
   }
+}
+
+/** Wipe only this suite's workspace import artifacts (no production delete route). */
+function resetOperatorWorkspaceImports(): void {
+  const workspace = browserWorkspace();
+  const importsDir = path.join(
+    workspace,
+    "runs/evaluation-reports/cursor-usage-imports",
+  );
+  rmSync(importsDir, { recursive: true, force: true });
 }
 
 async function scoreCreateCount(): Promise<number> {
@@ -54,6 +72,9 @@ async function runPreflight(
 ): Promise<void> {
   await page.goto("/settings/cursor-usage");
   await page.waitForLoadState("networkidle");
+  await page.evaluate(() => {
+    sessionStorage.removeItem("cursor-usage-import-id");
+  });
   await page.getByTestId("cursor-usage-file-input").setInputFiles(csvPath);
   await page.getByTestId("cursor-usage-export-start").fill(exportStart);
   await page.getByTestId("cursor-usage-export-end").fill(exportEnd);
@@ -62,6 +83,7 @@ async function runPreflight(
 
 test.describe("cursor usage import browser", () => {
   test.beforeEach(async () => {
+    resetOperatorWorkspaceImports();
     await resetFakeLangfuse("default");
   });
 
@@ -179,6 +201,58 @@ test.describe("cursor usage import browser", () => {
     expect(await scoreCreateCount()).toBe(before);
   });
 
+  test("variant conflict: incomplete, zero score-creates", async ({ page }) => {
+    await resetFakeLangfuse("variant_conflict");
+    const before = await scoreCreateCount();
+    await runPreflight(
+      page,
+      fixtureCsv,
+      "2026-07-19T00:00:00.000Z",
+      "2026-07-19T23:59:59.000Z",
+    );
+    await expect(page.getByTestId("cursor-usage-source-incomplete")).toBeVisible();
+    await expect(page.getByTestId("cursor-usage-apply-button")).toBeDisabled();
+    expect(await scoreCreateCount()).toBe(before);
+  });
+
+  test("unknown pricing: tokens-only apply, pricing-incomplete analytics", async ({
+    page,
+  }) => {
+    await resetFakeLangfuse("unknown_pricing");
+    const before = await scoreCreateCount();
+    await runPreflight(
+      page,
+      fixtureCsv,
+      "2026-07-19T00:00:00.000Z",
+      "2026-07-19T23:59:59.000Z",
+    );
+    const applyButton = page.getByTestId("cursor-usage-apply-button");
+    await page.getByTestId("cursor-usage-apply-confirm").check();
+    await expect(applyButton).toBeEnabled();
+    await applyButton.click();
+    await expect(page.getByTestId("cursor-usage-lifecycle")).toHaveText(
+      "verified",
+      { timeout: 60_000 },
+    );
+    const created = (await scoreCreateCount()) - before;
+    // Two phases × 12 token/boolean scores; numeric USD cost totals omitted.
+    expect(created).toBe(24);
+    const createsRes = await fetch(`${FAKE_LANGFUSE}/__test__/score-creates`);
+    const createsBody = (await createsRes.json()) as {
+      events: Array<{ name?: string }>;
+    };
+    const names = createsBody.events.map((e) => String(e.name ?? ""));
+    expect(names.some((n) => n.includes("cost_usd"))).toBe(false);
+    expect(names).not.toContain("cursor_provider_actual_usd");
+    await expect(
+      page.getByTestId("cursor-usage-analytics-pricing-incomplete"),
+    ).toBeVisible();
+    const incompleteText = await page
+      .getByTestId("cursor-usage-analytics-pricing-incomplete")
+      .innerText();
+    expect(Number.parseInt(incompleteText, 10)).toBeGreaterThan(0);
+  });
+
   test("upload-scoped rejection (no agent id): blocks apply, zero score-creates", async ({
     page,
   }) => {
@@ -208,15 +282,47 @@ test.describe("cursor usage import browser", () => {
     expect(await scoreCreateCount()).toBe(before);
   });
 
-  test("analytics shows local evidence and Langfuse not_run", async ({
+  test("analytics shows grouped issue/phase/model/variant/digest after verified import", async ({
     page,
   }) => {
+    // beforeEach already emptied the workspace; preserve this scenario's import across reload.
     await resetFakeLangfuse("default");
-    await page.goto("/settings/cursor-usage");
+    await runPreflight(
+      page,
+      fixtureCsv,
+      "2026-07-19T00:00:00.000Z",
+      "2026-07-19T23:59:59.000Z",
+    );
+    await page.getByTestId("cursor-usage-apply-confirm").check();
+    await page.getByTestId("cursor-usage-apply-button").click();
+    await expect(page.getByTestId("cursor-usage-lifecycle")).toHaveText(
+      "verified",
+      { timeout: 60_000 },
+    );
+
+    await page.reload();
     await page.waitForLoadState("networkidle");
     await expect(page.getByTestId("cursor-usage-analytics-panel")).toBeVisible();
     await expect(
       page.getByTestId("cursor-usage-analytics-langfuse-status"),
     ).toContainText("Not run");
+    await expect(
+      page.getByTestId("cursor-usage-analytics-by-issue"),
+    ).toBeVisible();
+    await expect(
+      page.getByTestId("cursor-usage-analytics-by-phase"),
+    ).toBeVisible();
+    await expect(
+      page.getByTestId("cursor-usage-analytics-by-source-model"),
+    ).toBeVisible();
+    await expect(
+      page.getByTestId("cursor-usage-analytics-by-variant"),
+    ).toBeVisible();
+    await expect(
+      page.getByTestId("cursor-usage-analytics-by-source-digest"),
+    ).toBeVisible();
+    await expect(
+      page.getByTestId("cursor-usage-analytics-by-pricing-registry"),
+    ).toBeVisible();
   });
 });

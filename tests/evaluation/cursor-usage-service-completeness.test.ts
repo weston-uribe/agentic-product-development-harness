@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { parseCursorUsageCsv } from "../../src/evaluation/cursor-usage-import/parse.js";
-import { preflightCsvImport } from "../../src/evaluation/cursor-usage-import/service.js";
+import {
+  getAnalyticsFromLedgers,
+  preflightCsvImport,
+} from "../../src/evaluation/cursor-usage-import/service.js";
+import type { ImportLedgerEntry } from "../../src/evaluation/cursor-usage-import/staging.js";
+import { stagingDir } from "../../src/evaluation/cursor-usage-import/staging.js";
 
 const CSV_HEADER =
   "Date,Cloud Agent ID,Automation ID,Kind,Model,Max Mode,Input (w/ Cache Write),Input (w/o Cache Write),Cache Read,Output Tokens,Total Tokens,Cost";
@@ -114,5 +119,192 @@ describe("cursor usage preflight completeness", () => {
     for (const code of result.publicSummary.rejectionReasonCodes) {
       expect(code).toMatch(/^[a-z0-9_]+$/);
     }
+  });
+
+  it("persists incomplete analytics diagnostics without contaminating verified totals", async () => {
+    const logDirectory = mkdtempSync(
+      path.join(tmpdir(), "cursor-usage-analytics-"),
+    );
+    const csv = csvWithRows(
+      VALID_ROW,
+      "2026-07-19T12:01:00.000Z,,,Included,composer-2.5,false,0,150,400,25,575,Included",
+    );
+    const result = await preflightCsvImport({
+      csvBytes: csv,
+      exportWindow,
+      namespace: "default",
+      logDirectory,
+      discoverLangfuse: false,
+    });
+    expect(result.sourceScopeComplete).toBe(false);
+
+    const ledgerPath = path.join(
+      stagingDir(logDirectory, result.importId),
+      "ledger.json",
+    );
+    const ledger = JSON.parse(
+      readFileSync(ledgerPath, "utf8"),
+    ) as ImportLedgerEntry;
+    expect(ledger.analyticsSummary).toBeDefined();
+    expect(ledger.analyticsSummary!.verifiedTotalsIncluded).toBe(false);
+    expect(ledger.analyticsSummary!.unresolvedSegmentCount).toBeGreaterThan(0);
+    expect(
+      Object.keys(ledger.analyticsSummary!.byIssue).length +
+        Object.keys(ledger.analyticsSummary!.byPhase).length,
+    ).toBe(0);
+
+    const analytics = await getAnalyticsFromLedgers(logDirectory);
+    expect(analytics.unresolvedSegmentCount).toBeGreaterThan(0);
+    expect(Object.keys(analytics.grouped.byIssue)).toHaveLength(0);
+    expect(analytics.verifiedCount).toBe(0);
+  });
+
+  it("verified ledger analytics survive reading only ledger files from disk", async () => {
+    const logDirectory = mkdtempSync(
+      path.join(tmpdir(), "cursor-usage-analytics-verified-"),
+    );
+    const importId = "verified-import-restart";
+    const dir = stagingDir(logDirectory, importId);
+    mkdirSync(dir, { recursive: true });
+    const ledger: ImportLedgerEntry = {
+      schemaVersion: 1,
+      importId,
+      recordedAt: new Date().toISOString(),
+      lifecycle: "verified",
+      namespace: "default",
+      sourceDigestSha256: "abc123digest",
+      exportWindow,
+      bundleCount: 1,
+      scoreCount: 12,
+      verified: true,
+      sourceScopeComplete: true,
+      localEvidenceCompleteness: "complete",
+      langfuseReconciliationStatus: "not_run",
+      analyticsSummary: {
+        byIssue: {
+          "TT-FIXTURE": {
+            bundles: 1,
+            inputTokens: 200,
+            cacheWriteTokens: 100,
+            cacheReadTokens: 300,
+            outputTokens: 50,
+            totalTokens: 650,
+            providerActualUsd: null,
+            knownNoncacheCostUsd: 0.01,
+            allInputAtListRateUsd: 0.02,
+            completeness: "complete",
+            coverage: "verified",
+          },
+        },
+        byPhase: {
+          planning: {
+            bundles: 1,
+            inputTokens: 200,
+            cacheWriteTokens: 100,
+            cacheReadTokens: 300,
+            outputTokens: 50,
+            totalTokens: 650,
+            providerActualUsd: null,
+            knownNoncacheCostUsd: 0.01,
+            allInputAtListRateUsd: 0.02,
+            completeness: "complete",
+            coverage: "verified",
+          },
+        },
+        bySourceModel: {
+          "composer-2.5": {
+            bundles: 1,
+            inputTokens: 200,
+            cacheWriteTokens: 100,
+            cacheReadTokens: 300,
+            outputTokens: 50,
+            totalTokens: 650,
+            providerActualUsd: null,
+            knownNoncacheCostUsd: 0.01,
+            allInputAtListRateUsd: 0.02,
+            completeness: "complete",
+            coverage: "verified",
+          },
+        },
+        byCanonicalModel: {
+          "composer-2.5": {
+            bundles: 1,
+            inputTokens: 200,
+            cacheWriteTokens: 100,
+            cacheReadTokens: 300,
+            outputTokens: 50,
+            totalTokens: 650,
+            providerActualUsd: null,
+            knownNoncacheCostUsd: 0.01,
+            allInputAtListRateUsd: 0.02,
+            completeness: "complete",
+            coverage: "verified",
+          },
+        },
+        byEffectiveVariant: {
+          standard: {
+            bundles: 1,
+            inputTokens: 200,
+            cacheWriteTokens: 100,
+            cacheReadTokens: 300,
+            outputTokens: 50,
+            totalTokens: 650,
+            providerActualUsd: null,
+            knownNoncacheCostUsd: 0.01,
+            allInputAtListRateUsd: 0.02,
+            completeness: "complete",
+            coverage: "verified",
+          },
+        },
+        bySourceDigest: {
+          abc123digestxxxxx: {
+            bundles: 1,
+            inputTokens: 200,
+            cacheWriteTokens: 100,
+            cacheReadTokens: 300,
+            outputTokens: 50,
+            totalTokens: 650,
+            providerActualUsd: null,
+            knownNoncacheCostUsd: 0.01,
+            allInputAtListRateUsd: 0.02,
+            completeness: "complete",
+            coverage: "verified",
+          },
+        },
+        byPricingRegistryVersion: {
+          "2026-07-18.v2": {
+            bundles: 1,
+            inputTokens: 200,
+            cacheWriteTokens: 100,
+            cacheReadTokens: 300,
+            outputTokens: 50,
+            totalTokens: 650,
+            providerActualUsd: null,
+            knownNoncacheCostUsd: 0.01,
+            allInputAtListRateUsd: 0.02,
+            completeness: "complete",
+            coverage: "verified",
+          },
+        },
+        sourceDigestPrefix: "abc123digestxxxxx".slice(0, 16),
+        importId,
+        pricingRegistryVersion: "2026-07-18.v2",
+        unresolvedSegmentCount: 0,
+        pricingIncompleteSegmentCount: 0,
+        verifiedTotalsIncluded: true,
+      },
+    };
+    writeFileSync(path.join(dir, "ledger.json"), `${JSON.stringify(ledger)}\n`);
+
+    const analytics = await getAnalyticsFromLedgers(logDirectory);
+    expect(analytics.verifiedCount).toBe(1);
+    expect(analytics.grouped.byIssue["TT-FIXTURE"]?.inputTokens).toBe(200);
+    expect(analytics.grouped.byPhase.planning?.totalTokens).toBe(650);
+    expect(analytics.grouped.bySourceModel["composer-2.5"]?.bundles).toBe(1);
+    expect(analytics.grouped.byEffectiveVariant.standard?.bundles).toBe(1);
+    expect(Object.keys(analytics.grouped.bySourceDigest).length).toBe(1);
+    expect(Object.keys(analytics.grouped.byPricingRegistryVersion).length).toBe(
+      1,
+    );
   });
 });

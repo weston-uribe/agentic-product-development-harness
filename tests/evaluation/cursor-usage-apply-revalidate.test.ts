@@ -244,6 +244,229 @@ describe("cursor usage apply revalidation", () => {
     ).rejects.toThrow("import_fingerprint_mismatch");
   });
 
+  it("fails closed when second segment rate changes while first is unchanged", async () => {
+    const { computeCostProxies } = await import(
+      "../../src/evaluation/cursor-usage-import/proxy-cost.js"
+    );
+    const pricedCsv = [
+      "Date,Cloud Agent ID,Automation ID,Kind,Model,Max Mode,Input (w/ Cache Write),Input (w/o Cache Write),Cache Read,Output Tokens,Total Tokens,Cost",
+      "2026-07-19T12:00:00.000Z,bc-agent-planning-001,,Included,composer-2.5,false,0,100,0,50,150,Included",
+      "2026-07-19T13:00:00.000Z,bc-agent-planreview-001,,Included,composer-2.5,false,0,80,0,40,120,Included",
+    ].join("\n");
+    const logDirectory = mkdtempSync(path.join(tmpdir(), "cursor-usage-apply-"));
+    let scoreClientCalls = 0;
+    const preflight = await preflightCsvImport({
+      csvBytes: pricedCsv,
+      exportWindow,
+      namespace: "default",
+      environment: "test",
+      logDirectory,
+      langfuseConfig,
+      deps: {
+        ...serviceDeps,
+        discover: async () => ({
+          candidates: readyDiscoverCandidates,
+          retrievalComplete: true,
+        }),
+      },
+    });
+    expect(preflight.sourceScopeComplete).toBe(true);
+
+    let call = 0;
+    await expect(
+      applyCsvImport({
+        importId: preflight.importId,
+        fingerprint: preflight.fingerprint,
+        preflightApprovalFingerprint: preflight.preflightApprovalFingerprint,
+        confirmed: true,
+        logDirectory,
+        namespace: "default",
+        environment: "test",
+        langfuseConfig,
+        deps: {
+          ...serviceDeps,
+          discover: async () => ({
+            candidates: readyDiscoverCandidates,
+            retrievalComplete: true,
+          }),
+          createScoreClient: async () => {
+            scoreClientCalls += 1;
+            return { recordScore() {}, flush: async () => {} };
+          },
+          computeCostProxies: (params) => {
+            const base = computeCostProxies(params);
+            if (!base) return null;
+            call += 1;
+            // Leave the first segment unchanged; mutate the second segment only.
+            if (call === 1) return base;
+            return {
+              ...base,
+              knownNoncacheCostUsd: base.knownNoncacheCostUsd + 0.5,
+              pricingManifest: {
+                ...base.pricingManifest,
+                inputUsdPer1M: "123.45",
+                matchedObservedVariant: "fast",
+              },
+            };
+          },
+        },
+      }),
+    ).rejects.toThrow(/preflight_plan_changed/);
+
+    expect(scoreClientCalls).toBe(0);
+  });
+
+  it("blocks recovery write when existing score comment is not retrievable", async () => {
+    const { validateExistingScoresAgainstManifest } = await import(
+      "../../src/evaluation/cursor-usage-import/service.js"
+    );
+    const { digestCanonical } = await import(
+      "../../src/evaluation/cursor-usage-import/expected-score-manifest.js"
+    );
+    const staged = {
+      scoreId: "score-1",
+      targetTraceId: "trace-a",
+      scoreName: "cursor_total_tokens",
+      dataType: "NUMERIC",
+      canonicalValueSerialization: "10",
+      scoreTimestamp: "2026-07-19T12:00:00.000Z",
+      environment: "test",
+      scoreClass: "cursor_usage_import",
+      commentProvenanceFingerprint: digestCanonical("comment-a"),
+      publicSafeMetadataDigest: digestCanonical({}),
+      sourceBundleFingerprint: "fp",
+      issueKey: "TT-1",
+      phase: "planning",
+      scoreContractVersion: "10.0.0",
+      pricingManifest: null,
+    };
+    const errors = validateExistingScoresAgainstManifest({
+      stagedScores: [staged],
+      existingMapped: [
+        {
+          id: "score-1",
+          name: "cursor_total_tokens",
+          traceId: "trace-a",
+          value: 10,
+          dataType: "NUMERIC",
+          timestamp: "2026-07-19T12:00:00.000Z",
+          // comment omitted → fail closed
+        },
+      ],
+    });
+    expect(errors[0]).toMatch(/existing_score_comment_not_retrievable/);
+  });
+
+  it("blocks recovery when existing score name/timestamp/comment fingerprint mismatch", async () => {
+    const { validateExistingScoresAgainstManifest } = await import(
+      "../../src/evaluation/cursor-usage-import/service.js"
+    );
+    const { digestCanonical } = await import(
+      "../../src/evaluation/cursor-usage-import/expected-score-manifest.js"
+    );
+    const staged = {
+      scoreId: "score-1",
+      targetTraceId: "trace-a",
+      scoreName: "cursor_total_tokens",
+      dataType: "NUMERIC",
+      canonicalValueSerialization: "10",
+      scoreTimestamp: "2026-07-19T12:00:00.000Z",
+      environment: "test",
+      scoreClass: "cursor_usage_import",
+      commentProvenanceFingerprint: digestCanonical("expected-comment"),
+      publicSafeMetadataDigest: digestCanonical({}),
+      sourceBundleFingerprint: "fp",
+      issueKey: "TT-1",
+      phase: "planning",
+      scoreContractVersion: "10.0.0",
+      pricingManifest: null,
+    };
+    expect(
+      validateExistingScoresAgainstManifest({
+        stagedScores: [staged],
+        existingMapped: [
+          {
+            id: "score-1",
+            name: "cursor_input_tokens",
+            traceId: "trace-a",
+            value: 10,
+            dataType: "NUMERIC",
+            timestamp: "2026-07-19T12:00:00.000Z",
+            comment: "expected-comment",
+          },
+        ],
+      })[0],
+    ).toMatch(/existing_score_name_mismatch/);
+
+    expect(
+      validateExistingScoresAgainstManifest({
+        stagedScores: [staged],
+        existingMapped: [
+          {
+            id: "score-1",
+            name: "cursor_total_tokens",
+            traceId: "trace-b",
+            value: 10,
+            dataType: "NUMERIC",
+            timestamp: "2026-07-19T12:00:00.000Z",
+            comment: "expected-comment",
+          },
+        ],
+      })[0],
+    ).toMatch(/existing_score_trace_mismatch/);
+
+    expect(
+      validateExistingScoresAgainstManifest({
+        stagedScores: [staged],
+        existingMapped: [
+          {
+            id: "score-1",
+            name: "cursor_total_tokens",
+            traceId: "trace-a",
+            value: 10,
+            dataType: "BOOLEAN",
+            timestamp: "2026-07-19T12:00:00.000Z",
+            comment: "expected-comment",
+          },
+        ],
+      })[0],
+    ).toMatch(/existing_score_data_type_mismatch/);
+
+    expect(
+      validateExistingScoresAgainstManifest({
+        stagedScores: [staged],
+        existingMapped: [
+          {
+            id: "score-1",
+            name: "cursor_total_tokens",
+            traceId: "trace-a",
+            value: 10,
+            dataType: "NUMERIC",
+            timestamp: "2026-07-19T13:00:00.000Z",
+            comment: "expected-comment",
+          },
+        ],
+      })[0],
+    ).toMatch(/existing_score_timestamp_mismatch/);
+
+    expect(
+      validateExistingScoresAgainstManifest({
+        stagedScores: [staged],
+        existingMapped: [
+          {
+            id: "score-1",
+            name: "cursor_total_tokens",
+            traceId: "trace-a",
+            value: 10,
+            dataType: "NUMERIC",
+            timestamp: "2026-07-19T12:00:00.000Z",
+            comment: "wrong-comment",
+          },
+        ],
+      })[0],
+    ).toMatch(/existing_score_comment_mismatch/);
+  });
+
   it("fails closed with zero writes when pricing rates change under same registry version", async () => {
     const { computeCostProxies } = await import(
       "../../src/evaluation/cursor-usage-import/proxy-cost.js"

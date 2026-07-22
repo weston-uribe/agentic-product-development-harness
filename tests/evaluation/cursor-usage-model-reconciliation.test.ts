@@ -45,9 +45,82 @@ describe("cursor usage model reconciliation", () => {
       candidateVariant: "standard",
     });
     expect(result.outcome).toBe("model_identity_conflict");
-    expect(result.reason).toBe("conflicting_unknown_raw_models");
+    expect(result.reason).toBe("unproven_multi_model_observations");
     expect(result.tokensAllowed).toBe(false);
     expect(result.costAllowed).toBe(false);
+  });
+
+  it("treats two aliases of the same canonical model as one identity", () => {
+    const result = reconcileSourceModel({
+      sourceModelRaw: "composer-2.5",
+      sourceModelCanonical: "composer-2.5",
+      observedModels: [
+        observed("composer-2", resolveCanonicalModelId("composer-2")),
+        observed("composer 2.5", resolveCanonicalModelId("composer 2.5")),
+      ],
+      multiModelExecutionProven: false,
+      candidateVariant: "standard",
+    });
+    expect(result.outcome).toBe("compatible");
+    expect(result.tokensAllowed).toBe(true);
+    expect(result.costAllowed).toBe(true);
+  });
+
+  it("conflicts when source matches one member of an unproven contradictory set", () => {
+    const result = reconcileSourceModel({
+      sourceModelRaw: "composer-2.5",
+      sourceModelCanonical: "composer-2.5",
+      observedModels: [
+        observed("composer-2.5"),
+        {
+          rawModel: "other-paid-model",
+          normalizedRawModel: "other-paid-model",
+          canonicalModelId: "other-paid-model",
+          variant: "standard",
+          observationIds: ["obs-other"],
+        },
+      ],
+      multiModelExecutionProven: false,
+      candidateVariant: "standard",
+    });
+    expect(result.outcome).toBe("model_identity_conflict");
+    expect(result.reason).toBe("unproven_multi_model_observations");
+    expect(result.tokensAllowed).toBe(false);
+    expect(result.costAllowed).toBe(false);
+  });
+
+  it("conflicts for canonical plus unrelated unresolved raw", () => {
+    const result = reconcileSourceModel({
+      sourceModelRaw: "composer-2.5",
+      sourceModelCanonical: "composer-2.5",
+      observedModels: [
+        observed("composer-2.5"),
+        observed("totally-unknown-raw", null),
+      ],
+      multiModelExecutionProven: false,
+      candidateVariant: "standard",
+    });
+    expect(result.outcome).toBe("model_identity_conflict");
+    expect(result.reason).toBe("unproven_multi_model_observations");
+    expect(result.tokensAllowed).toBe(false);
+  });
+
+  it("allows repeated equivalent observations that differ only in provenance", () => {
+    const a = observed("composer-2.5");
+    const result = reconcileSourceModel({
+      sourceModelRaw: "composer-2.5",
+      sourceModelCanonical: "composer-2.5",
+      observedModels: [
+        a,
+        { ...a, observationIds: ["obs-repeat-2"] },
+        { ...a, observationIds: ["obs-repeat-3"] },
+      ],
+      multiModelExecutionProven: false,
+      candidateVariant: "standard",
+    });
+    expect(result.outcome).toBe("compatible");
+    expect(result.tokensAllowed).toBe(true);
+    expect(result.costAllowed).toBe(true);
   });
 
   it("blocks canonical source against unknown raw unless alias resolves", () => {

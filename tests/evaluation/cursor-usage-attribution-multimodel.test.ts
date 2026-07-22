@@ -80,6 +80,38 @@ function makeCandidate(params?: {
 }
 
 describe("cursor usage multimodel attribution", () => {
+  it("fails closed when source matches one of multiple unproven observed models", () => {
+    const events = [makeEvent("composer-2.5", "fp-model-a")];
+    const attributed = attributeSegmentsToCandidates({
+      segments: buildSegmentsFromCanonicalEvents(events),
+      candidates: [
+        makeCandidate({
+          multiModelExecutionProven: false,
+          observedModels: [
+            {
+              rawModel: "composer-2.5",
+              normalizedRawModel: "composer-2.5",
+              canonicalModelId: "composer-2.5",
+              variant: "standard",
+              observationIds: ["obs-a"],
+            },
+            {
+              rawModel: "other-paid-model",
+              normalizedRawModel: "other-paid-model",
+              canonicalModelId: "other-paid-model",
+              variant: "standard",
+              observationIds: ["obs-b"],
+            },
+          ],
+        }),
+      ],
+      canonicalEvents: events,
+    });
+    expect(attributed).toHaveLength(1);
+    expect(attributed[0]!.state).toBe("conflict");
+    expect(attributed[0]!.reason).toBe("unproven_multi_model_observations");
+  });
+
   it("blocks unproven multi-model mismatch (composer-2-fast vs composer-2.5)", () => {
     const events = [
       makeEvent("composer-2.5", "fp-model-a"),

@@ -54,6 +54,10 @@ export interface UsageSegment {
   timestampMin: string | null;
   timestampMax: string | null;
   providerActualUsdMicros: string | null;
+  /** True only when every contributing typed amount summed without failure. */
+  providerActualAggregationComplete: boolean;
+  /** Public-safe reason when aggregation is incomplete; null when complete. */
+  providerActualAggregationFailureReason: string | null;
   sourceMaxMode: string | null;
 }
 

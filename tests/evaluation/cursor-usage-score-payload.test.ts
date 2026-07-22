@@ -37,4 +37,32 @@ describe("cursor usage score payload parity", () => {
     const ingestion = buildScoreOnlyIngestionBody(input);
     expect(ingestion.sessionId).toBeUndefined();
   });
+
+  it("stages score identity fields including timestamp environment class and digests", async () => {
+    const { buildExpectedScoreManifest, digestCanonical } = await import(
+      "../../src/evaluation/cursor-usage-import/expected-score-manifest.js"
+    );
+    const manifest = buildExpectedScoreManifest({
+      scores: [input],
+      issueKeyByTraceId: { [input.traceId!]: "TT-1" },
+      phaseByTraceId: { [input.traceId!]: "planning" },
+      sourceBundleFingerprintByTraceId: { [input.traceId!]: "bundle-fp" },
+      segmentPricingManifest: [],
+      discoverySnapshotDigest: "discovery",
+    });
+    const entry = manifest.scores[0]!;
+    expect(entry.scoreTimestamp).toBe(input.timestamp);
+    expect(entry.environment).toBe("production");
+    expect(entry.scoreClass).toBe("cursor_usage_import");
+    expect(entry.commentProvenanceFingerprint).toBe(
+      digestCanonical(input.comment ?? ""),
+    );
+    expect(entry.publicSafeMetadataDigest).toBe(
+      digestCanonical({
+        scoreClass: "cursor_usage_import",
+        cloudAgentIdHash: "deadbeefcafe",
+      }),
+    );
+    expect(manifest.segmentPricingManifest).toEqual([]);
+  });
 });

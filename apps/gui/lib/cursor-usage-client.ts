@@ -77,11 +77,46 @@ export interface AnalyticsResponse {
     | "complete"
     | "divergent";
   grouped?: {
-    byIssue: Record<string, { bundles: number; inputTokens: number; outputTokens: number }>;
-    byPhase: Record<string, { bundles: number; inputTokens: number; outputTokens: number }>;
-    bySourceModel: Record<string, { bundles: number; inputTokens: number }>;
-    byCanonicalModel: Record<string, { bundles: number; inputTokens: number }>;
-    byEffectiveVariant: Record<string, { bundles: number; inputTokens: number }>;
+    byIssue: Record<
+      string,
+      {
+        bundles: number;
+        inputTokens?: number;
+        outputTokens?: number;
+        totalTokens?: number;
+        cacheWriteTokens?: number;
+        cacheReadTokens?: number;
+      }
+    >;
+    byPhase: Record<
+      string,
+      {
+        bundles: number;
+        inputTokens?: number;
+        outputTokens?: number;
+        totalTokens?: number;
+      }
+    >;
+    bySourceModel: Record<
+      string,
+      { bundles: number; inputTokens?: number; totalTokens?: number }
+    >;
+    byCanonicalModel: Record<
+      string,
+      { bundles: number; inputTokens?: number; totalTokens?: number }
+    >;
+    byEffectiveVariant: Record<
+      string,
+      { bundles: number; inputTokens?: number; totalTokens?: number }
+    >;
+    bySourceDigest?: Record<
+      string,
+      { bundles: number; inputTokens?: number; totalTokens?: number }
+    >;
+    byPricingRegistryVersion?: Record<
+      string,
+      { bundles: number; inputTokens?: number; totalTokens?: number }
+    >;
   };
   unresolvedSegmentCount?: number;
   pricingIncompleteSegmentCount?: number;

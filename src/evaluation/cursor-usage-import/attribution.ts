@@ -12,8 +12,11 @@ import {
 } from "./model-aliases.js";
 import type { ObservedModelEvidence, PhaseJoinTarget, TokenBuckets } from "./types.js";
 import type { UsageCandidate } from "./discovery.js";
-import { addMicrosStrings } from "./money.js";
-import { reconcileSourceModel } from "./model-reconciliation.js";
+import { addMicrosStrings, parseMicrosString } from "./money.js";
+import {
+  reconcileSourceModel,
+  type ModelReconciliationOutcome,
+} from "./model-reconciliation.js";
 
 function observedModelsForCandidate(
   candidate: UsageCandidate,
@@ -40,11 +43,23 @@ export type AttributionState =
   | "aggregate_only"
   | "rejected";
 
+export interface SegmentReconciliationEvidence {
+  outcome: ModelReconciliationOutcome;
+  tokensAllowed: boolean;
+  costAllowed: boolean;
+  matchedCanonicalModelId: string | null;
+  matchedNormalizedRawModel: string | null;
+  matchedObservedVariant: PricingVariant | "unknown" | null;
+  matchedObservationIds: string[];
+  reason: string;
+}
+
 export interface AttributedSegment {
   segment: UsageSegment;
   state: AttributionState;
   candidate: UsageCandidate | null;
   reason?: string;
+  reconciliation?: SegmentReconciliationEvidence;
 }
 
 export interface TraceUsageBundle {
@@ -52,6 +67,8 @@ export interface TraceUsageBundle {
   join: PhaseJoinTarget;
   tokens: TokenBuckets;
   segmentBreakdown: UsageSegment[];
+  /** Matched attributed rows preserving reconciliation evidence for pricing. */
+  attributedSegments: AttributedSegment[];
   matchedFingerprints: string[];
   states: AttributionState[];
 }
@@ -102,9 +119,101 @@ function costClassFromEvent(event: CanonicalUsageEvent): UsageSegment["billingSe
   return event.billingCategory;
 }
 
+function markProviderAggregationFailure(
+  seg: UsageSegment,
+  reason: string,
+): void {
+  seg.providerActualUsdMicros = null;
+  seg.providerActualAggregationComplete = false;
+  seg.providerActualAggregationFailureReason = reason;
+}
+
+const TERMINAL_PROVIDER_FAILURES = new Set([
+  "aggregation_overflow",
+  "invalid_provider_actual_micros",
+  "mixed_provider_actual_presence",
+  "included_plan_amount",
+]);
+
+function aggregateProviderActual(
+  seg: UsageSegment,
+  event: CanonicalUsageEvent,
+  billingSemantic: UsageSegment["billingSemantic"],
+): void {
+  if (
+    seg.providerActualAggregationFailureReason &&
+    TERMINAL_PROVIDER_FAILURES.has(seg.providerActualAggregationFailureReason)
+  ) {
+    return;
+  }
+
+  if (billingSemantic === "included_like" || event.includedInPlan === true) {
+    markProviderAggregationFailure(seg, "included_plan_amount");
+    return;
+  }
+  if (
+    billingSemantic === "provider_cost_numeric_untyped" ||
+    billingSemantic === "other" ||
+    billingSemantic === "empty"
+  ) {
+    markProviderAggregationFailure(seg, `billing_semantic_${billingSemantic}`);
+    return;
+  }
+  if (billingSemantic !== "provider_actual_usd") {
+    if (event.providerActualUsdMicros) {
+      markProviderAggregationFailure(
+        seg,
+        "untyped_or_unexpected_provider_amount",
+      );
+    }
+    return;
+  }
+  if (!event.providerActualUsdMicros) {
+    if (seg.providerActualUsdMicros != null) {
+      markProviderAggregationFailure(seg, "mixed_provider_actual_presence");
+    } else {
+      markProviderAggregationFailure(seg, "missing_provider_actual_amount");
+    }
+    return;
+  }
+  const parsed = parseMicrosString(event.providerActualUsdMicros);
+  if (!parsed.ok) {
+    markProviderAggregationFailure(
+      seg,
+      parsed.reason === "overflow"
+        ? "aggregation_overflow"
+        : "invalid_provider_actual_micros",
+    );
+    return;
+  }
+  if (seg.providerActualUsdMicros == null) {
+    seg.providerActualUsdMicros = parsed.microsString;
+    seg.providerActualAggregationComplete = true;
+    seg.providerActualAggregationFailureReason = null;
+    return;
+  }
+  const summed = addMicrosStrings(
+    seg.providerActualUsdMicros,
+    parsed.microsString,
+  );
+  if (!summed.ok) {
+    markProviderAggregationFailure(
+      seg,
+      summed.reason === "overflow"
+        ? "aggregation_overflow"
+        : "invalid_provider_actual_micros",
+    );
+    return;
+  }
+  seg.providerActualUsdMicros = summed.microsString;
+  seg.providerActualAggregationComplete = true;
+  seg.providerActualAggregationFailureReason = null;
+}
+
 /**
  * Build per-agent model segments from canonical usage events.
  * Admin aggregate_only events are retained for analytics but marked separately at attribution.
+ * Provider-actual micros never retain a partial sum after aggregation failure.
  */
 export function buildSegmentsFromCanonicalEvents(
   events: CanonicalUsageEvent[],
@@ -137,6 +246,8 @@ export function buildSegmentsFromCanonicalEvents(
         timestampMin: null,
         timestampMax: null,
         providerActualUsdMicros: null,
+        providerActualAggregationComplete: false,
+        providerActualAggregationFailureReason: "no_provider_actual_amounts",
         sourceMaxMode: event.sourceMaxMode,
       };
       buckets.set(key, seg);
@@ -158,24 +269,21 @@ export function buildSegmentsFromCanonicalEvents(
       ) {
         seg.timestampMax = event.timestampIso;
       }
-      if (event.providerActualUsdMicros) {
-        if (!seg.providerActualUsdMicros) {
-          seg.providerActualUsdMicros = event.providerActualUsdMicros;
-        } else {
-          const summed = addMicrosStrings(
-            seg.providerActualUsdMicros,
-            event.providerActualUsdMicros,
-          );
-          if (summed.ok) {
-            seg.providerActualUsdMicros = summed.microsString;
-          }
-        }
-      }
+      aggregateProviderActual(seg, event, billingSemantic);
     }
   }
 
   for (const seg of buckets.values()) {
     seg.fingerprints.sort();
+    // Segments with rows but never a typed provider amount stay incomplete.
+    if (
+      seg.rowCount > 0 &&
+      seg.providerActualUsdMicros == null &&
+      seg.providerActualAggregationFailureReason == null
+    ) {
+      seg.providerActualAggregationComplete = false;
+      seg.providerActualAggregationFailureReason = "no_provider_actual_amounts";
+    }
   }
   return [...buckets.values()];
 }
@@ -188,6 +296,22 @@ function segmentCapability(segment: UsageSegment, events: CanonicalUsageEvent[])
     }
   }
   return "issue_phase_scores";
+}
+
+function evidenceFromReconciliation(
+  reconciliation: ReturnType<typeof reconcileSourceModel>,
+): SegmentReconciliationEvidence {
+  const matched = reconciliation.matchedObserved;
+  return {
+    outcome: reconciliation.outcome,
+    tokensAllowed: reconciliation.tokensAllowed,
+    costAllowed: reconciliation.costAllowed,
+    matchedCanonicalModelId: matched?.canonicalModelId ?? null,
+    matchedNormalizedRawModel: matched?.normalizedRawModel ?? null,
+    matchedObservedVariant: matched?.variant ?? null,
+    matchedObservationIds: matched ? [...matched.observationIds].sort() : [],
+    reason: reconciliation.reason,
+  };
 }
 
 /**
@@ -268,6 +392,7 @@ export function attributeSegmentsToCandidates(params: {
       multiModelExecutionProven: candidate.multiModelExecutionProven === true,
       candidateVariant: candidate.effectiveVariant,
     });
+    const reconciliationEvidence = evidenceFromReconciliation(reconciliation);
 
     if (
       reconciliation.outcome === "model_identity_conflict" ||
@@ -278,6 +403,7 @@ export function attributeSegmentsToCandidates(params: {
         state: "conflict" as const,
         candidate: null,
         reason: reconciliation.reason,
+        reconciliation: reconciliationEvidence,
       };
     }
 
@@ -287,6 +413,7 @@ export function attributeSegmentsToCandidates(params: {
         state: "rejected" as const,
         candidate: null,
         reason: reconciliation.reason,
+        reconciliation: reconciliationEvidence,
       };
     }
 
@@ -295,6 +422,7 @@ export function attributeSegmentsToCandidates(params: {
       state: "matched" as const,
       candidate,
       reason: reconciliation.outcome,
+      reconciliation: reconciliationEvidence,
     };
   });
 }
@@ -320,7 +448,7 @@ export function bundleAttributedSegments(params: {
     string,
     {
       candidate: UsageCandidate;
-      segments: UsageSegment[];
+      attributedSegments: AttributedSegment[];
       states: AttributionState[];
     }
   >();
@@ -350,10 +478,10 @@ export function bundleAttributedSegments(params: {
 
     const bucket = existing ?? {
       candidate: row.candidate,
-      segments: [] as UsageSegment[],
+      attributedSegments: [] as AttributedSegment[],
       states: [] as AttributionState[],
     };
-    bucket.segments.push(row.segment);
+    bucket.attributedSegments.push(row);
     bucket.states.push(row.state);
     byTrace.set(traceId, bucket);
   }
@@ -370,8 +498,8 @@ export function bundleAttributedSegments(params: {
     }
 
     let tokens = emptyTokens();
-    for (const seg of bucket.segments) {
-      tokens = addTokens(tokens, seg.tokens);
+    for (const row of bucket.attributedSegments) {
+      tokens = addTokens(tokens, row.segment.tokens);
     }
 
     const join: PhaseJoinTarget = {
@@ -388,12 +516,14 @@ export function bundleAttributedSegments(params: {
       windowEnd: candidate.windowEnd,
     };
 
+    const segments = bucket.attributedSegments.map((r) => r.segment);
     bundles.push({
       traceId,
       join,
       tokens,
-      segmentBreakdown: bucket.segments,
-      matchedFingerprints: bucket.segments.flatMap((s) => s.fingerprints),
+      segmentBreakdown: segments,
+      attributedSegments: bucket.attributedSegments,
+      matchedFingerprints: segments.flatMap((s) => s.fingerprints),
       states: bucket.states,
     });
   }

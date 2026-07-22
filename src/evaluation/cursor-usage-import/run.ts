@@ -62,6 +62,10 @@ export function mapFetchedScores(
             : subjectKind === "trace"
               ? subjectId
               : null;
+    const metadata =
+      s.metadata && typeof s.metadata === "object" && !Array.isArray(s.metadata)
+        ? (s.metadata as Record<string, unknown>)
+        : undefined;
     return {
       id: typeof s.id === "string" ? s.id : "",
       name: typeof s.name === "string" ? s.name : "",
@@ -75,6 +79,7 @@ export function mapFetchedScores(
             ? s.createdAt
             : null,
       ...(typeof s.comment === "string" ? { comment: s.comment } : {}),
+      ...(metadata !== undefined ? { metadata } : {}),
     };
   });
 }
@@ -296,6 +301,8 @@ export async function runCursorUsageImport(options: {
             timestampMin: aggregate.timestampMin,
             timestampMax: aggregate.timestampMax,
             providerActualUsdMicros: null,
+            providerActualAggregationComplete: false,
+            providerActualAggregationFailureReason: "included_plan_amount",
             sourceMaxMode: null,
           },
         ],

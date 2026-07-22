@@ -25,10 +25,56 @@ const LANGFUSE_LABELS: Record<
   divergent: "Divergent",
 };
 
+function GroupTable(props: {
+  title: string;
+  testId: string;
+  rows: Record<
+    string,
+    {
+      bundles: number;
+      inputTokens?: number;
+      outputTokens?: number;
+      totalTokens?: number;
+    }
+  >;
+}) {
+  const entries = Object.entries(props.rows);
+  if (entries.length === 0) return null;
+  return (
+    <div className="mt-4" data-testid={props.testId}>
+      <h4 className="font-medium">{props.title}</h4>
+      <table className="mt-2 w-full text-left text-xs">
+        <thead>
+          <tr className="text-muted-foreground">
+            <th className="py-1 pr-2">Key</th>
+            <th className="py-1 pr-2">Bundles</th>
+            <th className="py-1 pr-2">Input tokens</th>
+            <th className="py-1 pr-2">Output tokens</th>
+            <th className="py-1">Total tokens</th>
+          </tr>
+        </thead>
+        <tbody>
+          {entries.map(([key, row]) => (
+            <tr key={key} data-testid={`${props.testId}-row`}>
+              <td className="py-1 pr-2 font-mono">{key}</td>
+              <td className="py-1 pr-2">{row.bundles}</td>
+              <td className="py-1 pr-2">{row.inputTokens ?? 0}</td>
+              <td className="py-1 pr-2">{row.outputTokens ?? 0}</td>
+              <td className="py-1">{row.totalTokens ?? 0}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export function AnalyticsPanel({ analytics }: AnalyticsPanelProps) {
   if (!analytics) {
     return null;
   }
+
+  const grouped = analytics.grouped;
 
   return (
     <div
@@ -74,13 +120,57 @@ export function AnalyticsPanel({ analytics }: AnalyticsPanelProps) {
         </div>
         <div>
           <dt className="text-muted-foreground">Unresolved segments</dt>
-          <dd>{analytics.unresolvedSegmentCount ?? 0}</dd>
+          <dd data-testid="cursor-usage-analytics-unresolved">
+            {analytics.unresolvedSegmentCount ?? 0}
+          </dd>
         </div>
         <div>
           <dt className="text-muted-foreground">Pricing-incomplete segments</dt>
-          <dd>{analytics.pricingIncompleteSegmentCount ?? 0}</dd>
+          <dd data-testid="cursor-usage-analytics-pricing-incomplete">
+            {analytics.pricingIncompleteSegmentCount ?? 0}
+          </dd>
         </div>
       </dl>
+
+      {grouped ? (
+        <div data-testid="cursor-usage-analytics-grouped">
+          <GroupTable
+            title="By issue"
+            testId="cursor-usage-analytics-by-issue"
+            rows={grouped.byIssue ?? {}}
+          />
+          <GroupTable
+            title="By phase"
+            testId="cursor-usage-analytics-by-phase"
+            rows={grouped.byPhase ?? {}}
+          />
+          <GroupTable
+            title="By source model"
+            testId="cursor-usage-analytics-by-source-model"
+            rows={grouped.bySourceModel ?? {}}
+          />
+          <GroupTable
+            title="By canonical model"
+            testId="cursor-usage-analytics-by-canonical-model"
+            rows={grouped.byCanonicalModel ?? {}}
+          />
+          <GroupTable
+            title="By variant"
+            testId="cursor-usage-analytics-by-variant"
+            rows={grouped.byEffectiveVariant ?? {}}
+          />
+          <GroupTable
+            title="By source digest"
+            testId="cursor-usage-analytics-by-source-digest"
+            rows={grouped.bySourceDigest ?? {}}
+          />
+          <GroupTable
+            title="By pricing registry"
+            testId="cursor-usage-analytics-by-pricing-registry"
+            rows={grouped.byPricingRegistryVersion ?? {}}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -127,14 +127,35 @@ export interface ImportLedgerEntry {
   analyticsSummary?: LedgerAnalyticsSummary;
 }
 
+export interface LedgerAnalyticsGroupMetrics {
+  bundles: number;
+  inputTokens: number;
+  cacheWriteTokens: number;
+  cacheReadTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  providerActualUsd: number | null;
+  knownNoncacheCostUsd: number | null;
+  allInputAtListRateUsd: number | null;
+  completeness: "complete" | "incomplete";
+  coverage: "verified" | "incomplete_import" | "mixed";
+}
+
 export interface LedgerAnalyticsSummary {
-  byIssue: Record<string, { bundles: number; inputTokens: number; outputTokens: number }>;
-  byPhase: Record<string, { bundles: number; inputTokens: number; outputTokens: number }>;
-  bySourceModel: Record<string, { bundles: number; inputTokens: number }>;
-  byCanonicalModel: Record<string, { bundles: number; inputTokens: number }>;
-  byEffectiveVariant: Record<string, { bundles: number; inputTokens: number }>;
+  byIssue: Record<string, LedgerAnalyticsGroupMetrics>;
+  byPhase: Record<string, LedgerAnalyticsGroupMetrics>;
+  bySourceModel: Record<string, LedgerAnalyticsGroupMetrics>;
+  byCanonicalModel: Record<string, LedgerAnalyticsGroupMetrics>;
+  byEffectiveVariant: Record<string, LedgerAnalyticsGroupMetrics>;
+  bySourceDigest: Record<string, LedgerAnalyticsGroupMetrics>;
+  byPricingRegistryVersion: Record<string, LedgerAnalyticsGroupMetrics>;
+  sourceDigestPrefix: string;
+  importId: string;
+  pricingRegistryVersion: string;
   unresolvedSegmentCount: number;
   pricingIncompleteSegmentCount: number;
+  /** When false, verified token/cost totals were not included (incomplete import). */
+  verifiedTotalsIncluded: boolean;
 }
 
 export interface StagingArtifacts {

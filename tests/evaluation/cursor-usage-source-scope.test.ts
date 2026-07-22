@@ -23,6 +23,8 @@ const segment: UsageSegment = {
   timestampMin: execStart,
   timestampMax: execEnd,
   providerActualUsdMicros: null,
+  providerActualAggregationComplete: false,
+  providerActualAggregationFailureReason: "included_plan_amount",
   sourceMaxMode: null,
 };
 

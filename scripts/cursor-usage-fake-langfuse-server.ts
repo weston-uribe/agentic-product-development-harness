@@ -18,8 +18,14 @@ let scores: StoredScore[] = [];
 let scoreCreateLog: Array<Record<string, unknown>> = [];
 
 /** Scenario overrides for negative browser flows. */
-let scenario: "default" | "cut_through" | "unmatched_extra" | "ambiguous" | "model_conflict" =
-  "default";
+let scenario:
+  | "default"
+  | "cut_through"
+  | "unmatched_extra"
+  | "ambiguous"
+  | "model_conflict"
+  | "variant_conflict"
+  | "unknown_pricing" = "default";
 
 const baseTraces = [
   {
@@ -123,6 +129,55 @@ function currentObservations() {
         ? { ...obs, model: "totally-different-model" }
         : obs,
     );
+  }
+  if (scenario === "variant_conflict") {
+    // Candidate effectiveVariant=standard from a model-less obs; observed model is fast.
+    return baseObservations.flatMap((obs) => [
+      {
+        ...obs,
+        id: `${obs.id}-variant-authority`,
+        model: undefined,
+        metadata: {
+          ...obs.metadata,
+          effectiveVariant: "standard",
+          fast: false,
+        },
+      },
+      {
+        ...obs,
+        id: `${obs.id}-fast-evidence`,
+        metadata: {
+          ...obs.metadata,
+          effectiveVariant: "fast",
+          fast: true,
+        },
+      },
+    ]);
+  }
+  if (scenario === "unknown_pricing") {
+    // Candidate has authoritative standard; observed model evidence has unknown variant.
+    return baseObservations.flatMap((obs) => [
+      {
+        ...obs,
+        id: `${obs.id}-variant-authority`,
+        model: undefined,
+        metadata: {
+          ...obs.metadata,
+          effectiveVariant: "standard",
+          fast: false,
+        },
+      },
+      {
+        ...obs,
+        id: `${obs.id}-unknown-variant`,
+        metadata: {
+          cursorAgentId: obs.metadata.cursorAgentId,
+          linearIssueKey: ISSUE_KEY,
+          issueKey: ISSUE_KEY,
+          // omit effectiveVariant / fast → observed variant unknown
+        },
+      },
+    ]);
   }
   return baseObservations;
 }
@@ -271,7 +326,9 @@ const server = createServer(async (req, res) => {
         body.scenario === "cut_through" ||
         body.scenario === "unmatched_extra" ||
         body.scenario === "ambiguous" ||
-        body.scenario === "model_conflict"
+        body.scenario === "model_conflict" ||
+        body.scenario === "variant_conflict" ||
+        body.scenario === "unknown_pricing"
       ) {
         scenario = body.scenario;
         scores = [];

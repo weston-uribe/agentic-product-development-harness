@@ -5,13 +5,18 @@ import type { PricingVariant } from "../telemetry/pricing-registry.js";
 import { PRICING_REGISTRY_VERSION } from "../telemetry/pricing-registry.js";
 
 export interface SegmentPricingManifestEntry {
-  canonicalModelId: string;
-  effectiveVariant: PricingVariant;
+  sourceSegmentFingerprint: string;
+  canonicalModelId: string | null;
+  normalizedRawModel: string;
+  matchedObservedVariant: PricingVariant | "unknown" | null;
+  matchedObservationIdDigest: string;
   pricingRegistryVersion: string;
   matchedPricingEntryEffectiveDate: string | null;
   operatorApprovedSourceIdentifier: string;
-  inputUsdPer1M: string;
-  outputUsdPer1M: string;
+  /** @deprecated Prefer matchedObservedVariant; retained for display/legacy. */
+  effectiveVariant: PricingVariant | "unknown" | null;
+  inputUsdPer1M: string | null;
+  outputUsdPer1M: string | null;
   cacheReadUsdPer1M: string | null;
   cacheWriteUsdPer1M: string | null;
   reasoningUsdPer1M: string | null;
@@ -23,6 +28,9 @@ export interface SegmentPricingManifestEntry {
   };
   completenessResult: "complete" | "incomplete";
   completenessReason: string | null;
+  costAllowed: boolean;
+  providerActualAggregationComplete: boolean;
+  providerActualAggregationFailureReason: string | null;
 }
 
 export interface ExpectedScoreManifestEntry {
@@ -32,12 +40,16 @@ export interface ExpectedScoreManifestEntry {
   dataType: string;
   /** Deterministic decimal / micro-USD string — never unconstrained float toString. */
   canonicalValueSerialization: string;
+  scoreTimestamp: string;
+  environment: string | null;
+  scoreClass: string;
   commentProvenanceFingerprint: string;
   publicSafeMetadataDigest: string;
   sourceBundleFingerprint: string;
   issueKey: string;
   phase: string;
   scoreContractVersion: string;
+  /** Never attach only the first segment — cost scores leave this null; use bundle plan. */
   pricingManifest: SegmentPricingManifestEntry | null;
 }
 
@@ -45,6 +57,11 @@ export interface ExpectedScoreManifest {
   schemaVersion: 1;
   targetTraceIds: string[];
   scores: ExpectedScoreManifestEntry[];
+  /**
+   * Deterministically sorted complete per-segment pricing plan for the import.
+   * Digested into expectedScoreManifestDigest even when numeric cost scores are omitted.
+   */
+  segmentPricingManifest: SegmentPricingManifestEntry[];
   discoverySnapshotDigest: string;
   targetTraceSetDigest: string;
   expectedScoreManifestDigest: string;
@@ -80,12 +97,28 @@ export function serializeScoreValue(value: unknown): string {
   return stableStringify(value);
 }
 
+export function sortSegmentPricingManifest(
+  entries: SegmentPricingManifestEntry[],
+): SegmentPricingManifestEntry[] {
+  return [...entries].sort((a, b) => {
+    const byFp = a.sourceSegmentFingerprint.localeCompare(
+      b.sourceSegmentFingerprint,
+    );
+    if (byFp !== 0) return byFp;
+    const byModel = (a.canonicalModelId ?? "").localeCompare(
+      b.canonicalModelId ?? "",
+    );
+    if (byModel !== 0) return byModel;
+    return a.normalizedRawModel.localeCompare(b.normalizedRawModel);
+  });
+}
+
 export function buildExpectedScoreManifest(params: {
   scores: EvaluationScoreInput[];
   issueKeyByTraceId: Record<string, string>;
   phaseByTraceId: Record<string, string>;
   sourceBundleFingerprintByTraceId: Record<string, string>;
-  pricingByScoreId?: Record<string, SegmentPricingManifestEntry | null>;
+  segmentPricingManifest: SegmentPricingManifestEntry[];
   discoverySnapshotDigest: string;
 }): ExpectedScoreManifest {
   const entries: ExpectedScoreManifestEntry[] = params.scores.map((score) => {
@@ -102,6 +135,9 @@ export function buildExpectedScoreManifest(params: {
       scoreName: score.name,
       dataType: score.dataType,
       canonicalValueSerialization: serializeScoreValue(score.value),
+      scoreTimestamp: score.timestamp,
+      environment: score.environment?.trim() || null,
+      scoreClass: score.scoreClass ?? "cursor_usage_import",
       commentProvenanceFingerprint: digestCanonical(score.comment ?? ""),
       publicSafeMetadataDigest: digestCanonical(publicMeta),
       sourceBundleFingerprint:
@@ -109,7 +145,7 @@ export function buildExpectedScoreManifest(params: {
       issueKey: params.issueKeyByTraceId[targetTraceId] ?? "",
       phase: params.phaseByTraceId[targetTraceId] ?? "",
       scoreContractVersion: SCORE_CONTRACT_VERSION,
-      pricingManifest: params.pricingByScoreId?.[score.id] ?? null,
+      pricingManifest: null,
     };
   });
 
@@ -118,12 +154,17 @@ export function buildExpectedScoreManifest(params: {
     return c !== 0 ? c : a.targetTraceId.localeCompare(b.targetTraceId);
   });
 
+  const segmentPricingManifest = sortSegmentPricingManifest(
+    params.segmentPricingManifest,
+  );
+
   const targetTraceIds = [
     ...new Set(entries.map((e) => e.targetTraceId)),
   ].sort();
   const targetTraceSetDigest = digestCanonical(targetTraceIds);
   const expectedScoreManifestDigest = digestCanonical({
     scores: entries,
+    segmentPricingManifest,
     targetTraceIds,
     scoreContractVersion: SCORE_CONTRACT_VERSION,
     pricingRegistryVersion: PRICING_REGISTRY_VERSION,
@@ -133,6 +174,7 @@ export function buildExpectedScoreManifest(params: {
     schemaVersion: 1,
     targetTraceIds,
     scores: entries,
+    segmentPricingManifest,
     discoverySnapshotDigest: params.discoverySnapshotDigest,
     targetTraceSetDigest,
     expectedScoreManifestDigest,

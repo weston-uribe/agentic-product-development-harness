@@ -81,16 +81,9 @@ function asArray(value: unknown): unknown[] {
 
 function stableObservationFingerprint(obs: Record<string, unknown>): string {
   const meta = asRecord(obs.metadata) ?? {};
-  const usage = obs.usageDetails ?? obs.usage_details ?? null;
-  const cost = obs.costDetails ?? obs.cost_details ?? null;
-  const normalizeBag = (value: unknown): unknown => {
-    if (value == null) return null;
-    if (typeof value === "object" && !Array.isArray(value)) {
-      const rec = value as Record<string, unknown>;
-      if (Object.keys(rec).length === 0) return null;
-    }
-    return value;
-  };
+  // Fingerprint only importer-relevant identity fields. Exclude usage/cost
+  // details — Langfuse may backfill those asynchronously without any
+  // observation mutation by the score-only Cursor usage importer.
   const payload = {
     id: typeof obs.id === "string" ? obs.id : null,
     type: typeof obs.type === "string" ? obs.type : null,
@@ -108,8 +101,6 @@ function stableObservationFingerprint(obs: Record<string, unknown>): string {
           ? obs.end_time
           : null,
     model: typeof obs.model === "string" ? obs.model : null,
-    usageDetails: normalizeBag(usage),
-    costDetails: normalizeBag(cost),
     cursorAgentId:
       typeof meta.cursorAgentId === "string" ? meta.cursorAgentId : null,
     phase: typeof meta.phase === "string" ? meta.phase : null,

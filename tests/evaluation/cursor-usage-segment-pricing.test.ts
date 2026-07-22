@@ -51,4 +51,36 @@ describe("cursor usage segment pricing", () => {
     });
     expect(result).toBeNull();
   });
+
+  it("prices segments by matched observed variant independently", () => {
+    const tokens = {
+      inputTokens: 1_000_000,
+      cacheWriteTokens: 0,
+      cacheReadTokens: 0,
+      outputTokens: 0,
+      totalTokens: 1_000_000,
+    };
+    const standard = computeCostProxies({
+      modelId: "composer-2.5",
+      effectiveVariant: "standard",
+      tokens,
+      matchedObservedVariant: "standard",
+      costAllowed: true,
+    });
+    const fast = computeCostProxies({
+      modelId: "composer-2.5",
+      effectiveVariant: "fast",
+      tokens,
+      matchedObservedVariant: "fast",
+      costAllowed: true,
+    });
+    expect(standard).not.toBeNull();
+    expect(fast).not.toBeNull();
+    expect(standard!.pricingManifest.matchedObservedVariant).toBe("standard");
+    expect(fast!.pricingManifest.matchedObservedVariant).toBe("fast");
+    expect(standard!.knownNoncacheCostUsd).not.toBe(fast!.knownNoncacheCostUsd);
+    expect(standard!.pricingManifest.inputUsdPer1M).not.toBe(
+      fast!.pricingManifest.inputUsdPer1M,
+    );
+  });
 });
