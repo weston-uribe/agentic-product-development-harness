@@ -77,8 +77,13 @@ describe("buildMinimalHarnessComment", () => {
 describe("getVisibleCommentBody multi-pass removal", () => {
   it("removes nested comment sequences that a single replace would leave behind", () => {
     const input = "visible<!<!-- hidden -->--x-->done";
-    const onePass = input.replace(/<!--[\s\S]*?-->/g, "");
+    // One bounded removal (first <!-- … -->), equivalent to a single non-global pass.
+    const start = input.indexOf("<!--");
+    const end = input.indexOf("-->", start + 4);
+    const onePass = input.slice(0, start) + input.slice(end + 3);
     expect(onePass).toBe("visible<!--x-->done");
+    expect(onePass).toContain("<!--");
+    expect(onePass).toContain("-->");
 
     const visible = getVisibleCommentBody(input);
     expect(visible).toBe("visibledone");
