@@ -22,15 +22,37 @@ Native `generationCostComplete` / `cursor_exact_cost_complete` remain false unti
 - Parser rejections without recoverable Cloud Agent identity are **upload-scoped** and block the entire upload.
 - Model/variant conflicts make source scope incomplete and disable Apply.
 
+## Discovery configuration (required)
+
+Cursor usage discovery uses a dedicated configuration contract (not broader evaluation runtime defaults).
+
+| Variable | Required | Meaning |
+|----------|----------|---------|
+| `P_DEV_EVALUATION_PROVIDER` | yes | Must be `langfuse` |
+| `P_DEV_EVALUATION_NAMESPACE` | yes | Explicit nonempty namespace (no `"default"` fallback) |
+| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | yes | API credentials (never shown in the GUI) |
+| `LANGFUSE_BASE_URL` | recommended | Canonical endpoint; production requires HTTPS |
+| `LANGFUSE_TRACING_ENVIRONMENT` | optional | Explicit environment filter; **unset means all environments**, not `"default"` |
+
+Weston dogfood intended values:
+
+- provider: `langfuse`
+- namespace: `weston-dogfood`
+- environment: `dogfood`
+
+Configuration, authentication, timeout, and retrieval failures **do not create preflights**. Successful complete retrieval with zero traces, zero viable candidates, or zero agent-hash overlap may stage as incomplete diagnostic preflights with distinct source-scope reasons. A successful preflight is **not** Apply authorization.
+
+Approval is bound to provider, namespace, nullable environment filter, full canonical endpoint identity, and a private Langfuse project-scope digest (never exposed in the GUI).
+
 ## Primary workflow (GUI)
 
-1. Start the operator GUI (`npm start` / `p-dev`) from a workspace with Langfuse configured.
-2. Open **Settings → Cursor usage**.
+1. Start the operator GUI (`npm start` / `p-dev`) from a workspace with the discovery variables above.
+2. Open **Settings → Cursor usage**. Confirm Langfuse configured, namespace, environment filter (or All environments), and host.
 3. Drag-and-drop an official Cursor usage CSV (≤ 25 MiB).
 4. Enter the **export start** and **export end** from the Cursor export UI (required).
-5. Run **Preflight**. Review matched / conflict / unresolved rows and rejection reason codes (never raw rejected cells).
+5. Run **Preflight** (disabled until configuration is ready). Review diagnostics, matched / conflict / unresolved rows, and rejection reason codes (never raw rejected cells or full agent/session IDs).
 6. Apply is disabled when source scope is incomplete, upload-scoped rejections exist, or conflicts exist.
-7. Confirm and **Apply**. The GUI sends the preflight approval fingerprint; Apply rebuilds discovery, pricing, and the expected-score manifest and fails closed if they differ.
+7. Confirm and **Apply**. The GUI sends the preflight approval fingerprint; Apply revalidates discovery configuration and rebuilds discovery, pricing, and the expected-score manifest and fails closed if they differ.
 8. Refresh-safe: state is recovered from durable staging/ledger (`failed_recoverable` / interrupted apply may retry under recovery rules).
 9. Use **Analytics** for local ledger evidence completeness and Langfuse reconciliation status (credentials alone never mark reconciliation complete). Totals cover **only ledgers in the current operator workspace**.
 
