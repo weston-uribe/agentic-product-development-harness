@@ -21,7 +21,11 @@ import {
 import { inspectCursorUsageCsvSource } from "./source-inspection.js";
 import { IMPORT_SCOPE_ID } from "./import-scope.js";
 import type { TimestampDisambiguationPolicy } from "./timestamps.js";
-import { discoverUsageCandidates, type UsageCandidate } from "./discovery.js";
+import {
+  discoverUsageCandidates,
+  type DiscoverUsageCandidatesResult,
+  type UsageCandidate,
+} from "./discovery.js";
 import {
   attributeSegmentsToCandidates,
   buildSegmentsFromCanonicalEvents,
@@ -38,6 +42,7 @@ import {
   type ImportLedgerEntry,
   type ImportLifecycleState,
   type ParserEvidenceArtifact,
+  type PublicPreflightAttributionRow,
   type StagingArtifacts,
 } from "./staging.js";
 import { withImportLock } from "./import-lock.js";
@@ -53,6 +58,7 @@ import {
   DEFAULT_SOURCE_COVERAGE_SAFETY_MARGIN_MS,
   evaluateSourceScope,
   validateExportWindow,
+  type SourceScopeIncompleteReason,
 } from "./source-scope.js";
 import { verifyImportedScores, type FetchedScore } from "./verify.js";
 import { mapFetchedScores } from "./run.js";
@@ -79,6 +85,19 @@ import {
 } from "./money.js";
 import type { PricingVariant } from "../telemetry/pricing-registry.js";
 import type { LedgerAnalyticsSummary } from "./staging.js";
+import {
+  CURSOR_USAGE_DISCOVERY_CONFIG_CONTRACT_VERSION,
+  CursorUsageDiscoveryError,
+  classifyDiscoveryThrownError,
+  resolveCursorUsageDiscoveryConfig,
+  throwIfDiscoveryNotReady,
+  type CursorUsageDiscoveryReadyConfig,
+  type DiscoveryDiagnostics,
+} from "./discovery-config.js";
+import {
+  buildDiscoveryDiagnosticsFromAttribution,
+  buildPublicAttributionSnapshot,
+} from "./public-preflight.js";
 
 export interface CursorUsageImportFilters {
   issueKeys?: string[];
@@ -158,10 +177,13 @@ export interface ImportAnalytics {
 
 export interface CursorUsageServiceDeps {
   createApiClient?: (
-    config: EvaluationRuntimeConfig,
+    config: Pick<EvaluationRuntimeConfig, "publicKey" | "secretKey" | "baseUrl">,
   ) => Promise<LangfuseApiClient>;
   createScoreClient?: typeof createScoreOnlyClient;
+  /** @deprecated Non-Cursor evaluation only. Do not use for Cursor usage discovery. */
   resolveConfig?: typeof resolveEvaluationConfig;
+  /** Dedicated Cursor usage discovery-config seam. */
+  resolveDiscoveryConfig?: typeof resolveCursorUsageDiscoveryConfig;
   discover?: typeof discoverUsageCandidates;
   sleep?: (ms: number) => Promise<void>;
   /** Test seam: override pricing lookup used during apply revalidation. */
@@ -644,17 +666,121 @@ function buildAttachmentsFromBundles(params: {
   };
 }
 
-async function resolveLangfuseClient(params: {
-  langfuseConfig?: EvaluationRuntimeConfig;
+function resolveDiscoveryConfigOrThrow(
+  deps?: CursorUsageServiceDeps,
+): CursorUsageDiscoveryReadyConfig {
+  const resolve =
+    deps?.resolveDiscoveryConfig ?? resolveCursorUsageDiscoveryConfig;
+  return throwIfDiscoveryNotReady(resolve(process.env));
+}
+
+async function createApiClientFromDiscoveryConfig(params: {
+  discoveryConfig: CursorUsageDiscoveryReadyConfig;
   deps?: CursorUsageServiceDeps;
-}): Promise<LangfuseApiClient | null> {
-  const resolveConfig = params.deps?.resolveConfig ?? resolveEvaluationConfig;
-  const resolved = params.langfuseConfig
-    ? { ok: true as const, config: params.langfuseConfig }
-    : resolveConfig(process.env);
-  if (!resolved.ok) return null;
+}): Promise<LangfuseApiClient> {
   const createApi = params.deps?.createApiClient ?? createLangfuseApiClient;
-  return createApi(resolved.config);
+  try {
+    return await createApi({
+      publicKey: params.discoveryConfig.publicKey,
+      secretKey: params.discoveryConfig.secretKey,
+      baseUrl: params.discoveryConfig.baseUrl,
+    });
+  } catch (error) {
+    const classified = classifyDiscoveryThrownError(error);
+    if (classified.code === "langfuse_authentication_failed") {
+      throw classified;
+    }
+    throw new CursorUsageDiscoveryError(
+      "langfuse_configuration_invalid",
+      "Failed to initialize Langfuse API client for Cursor usage discovery.",
+      400,
+    );
+  }
+}
+
+function assertDiscoveryConfigMatchesStaged(params: {
+  live: CursorUsageDiscoveryReadyConfig;
+  staged: StagingArtifacts["preflight"];
+}): void {
+  const stagedContract = params.staged.discoveryConfigContractVersion;
+  const stagedEndpoint = params.staged.canonicalEndpointIdentity;
+  const stagedScope = params.staged.langfuseProjectScopeDigest;
+  const stagedProvider = params.staged.discoveryProvider;
+  if (
+    !stagedContract ||
+    !stagedEndpoint ||
+    !stagedScope ||
+    stagedProvider !== "langfuse" ||
+    params.staged.schemaVersion < 3 ||
+    !params.staged.attributionSnapshotDigest ||
+    !params.staged.discoveryDiagnostics
+  ) {
+    throw new Error("staged_import_version_mismatch_requires_new_preflight");
+  }
+  if (
+    stagedContract !== params.live.discoveryConfigContractVersion ||
+    stagedProvider !== params.live.provider ||
+    params.staged.namespace !== params.live.namespace ||
+    (params.staged.environment ?? null) !== params.live.environmentFilter ||
+    stagedEndpoint !== params.live.canonicalEndpointIdentity.canonicalUrl ||
+    stagedScope !== params.live.langfuseProjectScopeDigest
+  ) {
+    throw new Error("discovery_configuration_changed_requires_new_preflight");
+  }
+}
+
+async function runDiscoverWithFailClosed(params: {
+  client: LangfuseApiClient;
+  namespace: string;
+  environmentFilter: string | null;
+  fromTimestamp: string;
+  toTimestamp: string;
+  discoveryTimeoutMs: number;
+  deps?: CursorUsageServiceDeps;
+  filters?: CursorUsageImportFilters;
+}): Promise<{
+  candidates: UsageCandidate[];
+  discovered: DiscoverUsageCandidatesResult;
+}> {
+  const discoverFn = params.deps?.discover ?? discoverUsageCandidates;
+  try {
+    const discovered = await Promise.race([
+      discoverFn({
+        client: params.client,
+        namespace: params.namespace,
+        environment: params.environmentFilter ?? undefined,
+        fromTimestamp: params.fromTimestamp,
+        toTimestamp: params.toTimestamp,
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error("langfuse_discovery_timeout")),
+          params.discoveryTimeoutMs,
+        ),
+      ),
+    ]);
+    if (!discovered.retrievalComplete) {
+      throw new CursorUsageDiscoveryError(
+        "langfuse_retrieval_incomplete",
+        "Langfuse discovery retrieval was incomplete.",
+        502,
+      );
+    }
+    const withCounters: DiscoverUsageCandidatesResult = {
+      ...discovered,
+      requestCounters: discovered.requestCounters ?? {
+        discoveryInvocationId: "injected-discovery",
+        traceListRequestCount: discovered.pagesFetched ?? 0,
+        observationRequestCount: 0,
+      },
+    };
+    return {
+      candidates: filterCandidates(withCounters.candidates, params.filters),
+      discovered: withCounters,
+    };
+  } catch (error) {
+    throw classifyDiscoveryThrownError(error);
+  }
 }
 
 function detectExistingScoreConflicts(
@@ -792,6 +918,9 @@ export async function preflightCsvImport(
   sourceScopeComplete: boolean;
   bundleCount: number;
   publicSummary: StagingArtifacts["publicSummary"];
+  rows: PublicPreflightAttributionRow[];
+  conflicts: string[];
+  discoveryDiagnostics: DiscoveryDiagnostics | null;
 }> {
   const importId = createImportId();
   const margin =
@@ -800,6 +929,23 @@ export async function preflightCsvImport(
   const assumedTimezone = params.assumedTimezone?.trim() || null;
   const disambiguationPolicy =
     params.disambiguationPolicy ?? "reject_ambiguous";
+  const shouldDiscover = params.discoverLangfuse !== false;
+
+  // Fail closed before any staging when discovery is required.
+  let discoveryConfig: CursorUsageDiscoveryReadyConfig | null = null;
+  if (shouldDiscover) {
+    discoveryConfig = resolveDiscoveryConfigOrThrow(params.deps);
+  }
+
+  const namespace = discoveryConfig
+    ? discoveryConfig.namespace
+    : params.namespace;
+  // When discovery config is present, honor its nullable filter (null ≠ missing).
+  const environmentFilter = discoveryConfig
+    ? discoveryConfig.environmentFilter
+    : params.environment?.trim()
+      ? params.environment.trim()
+      : null;
 
   const raw =
     typeof params.csvBytes === "string"
@@ -845,8 +991,8 @@ export async function preflightCsvImport(
     sourceCapabilityExclusionFingerprintSet(capabilityManifest);
 
   const identity = buildCanonicalImportIdentity({
-    namespace: params.namespace,
-    environment: params.environment,
+    namespace,
+    environment: environmentFilter,
     sourceDigestSha256: digestSha256,
     exportWindow,
     sourceCoverageSafetyMarginMs: margin,
@@ -854,6 +1000,14 @@ export async function preflightCsvImport(
     sourceCapabilityExclusionDigest: capabilityManifest.digest,
     assumedTimezone,
     disambiguationPolicy,
+    discoveryConfigContractVersion: discoveryConfig
+      ? CURSOR_USAGE_DISCOVERY_CONFIG_CONTRACT_VERSION
+      : null,
+    canonicalEndpointIdentity:
+      discoveryConfig?.canonicalEndpointIdentity.canonicalUrl ?? null,
+    langfuseProjectScopeDigest:
+      discoveryConfig?.langfuseProjectScopeDigest ?? null,
+    discoveryProvider: discoveryConfig?.provider ?? null,
   });
   const canonicalImportIdentityFp = fingerprintCanonicalImportIdentity(identity);
 
@@ -866,37 +1020,37 @@ export async function preflightCsvImport(
 
   let candidates: UsageCandidate[] = [];
   let langfuseRetrievalComplete = false;
+  let discoveredMeta: DiscoverUsageCandidatesResult | null = null;
+  let discoveryDiagnostics: DiscoveryDiagnostics | null = null;
+  let discoveryScopeReason: SourceScopeIncompleteReason = null;
 
   const exportValidation = validateExportWindow(exportWindow);
-  const shouldDiscover = params.discoverLangfuse !== false;
-  if (exportValidation.ok && shouldDiscover) {
-    const client = await resolveLangfuseClient(params);
-    if (client) {
-      const discoverFn = params.deps?.discover ?? discoverUsageCandidates;
-      const timeoutMs = params.discoveryTimeoutMs ?? 25_000;
-      try {
-        const discovered = await Promise.race([
-          discoverFn({
-            client,
-            namespace: params.namespace,
-            environment: params.environment,
-            fromTimestamp: exportValidation.window.startIso,
-            toTimestamp: exportValidation.window.endIso,
-          }),
-          new Promise<never>((_, reject) =>
-            setTimeout(
-              () => reject(new Error("langfuse_discovery_timeout")),
-              timeoutMs,
-            ),
-          ),
-        ]);
-        candidates = filterCandidates(discovered.candidates, params.filters);
-        langfuseRetrievalComplete = discovered.retrievalComplete;
-      } catch {
-        candidates = [];
-        langfuseRetrievalComplete = false;
-      }
+  if (shouldDiscover) {
+    if (!exportValidation.ok) {
+      throw new CursorUsageDiscoveryError(
+        "langfuse_configuration_invalid",
+        `Export window invalid before discovery: ${exportValidation.reason}`,
+        400,
+      );
     }
+    const client = await createApiClientFromDiscoveryConfig({
+      discoveryConfig: discoveryConfig!,
+      deps: params.deps,
+    });
+    const timeoutMs = params.discoveryTimeoutMs ?? 25_000;
+    const { candidates: found, discovered } = await runDiscoverWithFailClosed({
+      client,
+      namespace,
+      environmentFilter,
+      fromTimestamp: exportValidation.window.startIso,
+      toTimestamp: exportValidation.window.endIso,
+      discoveryTimeoutMs: timeoutMs,
+      deps: params.deps,
+      filters: params.filters,
+    });
+    candidates = found;
+    discoveredMeta = discovered;
+    langfuseRetrievalComplete = true;
   }
 
   const attributed = attributeSegmentsToCandidates({
@@ -906,12 +1060,37 @@ export async function preflightCsvImport(
   });
   const { bundles, skipped } = bundleAttributedSegments({
     attributed,
-    namespace: params.namespace,
+    namespace,
   });
+
+  if (shouldDiscover && discoveredMeta) {
+    const counters = discoveredMeta.requestCounters ?? {
+      discoveryInvocationId: "injected-discovery",
+      traceListRequestCount: discoveredMeta.pagesFetched,
+      observationRequestCount: 0,
+    };
+    const builtDiag = buildDiscoveryDiagnosticsFromAttribution({
+      namespace,
+      environmentFilter,
+      pagesFetched: discoveredMeta.pagesFetched,
+      tracesFetched: discoveredMeta.tracesFetched,
+      retrievalComplete: discoveredMeta.retrievalComplete,
+      candidates,
+      attributed,
+      discoveryInvocationId: counters.discoveryInvocationId,
+      traceListRequestCount: counters.traceListRequestCount,
+      observationRequestCount: counters.observationRequestCount,
+    });
+    discoveryDiagnostics = builtDiag.diagnostics;
+    discoveryScopeReason = builtDiag.discoveryScopeReason;
+  }
+
+  const { rows, conflicts, attributionSnapshotDigest } =
+    buildPublicAttributionSnapshot({ attributed });
 
   const computeFn = params.deps?.computeCostProxies ?? computeCostProxies;
   const built = buildAttachmentsFromBundles({
-    namespace: params.namespace,
+    namespace,
     bundles,
     attributed,
     skipped,
@@ -923,11 +1102,19 @@ export async function preflightCsvImport(
     parserEvidence: parsed.rowEvidence,
     sourceCapabilityExcludedFingerprints: exclusionFingerprints,
     sourceDigestPrefix: digestSha256,
-    environment: params.environment,
+    environment: environmentFilter ?? undefined,
     sourceCoverageSafetyMarginMs: margin,
     candidates,
     computeCostProxiesFn: computeFn,
   });
+
+  // Discovery zero-result reasons take precedence over unaccounted_source_segment.
+  let sourceScopeComplete = built.sourceScopeComplete;
+  let sourceScopeIncompleteReason = built.sourceScopeIncompleteReason;
+  if (discoveryScopeReason) {
+    sourceScopeComplete = false;
+    sourceScopeIncompleteReason = discoveryScopeReason;
+  }
 
   const approvalFp = fingerprintPreflightApproval({
     canonicalImportIdentity: canonicalImportIdentityFp,
@@ -935,26 +1122,27 @@ export async function preflightCsvImport(
     targetTraceSetDigest: built.expectedScoreManifest.targetTraceSetDigest,
     expectedScoreManifestDigest:
       built.expectedScoreManifest.expectedScoreManifestDigest,
+    attributionSnapshotDigest,
   });
 
-  const lifecycle: ImportLifecycleState = built.sourceScopeComplete
+  const lifecycle: ImportLifecycleState = sourceScopeComplete
     ? "ready"
     : "preflighted";
 
   const preparedAt = new Date().toISOString();
   const publicSummary: StagingArtifacts["publicSummary"] = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     kind: "cursor_usage_import_staging_public",
     importId,
     preparedAt,
     importerVersion: CURSOR_USAGE_IMPORTER_VERSION,
     importScopeId: IMPORT_SCOPE_ID,
     lifecycle,
-    namespace: params.namespace,
+    namespace,
     sourceDigestPrefix: digestSha256.slice(0, 16),
     bundleCount: bundles.length,
-    sourceScopeComplete: built.sourceScopeComplete,
-    sourceScopeIncompleteReason: built.sourceScopeIncompleteReason,
+    sourceScopeComplete,
+    sourceScopeIncompleteReason,
     sourceRowCount: inspection.sourceRowCount,
     cloudAgentAttributableRowCount: inspection.cloudAgentAttributableRowCount,
     nonCloudAgentExcludedRowCount: inspection.nonCloudAgentExcludedRowCount,
@@ -975,16 +1163,23 @@ export async function preflightCsvImport(
     sortOrder: inspection.sortOrder,
     sourceCapabilityExclusionDigest: capabilityManifest.digest,
     observationMutationAttempted: false,
+    discoveryDiagnostics,
+    attributionRows: rows,
+    conflictReasonCodes: conflicts,
+    attributionSnapshotDigest,
+    discoveryDiagnosticsCoverage: discoveryDiagnostics
+      ? "available"
+      : "legacy_discovery_diagnostics_unavailable",
   };
 
   const preflight: StagingArtifacts["preflight"] = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     importId,
     preparedAt,
     importerVersion: CURSOR_USAGE_IMPORTER_VERSION,
     importScopeId: IMPORT_SCOPE_ID,
-    namespace: params.namespace,
-    environment: params.environment?.trim() ?? null,
+    namespace,
+    environment: environmentFilter,
     sourceDigestSha256: digestSha256,
     exportWindow,
     fingerprint: approvalFp,
@@ -993,8 +1188,8 @@ export async function preflightCsvImport(
     lifecycle,
     candidateCount: candidates.length,
     bundleCount: bundles.length,
-    sourceScopeComplete: built.sourceScopeComplete,
-    sourceScopeIncompleteReason: built.sourceScopeIncompleteReason,
+    sourceScopeComplete,
+    sourceScopeIncompleteReason,
     canonicalEventCount: events.length,
     sourceCoverageSafetyMarginMs: margin,
     normalizedSourceExclusionSet: [],
@@ -1014,6 +1209,18 @@ export async function preflightCsvImport(
     targetTraceSetDigest: built.expectedScoreManifest.targetTraceSetDigest,
     expectedScoreManifestDigest:
       built.expectedScoreManifest.expectedScoreManifestDigest,
+    discoveryConfigContractVersion: discoveryConfig
+      ? CURSOR_USAGE_DISCOVERY_CONFIG_CONTRACT_VERSION
+      : undefined,
+    canonicalEndpointIdentity:
+      discoveryConfig?.canonicalEndpointIdentity.canonicalUrl ?? null,
+    langfuseProjectScopeDigest:
+      discoveryConfig?.langfuseProjectScopeDigest ?? null,
+    discoveryProvider: discoveryConfig?.provider ?? null,
+    discoveryDiagnostics,
+    attributionRows: rows,
+    conflictReasonCodes: conflicts,
+    attributionSnapshotDigest,
   };
 
   const analyticsSummary = buildLedgerAnalyticsSummary({
@@ -1034,14 +1241,14 @@ export async function preflightCsvImport(
     importId,
     recordedAt: preparedAt,
     lifecycle,
-    namespace: params.namespace,
+    namespace,
     sourceDigestSha256: digestSha256,
     exportWindow,
     bundleCount: bundles.length,
     scoreCount: 0,
     verified: false,
-    sourceScopeComplete: built.sourceScopeComplete,
-    sourceScopeIncompleteReason: built.sourceScopeIncompleteReason,
+    sourceScopeComplete,
+    sourceScopeIncompleteReason,
     uploadScopedRejectionCount: parsed.rejectionSummary.uploadScopedCount,
     agentScopedRejectionCount: parsed.rejectionSummary.agentScopedCount,
     rejectionReasonCodes: parsed.rejectionSummary.reasonCodes,
@@ -1091,9 +1298,12 @@ export async function preflightCsvImport(
     preflightApprovalFingerprint: approvalFp,
     canonicalImportIdentity: canonicalImportIdentityFp,
     lifecycle,
-    sourceScopeComplete: built.sourceScopeComplete,
+    sourceScopeComplete,
     bundleCount: bundles.length,
     publicSummary,
+    rows,
+    conflicts,
+    discoveryDiagnostics,
   };
 }
 
@@ -1159,15 +1369,28 @@ export async function applyCsvImport(
     throw new Error("expected_score_manifest_missing");
   }
 
-  // Version-10 staged imports cannot be applied under version 11.
+  // Legacy staged imports (pre-v12 / schema < 3) cannot be applied.
   // Fail before any score client is created.
   if (
     isLegacyImporterVersion(staged.preflight.importerVersion) ||
-    staged.preflight.schemaVersion < 2 ||
-    staged.parserEvidence.schemaVersion < 2
+    staged.preflight.schemaVersion < 3 ||
+    staged.parserEvidence.schemaVersion < 2 ||
+    !staged.preflight.discoveryConfigContractVersion ||
+    !staged.preflight.langfuseProjectScopeDigest ||
+    !staged.preflight.attributionSnapshotDigest ||
+    !staged.preflight.discoveryDiagnostics
   ) {
     throw new Error("staged_import_version_mismatch_requires_new_preflight");
   }
+
+  // Revalidate live discovery configuration before score-client creation.
+  const liveDiscovery = resolveDiscoveryConfigOrThrow(params.deps);
+  assertDiscoveryConfigMatchesStaged({
+    live: liveDiscovery,
+    staged: staged.preflight,
+  });
+  const namespace = liveDiscovery.namespace;
+  const environmentFilter = liveDiscovery.environmentFilter;
 
   // Rederive capabilities from staged operands and compare with staged values.
   for (const row of staged.parserEvidence.rows) {
@@ -1234,8 +1457,8 @@ export async function applyCsvImport(
 
   // Identity / approval revalidation before score client creation.
   const identity = buildCanonicalImportIdentity({
-    namespace: params.namespace,
-    environment: params.environment ?? staged.preflight.environment,
+    namespace,
+    environment: environmentFilter,
     sourceDigestSha256: staged.preflight.sourceDigestSha256,
     exportWindow,
     sourceCoverageSafetyMarginMs: margin,
@@ -1243,34 +1466,45 @@ export async function applyCsvImport(
     sourceCapabilityExclusionDigest: rebuiltManifest.digest,
     assumedTimezone: staged.preflight.assumedTimezone,
     disambiguationPolicy: staged.preflight.disambiguationPolicy,
+    discoveryConfigContractVersion:
+      liveDiscovery.discoveryConfigContractVersion,
+    canonicalEndpointIdentity:
+      liveDiscovery.canonicalEndpointIdentity.canonicalUrl,
+    langfuseProjectScopeDigest: liveDiscovery.langfuseProjectScopeDigest,
+    discoveryProvider: liveDiscovery.provider,
   });
   const identityFp = fingerprintCanonicalImportIdentity(identity);
   if (identityFp !== staged.preflight.canonicalImportIdentity) {
-    throw new Error("preflight_plan_changed:canonical_import_identity");
+    throw new Error("discovery_configuration_changed_requires_new_preflight");
   }
 
-  const client = await resolveLangfuseClient(params);
-  if (!client) {
-    throw new Error("langfuse_unavailable");
-  }
+  const client = await createApiClientFromDiscoveryConfig({
+    discoveryConfig: liveDiscovery,
+    deps: params.deps,
+  });
 
-  const discoverFn = params.deps?.discover ?? discoverUsageCandidates;
-  const discovered = await discoverFn({
+  const { candidates, discovered } = await runDiscoverWithFailClosed({
     client,
-    namespace: params.namespace,
-    environment: params.environment,
+    namespace,
+    environmentFilter,
     fromTimestamp: exportValidation.window.startIso,
     toTimestamp: exportValidation.window.endIso,
+    discoveryTimeoutMs: 25_000,
+    deps: params.deps,
   });
 
   const attributed = attributeSegmentsToCandidates({
     segments,
-    candidates: discovered.candidates,
+    candidates,
     canonicalEvents: events,
   });
   const { bundles, skipped } = bundleAttributedSegments({
     attributed,
-    namespace: params.namespace,
+    namespace,
+  });
+
+  const { attributionSnapshotDigest } = buildPublicAttributionSnapshot({
+    attributed,
   });
 
   const hasUploadScoped =
@@ -1279,7 +1513,7 @@ export async function applyCsvImport(
 
   const computeFn = params.deps?.computeCostProxies ?? computeCostProxies;
   const built = buildAttachmentsFromBundles({
-    namespace: params.namespace,
+    namespace,
     bundles,
     attributed,
     skipped,
@@ -1291,9 +1525,9 @@ export async function applyCsvImport(
     parserEvidence: staged.parserEvidence.rows,
     sourceCapabilityExcludedFingerprints: exclusionFingerprints,
     sourceDigestPrefix: staged.preflight.sourceDigestSha256,
-    environment: params.environment ?? staged.preflight.environment ?? undefined,
+    environment: environmentFilter ?? undefined,
     sourceCoverageSafetyMarginMs: margin,
-    candidates: discovered.candidates,
+    candidates,
     computeCostProxiesFn: computeFn,
   });
 
@@ -1313,8 +1547,14 @@ export async function applyCsvImport(
     targetTraceSetDigest: built.expectedScoreManifest.targetTraceSetDigest,
     expectedScoreManifestDigest:
       built.expectedScoreManifest.expectedScoreManifestDigest,
+    attributionSnapshotDigest,
   });
   if (rebuiltApproval !== staged.preflight.preflightApprovalFingerprint) {
+    throw new Error("preflight_plan_changed");
+  }
+  if (
+    attributionSnapshotDigest !== staged.preflight.attributionSnapshotDigest
+  ) {
     throw new Error("preflight_plan_changed");
   }
 
@@ -1354,8 +1594,8 @@ export async function applyCsvImport(
   }
 
   const lockIdentity = {
-    namespace: params.namespace,
-    environment: params.environment ?? staged.preflight.environment,
+    namespace,
+    environment: environmentFilter,
     sourceType: "cursor_csv" as const,
     sourceDigestOrQueryIdentity: staged.preflight.sourceDigestSha256,
     normalizedFilters: null,
@@ -1392,16 +1632,14 @@ export async function applyCsvImport(
         parserEvidence: staged.parserEvidence,
       });
 
-      const resolveConfig = params.deps?.resolveConfig ?? resolveEvaluationConfig;
-      const resolved = params.langfuseConfig
-        ? { ok: true as const, config: params.langfuseConfig }
-        : resolveConfig(process.env);
-      if (!resolved.ok) throw new Error("langfuse_runtime_unavailable");
-      const config = resolved.config;
-
+      // Project scope / discovery config already revalidated above.
       const createScore =
         params.deps?.createScoreClient ?? createScoreOnlyClient;
-      const scoreClient = await createScore(config);
+      const scoreClient = await createScore({
+        publicKey: liveDiscovery.publicKey,
+        secretKey: liveDiscovery.secretKey,
+        baseUrl: liveDiscovery.baseUrl,
+      });
       if (!scoreClient) throw new Error("langfuse_score_client_unavailable");
 
       const allScores = built.attachments.flatMap((a) => a.scores);

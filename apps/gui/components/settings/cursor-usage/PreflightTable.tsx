@@ -10,6 +10,12 @@ interface PreflightTableProps {
   agentScopedRejectionCount?: number;
   rejectionReasonCodes?: string[];
   conflicts?: string[];
+  discoveryDiagnostics?: Record<string, unknown> | null;
+  bundleCount?: number;
+}
+
+function num(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 export function PreflightTable({
@@ -20,6 +26,8 @@ export function PreflightTable({
   agentScopedRejectionCount = 0,
   rejectionReasonCodes = [],
   conflicts = [],
+  discoveryDiagnostics = null,
+  bundleCount = 0,
 }: PreflightTableProps) {
   const hasConflictRow = rows.some((r) => r.state === "conflict");
   const modelConflict =
@@ -30,8 +38,58 @@ export function PreflightTable({
     ) ||
     /model|variant/i.test(sourceScopeIncompleteReason ?? "");
 
+  const matched = rows.filter((r) => r.state === "matched").length;
+  const unresolved = rows.filter((r) => r.state === "unresolved").length;
+  const conflictRows = rows.filter((r) => r.state === "conflict").length;
+
   return (
     <div className="space-y-3" data-testid="cursor-usage-preflight-panel">
+      {discoveryDiagnostics ? (
+        <div
+          className="rounded-md border px-3 py-2 text-sm space-y-1"
+          data-testid="cursor-usage-discovery-diagnostics"
+        >
+          <p>
+            Traces retrieved:{" "}
+            <span data-testid="diag-traces-fetched">
+              {num(discoveryDiagnostics.tracesFetched) ?? "—"}
+            </span>
+          </p>
+          <p>
+            Viable candidates:{" "}
+            <span data-testid="diag-viable-candidates">
+              {num(discoveryDiagnostics.viableCandidateCount) ?? "—"}
+            </span>
+          </p>
+          <p>
+            Distinct CSV agents:{" "}
+            <span data-testid="diag-csv-agents">
+              {num(discoveryDiagnostics.distinctCsvAgentCount) ?? "—"}
+            </span>
+          </p>
+          <p>
+            Distinct candidate agents:{" "}
+            <span data-testid="diag-candidate-agents">
+              {num(discoveryDiagnostics.distinctCandidateAgentCount) ?? "—"}
+            </span>
+          </p>
+          <p>
+            Overlap:{" "}
+            <span data-testid="diag-overlap">
+              {num(discoveryDiagnostics.csvCandidateOverlapCount) ?? "—"}
+            </span>
+          </p>
+          <p>
+            Segments matched/unmatched/conflict: {matched}/{unresolved}/
+            {conflictRows}
+          </p>
+          <p>
+            Bundles proposed:{" "}
+            <span data-testid="diag-bundles">{bundleCount}</span>
+          </p>
+        </div>
+      ) : null}
+
       {sourceScopeComplete === false ? (
         <p
           className="text-sm text-amber-800 dark:text-amber-200"
@@ -95,7 +153,7 @@ export function PreflightTable({
             <tbody>
               {rows.map((row) => (
                 <tr
-                  key={`${row.cloudAgentIdHash}-${row.phase ?? "none"}-${row.reason ?? ""}`}
+                  key={row.publicRowId || `${row.cloudAgentIdHash}-${row.phase ?? "none"}-${row.reason ?? ""}`}
                   className="border-t"
                 >
                   <td className="px-3 py-2 font-mono text-xs">

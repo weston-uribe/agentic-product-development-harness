@@ -16,6 +16,12 @@ type StoredScore = Record<string, unknown>;
 
 let scores: StoredScore[] = [];
 let scoreCreateLog: Array<Record<string, unknown>> = [];
+let requestCounters = {
+  traceListRequests: 0,
+  observationRequests: 0,
+  scoreListRequests: 0,
+  ingestionRequests: 0,
+};
 
 /** Scenario overrides for negative browser flows. */
 let scenario:
@@ -25,7 +31,8 @@ let scenario:
   | "ambiguous"
   | "model_conflict"
   | "variant_conflict"
-  | "unknown_pricing" = "default";
+  | "unknown_pricing"
+  | "multi_page" = "default";
 
 const baseTraces = [
   {
@@ -238,16 +245,28 @@ function filterTraces(url: URL): typeof baseTraces {
 }
 
 function handleTraces(url: URL, res: ServerResponse): void {
+  requestCounters.traceListRequests += 1;
   const page = Number.parseInt(url.searchParams.get("page") ?? "1", 10);
   const limit = Number.parseInt(url.searchParams.get("limit") ?? "50", 10);
-  const data = filterTraces(url);
+  const all = filterTraces(url);
+  if (scenario === "multi_page") {
+    // Force two pages with page size 1 so discovery must paginate.
+    const totalPages = Math.max(1, all.length);
+    const slice = all.slice((page - 1) * 1, page * 1);
+    sendJson(res, 200, {
+      data: slice,
+      meta: { page, limit: 1, totalPages, totalItems: all.length },
+    });
+    return;
+  }
   sendJson(res, 200, {
-    data,
-    meta: { page, limit, totalPages: 1, totalItems: data.length },
+    data: all,
+    meta: { page, limit, totalPages: 1, totalItems: all.length },
   });
 }
 
 function handleObservations(url: URL, res: ServerResponse): void {
+  requestCounters.observationRequests += 1;
   const traceId = url.searchParams.get("traceId");
   const data = traceId
     ? currentObservations().filter((obs) => obs.traceId === traceId)
@@ -259,6 +278,7 @@ function handleObservations(url: URL, res: ServerResponse): void {
 }
 
 function handleScores(url: URL, res: ServerResponse): void {
+  requestCounters.scoreListRequests += 1;
   const traceId = url.searchParams.get("traceId");
   const data = traceId
     ? scores.filter((score) => score.traceId === traceId)
@@ -270,6 +290,7 @@ function handleScores(url: URL, res: ServerResponse): void {
 }
 
 async function handleIngestion(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  requestCounters.ingestionRequests += 1;
   const raw = await readBody(req);
   let payload: { batch?: Array<Record<string, unknown>> } = {};
   try {
@@ -310,9 +331,19 @@ const server = createServer(async (req, res) => {
     sendJson(res, 200, { count: scoreCreateLog.length, events: scoreCreateLog });
     return;
   }
+  if (req.method === "GET" && url.pathname === "/__test__/request-counts") {
+    sendJson(res, 200, { ...requestCounters });
+    return;
+  }
   if (req.method === "POST" && url.pathname === "/__test__/reset") {
     scores = [];
     scoreCreateLog = [];
+    requestCounters = {
+      traceListRequests: 0,
+      observationRequests: 0,
+      scoreListRequests: 0,
+      ingestionRequests: 0,
+    };
     scenario = "default";
     sendJson(res, 200, { ok: true });
     return;
@@ -328,11 +359,18 @@ const server = createServer(async (req, res) => {
         body.scenario === "ambiguous" ||
         body.scenario === "model_conflict" ||
         body.scenario === "variant_conflict" ||
-        body.scenario === "unknown_pricing"
+        body.scenario === "unknown_pricing" ||
+        body.scenario === "multi_page"
       ) {
         scenario = body.scenario;
         scores = [];
         scoreCreateLog = [];
+        requestCounters = {
+          traceListRequests: 0,
+          observationRequests: 0,
+          scoreListRequests: 0,
+          ingestionRequests: 0,
+        };
         sendJson(res, 200, { ok: true, scenario });
         return;
       }

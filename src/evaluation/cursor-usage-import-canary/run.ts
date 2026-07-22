@@ -19,6 +19,13 @@ import {
   preflightCsvImport,
   type CursorUsageServiceDeps,
 } from "../cursor-usage-import/service.js";
+import {
+  canonicalizeLangfuseEndpoint,
+  computeLangfuseProjectScopeDigest,
+  CURSOR_USAGE_DISCOVERY_CONFIG_CONTRACT_VERSION,
+  projectReadyDiscoveryConfig,
+  resolveCursorUsageDiscoveryConfig,
+} from "../cursor-usage-import/discovery-config.js";
 import { mapFetchedScores } from "../cursor-usage-import/run.js";
 import { fetchTraceScoresRawForImport } from "../langfuse-inspect/client.js";
 import { CURSOR_USAGE_SCORE_NAMES } from "../cursor-usage-import/types.js";
@@ -536,6 +543,42 @@ export async function runCursorUsageImportCanary(options: {
     boundsSource: "cli_flags",
   };
 
+  const resolveDiscoveryConfig =
+    options.deps?.resolveDiscoveryConfig ??
+    (() => {
+      const fromEnv = resolveCursorUsageDiscoveryConfig(env);
+      if (fromEnv.ok) return fromEnv;
+      if (!config) return fromEnv;
+      const endpoint = canonicalizeLangfuseEndpoint(config.baseUrl);
+      if (!endpoint.ok) return fromEnv;
+      const ready = {
+        provider: "langfuse" as const,
+        publicKey: config.publicKey,
+        secretKey: config.secretKey,
+        baseUrl: config.baseUrl,
+        canonicalEndpointIdentity: endpoint.identity,
+        langfuseProjectScopeDigest: computeLangfuseProjectScopeDigest({
+          canonicalEndpointIdentity: endpoint.identity,
+          publicKey: config.publicKey,
+        }),
+        namespace,
+        // Do not inherit EvaluationRuntimeConfig's "default" environment fallback.
+        environmentFilter: env.LANGFUSE_TRACING_ENVIRONMENT?.trim() || null,
+        discoveryConfigContractVersion:
+          CURSOR_USAGE_DISCOVERY_CONFIG_CONTRACT_VERSION,
+      };
+      return {
+        ok: true as const,
+        config: ready,
+        publicConfig: projectReadyDiscoveryConfig(ready),
+      };
+    });
+
+  const discoveryDeps: CursorUsageServiceDeps = {
+    ...options.deps,
+    resolveDiscoveryConfig,
+  };
+
   let preflight = await preflightCsvImport({
     csvBytes: csv,
     exportWindow,
@@ -547,7 +590,7 @@ export async function runCursorUsageImportCanary(options: {
     filters: { issueKeys: [issueKey], phases: [...CANARY_PHASES] },
     discoverLangfuse: wantApply,
     discoveryTimeoutMs: 30_000,
-    deps: options.deps,
+    deps: discoveryDeps,
   });
 
   // Live path: Langfuse read API is eventually consistent after OTEL flush.
@@ -565,7 +608,7 @@ export async function runCursorUsageImportCanary(options: {
         filters: { issueKeys: [issueKey], phases: [...CANARY_PHASES] },
         discoverLangfuse: true,
         discoveryTimeoutMs: 30_000,
-        deps: options.deps,
+        deps: discoveryDeps,
       });
     }
   }
@@ -634,7 +677,7 @@ export async function runCursorUsageImportCanary(options: {
     namespace,
     environment: config.tracingEnvironment,
     langfuseConfig: config,
-    deps: options.deps,
+    deps: discoveryDeps,
   });
 
   await sleep(SCORE_READ_WAIT_MS);
@@ -671,7 +714,7 @@ export async function runCursorUsageImportCanary(options: {
     namespace,
     environment: config.tracingEnvironment,
     langfuseConfig: config,
-    deps: options.deps,
+    deps: discoveryDeps,
   });
 
   await sleep(SCORE_READ_WAIT_MS);

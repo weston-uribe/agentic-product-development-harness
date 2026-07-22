@@ -16,8 +16,13 @@ import {
   normalizeModelRaw,
   resolveCanonicalModelId,
 } from "../../src/evaluation/cursor-usage-import/model-aliases.js";
+import { hashCloudAgentId } from "../../src/evaluation/cursor-usage-import/parse.js";
 import type { EvaluationRuntimeConfig } from "../../src/evaluation/types.js";
 import type { LangfuseApiClient } from "../../src/evaluation/langfuse-inspect/client.js";
+import {
+  makeReadyDiscoveryConfig,
+  readyDiscoveryResolver,
+} from "./helpers/cursor-usage-discovery-test.js";
 
 const fixtureDir = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -65,7 +70,7 @@ function makeCandidate(params: {
     sessionId: "a".repeat(64),
     timestamp: params.windowStart,
     cursorAgentId: params.agentId,
-    cursorAgentIdHash: "hash",
+    cursorAgentIdHash: hashCloudAgentId(params.agentId),
     issueKey: "TT-FIXTURE",
     phase: params.phase,
     phaseExecutionId: `pe-${params.phase}`,
@@ -99,8 +104,15 @@ const readyDiscoverCandidates = [
   }),
 ];
 
+const discoveryConfig = makeReadyDiscoveryConfig({
+  namespace: "default",
+  environmentFilter: null,
+  baseUrl: "http://127.0.0.1:18999",
+});
+
 const serviceDeps = {
   createApiClient: async () => ({}) as LangfuseApiClient,
+  resolveDiscoveryConfig: readyDiscoveryResolver(discoveryConfig),
 };
 
 describe("cursor usage apply revalidation", () => {
@@ -145,7 +157,9 @@ describe("cursor usage apply revalidation", () => {
           },
         },
       }),
-    ).rejects.toThrow(/preflight_plan_changed|source_scope_incomplete/);
+    ).rejects.toThrow(
+      /preflight_plan_changed|source_scope_incomplete|retrieval was incomplete|langfuse_retrieval_incomplete/,
+    );
 
     expect(scoreClientCalls).toBe(0);
   });
@@ -191,7 +205,7 @@ describe("cursor usage apply revalidation", () => {
         },
       }),
     ).rejects.toThrow(
-      /preflight_plan_changed|source_scope_incomplete:langfuse_retrieval_incomplete/,
+      /preflight_plan_changed|source_scope_incomplete:langfuse_retrieval_incomplete|langfuse_retrieval_incomplete|Langfuse discovery retrieval was incomplete/,
     );
 
     expect(scoreClientCalls).toBe(0);
@@ -660,5 +674,88 @@ describe("cursor usage apply revalidation", () => {
       }),
     ).rejects.toThrow(/preflight_plan_changed/);
     expect(scoreClientCalls).toBe(0);
+  });
+
+  it("fails closed on discovery config drift (namespace / env / host / project scope)", async () => {
+    const logDirectory = mkdtempSync(path.join(tmpdir(), "cursor-usage-apply-"));
+    const preflight = await preflightCsvImport({
+      csvBytes: sampleCsv,
+      exportWindow,
+      namespace: "default",
+      logDirectory,
+      langfuseConfig,
+      discoverLangfuse: true,
+      deps: {
+        ...serviceDeps,
+        discover: async () => ({
+          candidates: readyDiscoverCandidates,
+          retrievalComplete: true,
+        }),
+      },
+    });
+    expect(preflight.sourceScopeComplete).toBe(true);
+
+    const cases = [
+      makeReadyDiscoveryConfig({
+        namespace: "other-ns",
+        environmentFilter: null,
+      }),
+      makeReadyDiscoveryConfig({
+        namespace: "default",
+        environmentFilter: "dogfood",
+      }),
+      makeReadyDiscoveryConfig({
+        namespace: "default",
+        environmentFilter: "default",
+      }),
+      makeReadyDiscoveryConfig({
+        namespace: "default",
+        environmentFilter: null,
+        baseUrl: "http://127.0.0.1:19000",
+      }),
+      makeReadyDiscoveryConfig({
+        namespace: "default",
+        environmentFilter: null,
+        publicKey: "pk-other-project",
+      }),
+    ];
+
+    for (const drifted of cases) {
+      let scoreClientCalls = 0;
+      await expect(
+        applyCsvImport({
+          importId: preflight.importId,
+          fingerprint: preflight.fingerprint,
+          preflightApprovalFingerprint: preflight.preflightApprovalFingerprint,
+          confirmed: true,
+          logDirectory,
+          namespace: "default",
+          langfuseConfig,
+          deps: {
+            createApiClient: async () => ({}) as LangfuseApiClient,
+            resolveDiscoveryConfig: readyDiscoveryResolver(drifted),
+            discover: async () => ({
+              candidates: readyDiscoverCandidates,
+              retrievalComplete: true,
+            }),
+            createScoreClient: async () => {
+              scoreClientCalls += 1;
+              return { recordScore() {}, flush: async () => {} };
+            },
+          },
+        }),
+      ).rejects.toThrow("discovery_configuration_changed_requires_new_preflight");
+      expect(scoreClientCalls).toBe(0);
+    }
+
+    // Secret rotation keeps the same project-scope digest (covered in discovery-config tests).
+    const rotated = makeReadyDiscoveryConfig({
+      namespace: "default",
+      environmentFilter: null,
+      secretKey: "sk-rotated",
+    });
+    expect(rotated.langfuseProjectScopeDigest).toBe(
+      discoveryConfig.langfuseProjectScopeDigest,
+    );
   });
 });

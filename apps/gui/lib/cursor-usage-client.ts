@@ -18,12 +18,28 @@ async function cursorUsageFetch(
 }
 
 export interface CursorUsageConfigResponse {
-  namespace: string;
+  langfuseConfigured: boolean;
+  configurationStatus:
+    | "ready"
+    | "provider_missing"
+    | "provider_invalid"
+    | "credentials_missing"
+    | "namespace_missing"
+    | "configuration_invalid";
+  providerConfigured: boolean;
+  credentialsConfigured: boolean;
+  namespaceConfigured: boolean;
+  namespace: string | null;
   environment: string | null;
+  environmentFilterExplicit: boolean;
+  langfuseHost: string | null;
+  errorCode: string | null;
+  errorMessage: string | null;
   adminKeyConfigured: boolean;
 }
 
 export interface PublicPreflightRow {
+  publicRowId: string;
   cloudAgentIdHash: string;
   state: "matched" | "conflict" | "unresolved";
   phase: string | null;
@@ -41,9 +57,19 @@ export interface PreflightResponse {
   publicSummary: Record<string, unknown>;
   rows: PublicPreflightRow[];
   conflicts: string[];
+  discoveryDiagnostics?: Record<string, unknown> | null;
   uploadScopedRejectionCount?: number;
   agentScopedRejectionCount?: number;
   rejectionReasonCodes?: string[];
+}
+
+export class CursorUsageApiError extends Error {
+  readonly code: string;
+  constructor(message: string, code: string) {
+    super(message);
+    this.name = "CursorUsageApiError";
+    this.code = code;
+  }
 }
 
 export interface ApplyResponse {
@@ -217,8 +243,12 @@ export async function postCursorUsagePreflight(
   if (!response.ok) {
     const payload = (await response.json().catch(() => ({}))) as {
       error?: string;
+      code?: string;
     };
-    throw new Error(payload.error ?? "Preflight failed.");
+    throw new CursorUsageApiError(
+      payload.error ?? "Preflight failed.",
+      payload.code ?? "preflight_failed",
+    );
   }
   return (await response.json()) as PreflightResponse;
 }
@@ -244,8 +274,12 @@ export async function postCursorUsageApply(
   if (!response.ok) {
     const payload = (await response.json().catch(() => ({}))) as {
       error?: string;
+      code?: string;
     };
-    throw new Error(payload.error ?? "Apply failed.");
+    throw new CursorUsageApiError(
+      payload.error ?? "Apply failed.",
+      payload.code ?? "apply_failed",
+    );
   }
   return (await response.json()) as ApplyResponse;
 }

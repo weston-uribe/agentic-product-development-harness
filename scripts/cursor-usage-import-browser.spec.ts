@@ -28,7 +28,8 @@ async function resetFakeLangfuse(
     | "ambiguous"
     | "model_conflict"
     | "variant_conflict"
-    | "unknown_pricing" = "default",
+    | "unknown_pricing"
+    | "multi_page" = "default",
 ): Promise<void> {
   await fetch(`${FAKE_LANGFUSE}/__test__/reset`, { method: "POST" });
   if (scenario !== "default") {
@@ -38,6 +39,17 @@ async function resetFakeLangfuse(
       body: JSON.stringify({ scenario }),
     });
   }
+}
+
+async function fakeRequestCounts(): Promise<{
+  traceListRequests: number;
+  observationRequests: number;
+}> {
+  const res = await fetch(`${FAKE_LANGFUSE}/__test__/request-counts`);
+  return (await res.json()) as {
+    traceListRequests: number;
+    observationRequests: number;
+  };
 }
 
 /** Wipe only this suite's workspace import artifacts (no production delete route). */
@@ -98,6 +110,67 @@ test.describe("cursor usage import browser", () => {
   test.beforeEach(async () => {
     resetOperatorWorkspaceImports();
     await resetFakeLangfuse("default");
+  });
+
+  test("shows isolated discovery config and never contacts cloud Langfuse", async ({
+    page,
+  }) => {
+    const nonLoopbackLangfuse: string[] = [];
+    page.on("request", (req) => {
+      const url = req.url();
+      if (/langfuse\.com/i.test(url) || /cloud\.langfuse/i.test(url)) {
+        nonLoopbackLangfuse.push(url);
+      }
+    });
+    await page.goto("/settings/cursor-usage");
+    await page.waitForLoadState("networkidle");
+    await expect(page.getByTestId("cursor-usage-langfuse-configured")).toHaveText(
+      "yes",
+    );
+    await expect(page.getByTestId("cursor-usage-config-namespace")).toHaveText(
+      "default",
+    );
+    await expect(page.getByTestId("cursor-usage-config-environment")).toHaveText(
+      "All environments",
+    );
+    await expect(page.getByTestId("cursor-usage-config-host")).toHaveText(
+      "127.0.0.1",
+    );
+    const visible = await page.getByTestId("cursor-usage-page").innerText();
+    expect(visible).not.toContain("pk-");
+    expect(visible).not.toContain("sk-");
+    expect(visible).not.toContain("us.cloud.langfuse.com");
+    expect(nonLoopbackLangfuse).toEqual([]);
+  });
+
+  test("multi-page discovery performs one invocation with page-sized trace lists", async ({
+    page,
+  }) => {
+    await resetFakeLangfuse("multi_page");
+    const before = await fakeRequestCounts();
+    await runPreflight(page, fixtureCsv);
+    await expect(page.getByTestId("cursor-usage-preflight-panel")).toBeVisible({
+      timeout: 60_000,
+    });
+    const afterPreflight = await fakeRequestCounts();
+    const traceLists =
+      afterPreflight.traceListRequests - before.traceListRequests;
+    // multi_page forces page size 1 across 2 fixture traces → 2 list calls for one invocation.
+    expect(traceLists).toBeGreaterThanOrEqual(2);
+    expect(traceLists).toBeLessThanOrEqual(2);
+    expect(afterPreflight.observationRequests - before.observationRequests).toBeGreaterThan(0);
+
+    // Table already rendered; no additional discovery traffic.
+    await expect(page.getByTestId("cursor-usage-preflight-table")).toBeVisible();
+    const afterRender = await fakeRequestCounts();
+    expect(afterRender.traceListRequests).toBe(afterPreflight.traceListRequests);
+    expect(afterRender.observationRequests).toBe(
+      afterPreflight.observationRequests,
+    );
+
+    await expect(page.getByTestId("diag-traces-fetched")).toBeVisible();
+    const body = await page.content();
+    expect(body).not.toContain("bc-agent-planning-001");
   });
 
   test("newest-first CSV auto-populates observed window start < end", async ({
@@ -163,11 +236,11 @@ test.describe("cursor usage import browser", () => {
       page.getByTestId("cursor-usage-analytics-langfuse-status"),
     ).toContainText("Not run");
 
-    const html = await page.content();
-    expect(html).not.toMatch(/\bsk-[a-z0-9_-]{8,}\b/i);
-    expect(html).not.toMatch(/\bpk-[a-z0-9_-]{8,}\b/i);
-    expect(html).not.toContain("bc-agent-planning-001");
-    expect(html).not.toContain("bc-agent-planreview-001");
+    const visible = await page.getByTestId("cursor-usage-page").innerText();
+    expect(visible).not.toMatch(/\bsk-[a-z0-9_-]{8,}\b/i);
+    expect(visible).not.toMatch(/\bpk-[a-z0-9_-]{8,}\b/i);
+    expect(visible).not.toContain("bc-agent-planning-001");
+    expect(visible).not.toContain("bc-agent-planreview-001");
   });
 
   test("cut-through export: Apply disabled and zero score-creates", async ({

@@ -21,6 +21,7 @@ import { PreflightTable } from "./PreflightTable";
 import { ApplyConfirm } from "./ApplyConfirm";
 import { ResultsPanel } from "./ResultsPanel";
 import { AnalyticsPanel } from "./AnalyticsPanel";
+import { DiscoveryConfigPanel } from "./DiscoveryConfigPanel";
 
 interface CursorUsagePageProps {
   nonce: string | null;
@@ -221,6 +222,7 @@ export function CursorUsagePage({ nonce }: CursorUsagePageProps) {
       : Boolean(inspection?.observedWindow);
   const hasConflicts = (preflight?.conflicts.length ?? 0) > 0;
   const alreadyVerified = status?.verified === true;
+  const configReady = config?.configurationStatus === "ready";
 
   return (
     <div className="space-y-6" data-testid="cursor-usage-page">
@@ -233,21 +235,7 @@ export function CursorUsagePage({ nonce }: CursorUsagePageProps) {
         trace scores from attributable Cloud Agent CSV rows.
       </div>
 
-      {config ? (
-        <p className="text-sm text-muted-foreground">
-          Namespace:{" "}
-          <span className="font-medium text-foreground">{config.namespace}</span>
-          {config.environment ? (
-            <>
-              {" "}
-              · Environment:{" "}
-              <span className="font-medium text-foreground">
-                {config.environment}
-              </span>
-            </>
-          ) : null}
-        </p>
-      ) : null}
+      <DiscoveryConfigPanel config={config} />
 
       <UploadPanel
         file={file}
@@ -281,6 +269,7 @@ export function CursorUsagePage({ nonce }: CursorUsagePageProps) {
             busy ||
             applying ||
             inspecting ||
+            !configReady ||
             !file ||
             !inspection ||
             !windowReady
@@ -312,6 +301,8 @@ export function CursorUsagePage({ nonce }: CursorUsagePageProps) {
             agentScopedRejectionCount={preflight.agentScopedRejectionCount}
             rejectionReasonCodes={preflight.rejectionReasonCodes}
             conflicts={preflight.conflicts}
+            discoveryDiagnostics={preflight.discoveryDiagnostics}
+            bundleCount={preflight.bundleCount}
           />
           <ApplyConfirm
             confirmed={confirmed}

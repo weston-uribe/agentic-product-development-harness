@@ -57,6 +57,14 @@ export interface CanonicalImportIdentity {
   modelAliasRegistryVersion: string;
   modelReconciliationContractVersion: string;
   pricingRegistryVersion: string;
+  /** Cursor usage discovery-config contract version (v12+). */
+  discoveryConfigContractVersion?: string;
+  /** Canonical Langfuse endpoint identity URL (v12+). */
+  canonicalEndpointIdentity?: string | null;
+  /** Private project-scope digest; never public (v12+). */
+  langfuseProjectScopeDigest?: string | null;
+  /** Provider identity for discovery (v12+). */
+  discoveryProvider?: "langfuse" | null;
 }
 
 export interface ParserEvidenceArtifact {
@@ -75,11 +83,19 @@ export interface ParserEvidenceArtifact {
   rejectionReasonCodes: string[];
 }
 
+export interface PublicPreflightAttributionRow {
+  publicRowId: string;
+  cloudAgentIdHash: string;
+  state: "matched" | "conflict" | "unresolved";
+  phase: string | null;
+  reason: string | null;
+}
+
 export interface PreflightPrivateArtifact {
-  schemaVersion: 2;
+  schemaVersion: 2 | 3;
   importId: string;
   preparedAt: string;
-  importerVersion: typeof CURSOR_USAGE_IMPORTER_VERSION;
+  importerVersion: typeof CURSOR_USAGE_IMPORTER_VERSION | string;
   importScopeId: ImportScopeId;
   namespace: string;
   environment: string | null;
@@ -109,14 +125,23 @@ export interface PreflightPrivateArtifact {
   discoverySnapshotDigest: string;
   targetTraceSetDigest: string;
   expectedScoreManifestDigest: string;
+  /** v3+ private discovery binding */
+  discoveryConfigContractVersion?: string;
+  canonicalEndpointIdentity?: string | null;
+  langfuseProjectScopeDigest?: string | null;
+  discoveryProvider?: "langfuse" | null;
+  discoveryDiagnostics?: import("./discovery-config.js").DiscoveryDiagnostics | null;
+  attributionRows?: PublicPreflightAttributionRow[];
+  conflictReasonCodes?: string[];
+  attributionSnapshotDigest?: string;
 }
 
 export interface PublicSummaryArtifact {
-  schemaVersion: 2;
+  schemaVersion: 2 | 3;
   kind: "cursor_usage_import_staging_public";
   importId: string;
   preparedAt: string;
-  importerVersion: typeof CURSOR_USAGE_IMPORTER_VERSION;
+  importerVersion: typeof CURSOR_USAGE_IMPORTER_VERSION | string;
   importScopeId: ImportScopeId;
   lifecycle: ImportLifecycleState;
   namespace: string;
@@ -142,6 +167,14 @@ export interface PublicSummaryArtifact {
   sortOrder: string | null;
   sourceCapabilityExclusionDigest: string;
   observationMutationAttempted: false;
+  /** v3+ public-safe discovery diagnostics (never includes project-scope digest). */
+  discoveryDiagnostics?: import("./discovery-config.js").DiscoveryDiagnostics | null;
+  attributionRows?: PublicPreflightAttributionRow[];
+  conflictReasonCodes?: string[];
+  attributionSnapshotDigest?: string;
+  discoveryDiagnosticsCoverage?:
+    | "available"
+    | "legacy_discovery_diagnostics_unavailable";
 }
 
 export interface ImportLedgerEntry {
@@ -439,6 +472,10 @@ export function buildCanonicalImportIdentity(params: {
   sourceCapabilityExclusionDigest: string;
   assumedTimezone?: string | null;
   disambiguationPolicy?: TimestampDisambiguationPolicy;
+  discoveryConfigContractVersion?: string | null;
+  canonicalEndpointIdentity?: string | null;
+  langfuseProjectScopeDigest?: string | null;
+  discoveryProvider?: "langfuse" | null;
 }): CanonicalImportIdentity {
   return {
     namespace: params.namespace,
@@ -463,6 +500,11 @@ export function buildCanonicalImportIdentity(params: {
     modelAliasRegistryVersion: MODEL_ALIAS_REGISTRY_VERSION,
     modelReconciliationContractVersion: MODEL_RECONCILIATION_CONTRACT_VERSION,
     pricingRegistryVersion: PRICING_REGISTRY_VERSION,
+    discoveryConfigContractVersion:
+      params.discoveryConfigContractVersion ?? undefined,
+    canonicalEndpointIdentity: params.canonicalEndpointIdentity ?? null,
+    langfuseProjectScopeDigest: params.langfuseProjectScopeDigest ?? null,
+    discoveryProvider: params.discoveryProvider ?? null,
   };
 }
 
@@ -477,12 +519,14 @@ export function fingerprintPreflightApproval(params: {
   discoverySnapshotDigest: string;
   targetTraceSetDigest: string;
   expectedScoreManifestDigest: string;
+  attributionSnapshotDigest?: string | null;
 }): string {
   return digestCanonical({
     canonicalImportIdentity: params.canonicalImportIdentity,
     discoverySnapshotDigest: params.discoverySnapshotDigest,
     targetTraceSetDigest: params.targetTraceSetDigest,
     expectedScoreManifestDigest: params.expectedScoreManifestDigest,
+    attributionSnapshotDigest: params.attributionSnapshotDigest ?? null,
   });
 }
 

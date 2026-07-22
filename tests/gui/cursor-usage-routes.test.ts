@@ -9,8 +9,48 @@ import { POST as applyPost } from "../../apps/gui/app/api/settings/cursor-usage/
 import { POST as inspectPost } from "../../apps/gui/app/api/settings/cursor-usage/inspect/route.js";
 import { GET as configGet } from "../../apps/gui/app/api/settings/cursor-usage/config/route.js";
 import { P_DEV_OBSERVABILITY_NONCE_ENV } from "../../src/observability/constants.js";
+import { installDiscoveryEnv } from "../evaluation/helpers/cursor-usage-discovery-test.js";
 
 vi.mock("server-only", () => ({}));
+
+vi.mock("../../src/evaluation/langfuse-inspect/client.js", async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import("../../src/evaluation/langfuse-inspect/client.js")
+  >();
+  return {
+    ...actual,
+    createLangfuseApiClient: async () => ({
+      api: {
+        sessions: { get: async () => null },
+        trace: {
+          list: async () => ({ data: [], meta: { page: 1, totalPages: 1 } }),
+          get: async () => null,
+        },
+        observations: { getMany: async () => ({ data: [] }) },
+      },
+    }),
+  };
+});
+
+vi.mock("../../src/evaluation/cursor-usage-import/discovery.js", async (importOriginal) => {
+  const actual = await importOriginal<
+    typeof import("../../src/evaluation/cursor-usage-import/discovery.js")
+  >();
+  return {
+    ...actual,
+    discoverUsageCandidates: async () => ({
+      candidates: [],
+      retrievalComplete: true,
+      pagesFetched: 1,
+      tracesFetched: 0,
+      requestCounters: {
+        discoveryInvocationId: "route-test-discovery",
+        traceListRequestCount: 1,
+        observationRequestCount: 0,
+      },
+    }),
+  };
+});
 
 const fixtureCsv = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -75,10 +115,25 @@ describe("cursor usage routes", () => {
     process.env.HARNESS_GUI_PORT = "4317";
     process.env.HARNESS_GUI_HOST = "127.0.0.1";
     process.env[P_DEV_OBSERVABILITY_NONCE_ENV] = "cursor-usage-test-nonce";
+    installDiscoveryEnv(process.env);
+    process.env.P_DEV_EVALUATION_NAMESPACE = "weston-dogfood";
+    process.env.LANGFUSE_TRACING_ENVIRONMENT = "dogfood";
     await mkdir(path.join(workspaceDir, ".harness"), { recursive: true });
     await writeFile(
       path.join(workspaceDir, ".harness/config.local.json"),
       JSON.stringify({ version: 1, logDirectory: "runs", repos: [] }, null, 2),
+      "utf8",
+    );
+    await writeFile(
+      path.join(workspaceDir, ".env.local"),
+      [
+        "P_DEV_EVALUATION_PROVIDER=langfuse",
+        "P_DEV_EVALUATION_NAMESPACE=weston-dogfood",
+        "LANGFUSE_TRACING_ENVIRONMENT=dogfood",
+        "LANGFUSE_PUBLIC_KEY=pk-test-cursor-usage",
+        "LANGFUSE_SECRET_KEY=sk-test-cursor-usage",
+        "LANGFUSE_BASE_URL=http://127.0.0.1:18999",
+      ].join("\n") + "\n",
       "utf8",
     );
   });
@@ -154,10 +209,42 @@ describe("cursor usage routes", () => {
 
     expect(response.status).toBe(200);
     const payload = (await response.json()) as Record<string, unknown>;
-    expect(payload).toHaveProperty("namespace");
+    expect(payload.langfuseConfigured).toBe(true);
+    expect(payload.configurationStatus).toBe("ready");
+    expect(payload.namespace).toBe("weston-dogfood");
+    expect(payload.environment).toBe("dogfood");
+    expect(payload.langfuseHost).toBe("127.0.0.1");
     expect(payload).toHaveProperty("adminKeyConfigured");
     expect(JSON.stringify(payload)).not.toMatch(/\bsk-/);
     expect(JSON.stringify(payload)).not.toMatch(/\bpk-/);
+    expect(JSON.stringify(payload)).not.toContain("langfuseProjectScopeDigest");
+  });
+
+  it("blocks preflight when provider is missing", async () => {
+    delete process.env.P_DEV_EVALUATION_PROVIDER;
+    await writeFile(
+      path.join(workspaceDir, ".env.local"),
+      [
+        "P_DEV_EVALUATION_NAMESPACE=weston-dogfood",
+        "LANGFUSE_PUBLIC_KEY=pk-test-cursor-usage",
+        "LANGFUSE_SECRET_KEY=sk-test-cursor-usage",
+        "LANGFUSE_BASE_URL=http://127.0.0.1:18999",
+      ].join("\n") + "\n",
+      "utf8",
+    );
+    const csv = await readFile(fixtureCsv, "utf8");
+    const formData = new FormData();
+    formData.set("file", new File([csv], "sample-usage.csv", { type: "text/csv" }));
+    formData.set("boundsSource", "csv_row_extrema");
+    const response = await preflightPost(
+      buildMultipartRequest({
+        nonce: "cursor-usage-test-nonce",
+        body: formData,
+      }),
+    );
+    expect(response.status).toBe(400);
+    const payload = (await response.json()) as { error: string; code: string };
+    expect(payload.code).toBe("langfuse_not_configured");
   });
 
   it("runs preflight without exposing private agent ids", async () => {

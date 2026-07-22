@@ -11,9 +11,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   const ctx = await resolveCursorUsageServerContext();
+  const d = ctx.discovery;
   return NextResponse.json({
-    namespace: ctx.namespace,
-    environment: ctx.environment,
+    langfuseConfigured: d.langfuseConfigured,
+    configurationStatus: d.configurationStatus,
+    providerConfigured: d.providerConfigured,
+    credentialsConfigured: d.credentialsConfigured,
+    namespaceConfigured: d.namespaceConfigured,
+    namespace: d.namespace,
+    environment: d.environmentFilter,
+    environmentFilterExplicit: d.environmentFilterExplicit,
+    langfuseHost: d.langfuseHost,
+    errorCode: d.errorCode,
+    errorMessage: d.errorMessage,
     adminKeyConfigured: ctx.adminKeyConfigured,
   });
 }

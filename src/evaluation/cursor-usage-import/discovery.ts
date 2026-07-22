@@ -136,21 +136,31 @@ export interface UsageCandidate {
   multiModelProofField: typeof MULTI_MODEL_EXECUTION_PROVEN_FIELD;
 }
 
+export interface DiscoveryRequestCounters {
+  discoveryInvocationId: string;
+  traceListRequestCount: number;
+  observationRequestCount: number;
+}
+
 export interface DiscoverUsageCandidatesResult {
   candidates: UsageCandidate[];
   retrievalComplete: boolean;
   truncationReason?: string;
   pagesFetched: number;
   tracesFetched: number;
+  /** Present for real discovery; injected test discovers may omit. */
+  requestCounters?: DiscoveryRequestCounters;
 }
 
 async function fetchObservationsForTrace(
   client: LangfuseApiClient,
   traceId: string,
+  counters: DiscoveryRequestCounters,
 ): Promise<Array<Record<string, unknown>>> {
   const observations: Array<Record<string, unknown>> = [];
   let page = 1;
   for (;;) {
+    counters.observationRequestCount += 1;
     const listed = asRecord(
       await client.api.observations.getMany({
         traceId,
@@ -372,6 +382,8 @@ function buildCandidateFromTrace(params: {
  * Discover Langfuse traces in a time window that can receive cursor usage scores.
  * Namespace isolation: issue key required; session must match deriveSessionId.
  */
+let discoveryInvocationSeq = 0;
+
 export async function discoverUsageCandidates(params: {
   client: LangfuseApiClient;
   namespace: string;
@@ -381,6 +393,7 @@ export async function discoverUsageCandidates(params: {
   maxPages?: number;
   maxTraces?: number;
   onProgress?: (p: { pages: number; traces: number }) => void;
+  discoveryInvocationId?: string;
 }): Promise<DiscoverUsageCandidatesResult> {
   const maxPages = params.maxPages ?? DEFAULT_MAX_PAGES;
   const maxTraces = params.maxTraces ?? DEFAULT_MAX_TRACES;
@@ -390,6 +403,13 @@ export async function discoverUsageCandidates(params: {
   let tracesFetched = 0;
   let retrievalComplete = false;
   let truncationReason: string | undefined;
+  discoveryInvocationSeq += 1;
+  const requestCounters: DiscoveryRequestCounters = {
+    discoveryInvocationId:
+      params.discoveryInvocationId ?? `discovery-${discoveryInvocationSeq}`,
+    traceListRequestCount: 0,
+    observationRequestCount: 0,
+  };
 
   while (page <= maxPages && tracesFetched < maxTraces) {
     const listParams: Record<string, unknown> = {
@@ -402,6 +422,7 @@ export async function discoverUsageCandidates(params: {
       listParams.environment = params.environment.trim();
     }
 
+    requestCounters.traceListRequestCount += 1;
     const listed = asRecord(await params.client.api.trace.list(listParams));
     pagesFetched += 1;
     const data = asArray(listed?.data);
@@ -415,6 +436,7 @@ export async function discoverUsageCandidates(params: {
       const observations = await fetchObservationsForTrace(
         params.client,
         traceId,
+        requestCounters,
       );
       const candidate = buildCandidateFromTrace({
         trace,
@@ -472,5 +494,6 @@ export async function discoverUsageCandidates(params: {
     ...(truncationReason ? { truncationReason } : {}),
     pagesFetched,
     tracesFetched,
+    requestCounters,
   };
 }
