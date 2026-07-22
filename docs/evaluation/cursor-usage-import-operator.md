@@ -42,18 +42,54 @@ Weston dogfood intended values:
 
 Configuration, authentication, timeout, and retrieval failures **do not create preflights**. Successful complete retrieval with zero traces, zero viable candidates, or zero agent-hash overlap may stage as incomplete diagnostic preflights with distinct source-scope reasons. A successful preflight is **not** Apply authorization.
 
-Approval is bound to provider, namespace, nullable environment filter, full canonical endpoint identity, and a private Langfuse project-scope digest (never exposed in the GUI).
+Approval is bound to provider, namespace, nullable environment filter, full canonical endpoint identity, a private Langfuse project-scope digest (never exposed in the GUI), discovery algorithm / observation eligibility contracts, and the deterministic discovery evidence digest.
+
+## Langfuse discovery (importer v13+)
+
+Production discovery uses **public Langfuse Observations API v2** with **sequential cursor pagination** over the export window (expanded only by the approved source-coverage safety margin; default `0` ms). It does **not** use per-trace observation N+1 calls, page-number / `totalPages` observation pagination, or private dashboard endpoints.
+
+### Observation eligibility (`cursor_usage_observation_eligibility_v1`)
+
+- Query interval is half-open **`[fromStartTime, toStartTime)`** in canonical UTC.
+- Only observations whose `startTime` lies in that interval participate in candidate construction.
+- A complete window query proves coverage of that interval; it does **not** prove that every observation belonging to each selected trace was retrieved (eligibility is not all-observations-per-trace).
+
+### Completeness, timeout, cancel
+
+- Shared discovery ceiling: **180s** (`CURSOR_USAGE_DISCOVERY_TIMEOUT_MS`). Timeout / cancel aborts in-flight requests, waits for settlement, and creates **no** staging, ledger, analytics entry, or score client.
+- Trace-list embedded scores are **non-authoritative diagnostics only**. Apply still performs complete score-fetch + manifest validation before any write.
+
+### Single-flight (`process_local_single_flight`)
+
+- One discovery at a time per operator workspace + Langfuse project-scope + endpoint + namespace + environment filter (window **excluded** from the lock key).
+- A second preflight/Apply against the same target returns `cursor_usage_discovery_already_running` (409), even for a different CSV window.
+- Enforcement is process-local plus a workspace-scoped advisory filesystem lease. Different operator workspaces may run independently.
+- Process-local operation resume after refresh is supported only on the **persistent PDev GUI** topology (`npm start` / `p-dev`). Do not claim refresh-safe recovery on serverless/multi-instance hosts.
+
+### Async preflight lifecycle
+
+1. `POST /api/settings/cursor-usage/preflight` returns **202** with `operationId` only after auth, upload validation, source inspection, config validation, digest/token binding, and single-flight acquisition.
+2. GUI polls `GET` status (operator auth + workspace binding; operationId alone is not authorization) and may `DELETE` to cancel **before** atomic staging commit begins.
+3. Staging writes to an operation-owned temp directory, then **atomically renames** into the final import id. Cancel during `committing` returns `cursor_usage_preflight_cancel_too_late` (409).
+4. Retained CSV bytes are released on any terminal state or when successful atomic commit begins. Status TTL retains only public-safe terminal results (~15 min), not CSV bytes.
+5. Browser fetch abort ≠ server cancel — use **Cancel** to abort server discovery.
+
+### Apply parity
+
+Apply re-runs the **same** window-scoped v2 discovery + eligibility contract under the same single-flight lock, then compares deterministic evidence / approval fingerprints. Score client creation happens only after those comparisons pass. Timeout, incomplete retrieval, integrity failure, or API failure → zero scores, no score client, approved staging left intact. Successful preflight is **not** Apply authorization.
+
+Legacy staged imports from importer ≤12 require a new preflight (`staged_import_version_mismatch_requires_new_preflight`).
 
 ## Primary workflow (GUI)
 
 1. Start the operator GUI (`npm start` / `p-dev`) from a workspace with the discovery variables above.
 2. Open **Settings → Cursor usage**. Confirm Langfuse configured, namespace, environment filter (or All environments), and host.
-3. Drag-and-drop an official Cursor usage CSV (≤ 25 MiB).
-4. Enter the **export start** and **export end** from the Cursor export UI (required).
-5. Run **Preflight** (disabled until configuration is ready). Review diagnostics, matched / conflict / unresolved rows, and rejection reason codes (never raw rejected cells or full agent/session IDs).
+3. Drag-and-drop an official Cursor usage CSV (≤ 25 MiB). Source inspection runs automatically and can populate the observed export window.
+4. Optionally enable advanced override for a manual export window; otherwise use the inspected CSV row extrema.
+5. Run **Preflight** (disabled while another discovery is active or until configuration/inspection is ready). Watch phase/progress; use **Cancel** before staging commit if needed. Review diagnostics, matched / conflict / unresolved rows, and rejection reason codes (never raw rejected cells or full agent/session IDs).
 6. Apply is disabled when source scope is incomplete, upload-scoped rejections exist, or conflicts exist.
 7. Confirm and **Apply**. The GUI sends the preflight approval fingerprint; Apply revalidates discovery configuration and rebuilds discovery, pricing, and the expected-score manifest and fails closed if they differ.
-8. Refresh-safe: state is recovered from durable staging/ledger (`failed_recoverable` / interrupted apply may retry under recovery rules).
+8. Refresh-safe: durable staging/ledger recover import state; in-flight async preflight operation IDs may resume from `sessionStorage` only while the same persistent GUI process still holds the operation registry.
 9. Use **Analytics** for local ledger evidence completeness and Langfuse reconciliation status (credentials alone never mark reconciliation complete). Totals cover **only ledgers in the current operator workspace**.
 
 ## CLI recovery
