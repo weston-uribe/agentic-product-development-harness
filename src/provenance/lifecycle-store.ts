@@ -30,6 +30,7 @@ export class GithubProvenanceLifecycleStore {
   private readonly branch: string;
   private readonly maxConflictRetries: number;
   private readonly autoCreateBranch: boolean;
+  private readonly pathCommitSha = new Map<string, string>();
 
   constructor(private readonly options: GithubProvenanceLifecycleStoreOptions) {
     this.branch = options.branch ?? DEFAULT_WORKFLOW_STATE_BRANCH;
@@ -106,6 +107,9 @@ export class GithubProvenanceLifecycleStore {
           message: input.commitMessage,
           content: input.body,
         });
+        if (result.commitSha) {
+          this.pathCommitSha.set(input.path, result.commitSha);
+        }
         return {
           idempotent: false,
           commitSha: result.commitSha,
@@ -153,6 +157,28 @@ export class GithubProvenanceLifecycleStore {
         );
       }
     }
+  }
+
+  commitShaForPath(path: string): string | null {
+    return this.pathCommitSha.get(path) ?? null;
+  }
+
+  async resolveCommitShaForPath(path: string): Promise<string | null> {
+    const cached = this.pathCommitSha.get(path);
+    if (cached) {
+      return cached;
+    }
+    const { client, owner, repo } = this.options;
+    const commits = await client.listCommits(owner, repo, {
+      sha: this.branch,
+      path,
+      perPage: 1,
+    });
+    const sha = commits[0]?.sha ?? null;
+    if (sha) {
+      this.pathCommitSha.set(path, sha);
+    }
+    return sha;
   }
 
   private async assertBranchExists(): Promise<void> {
@@ -271,6 +297,7 @@ export interface ProvenanceLifecycleStoreInterface {
   }): Promise<PersistImmutableRecordResult>;
   listPaths?(): string[];
   commitShaForPath?(path: string): string | null;
+  resolveCommitShaForPath?(path: string): Promise<string | null>;
 }
 
 function digestRecordBody(body: string): string {

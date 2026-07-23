@@ -26,4 +26,7 @@ export * from "./reconciliation.js";
 export * from "./production-install-manifests.js";
 export * from "./production-bootstrap.js";
 export * from "./rollout.js";
+export * from "./live-activation.js";
+export * from "./quiet-window.js";
+export * from "./operator-coverage.js";
 export { recoverProviderIdentity } from "./recovery.js";

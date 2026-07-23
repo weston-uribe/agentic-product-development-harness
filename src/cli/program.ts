@@ -239,11 +239,11 @@ export function createProgram(): Command {
   program
     .command("provenance")
     .description(
-      "Operator-safe Cursor Cloud Agent provenance rollout (readiness, key, mode)",
+      "Operator-safe Cursor Cloud Agent provenance rollout (readiness, key, mode, coverage)",
     )
     .argument(
       "<action>",
-      "readiness | generate-key | install-key | set-mode | shred-local-key-dir",
+      "readiness | quiet-window | activate | inspect-coverage | finalize | enumerate-seal-to-tip | generate-key | install-key | set-mode | shred-local-key-dir",
     )
     .option("--mode <mode>", "disabled | shadow | required (for set-mode)")
     .option("--key-file <path>", "Restricted key file for install-key / shred")
@@ -257,8 +257,36 @@ export function createProgram(): Command {
       "Allow set-mode required after validated shadow canary",
       false,
     )
+    .option("--epoch-id <id>", "Coverage epoch id for activate/finalize/inspect")
+    .option("--coverage-start <iso>", "Coverage interval start (ISO UTC)")
+    .option("--coverage-end <iso>", "Coverage interval end (ISO UTC)")
+    .option(
+      "--capture-source-sha <sha>",
+      "Production capture producer source SHA",
+    )
+    .option("--runner-sha <sha>", "Production runner snapshot version SHA")
+    .option(
+      "--event-snapshot-sha <sha>",
+      "Optional pinned event snapshot commit SHA",
+    )
+    .option(
+      "--operator-tool-source-sha <sha>",
+      "Operator tool source SHA for finalize",
+    )
+    .option(
+      "--poll-gap-seconds <n>",
+      "Quiet-window gap between samples (default 1800 = two 15m reconcile cycles)",
+    )
+    .option(
+      "--prior-observation-json <json>",
+      "Optional prior quiet-window observation JSON for a single resume sample",
+    )
     .option("--json", "Print public-safe JSON", false)
     .action(async (action, opts) => {
+      const pollGapSeconds =
+        opts.pollGapSeconds != null && opts.pollGapSeconds !== ""
+          ? Number(opts.pollGapSeconds)
+          : undefined;
       const exitCode = await runProvenanceRolloutCommand({
         action,
         mode: opts.mode,
@@ -266,6 +294,15 @@ export function createProgram(): Command {
         runnerRepo: opts.runnerRepo,
         shadowValidated: opts.shadowValidated,
         json: opts.json,
+        epochId: opts.epochId,
+        coverageStart: opts.coverageStart,
+        coverageEnd: opts.coverageEnd,
+        captureSourceSha: opts.captureSourceSha,
+        runnerSha: opts.runnerSha,
+        eventSnapshotSha: opts.eventSnapshotSha,
+        operatorToolSourceSha: opts.operatorToolSourceSha,
+        pollGapSeconds,
+        priorObservationJson: opts.priorObservationJson,
       });
       process.exitCode = exitCode;
     });

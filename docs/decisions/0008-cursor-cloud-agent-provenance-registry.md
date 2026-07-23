@@ -154,7 +154,7 @@ Checkout, setup, install, build, gate, sync-production, reconcile-only, and eval
 
 Unset or empty mode resolves to `disabled`: no provenance state client, no encryption key required, no provenance network I/O. Workflow references may exist while the variable and secret remain absent.
 
-**Operator rollout tooling:** `p-dev provenance <action>` / `npm run harness:provenance -- <action>` supports readiness, key generate/install (stdin/restricted file; never echoed), and mode transitions. Fail closed on required-before-shadow.
+**Operator rollout tooling:** `p-dev provenance <action>` / `npm run harness:provenance -- <action>` supports readiness, key generate/install (stdin/restricted file; never echoed), mode transitions, and coverage lifecycle actions (`quiet-window`, `activate`, `inspect-coverage`, `finalize`, `enumerate-seal-to-tip`). Coverage commands emit public-safe JSON only (no key material or provider identities). Fail closed on required-before-shadow and on incomplete coverage at finalize.
 
 **Authorized live rollout order (when Build-authorized):**
 

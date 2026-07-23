@@ -517,10 +517,14 @@ export class CoverageLifecycleService {
     }
   }
 
-  private async resolveLatestCommitForPath(
-    path: string,
-  ): Promise<string | null> {
+  async resolveLatestCommitForPath(path: string): Promise<string | null> {
     const store = this.options.lifecycleStore;
+    if (
+      "resolveCommitShaForPath" in store &&
+      typeof store.resolveCommitShaForPath === "function"
+    ) {
+      return store.resolveCommitShaForPath(path);
+    }
     if ("commitShaForPath" in store && typeof store.commitShaForPath === "function") {
       return store.commitShaForPath(path);
     }

@@ -11,6 +11,24 @@ import {
   writeRestrictedKeyFile,
 } from "../../provenance/rollout.js";
 import type { ProvenanceWriterMode } from "../../provenance/mode.js";
+import {
+  activateEpoch,
+  createOperatorCoverageContext,
+  enumeratePostSeal,
+  finalizeEpoch,
+  inspectEpoch,
+} from "../../provenance/operator-coverage.js";
+import {
+  DEFAULT_QUIET_WINDOW_POLL_GAP_MS,
+  waitAndInspectQuietWindow,
+  type QuietWindowObservation,
+} from "../../provenance/quiet-window.js";
+import {
+  resolveStateGithubToken,
+  resolveWorkflowStateBranch,
+  resolveWorkflowStateRepository,
+} from "../../public-execution/runtime-repos.js";
+import { GitHubClient } from "../../github/client.js";
 
 async function readStdinIfPiped(): Promise<string | undefined> {
   if (process.stdin.isTTY) return undefined;
@@ -28,6 +46,15 @@ export async function runProvenanceRolloutCommand(options: {
   runnerRepo?: string;
   shadowValidated?: boolean;
   json?: boolean;
+  epochId?: string;
+  coverageStart?: string;
+  coverageEnd?: string;
+  captureSourceSha?: string;
+  runnerSha?: string;
+  eventSnapshotSha?: string;
+  operatorToolSourceSha?: string;
+  priorObservationJson?: string;
+  pollGapSeconds?: number;
 }): Promise<number> {
   const action = options.action.trim().toLowerCase();
 
@@ -48,6 +75,170 @@ export async function runProvenanceRolloutCommand(options: {
         }
       }
       return readiness.failClosedReason && readiness.mode !== "disabled" ? 1 : 0;
+    }
+
+    if (action === "quiet-window") {
+      const token =
+        resolveStateGithubToken() ??
+        process.env.GITHUB_TOKEN?.trim() ??
+        process.env.GH_TOKEN?.trim();
+      if (!token) {
+        throw new Error("GitHub token required for quiet-window inspection.");
+      }
+      const stateRepo = resolveWorkflowStateRepository();
+      const pollGapMs =
+        typeof options.pollGapSeconds === "number" &&
+        Number.isFinite(options.pollGapSeconds)
+          ? Math.max(0, Math.floor(options.pollGapSeconds * 1000))
+          : DEFAULT_QUIET_WINDOW_POLL_GAP_MS;
+
+      // Optional single-sample resume path when operator supplies prior observation.
+      if (options.priorObservationJson?.trim()) {
+        const { inspectQuietWindow } = await import(
+          "../../provenance/quiet-window.js"
+        );
+        const priorObservation = JSON.parse(
+          options.priorObservationJson,
+        ) as QuietWindowObservation;
+        const result = await inspectQuietWindow({
+          client: new GitHubClient({ token }),
+          runnerRepository: options.runnerRepo,
+          stateRepository: stateRepo ?? undefined,
+          stateBranch: resolveWorkflowStateBranch(),
+          priorObservation,
+        });
+        if (options.json) {
+          console.log(JSON.stringify(result, null, 2));
+        } else {
+          console.log(
+            `quiet=${result.quiet} activeRuns=${result.activeRuns.length} tipSha=${result.tipSha ?? "unknown"}`,
+          );
+          if (result.failClosedReason) {
+            console.log(`failClosedReason=${result.failClosedReason}`);
+          }
+        }
+        return result.quiet ? 0 : 1;
+      }
+
+      if (!options.json) {
+        console.log(
+          `quiet-window: sampling twice with pollGapMs=${pollGapMs} (covers two reconcile cycles by default)`,
+        );
+      }
+      const result = await waitAndInspectQuietWindow({
+        client: new GitHubClient({ token }),
+        runnerRepository: options.runnerRepo,
+        stateRepository: stateRepo ?? undefined,
+        stateBranch: resolveWorkflowStateBranch(),
+        pollGapMs,
+      });
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(
+          `quiet=${result.quiet} activeRuns=${result.activeRuns.length} tipSha=${result.tipSha ?? "unknown"}`,
+        );
+        if (result.failClosedReason) {
+          console.log(`failClosedReason=${result.failClosedReason}`);
+        }
+        for (const run of result.activeRuns) {
+          console.log(`  run ${run.id} ${run.status} ${run.name} (${run.event})`);
+        }
+      }
+      return result.quiet ? 0 : 1;
+    }
+
+    if (action === "activate") {
+      if (
+        !options.epochId ||
+        !options.coverageStart ||
+        !options.coverageEnd ||
+        !options.captureSourceSha ||
+        !options.runnerSha
+      ) {
+        throw new Error(
+          "activate requires --epoch-id, --coverage-start, --coverage-end, --capture-source-sha, --runner-sha",
+        );
+      }
+      const ctx = createOperatorCoverageContext();
+      const result = await activateEpoch(ctx, {
+        epochId: options.epochId,
+        coverageStart: options.coverageStart,
+        coverageEnd: options.coverageEnd,
+        captureProducerSourceSha: options.captureSourceSha,
+        productionRunnerSha: options.runnerSha,
+      });
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(
+          `epoch=${result.epochId} activationCommitSha=${result.activationCommitSha ?? "unknown"} payloadDigestPrefix=${result.payloadDigestPrefix}`,
+        );
+      }
+      return 0;
+    }
+
+    if (action === "inspect-coverage") {
+      if (!options.epochId) {
+        throw new Error("inspect-coverage requires --epoch-id");
+      }
+      const ctx = createOperatorCoverageContext();
+      const result = await inspectEpoch(ctx, {
+        epochId: options.epochId,
+        eventSnapshotCommitSha: options.eventSnapshotSha,
+      });
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(
+          `epoch=${result.epochId} status=${result.status} events=${result.eventCount} incomplete=${result.incompleteReasons.length}`,
+        );
+      }
+      return result.status === "complete" ? 0 : 1;
+    }
+
+    if (action === "finalize") {
+      if (!options.epochId || !options.operatorToolSourceSha) {
+        throw new Error(
+          "finalize requires --epoch-id and --operator-tool-source-sha",
+        );
+      }
+      const ctx = createOperatorCoverageContext();
+      const result = await finalizeEpoch(ctx, {
+        epochId: options.epochId,
+        eventSnapshotCommitSha: options.eventSnapshotSha,
+        operatorToolSourceSha: options.operatorToolSourceSha,
+      });
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else if (result.sealed) {
+        console.log(
+          `sealed epoch=${result.epochId} sealCommitSha=${result.sealCommitSha ?? "unknown"} sealDigestPrefix=${result.sealDigestPrefix}`,
+        );
+      } else {
+        console.log(
+          `gap epoch=${result.epochId} gapCommitSha=${result.gapCommitSha ?? "unknown"} reasons=${result.incompleteReasons.join(",")}`,
+        );
+      }
+      return result.sealed ? 0 : 1;
+    }
+
+    if (action === "enumerate-seal-to-tip") {
+      if (!options.epochId) {
+        throw new Error("enumerate-seal-to-tip requires --epoch-id");
+      }
+      const ctx = createOperatorCoverageContext();
+      const result = await enumeratePostSeal(ctx, {
+        epochId: options.epochId,
+      });
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(
+          `seal=${result.sealCommitSha} tip=${result.tipCommitSha} items=${result.items.length} overlappingRaw=${result.overlappingRawEvidenceCount}`,
+        );
+      }
+      return 0;
     }
 
     if (action === "generate-key") {
@@ -132,7 +323,7 @@ export async function runProvenanceRolloutCommand(options: {
     }
 
     console.error(
-      `Unknown action ${action}. Use: readiness|generate-key|install-key|set-mode`,
+      "Unknown action. Use: readiness | quiet-window | activate | inspect-coverage | finalize | enumerate-seal-to-tip | generate-key | install-key | set-mode | shred-local-key-dir",
     );
     return 1;
   } catch (error) {
