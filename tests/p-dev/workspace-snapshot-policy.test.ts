@@ -45,6 +45,8 @@ describe("workspace snapshot policy", () => {
     expect(isIncludedSnapshotPath("config/observability.public.json")).toBe(
       true,
     );
+    expect(WORKSPACE_SNAPSHOT_POLICY.includeFiles).toContain(".gitignore");
+    expect(isIncludedSnapshotPath(".gitignore")).toBe(true);
   });
 
   it("excludes the Operations live draft path from workspace snapshots", () => {
