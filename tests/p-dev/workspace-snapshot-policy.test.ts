@@ -31,12 +31,20 @@ describe("workspace snapshot policy", () => {
     expect(WORKSPACE_SNAPSHOT_POLICY.requiredPaths).toContain("src");
     expect(WORKSPACE_SNAPSHOT_POLICY.requiredPaths).toContain(".agents");
     expect(WORKSPACE_SNAPSHOT_POLICY.requiredPaths).toContain("tests");
+    expect(WORKSPACE_SNAPSHOT_POLICY.requiredPaths).toContain("bin");
+    expect(WORKSPACE_SNAPSHOT_POLICY.requiredPaths).toContain(
+      "config/observability.public.json",
+    );
     expect(WORKSPACE_SNAPSHOT_POLICY.requiredPaths).toContain(".npmrc");
     expect(WORKSPACE_SNAPSHOT_POLICY.includeFiles).toContain(".npmrc");
     expect(isIncludedSnapshotPath(".npmrc")).toBe(true);
     expect(WORKSPACE_SNAPSHOT_POLICY.requiredPaths).toContain(".nvmrc");
     expect(WORKSPACE_SNAPSHOT_POLICY.includeFiles).toContain(".nvmrc");
     expect(isIncludedSnapshotPath(".nvmrc")).toBe(true);
+    expect(isIncludedSnapshotPath("bin/p-dev-dev-lib.js")).toBe(true);
+    expect(isIncludedSnapshotPath("config/observability.public.json")).toBe(
+      true,
+    );
   });
 
   it("excludes the Operations live draft path from workspace snapshots", () => {
