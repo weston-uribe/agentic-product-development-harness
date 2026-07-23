@@ -18,6 +18,7 @@ import { runClaimJobRequestCommand } from "./commands/claim-job-request.js";
 import { runFailJobRequestCommand } from "./commands/fail-job-request.js";
 import { runDispatchJobRequestCommand } from "./commands/dispatch-job-request.js";
 import { runPrivateStateCanaryCommand } from "./commands/private-state-canary.js";
+import { runProvenanceRolloutCommand } from "./commands/provenance-rollout.js";
 import { runWorkflowStatusReportCommand } from "./commands/workflow-status-report.js";
 import { runWorkflowStatusMigrateCommand } from "./commands/workflow-status-migrate.js";
 import { runValidationRunCommand } from "./commands/validation-run.js";
@@ -232,6 +233,40 @@ export function createProgram(): Command {
     .option("--json", "Print public-safe canary JSON to stdout", false)
     .action(async (opts) => {
       const exitCode = await runPrivateStateCanaryCommand({ json: opts.json });
+      process.exitCode = exitCode;
+    });
+
+  program
+    .command("provenance")
+    .description(
+      "Operator-safe Cursor Cloud Agent provenance rollout (readiness, key, mode)",
+    )
+    .argument(
+      "<action>",
+      "readiness | generate-key | install-key | set-mode | shred-local-key-dir",
+    )
+    .option("--mode <mode>", "disabled | shadow | required (for set-mode)")
+    .option("--key-file <path>", "Restricted key file for install-key / shred")
+    .option(
+      "--runner-repo <slug>",
+      "Runner repository for Actions vars/secrets",
+      "weston-uribe/p-dev-harness-runner",
+    )
+    .option(
+      "--shadow-validated",
+      "Allow set-mode required after validated shadow canary",
+      false,
+    )
+    .option("--json", "Print public-safe JSON", false)
+    .action(async (action, opts) => {
+      const exitCode = await runProvenanceRolloutCommand({
+        action,
+        mode: opts.mode,
+        keyFile: opts.keyFile,
+        runnerRepo: opts.runnerRepo,
+        shadowValidated: opts.shadowValidated,
+        json: opts.json,
+      });
       process.exitCode = exitCode;
     });
 
