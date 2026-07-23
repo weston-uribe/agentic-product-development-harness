@@ -175,15 +175,28 @@ describe("provenance store and writer", () => {
     await writer.writeLaunchIntent(ctx);
     await writer.writeProviderCallStarted(ctx);
     await writer.writeAgentAcknowledged(ctx, "bc-secret-agent");
+    await writer.writeProviderRunIntent(ctx, {
+      providerRunOperationId: "d".repeat(64),
+      sendPurpose: "default",
+      sendOrdinal: 1,
+    });
+    await writer.writeProviderRunCallStarted(ctx, {
+      providerRunOperationId: "d".repeat(64),
+      sendPurpose: "default",
+      sendOrdinal: 1,
+    });
     await writer.writeRunBound(ctx, {
       agentId: "bc-secret-agent",
       runId: "run-secret-1",
+      providerRunOperationId: "d".repeat(64),
       runStartIso: "2026-07-22T00:01:00.000Z",
       startEvidenceSource: "local_run_acknowledged_timestamp",
     });
     const raw = JSON.stringify(store.listEvents());
     expect(raw).not.toContain("bc-secret-agent");
     expect(raw).not.toContain("run-secret-1");
+    // Provenance event store must not persist plaintext provider IDs.
+    expect(raw.includes("bc-secret-agent")).toBe(false);
   });
 
   it("canonical digest independent of retry timestamp", () => {

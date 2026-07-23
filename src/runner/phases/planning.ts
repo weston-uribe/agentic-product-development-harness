@@ -636,6 +636,8 @@ export async function executePlanningPhase(
         apiKey: cursorApiKey,
         phase: "planning",
         launchContext: planningLaunchContext,
+        sendPurpose: "planning.initial",
+        sendOrdinal: 1,
         telemetryCorrelation,
         onTelemetryEvent: onTelemetry,
         onAgentCreated: async ({ agentId, runId: cursorRunId }) => {
@@ -703,12 +705,14 @@ export async function executePlanningPhase(
         "Do not say you will create a plan later. Include Approach with numbered steps,",
         "files to touch, and an Acceptance Verification Plan section.",
       ].join(" ");
-      // Same launch attempt; distinct provider run binding via onRunAcknowledged.
+      // Same launch attempt; distinct durable run-operation id for repair send.
       observed = await Promise.race([
         sendAndObserve(agent, repairPrompt, runDirectory, events, {
           apiKey: cursorApiKey,
           phase: "planning",
           launchContext: planningLaunchContext,
+          sendPurpose: "planning.quality_repair",
+          sendOrdinal: 2,
           telemetryCorrelation,
           onTelemetryEvent: onTelemetry,
           targetRepo: resolved.targetRepo,

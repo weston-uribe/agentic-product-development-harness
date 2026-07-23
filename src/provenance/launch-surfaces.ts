@@ -67,6 +67,51 @@ export function assertKnownLaunchSurface(
   }
 }
 
-/** Production wrapper method/surface pairs for structural exhaustiveness. */
+/**
+ * @deprecated Do not use for exhaustiveness proofs — alias of the same array.
+ * Structural tests must independently enumerate call sites.
+ */
 export const PRODUCTION_WRAPPER_SURFACE_UNION: readonly ProductionLaunchSurface[] =
   PRODUCTION_LAUNCH_SURFACES;
+
+/**
+ * Live production send surfaces (agent.send via production wrapper).
+ * Independently enumerated from launch surfaces for structural validation.
+ */
+export const PRODUCTION_SEND_SURFACES = [
+  "planning.send",
+  "planning.send.quality_repair",
+  "plan_review.send",
+  "implementation.send",
+  "revision.send",
+  "code_review.send",
+  "code_revision.send",
+  "integration_repair.send",
+] as const;
+
+export type ProductionSendSurface = (typeof PRODUCTION_SEND_SURFACES)[number];
+
+export function getSendSurfacesManifest(): {
+  kind: "p-dev.cursor-cloud-agent-send-surfaces.v1";
+  version: "1";
+  surfaces: readonly ProductionSendSurface[];
+  writerVersion: typeof PROVENANCE_WRITER_VERSION;
+} {
+  return {
+    kind: "p-dev.cursor-cloud-agent-send-surfaces.v1",
+    version: "1",
+    surfaces: PRODUCTION_SEND_SURFACES,
+    writerVersion: PROVENANCE_WRITER_VERSION,
+  };
+}
+
+export function sendSurfacesManifestDigest(): string {
+  const manifest = getSendSurfacesManifest();
+  const canonical = JSON.stringify({
+    kind: manifest.kind,
+    version: manifest.version,
+    surfaces: [...manifest.surfaces].sort(),
+    writerVersion: manifest.writerVersion,
+  });
+  return createHash("sha256").update(canonical).digest("hex");
+}

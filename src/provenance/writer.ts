@@ -9,6 +9,9 @@ import {
   PROVENANCE_EVENT_SCHEMA_KIND,
   buildLaunchIntentEvent,
   buildProviderCallStartedEvent,
+  buildProviderRunCallStartedEvent,
+  buildProviderRunIntentEvent,
+  buildReconciliationResolutionEvent,
   computeCanonicalSemanticDigest,
   computeEventId,
   executionBindingDigest,
@@ -330,11 +333,79 @@ export class ProvenanceWriter {
     );
   }
 
+  async writeProviderRunIntent(
+    ctx: LinearHarnessLaunchContext,
+    input: {
+      providerRunOperationId: string;
+      sendPurpose: string;
+      sendOrdinal: number;
+    },
+  ): Promise<WriteOutcome> {
+    const startedMs = Date.now();
+    const ready = await this.ensureReadyBeforeProviderMutation(ctx);
+    if (!ready.ok && ready.blocked) {
+      return ready;
+    }
+    if (!this.writesEnabled) {
+      return { ok: true, blocked: false };
+    }
+    if (!ready.ok) {
+      return ready;
+    }
+    const launchAttemptId = computeLaunchAttemptId(ctx);
+    const event = buildProviderRunIntentEvent({
+      launchAttemptId,
+      launchContext: ctx,
+      recordedAt: nowIso(this.now),
+      providerRunOperationId: input.providerRunOperationId,
+      sendPurpose: input.sendPurpose,
+      sendOrdinal: input.sendOrdinal,
+    });
+    return this.persist(
+      event,
+      input.providerRunOperationId,
+      "cursor_provenance_run_intent_write_failed",
+      ctx,
+      startedMs,
+    );
+  }
+
+  async writeProviderRunCallStarted(
+    ctx: LinearHarnessLaunchContext,
+    input: {
+      providerRunOperationId: string;
+      sendPurpose: string;
+      sendOrdinal: number;
+    },
+  ): Promise<WriteOutcome> {
+    const startedMs = Date.now();
+    if (!this.writesEnabled) {
+      return { ok: true, blocked: false };
+    }
+    const launchAttemptId = computeLaunchAttemptId(ctx);
+    const event = buildProviderRunCallStartedEvent({
+      launchAttemptId,
+      launchContext: ctx,
+      recordedAt: nowIso(this.now),
+      providerRunOperationId: input.providerRunOperationId,
+      sendPurpose: input.sendPurpose,
+      sendOrdinal: input.sendOrdinal,
+    });
+    return this.persist(
+      event,
+      input.providerRunOperationId,
+      "cursor_provenance_run_call_start_write_failed",
+      ctx,
+      startedMs,
+    );
+  }
+
   async writeRunBound(
     ctx: LinearHarnessLaunchContext,
     input: {
       agentId: string;
       runId: string;
+      providerRunOperationId: string;
       runStartIso: string;
       startEvidenceSource: ExecutionWindow["startEvidenceSource"];
       providerSdkApiVersion?: string | null;
@@ -383,7 +454,7 @@ export class ProvenanceWriter {
     };
     validateExecutionWindow(executionWindow);
     const launchContextDigest = canonicalLaunchContextDigest(ctx);
-    const transitionId = `provider_run_bound:${runHash}`;
+    const transitionId = `provider_run_bound:${input.providerRunOperationId}:${runHash}`;
     const eventType = "provider_run_bound" as const;
     const event: ProviderRunBoundEvent = {
       schemaKind: PROVENANCE_EVENT_SCHEMA_KIND,
@@ -404,25 +475,29 @@ export class ProvenanceWriter {
         launchAttemptId,
         transitionId,
         launchContextDigest,
-        semanticPayload: semanticPayloadForRunBound({
-          agentHash,
-          runHash,
-          executionBindingDigest: bindingDigest,
-          executionWindow: {
-            ...executionWindow,
-            endExclusive: null,
-            endEvidenceSource: null,
-          },
-          agentEnvelope: agentIdEnvelope,
-          runEnvelope: runIdEnvelope,
-          linearIssueKey: ctx.linearIssueKey,
-          phase: ctx.phase,
-          phaseExecutionId: ctx.phaseExecutionId,
-          harnessRunId: ctx.harnessRunId,
-          action: ctx.action,
-          generation: ctx.generation,
-        }),
+        semanticPayload: {
+          ...semanticPayloadForRunBound({
+            agentHash,
+            runHash,
+            executionBindingDigest: bindingDigest,
+            executionWindow: {
+              ...executionWindow,
+              endExclusive: null,
+              endEvidenceSource: null,
+            },
+            agentEnvelope: agentIdEnvelope,
+            runEnvelope: runIdEnvelope,
+            linearIssueKey: ctx.linearIssueKey,
+            phase: ctx.phase,
+            phaseExecutionId: ctx.phaseExecutionId,
+            harnessRunId: ctx.harnessRunId,
+            action: ctx.action,
+            generation: ctx.generation,
+          }),
+          providerRunOperationId: input.providerRunOperationId,
+        },
       }),
+      providerRunOperationId: input.providerRunOperationId,
       agentHash,
       agentIdEnvelope,
       runHash,
@@ -451,6 +526,7 @@ export class ProvenanceWriter {
     input: {
       agentId: string;
       runId: string;
+      providerRunOperationId: string;
       terminalStatus: string;
       windowStartIso: string;
       windowEndIso: string;
@@ -492,7 +568,7 @@ export class ProvenanceWriter {
     }
     const windowDigest = executionWindowDigest(executionWindow);
     const launchContextDigest = canonicalLaunchContextDigest(ctx);
-    const transitionId = `execution_completed:${runHash}`;
+    const transitionId = `execution_completed:${input.providerRunOperationId}:${runHash}`;
     const eventType = "execution_completed" as const;
     const event: ExecutionCompletedEvent = {
       schemaKind: PROVENANCE_EVENT_SCHEMA_KIND,
@@ -514,6 +590,7 @@ export class ProvenanceWriter {
         transitionId,
         launchContextDigest,
         semanticPayload: {
+          providerRunOperationId: input.providerRunOperationId,
           agentHash,
           runHash,
           terminalStatus: input.terminalStatus,
@@ -522,6 +599,7 @@ export class ProvenanceWriter {
           completionEvidenceSource: input.completionEvidenceSource,
         },
       }),
+      providerRunOperationId: input.providerRunOperationId,
       agentHash,
       runHash,
       terminalStatus: input.terminalStatus,
@@ -598,6 +676,42 @@ export class ProvenanceWriter {
     return this.persist(
       event,
       stageKey,
+      "cursor_provenance_launch_failed_write_failed",
+      ctx,
+      startedMs,
+    );
+  }
+
+  async writeReconciliationResolution(
+    ctx: LinearHarnessLaunchContext,
+    input: {
+      resolutionId: string;
+      affectedOperationId: string;
+      affectedOperationKind: "launch_attempt" | "run_operation";
+      authoritativeResolutionInstant: string;
+      resolutionKind: string;
+      evidenceSource: string;
+      evidenceDigest: string;
+      producerSchemaVersion?: string;
+    },
+  ): Promise<WriteOutcome> {
+    const startedMs = Date.now();
+    if (!this.writesEnabled) {
+      return { ok: true, blocked: false };
+    }
+    if (!this.store) {
+      return this.ensureReadyBeforeProviderMutation(ctx);
+    }
+    const launchAttemptId = computeLaunchAttemptId(ctx);
+    const event = buildReconciliationResolutionEvent({
+      launchAttemptId,
+      launchContext: ctx,
+      recordedAt: nowIso(this.now),
+      ...input,
+    });
+    return this.persist(
+      event,
+      input.resolutionId,
       "cursor_provenance_launch_failed_write_failed",
       ctx,
       startedMs,

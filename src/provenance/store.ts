@@ -19,6 +19,11 @@ export interface GithubProvenanceEventStoreOptions {
   branch?: string;
   beforeWrite?: () => Promise<void>;
   maxConflictRetries?: number;
+  /**
+   * When false (production default), missing branch fails instead of being created.
+   * Tests may set true to exercise ensureBranch explicitly.
+   */
+  autoCreateBranch?: boolean;
 }
 
 export interface PersistEventResult {
@@ -30,12 +35,45 @@ export interface PersistEventResult {
 export class GithubProvenanceEventStore {
   private readonly branch: string;
   private readonly maxConflictRetries: number;
+  private readonly autoCreateBranch: boolean;
 
   constructor(private readonly options: GithubProvenanceEventStoreOptions) {
     this.branch = options.branch ?? DEFAULT_WORKFLOW_STATE_BRANCH;
     this.maxConflictRetries = options.maxConflictRetries ?? 3;
+    this.autoCreateBranch = options.autoCreateBranch === true;
   }
 
+  get configuredBranch(): string {
+    return this.branch;
+  }
+
+  get configuredOwner(): string {
+    return this.options.owner;
+  }
+
+  get configuredRepo(): string {
+    return this.options.repo;
+  }
+
+  /** Read-only: require the configured branch to already exist. */
+  async assertBranchExists(): Promise<void> {
+    const { client, owner, repo } = this.options;
+    try {
+      await client.getGitRef(owner, repo, this.branch);
+    } catch (error) {
+      if (error instanceof GitHubApiError && error.status === 404) {
+        throw new CursorProvenanceError(
+          "cursor_provenance_bootstrap_branch_missing",
+          `Configured provenance state branch ${this.branch} does not exist.`,
+        );
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Explicit create-if-missing. Not used by production persist path.
+   */
   async ensureBranch(): Promise<void> {
     const { client, owner, repo } = this.options;
     try {
@@ -45,6 +83,12 @@ export class GithubProvenanceEventStore {
       if (!(error instanceof GitHubApiError) || error.status !== 404) {
         throw error;
       }
+    }
+    if (!this.autoCreateBranch) {
+      throw new CursorProvenanceError(
+        "cursor_provenance_bootstrap_branch_missing",
+        `Configured provenance state branch ${this.branch} does not exist.`,
+      );
     }
     const repoInfo = await client.getRepository(owner, repo);
     const defaultBranch = repoInfo.default_branch?.trim() || "main";
@@ -103,7 +147,11 @@ export class GithubProvenanceEventStore {
       if (this.options.beforeWrite) {
         await this.options.beforeWrite();
       }
-      await this.ensureBranch();
+      if (this.autoCreateBranch) {
+        await this.ensureBranch();
+      } else {
+        await this.assertBranchExists();
+      }
 
       const existing = await this.loadEvent(path);
       if (existing) {

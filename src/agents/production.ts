@@ -29,6 +29,10 @@ export {
 
 export type ProductionSendAndObserveOptions = SendAndObserveOptions & {
   launchContext: LinearHarnessLaunchContext;
+  /** Durable per-send identity operands (restart-stable). */
+  providerRunOperationId?: string;
+  sendPurpose?: string;
+  sendOrdinal?: number;
 };
 
 export async function createPlanningAgent(
@@ -74,13 +78,22 @@ export async function sendAndObserve(
   events: EventLogger,
   options: ProductionSendAndObserveOptions,
 ): Promise<ObservedAgentRun> {
-  const { launchContext, ...rest } = options;
+  const {
+    launchContext,
+    providerRunOperationId,
+    sendPurpose,
+    sendOrdinal,
+    ...rest
+  } = options;
   return getLinearHarnessAgentProvider().sendAndObserve({
     agent,
     prompt,
     runDirectory,
     events,
     launchContext,
+    providerRunOperationId,
+    sendPurpose,
+    sendOrdinal,
     options: rest,
   });
 }

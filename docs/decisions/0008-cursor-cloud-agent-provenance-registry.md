@@ -54,19 +54,40 @@ Canonical semantic digest excludes retry `recordedAt`, encryption nonce/cipherte
 
 ### Mutation order
 
-1. Validate launch context  
+**Launch (create/resume/replacement):**
+
+1. Await production bootstrap gate (shadow/required)  
 2. Persist `launch_intent`  
 3. Persist `provider_call_started`  
 4. Call Cursor create/resume  
-5. Persist `provider_agent_acknowledged` before `agent.send`  
-6. After send: `onRunAcknowledged` → `provider_run_bound`  
-7. After authoritative terminal wait/poll: `onRunTerminal` → `execution_completed`  
+5. Persist `provider_agent_acknowledged`  
 
-Cancel/timeout without authoritative terminal result must **not** synthesize completion; overlapping coverage remains incomplete.
+**Send (every intentional `agent.send`):**
 
-### Encryption
+1. Await the same bootstrap gate  
+2. Resolve durable `providerRunOperationId` (not wall-clock; restart-stable)  
+3. Persist `provider_run_intent`  
+4. Persist `provider_run_call_started`  
+5. Only then call `agent.send`  
+6. Persist `provider_run_bound` before `cursor_agent_created` / telemetry / later callbacks  
+7. Persist `execution_completed` after authoritative terminal wait/poll  
+
+Cancel/timeout without authoritative terminal result must **not** synthesize completion; overlapping coverage remains incomplete. A completed earlier run must not hide an unresolved later run operation.
+
+### Encryption and privacy boundary
 
 AES-256-GCM envelopes for full agent/run IDs (`P_DEV_PROVENANCE_KEY_V1`). Joins use `agentHash` / `runHash` + execution window — importer/GUI must not require decryption. Restricted recovery tooling may decrypt.
+
+**Provenance event store and public-safe provenance diagnostics** must not persist or emit plaintext Cursor agent/run IDs in paths, commit messages, or gap logs.
+
+**Existing operational plaintext identity surfaces** (out of scope for this capture-only change; documented for honest privacy verdicts):
+
+- Linear harness markers / phase-start comments that may include `cursorAgentId` / `cursorRunId`
+- Workflow and builder continuity state used for resume
+- Local run manifests, event logs, and Cursor run-observer telemetry under `runs/`
+- Existing Cursor event log lines such as `cursor_agent_created`
+
+Privacy verdicts for this feature are scoped to the provenance event store and public-safe provenance diagnostics — not a claim that no plaintext ID exists anywhere in the harness.
 
 ### Closed coverage epochs
 

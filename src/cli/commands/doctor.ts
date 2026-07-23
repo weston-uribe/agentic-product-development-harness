@@ -618,10 +618,12 @@ export async function runDoctor(options: DoctorOptions): Promise<number> {
 
   // Runner startup / config validation for provenance (not Cursor CSV preflight).
   {
-    const { validateProvenanceConfig } = await import(
-      "../../provenance/config.js"
+    const { checkProvenanceStoreHealthReadOnly } = await import(
+      "../../provenance/production-bootstrap.js"
     );
-    const provenanceHealth = validateProvenanceConfig(process.env);
+    const provenanceHealth = await checkProvenanceStoreHealthReadOnly({
+      env: process.env,
+    });
     const provenanceOk =
       provenanceHealth.mode === "disabled" || provenanceHealth.healthy;
     checks.push({
@@ -634,7 +636,7 @@ export async function runDoctor(options: DoctorOptions): Promise<number> {
       classification: provenanceOk
         ? "provenance_config_ok"
         : "provenance_config_incomplete",
-      detail: `mode=${provenanceHealth.mode}; writer=${provenanceHealth.writerVersion}; manifestDigest=${provenanceHealth.launchSurfacesManifestDigest.slice(0, 12)}; checks=${provenanceHealth.checks
+      detail: `mode=${provenanceHealth.mode}; writer=${provenanceHealth.writerVersion}; manifestDigest=${provenanceHealth.launchSurfacesManifestDigest.slice(0, 12)}; initialized=${provenanceHealth.successfullyInitialized}; checks=${provenanceHealth.checks
         .map((c) => `${c.name}:${c.ok ? "ok" : "fail"}`)
         .join(",")}`,
     });

@@ -13,7 +13,7 @@ const SINGLETON_EVENTS = new Set<ProvenanceEventType>([
 export function provenanceEventRemotePath(input: {
   launchAttemptId: string;
   eventType: ProvenanceEventType;
-  /** Required for run-bound/completed (runHash) and failure/reconciliation (stage/resolution id). */
+  /** Required for run-bound/completed (runHash) and failure/reconciliation/run-ops. */
   bindingOrStageId?: string;
 }): string {
   const prefix = launchAttemptIdPrefix(input.launchAttemptId);
@@ -36,4 +36,59 @@ export function provenanceEventRemotePath(input: {
 
 export function provenanceEventsRootPrefix(): string {
   return ROOT;
+}
+
+/** Derive path from a validated event (for coverage integrity). */
+export function deriveProvenanceEventPath(
+  event: {
+    launchAttemptId: string;
+    eventType: ProvenanceEventType;
+    providerRunOperationId?: string;
+    runHash?: string;
+    failureStage?: string;
+    failureCategory?: string;
+    resolutionId?: string;
+  },
+): string {
+  if (SINGLETON_EVENTS.has(event.eventType)) {
+    return provenanceEventRemotePath({
+      launchAttemptId: event.launchAttemptId,
+      eventType: event.eventType,
+    });
+  }
+  if (
+    event.eventType === "provider_run_intent" ||
+    event.eventType === "provider_run_call_started"
+  ) {
+    return provenanceEventRemotePath({
+      launchAttemptId: event.launchAttemptId,
+      eventType: event.eventType,
+      bindingOrStageId: event.providerRunOperationId,
+    });
+  }
+  if (
+    event.eventType === "provider_run_bound" ||
+    event.eventType === "execution_completed"
+  ) {
+    return provenanceEventRemotePath({
+      launchAttemptId: event.launchAttemptId,
+      eventType: event.eventType,
+      bindingOrStageId: event.runHash,
+    });
+  }
+  if (event.eventType === "launch_failed") {
+    return provenanceEventRemotePath({
+      launchAttemptId: event.launchAttemptId,
+      eventType: event.eventType,
+      bindingOrStageId: `${event.failureStage}:${event.failureCategory}`,
+    });
+  }
+  if (event.eventType === "reconciliation_resolution") {
+    return provenanceEventRemotePath({
+      launchAttemptId: event.launchAttemptId,
+      eventType: event.eventType,
+      bindingOrStageId: event.resolutionId,
+    });
+  }
+  throw new Error(`Cannot derive path for event type ${event.eventType}`);
 }

@@ -9,24 +9,38 @@ import type {
   SendAndObserveOptions,
 } from "./types.js";
 import type { EventLogger } from "../artifacts/events.js";
+import { CursorProvenanceError } from "../provenance/errors.js";
+import { computeLaunchAttemptId } from "../provenance/launch-attempt-id.js";
 import {
-  CursorProvenanceError,
-  computeLaunchAttemptId,
   createLinearHarnessLaunchContext,
-  hashProviderIdentity,
+  canonicalLaunchContextDigest,
   type LinearHarnessLaunchContext,
   type LinearHarnessLaunchContextInput,
-  type ProductionLaunchSurface,
+} from "../provenance/launch-context.js";
+import { hashProviderIdentity } from "../provenance/encryption.js";
+import type { ProductionLaunchSurface } from "../provenance/launch-surfaces.js";
+import {
   ProvenanceWriter,
   type ProvenanceWriterOptions,
   type WriteOutcome,
-} from "../provenance/index.js";
+} from "../provenance/writer.js";
+import {
+  createProductionProvenanceWriter,
+  provenanceBootstrapBlockingError,
+  type ProductionWriterBundle,
+  type ProvenanceBootstrapDeps,
+  type ProvenanceStoreHealthResult,
+} from "../provenance/production-bootstrap.js";
+import { resolveProviderRunOperationId } from "../provenance/run-operation-id.js";
 import type { BuilderProvenanceMutationHooks } from "../runner/builder-thread-acquire.js";
 
 const handleBindings = new WeakMap<
   AgentHandle,
   { launchAttemptId: string; context: LinearHarnessLaunchContext }
 >();
+
+/** Fail closed when the same run-operation id is reused with a divergent launch context. */
+const runOperationContextBindings = new Map<string, string>();
 
 function assertWriteOk(outcome: WriteOutcome, stage: string): void {
   if (outcome.blocked && outcome.error) {
@@ -55,10 +69,6 @@ export interface LinearHarnessResumePlanReviewParams {
 }
 
 export interface LinearHarnessAcquireBuilderParams extends AcquireBuilderAgentParams {
-  /**
-   * Builds a validated launch context for the concrete mutation action.
-   * Called after lineage resolution chooses create/resume/replacement.
-   */
   buildLaunchContext: (info: {
     action: "create" | "resume" | "replacement";
     generation: number;
@@ -74,6 +84,10 @@ export interface LinearHarnessSendParams {
   events: EventLogger;
   launchContext: LinearHarnessLaunchContext;
   options?: SendAndObserveOptions;
+  /** Durable per-send identity; resolved/allocated before agent.send. */
+  providerRunOperationId?: string;
+  sendPurpose?: string;
+  sendOrdinal?: number;
 }
 
 export interface LinearHarnessAgentProviderOptions {
@@ -81,26 +95,57 @@ export interface LinearHarnessAgentProviderOptions {
   /** Inject writer for tests. */
   writer?: ProvenanceWriter;
   inner?: typeof cursorAgentProvider;
+  /** Production bootstrap bundle (memoized async gate). */
+  bootstrap?: ProductionWriterBundle;
 }
 
 export class LinearHarnessAgentProvider {
   readonly id = "linear-harness-cursor" as const;
   private readonly inner: typeof cursorAgentProvider;
-  private readonly writer: ProvenanceWriter;
+  private writer: ProvenanceWriter;
+  private readonly bootstrap: ProductionWriterBundle | null;
 
   constructor(options: LinearHarnessAgentProviderOptions = {}) {
     this.inner = options.inner ?? cursorAgentProvider;
+    this.bootstrap = options.bootstrap ?? null;
     this.writer =
-      options.writer ?? new ProvenanceWriter(options.writerOptions ?? {});
+      options.writer ??
+      options.bootstrap?.getWriter() ??
+      new ProvenanceWriter(options.writerOptions ?? {});
   }
 
   get provenanceWriter(): ProvenanceWriter {
     return this.writer;
   }
 
+  get successfullyInitialized(): boolean {
+    if (!this.bootstrap) {
+      return this.writer.writesEnabled
+        ? Boolean(
+            (this.writer as unknown as { store?: unknown }).store !== undefined,
+          )
+        : true;
+    }
+    const health = this.bootstrap.getLastHealth();
+    if (!health) return false;
+    return health.successfullyInitialized;
+  }
+
+  private async awaitBootstrapGate(): Promise<void> {
+    if (!this.bootstrap) {
+      return;
+    }
+    const health = await this.bootstrap.ensureBootstrapped();
+    this.writer = this.bootstrap.getWriter();
+    if (health.blocksProviderMutation) {
+      throw provenanceBootstrapBlockingError(health);
+    }
+  }
+
   private async beforeProviderMutation(
     ctx: LinearHarnessLaunchContext,
   ): Promise<void> {
+    await this.awaitBootstrapGate();
     const intent = await this.writer.writeLaunchIntent(ctx);
     assertWriteOk(intent, "launch_intent");
     const callStart = await this.writer.writeProviderCallStarted(ctx);
@@ -166,7 +211,6 @@ export class LinearHarnessAgentProvider {
             "Missing launch context after builder mutation.",
           );
         }
-        // Refresh context digests for generation/prior if factory rebuilt them
         activeContext = buildLaunchContext({
           ...info,
           launchSurface: surfaceFor(info.action),
@@ -316,7 +360,6 @@ export class LinearHarnessAgentProvider {
       provenanceHooks: hooks,
     });
 
-    // Re-bind using context for the resolved action
     const action =
       acquired.continuity.action === "created"
         ? "create"
@@ -352,6 +395,45 @@ export class LinearHarnessAgentProvider {
     const { agent, prompt, runDirectory, events, launchContext, options } =
       params;
     this.requireBoundContext(agent, launchContext);
+    await this.awaitBootstrapGate();
+
+    const launchAttemptId = computeLaunchAttemptId(launchContext);
+    const sendPurpose = params.sendPurpose?.trim() || "default";
+    const sendOrdinal = params.sendOrdinal ?? 1;
+    const providerRunOperationId = resolveProviderRunOperationId({
+      existingRunOperationId: params.providerRunOperationId,
+      allocate: {
+        launchAttemptId,
+        sendPurpose,
+        sendOrdinal,
+      },
+    });
+
+    const ctxDigest = canonicalLaunchContextDigest(launchContext);
+    const prior = runOperationContextBindings.get(providerRunOperationId);
+    if (prior && prior !== ctxDigest) {
+      throw new CursorProvenanceError(
+        "cursor_provenance_run_operation_context_mismatch",
+        "providerRunOperationId bound to a divergent launch context.",
+      );
+    }
+    runOperationContextBindings.set(providerRunOperationId, ctxDigest);
+
+    const runIntent = await this.writer.writeProviderRunIntent(launchContext, {
+      providerRunOperationId,
+      sendPurpose,
+      sendOrdinal,
+    });
+    assertWriteOk(runIntent, "provider_run_intent");
+    const runCall = await this.writer.writeProviderRunCallStarted(
+      launchContext,
+      {
+        providerRunOperationId,
+        sendPurpose,
+        sendOrdinal,
+      },
+    );
+    assertWriteOk(runCall, "provider_run_call_started");
 
     let runStartIso: string | null = null;
     let startEvidence: "provider_run_timestamp" | "local_run_acknowledged_timestamp" =
@@ -367,6 +449,7 @@ export class LinearHarnessAgentProvider {
         const bind = await this.writer.writeRunBound(launchContext, {
           agentId: details.agentId,
           runId: details.runId,
+          providerRunOperationId,
           runStartIso,
           startEvidenceSource: startEvidence,
         });
@@ -387,6 +470,7 @@ export class LinearHarnessAgentProvider {
           {
             agentId: details.agentId,
             runId: details.runId,
+            providerRunOperationId,
             terminalStatus: details.terminalStatus,
             windowStartIso: windowStart,
             windowEndIso: details.providerTerminalAt ?? details.terminalAt,
@@ -406,7 +490,6 @@ export class LinearHarnessAgentProvider {
         ...options,
         onRunAcknowledged,
         onRunTerminal,
-        // Compose — do not overwrite caller callbacks for before/created
         onBeforeSend: options?.onBeforeSend,
         onAgentCreated: options?.onAgentCreated,
       });
@@ -422,7 +505,6 @@ export class LinearHarnessAgentProvider {
           });
         }
       }
-      // Cancel/timeout without authoritative terminal: leave run binding unresolved.
       throw error;
     }
   }
@@ -446,6 +528,14 @@ export function priorAgentHashFromId(agentId: string | null | undefined): string
 
 /** Singleton used by production phase modules. */
 let defaultProductionProvider: LinearHarnessAgentProvider | null = null;
+let defaultBootstrapDeps: ProvenanceBootstrapDeps | undefined;
+
+export function createProductionLinearHarnessAgentProvider(
+  deps: ProvenanceBootstrapDeps = {},
+): LinearHarnessAgentProvider {
+  const bundle = createProductionProvenanceWriter(deps);
+  return new LinearHarnessAgentProvider({ bootstrap: bundle });
+}
 
 export function getLinearHarnessAgentProvider(
   options?: LinearHarnessAgentProviderOptions,
@@ -454,12 +544,25 @@ export function getLinearHarnessAgentProvider(
     return new LinearHarnessAgentProvider(options);
   }
   if (!defaultProductionProvider) {
-    defaultProductionProvider = new LinearHarnessAgentProvider();
+    defaultProductionProvider = createProductionLinearHarnessAgentProvider(
+      defaultBootstrapDeps ?? {},
+    );
   }
   return defaultProductionProvider;
+}
+
+/** Test-only: inject bootstrap deps for the next zero-options singleton. */
+export function setProductionBootstrapDepsForTests(
+  deps: ProvenanceBootstrapDeps | undefined,
+): void {
+  defaultBootstrapDeps = deps;
 }
 
 /** Test-only reset. */
 export function resetLinearHarnessAgentProviderForTests(): void {
   defaultProductionProvider = null;
+  defaultBootstrapDeps = undefined;
+  runOperationContextBindings.clear();
 }
+
+export type { ProvenanceStoreHealthResult, ProvenanceBootstrapDeps };

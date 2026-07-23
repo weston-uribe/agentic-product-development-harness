@@ -12,6 +12,8 @@ export type ProvenanceEventType =
   | "launch_intent"
   | "provider_call_started"
   | "provider_agent_acknowledged"
+  | "provider_run_intent"
+  | "provider_run_call_started"
   | "provider_run_bound"
   | "execution_completed"
   | "launch_failed"
@@ -65,8 +67,23 @@ export interface ProviderAgentAcknowledgedEvent extends ProvenanceEventBase {
   agentIdEnvelope: EncryptionEnvelope;
 }
 
+export interface ProviderRunIntentEvent extends ProvenanceEventBase {
+  eventType: "provider_run_intent";
+  providerRunOperationId: string;
+  sendPurpose: string;
+  sendOrdinal: number;
+}
+
+export interface ProviderRunCallStartedEvent extends ProvenanceEventBase {
+  eventType: "provider_run_call_started";
+  providerRunOperationId: string;
+  sendPurpose: string;
+  sendOrdinal: number;
+}
+
 export interface ProviderRunBoundEvent extends ProvenanceEventBase {
   eventType: "provider_run_bound";
+  providerRunOperationId: string;
   agentHash: string;
   agentIdEnvelope: EncryptionEnvelope;
   runHash: string;
@@ -84,6 +101,7 @@ export interface ProviderRunBoundEvent extends ProvenanceEventBase {
 
 export interface ExecutionCompletedEvent extends ProvenanceEventBase {
   eventType: "execution_completed";
+  providerRunOperationId: string;
   agentHash: string;
   runHash: string;
   terminalStatus: string;
@@ -101,13 +119,23 @@ export interface LaunchFailedEvent extends ProvenanceEventBase {
 export interface ReconciliationResolutionEvent extends ProvenanceEventBase {
   eventType: "reconciliation_resolution";
   resolutionId: string;
+  /** Affected launch attempt or run operation id. */
+  affectedOperationId: string;
+  affectedOperationKind: "launch_attempt" | "run_operation";
+  /** Authoritative instant that closes possible activity (required to close). */
+  authoritativeResolutionInstant: string;
   resolutionKind: string;
+  evidenceSource: string;
+  evidenceDigest: string;
+  producerSchemaVersion: string;
 }
 
 export type ProvenanceEvent =
   | LaunchIntentEvent
   | ProviderCallStartedEvent
   | ProviderAgentAcknowledgedEvent
+  | ProviderRunIntentEvent
+  | ProviderRunCallStartedEvent
   | ProviderRunBoundEvent
   | ExecutionCompletedEvent
   | LaunchFailedEvent
@@ -330,5 +358,162 @@ export function buildProviderCallStartedEvent(input: {
     workflowRunId: input.launchContext.workflowRunId,
     writerVersion: PROVENANCE_WRITER_VERSION,
     canonicalSemanticDigest,
+  };
+}
+
+export function buildProviderRunIntentEvent(input: {
+  launchAttemptId: string;
+  launchContext: LinearHarnessLaunchContext;
+  recordedAt: string;
+  providerRunOperationId: string;
+  sendPurpose: string;
+  sendOrdinal: number;
+}): ProviderRunIntentEvent {
+  const launchContextDigest = canonicalLaunchContextDigest(input.launchContext);
+  const transitionId = `provider_run_intent:${input.providerRunOperationId}`;
+  const eventType = "provider_run_intent" as const;
+  const semanticPayload = {
+    providerRunOperationId: input.providerRunOperationId,
+    sendPurpose: input.sendPurpose,
+    sendOrdinal: input.sendOrdinal,
+  };
+  return {
+    schemaKind: PROVENANCE_EVENT_SCHEMA_KIND,
+    schemaVersion: "1",
+    eventId: computeEventId({
+      launchAttemptId: input.launchAttemptId,
+      transitionId,
+      eventType,
+    }),
+    eventType,
+    launchAttemptId: input.launchAttemptId,
+    transitionId,
+    launchContextDigest,
+    recordedAt: input.recordedAt,
+    producerVersion: PROVENANCE_WRITER_VERSION,
+    sourceRepositorySha: input.launchContext.sourceRepositorySha,
+    runnerSnapshotVersion: input.launchContext.runnerSnapshotVersion,
+    workflowRunId: input.launchContext.workflowRunId,
+    writerVersion: PROVENANCE_WRITER_VERSION,
+    canonicalSemanticDigest: computeCanonicalSemanticDigest({
+      eventType,
+      launchAttemptId: input.launchAttemptId,
+      transitionId,
+      launchContextDigest,
+      semanticPayload,
+    }),
+    providerRunOperationId: input.providerRunOperationId,
+    sendPurpose: input.sendPurpose,
+    sendOrdinal: input.sendOrdinal,
+  };
+}
+
+export function buildProviderRunCallStartedEvent(input: {
+  launchAttemptId: string;
+  launchContext: LinearHarnessLaunchContext;
+  recordedAt: string;
+  providerRunOperationId: string;
+  sendPurpose: string;
+  sendOrdinal: number;
+}): ProviderRunCallStartedEvent {
+  const launchContextDigest = canonicalLaunchContextDigest(input.launchContext);
+  const transitionId = `provider_run_call_started:${input.providerRunOperationId}`;
+  const eventType = "provider_run_call_started" as const;
+  const semanticPayload = {
+    providerRunOperationId: input.providerRunOperationId,
+    sendPurpose: input.sendPurpose,
+    sendOrdinal: input.sendOrdinal,
+  };
+  return {
+    schemaKind: PROVENANCE_EVENT_SCHEMA_KIND,
+    schemaVersion: "1",
+    eventId: computeEventId({
+      launchAttemptId: input.launchAttemptId,
+      transitionId,
+      eventType,
+    }),
+    eventType,
+    launchAttemptId: input.launchAttemptId,
+    transitionId,
+    launchContextDigest,
+    recordedAt: input.recordedAt,
+    producerVersion: PROVENANCE_WRITER_VERSION,
+    sourceRepositorySha: input.launchContext.sourceRepositorySha,
+    runnerSnapshotVersion: input.launchContext.runnerSnapshotVersion,
+    workflowRunId: input.launchContext.workflowRunId,
+    writerVersion: PROVENANCE_WRITER_VERSION,
+    canonicalSemanticDigest: computeCanonicalSemanticDigest({
+      eventType,
+      launchAttemptId: input.launchAttemptId,
+      transitionId,
+      launchContextDigest,
+      semanticPayload,
+    }),
+    providerRunOperationId: input.providerRunOperationId,
+    sendPurpose: input.sendPurpose,
+    sendOrdinal: input.sendOrdinal,
+  };
+}
+
+export function buildReconciliationResolutionEvent(input: {
+  launchAttemptId: string;
+  launchContext: LinearHarnessLaunchContext;
+  recordedAt: string;
+  resolutionId: string;
+  affectedOperationId: string;
+  affectedOperationKind: "launch_attempt" | "run_operation";
+  authoritativeResolutionInstant: string;
+  resolutionKind: string;
+  evidenceSource: string;
+  evidenceDigest: string;
+  producerSchemaVersion?: string;
+}): ReconciliationResolutionEvent {
+  const launchContextDigest = canonicalLaunchContextDigest(input.launchContext);
+  const transitionId = `reconciliation_resolution:${input.resolutionId}`;
+  const eventType = "reconciliation_resolution" as const;
+  const producerSchemaVersion = input.producerSchemaVersion ?? "1";
+  const semanticPayload = {
+    resolutionId: input.resolutionId,
+    affectedOperationId: input.affectedOperationId,
+    affectedOperationKind: input.affectedOperationKind,
+    authoritativeResolutionInstant: input.authoritativeResolutionInstant,
+    resolutionKind: input.resolutionKind,
+    evidenceSource: input.evidenceSource,
+    evidenceDigest: input.evidenceDigest,
+    producerSchemaVersion,
+  };
+  return {
+    schemaKind: PROVENANCE_EVENT_SCHEMA_KIND,
+    schemaVersion: "1",
+    eventId: computeEventId({
+      launchAttemptId: input.launchAttemptId,
+      transitionId,
+      eventType,
+    }),
+    eventType,
+    launchAttemptId: input.launchAttemptId,
+    transitionId,
+    launchContextDigest,
+    recordedAt: input.recordedAt,
+    producerVersion: PROVENANCE_WRITER_VERSION,
+    sourceRepositorySha: input.launchContext.sourceRepositorySha,
+    runnerSnapshotVersion: input.launchContext.runnerSnapshotVersion,
+    workflowRunId: input.launchContext.workflowRunId,
+    writerVersion: PROVENANCE_WRITER_VERSION,
+    canonicalSemanticDigest: computeCanonicalSemanticDigest({
+      eventType,
+      launchAttemptId: input.launchAttemptId,
+      transitionId,
+      launchContextDigest,
+      semanticPayload,
+    }),
+    resolutionId: input.resolutionId,
+    affectedOperationId: input.affectedOperationId,
+    affectedOperationKind: input.affectedOperationKind,
+    authoritativeResolutionInstant: input.authoritativeResolutionInstant,
+    resolutionKind: input.resolutionKind,
+    evidenceSource: input.evidenceSource,
+    evidenceDigest: input.evidenceDigest,
+    producerSchemaVersion,
   };
 }
