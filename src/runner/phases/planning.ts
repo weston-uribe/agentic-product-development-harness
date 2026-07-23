@@ -33,7 +33,8 @@ import {
   createPlanningAgent,
   disposeAgent,
   sendAndObserve,
-} from "../../agents/index.js";
+} from "../../agents/production.js";
+import { buildPhaseLaunchContext } from "../provenance-launch-context.js";
 import { manifestModelEvidence } from "../../cursor/model.js";
 import { buildPlanningPrompt } from "../../prompts/builder.js";
 import { PlanningError } from "../errors.js";
@@ -581,11 +582,28 @@ export async function executePlanningPhase(
       onTelemetry,
     );
 
+    const planningLaunchContext = buildPhaseLaunchContext({
+      config,
+      linearIssueId: issue.id,
+      linearIssueKey: issue.identifier,
+      phase: "planning",
+      phaseExecutionId: runId,
+      harnessRunId: runId,
+      agentRole: "planner",
+      action: "create",
+      generation: 1,
+      targetRepository: resolved.targetRepo,
+      startingRef: resolved.baseBranch,
+      launchSurface: "planning.create",
+      operationOrdinal: 1,
+    });
+
     const agent = await createPlanningAgent({
       apiKey: cursorApiKey,
       config,
       targetRepo: resolved.targetRepo,
       baseBranch: resolved.baseBranch,
+      launchContext: planningLaunchContext,
     });
 
     try {
@@ -617,6 +635,7 @@ export async function executePlanningPhase(
       sendAndObserve(agent, prompt, runDirectory, events, {
         apiKey: cursorApiKey,
         phase: "planning",
+        launchContext: planningLaunchContext,
         telemetryCorrelation,
         onTelemetryEvent: onTelemetry,
         onAgentCreated: async ({ agentId, runId: cursorRunId }) => {
@@ -684,10 +703,12 @@ export async function executePlanningPhase(
         "Do not say you will create a plan later. Include Approach with numbered steps,",
         "files to touch, and an Acceptance Verification Plan section.",
       ].join(" ");
+      // Same launch attempt; distinct provider run binding via onRunAcknowledged.
       observed = await Promise.race([
         sendAndObserve(agent, repairPrompt, runDirectory, events, {
           apiKey: cursorApiKey,
           phase: "planning",
+          launchContext: planningLaunchContext,
           telemetryCorrelation,
           onTelemetryEvent: onTelemetry,
           targetRepo: resolved.targetRepo,
