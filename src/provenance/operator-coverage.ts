@@ -43,6 +43,14 @@ import {
   GithubProvenanceEventStore,
 } from "./store.js";
 
+/** Claimed history relationship for activation ↔ event snapshot tip. */
+export function claimActivationHistoryRelationship(
+  activationCommitSha: string,
+  eventSnapshotCommitSha: string,
+): "equal" | "descendant" {
+  return activationCommitSha === eventSnapshotCommitSha ? "equal" : "descendant";
+}
+
 export interface OperatorCoverageContext {
   service: CoverageLifecycleService;
   lifecycleStore: GithubProvenanceLifecycleStore;
@@ -283,11 +291,19 @@ export async function finalizeEpoch(
     immutableCommitSha: activationCommitSha,
   };
 
+  // Tip may still equal the activation commit when finalize runs immediately
+  // after activate with no intervening state commits. Claim the relationship
+  // that verifyActivationHistoryProof will derive (equal | descendant).
+  const claimedRelationship = claimActivationHistoryRelationship(
+    activationCommitSha,
+    eventSnapshotCommitSha,
+  );
+
   const proofWrite = await ctx.service.writeHistoryProof({
     epochId: input.epochId,
     activationCommitSha,
     eventSnapshotCommitSha,
-    claimedRelationship: "descendant",
+    claimedRelationship,
   });
   const proofCommitSha =
     proofWrite.commitSha ??
