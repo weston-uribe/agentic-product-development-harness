@@ -1,11 +1,12 @@
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { createServer } from "node:net";
-import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { packCurrentTarballIfNeededAsync } from "./helpers/async-package-pack.js";
 import { readWorkflowConfigSnapshot } from "../../src/setup/workflow-config-snapshot.js";
 
 const repoRoot = path.resolve(
@@ -13,7 +14,6 @@ const repoRoot = path.resolve(
   "../..",
 );
 const packageDir = path.join(repoRoot, "packages", "p-dev");
-const packagePackLockPath = path.join(os.tmpdir(), "p-dev-package-pack.lockdir");
 
 const GENERATED_PACKAGE_OUTPUT_PREFIXES = [
   "packages/p-dev/bin/",
@@ -41,62 +41,6 @@ function isCleanEnoughForPackagePack(): boolean {
     .every((line) => isIgnorableDirtyPackagePath(line.slice(3).trim()));
 }
 
-function sleepSync(ms: number): void {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
-
-function acquirePackagePackLock(): () => void {
-  while (true) {
-    try {
-      mkdirSync(packagePackLockPath);
-      return () => rmSync(packagePackLockPath, { recursive: true, force: true });
-    } catch {
-      sleepSync(250);
-    }
-  }
-}
-
-function tarballSourceCommit(tarballPath: string): string | null {
-  if (!existsSync(tarballPath)) {
-    return null;
-  }
-  try {
-    const raw = execFileSync(
-      "tar",
-      ["-xOf", tarballPath, "package/workspace-snapshot/manifest.json"],
-      { encoding: "utf8" },
-    );
-    return (JSON.parse(raw) as { sourceCommit?: string }).sourceCommit ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function packCurrentTarballIfNeeded(): string {
-  const packageJson = JSON.parse(
-    readFileSync(path.join(packageDir, "package.json"), "utf8"),
-  ) as { version: string };
-  const nextTarballPath = path.join(
-    packageDir,
-    `p-dev-harness-${packageJson.version}.tgz`,
-  );
-  const head = execFileSync("git", ["rev-parse", "HEAD"], {
-    cwd: repoRoot,
-    encoding: "utf8",
-  }).trim();
-  const releaseLock = acquirePackagePackLock();
-  try {
-    if (tarballSourceCommit(nextTarballPath) !== head) {
-      execFileSync("npm", ["run", "package:p-dev:pack"], {
-        cwd: repoRoot,
-        stdio: "pipe",
-      });
-    }
-  } finally {
-    releaseLock();
-  }
-  return nextTarballPath;
-}
 
 function getFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -141,6 +85,35 @@ async function waitForHttpOk(url: string, timeoutMs: number): Promise<Response> 
   throw new Error(
     `Timed out waiting for ${url}: ${lastError instanceof Error ? lastError.message : String(lastError)}`,
   );
+}
+
+async function followRedirectChain(
+  startUrl: string,
+  maxHops = 10,
+): Promise<{
+  chain: Array<{ url: string; status: number; location: string | null }>;
+  finalUrl: string;
+  finalStatus: number;
+}> {
+  const chain: Array<{ url: string; status: number; location: string | null }> =
+    [];
+  let url = startUrl;
+
+  for (let hop = 0; hop < maxHops; hop += 1) {
+    const response = await fetch(url, { redirect: "manual" });
+    const location = response.headers.get("location");
+    chain.push({ url, status: response.status, location });
+    if (![301, 302, 303, 307, 308].includes(response.status) || !location) {
+      return {
+        chain,
+        finalUrl: url,
+        finalStatus: response.status,
+      };
+    }
+    url = new URL(location, url).href;
+  }
+
+  throw new Error(`Exceeded redirect hop limit for ${startUrl}`);
 }
 
 async function stopChild(child: ChildProcessWithoutNullStreams): Promise<void> {
@@ -291,7 +264,10 @@ describe.skipIf(!isCleanEnoughForPackagePack())(
     let packageRoot = "";
 
     beforeAll(async () => {
-      tarballPath = packCurrentTarballIfNeeded();
+      tarballPath = await packCurrentTarballIfNeededAsync({
+        repoRoot,
+        packageDir,
+      });
       installDir = await mkdtemp(path.join(os.tmpdir(), "p-dev-gui-install-"));
       execFileSync(
         "npm",
@@ -321,11 +297,11 @@ describe.skipIf(!isCleanEnoughForPackagePack())(
           port,
         });
 
-        const rootResponse = await fetch(`http://127.0.0.1:${port}/`, {
-          redirect: "manual",
-        });
-        expect([307, 308]).toContain(rootResponse.status);
-        expect(rootResponse.headers.get("location")).toMatch(/\/settings\/configure$/);
+        const followed = await followRedirectChain(`http://127.0.0.1:${port}/`);
+        expect(followed.chain[0]?.status).toBeGreaterThanOrEqual(307);
+        expect(followed.chain[0]?.location).toMatch(/\/settings\/configure$/);
+        expect(followed.finalUrl).toMatch(/\/settings\/configure$/);
+        expect(followed.finalStatus).toBe(200);
 
         const configureResponse = await fetch(
           `http://127.0.0.1:${port}/settings/configure`,
@@ -355,11 +331,10 @@ describe.skipIf(!isCleanEnoughForPackagePack())(
           port,
         });
 
-        const rootResponse = await fetch(`http://127.0.0.1:${port}/`, {
-          redirect: "manual",
-        });
-        expect([307, 308]).toContain(rootResponse.status);
-        expect(rootResponse.headers.get("location")).toMatch(/\/workflow$/);
+        const followed = await followRedirectChain(`http://127.0.0.1:${port}/`);
+        expect(followed.chain[0]?.status).toBeGreaterThanOrEqual(307);
+        expect(followed.finalUrl).toMatch(/\/workflow$/);
+        expect(followed.finalStatus).toBe(200);
 
         const workflowResponse = await fetch(`http://127.0.0.1:${port}/workflow`);
         expect(workflowResponse.status).toBe(200);

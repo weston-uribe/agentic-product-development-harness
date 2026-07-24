@@ -158,6 +158,13 @@ import {
   listLinearProjects,
   listLinearTeams,
 } from "@harness/setup/linear-setup-client";
+import { resolveAuthoritativeLinearWorkspaceIdentity } from "@harness/setup/linear-workspace-identity";
+import { verifyLinearWorkspaceAssociations } from "@harness/setup/linear-workspace-verify";
+import {
+  syncLinearAssociationCloudConfig,
+  type LinearAssociationCloudSyncResult,
+} from "@harness/setup/sync-linear-association-cloud-config";
+import { buildCanonicalCloudConfigPair } from "@harness/setup/sync-harness-config-cloud";
 import { previewLinearSetup } from "@harness/setup/linear-setup-plan";
 import {
   applyLinearWorkspace,
@@ -208,6 +215,7 @@ export interface RemoteSecretFormPayload {
   linearApiKey?: string;
   cursorApiKey?: string;
   harnessGithubToken?: string;
+  vercelToken?: string;
   manualHarnessDispatchRepo?: string;
 }
 
@@ -220,7 +228,9 @@ export interface RemoteTargetWorkflowFormPayload {
 
 export type ServiceConnectionSummaryStatus =
   | "missing"
+  | "checking"
   | "connected"
+  | "unauthorized"
   | "failed"
   | "unknown"
   | "stale";
@@ -398,11 +408,15 @@ function toOperatorInput(
   if (payload.harnessGithubToken?.trim()) {
     explicitCredentialReplacements.push("HARNESS_GITHUB_TOKEN");
   }
+  if (payload.vercelToken?.trim()) {
+    explicitCredentialReplacements.push("VERCEL_TOKEN");
+  }
 
   return {
     linearApiKey: payload.linearApiKey,
     cursorApiKey: payload.cursorApiKey,
     githubToken: payload.harnessGithubToken,
+    vercelToken: payload.vercelToken,
     explicitCredentialReplacements:
       explicitCredentialReplacements.length > 0
         ? explicitCredentialReplacements
@@ -545,14 +559,20 @@ async function loadServiceConnectionSummaries(
             },
           ] as const;
         } catch (error) {
+          const raw =
+            error instanceof Error
+              ? error.message
+              : "Saved credential could not be verified.";
           return [
             key,
             {
               status: "unknown" as const,
               message:
-                error instanceof Error
-                  ? error.message
-                  : "Saved credential could not be verified.",
+                /LINEAR_API_KEY=|CURSOR_API_KEY=|GITHUB_TOKEN=|VERCEL_TOKEN=|\.env\.local/i.test(
+                  raw,
+                )
+                  ? "Saved credential could not be verified."
+                  : raw,
               checkedAt: new Date().toISOString(),
             },
           ] as const;
@@ -925,18 +945,69 @@ export async function ensureLinearWorkspaceMigrated(cwd = resolveCwd()) {
 
 export async function loadLinearWorkspaceEditorState(cwd = resolveCwd()) {
   await ensureLinearWorkspaceMigrated(cwd);
-  const summary = await buildLinearSetupSummary(cwd);
+  let summary = await buildLinearSetupSummary(cwd);
   const loaded = await loadHarnessConfig({ baseDir: cwd });
-  const controlPlane = await readControlPlaneSetupState(cwd);
+  let controlPlane = await readControlPlaneSetupState(cwd);
   const associations = resolveLinearAssociationsFromConfig(loaded.config);
   const expectedCommittedFingerprint = computeLinearAssociationsFingerprint(
     loaded.config,
   );
   const evidence = summary.controlPlane?.linearWorkspace;
+
+  let liveOrganization: { id: string; name: string } | null = null;
+  let liveLookupFailed = false;
+  let linearApiKey: string | undefined;
+  if (summary.linearApiKeyConfigured) {
+    try {
+      linearApiKey = await loadLinearApiKey(cwd);
+      if (!linearApiKey?.trim()) {
+        liveLookupFailed = true;
+      } else {
+        const client = createLinearSetupClient(linearApiKey);
+        liveOrganization = await getLinearOrganizationSummary(client);
+      }
+    } catch {
+      liveLookupFailed = true;
+    }
+  } else {
+    liveLookupFailed = true;
+  }
+
+  const identity = resolveAuthoritativeLinearWorkspaceIdentity({
+    liveOrganization,
+    liveLookupFailed,
+    durableWorkspaceId: evidence?.workspaceId,
+    durableWorkspaceName: evidence?.workspaceName,
+    configWorkspaceId: loaded.config.linear?.workspaceId,
+  });
+
+  if (
+    summary.linearApiKeyConfigured &&
+    linearApiKey?.trim() &&
+    associations.length > 0 &&
+    identity.workspaceId
+  ) {
+    try {
+      await verifyLinearWorkspaceAssociations({
+        cwd,
+        linearApiKey,
+        workspaceId: identity.workspaceId,
+        workspaceName:
+          identity.source === "unavailable" ? "" : identity.workspaceName,
+        associations,
+      });
+      summary = await buildLinearSetupSummary(cwd);
+      controlPlane = await readControlPlaneSetupState(cwd);
+    } catch {
+      // Keep durable evidence when live verification cannot run.
+    }
+  }
+
   const driftWarnings = detectConfigControlPlaneDrift({
     config: loaded.config,
     controlPlane,
   });
+
   return {
     summary,
     associations,
@@ -945,9 +1016,8 @@ export async function loadLinearWorkspaceEditorState(cwd = resolveCwd()) {
       targetRepo: repo.targetRepo,
     })),
     expectedCommittedFingerprint,
-    workspaceId:
-      loaded.config.linear?.workspaceId ?? evidence?.workspaceId ?? "",
-    workspaceName: evidence?.workspaceName ?? "Linear workspace",
+    workspaceId: identity.workspaceId,
+    workspaceName: identity.workspaceName,
     driftWarnings,
   };
 }
@@ -985,6 +1055,7 @@ export async function applyLinearWorkspaceRemote(options: {
   apply: LinearWorkspaceApplyResult;
   summary: Awaited<ReturnType<typeof buildLinearSetupSummary>>;
   expectedCommittedFingerprint: string;
+  cloudSync: LinearAssociationCloudSyncResult | null;
 }> {
   const cwd = resolveCwd();
   const linearApiKey =
@@ -995,6 +1066,41 @@ export async function applyLinearWorkspaceRemote(options: {
     fingerprint: options.fingerprint,
     cwd,
   });
+
+  if (apply.verified && apply.configUpdated && linearApiKey.trim()) {
+    try {
+      await verifyLinearWorkspaceAssociations({
+        cwd,
+        linearApiKey,
+        workspaceId: options.plan.workspaceId,
+        workspaceName: options.plan.workspaceName,
+        associations: options.plan.requestedAssociations,
+      });
+    } catch {
+      // Local apply already succeeded; verification runs again on next Settings load.
+    }
+  }
+
+  let cloudSync: LinearAssociationCloudSyncResult | null = null;
+  if (apply.verified && apply.configUpdated) {
+    const provider = await resolveRemoteProvider();
+    if (!provider) {
+      const { fingerprint } = await buildCanonicalCloudConfigPair(cwd);
+      cloudSync = {
+        status: "partial_success",
+        fingerprint,
+        error:
+          "Linear associations were saved locally, but GitHub credentials are required to synchronize cloud harness config.",
+        retryable: true,
+      };
+    } else {
+      cloudSync = await syncLinearAssociationCloudConfig({
+        cwd,
+        provider,
+      });
+    }
+  }
+
   const summary = await buildLinearSetupSummary(cwd);
   const loaded = await loadHarnessConfig({ baseDir: cwd });
   return {
@@ -1003,7 +1109,24 @@ export async function applyLinearWorkspaceRemote(options: {
     expectedCommittedFingerprint: computeLinearAssociationsFingerprint(
       loaded.config,
     ),
+    cloudSync,
   };
+}
+
+export async function syncLinearAssociationCloudConfigRemote(): Promise<LinearAssociationCloudSyncResult> {
+  const cwd = resolveCwd();
+  const provider = await resolveRemoteProvider();
+  if (!provider) {
+    const { fingerprint } = await buildCanonicalCloudConfigPair(cwd);
+    return {
+      status: "partial_success",
+      fingerprint,
+      error:
+        "GitHub credentials are required to synchronize cloud harness config.",
+      retryable: true,
+    };
+  }
+  return syncLinearAssociationCloudConfig({ cwd, provider });
 }
 
 export async function loadVercelBridgeOptionsRemote(input?: {

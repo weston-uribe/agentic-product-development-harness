@@ -130,6 +130,8 @@ export function ConfigureExperience({
     initialHarnessProvisioningSummary,
   );
   const [uiState, setUiState] = useState<FirstRunReadinessUiState>({});
+  const [initialSetupCompletionError, setInitialSetupCompletionError] =
+    useState<string | null>(null);
 
   useEffect(() => {
     markConfigureClient("configure_content_ready");
@@ -560,17 +562,43 @@ export function ConfigureExperience({
 
   const handleGuidedWorkflowSetupComplete = useCallback(() => {
     recordStepCompleted("target-workflow");
+    setInitialSetupCompletionError(null);
     void fetch("/api/setup/complete-initial-setup", { method: "POST" })
       .then(async (response) => {
+        const payload = (await response.json().catch(() => null)) as {
+          completed?: boolean;
+          error?: string;
+          unmet?: string[];
+          reasons?: Array<{ field: string; code: string; message: string }>;
+        } | null;
+
         if (!response.ok) {
+          const unmet = payload?.unmet?.length
+            ? ` Unmet: ${payload.unmet.join(", ")}.`
+            : "";
+          const detail =
+            payload?.reasons?.map((reason) => reason.message).join(" ") ??
+            payload?.error ??
+            "Initial setup completion evidence is not satisfied.";
+          setInitialSetupCompletionError(`${detail}${unmet}`);
           return;
         }
-        const payload = (await response.json()) as { completed?: boolean };
-        if (payload.completed) {
+
+        if (payload?.completed) {
           window.location.assign("/workflow");
+          return;
         }
+
+        setInitialSetupCompletionError(
+          payload?.error ??
+            "Initial setup completion did not confirm a durable complete marker.",
+        );
       })
-      .catch(() => undefined);
+      .catch(() => {
+        setInitialSetupCompletionError(
+          "Initial setup completion request failed. Retry after confirming Linear and Vercel setup evidence.",
+        );
+      });
     if (observabilityNonce) {
       void postObservabilityAnalyticsEvent(
         { type: "p_dev_setup_completed" },
@@ -916,6 +944,15 @@ export function ConfigureExperience({
       <section className={SPACING.section}>
         <GuidedSetupProgress stages={guidedProgressStages} />
       </section>
+
+      {initialSetupCompletionError ? (
+        <section className={SPACING.section} role="alert">
+          <div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            <p className="font-medium">Could not finish initial setup</p>
+            <p className="mt-1 text-destructive/90">{initialSetupCompletionError}</p>
+          </div>
+        </section>
+      ) : null}
 
       <div className={SPACING.section}>
         <div ref={actionPanelRef}>

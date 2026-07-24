@@ -1,13 +1,25 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { RoleModelRole } from "@harness/config/role-models";
-import type { WorkflowBootstrapPayload, WorkflowModelSelection } from "@harness/workflow-page/types";
+import type {
+  WorkflowBootstrapPayload,
+  WorkflowModelSelection,
+} from "@harness/workflow-page/types";
 import { WorkflowScopeSelector } from "@/components/workflow/workflow-scope-selector";
 import { WorkflowHealthPanel } from "@/components/workflow/workflow-health-panel";
 import { WorkflowCardsSection } from "@/components/workflow/workflow-cards-section";
 import { fetchWorkflowBootstrap } from "@/lib/workflow/api-client";
 import { useModelAutosave } from "@/lib/workflow/use-model-autosave";
+import {
+  useWorkflowOptionalPhasesSave,
+  type OptionalPhasesReadiness,
+} from "@/lib/workflow/use-workflow-optional-phases-save";
+import {
+  SETTINGS_DEFAULT_ROUTE,
+  SETTINGS_NAV_ITEMS,
+} from "@/lib/settings/settings-navigation";
 
 type WorkflowPageClientProps = {
   initialBootstrap: WorkflowBootstrapPayload;
@@ -19,17 +31,44 @@ function toCommittedSelections(
   return {
     planner: bootstrap.plannerSelection,
     builder: bootstrap.builderSelection,
+    planReviewer: bootstrap.planReviewerSelection,
+    codeReviewer: bootstrap.codeReviewerSelection,
+    codeReviser: bootstrap.codeReviserSelection,
+  };
+}
+
+function toCommittedOptionalReadiness(
+  bootstrap: WorkflowBootstrapPayload,
+): OptionalPhasesReadiness {
+  return {
+    planReview: bootstrap.planReviewReadiness,
+    codeReview: bootstrap.codeReviewReadiness,
   };
 }
 
 export function WorkflowPageClient({ initialBootstrap }: WorkflowPageClientProps) {
+  const router = useRouter();
   const [bootstrap, setBootstrap] = useState(initialBootstrap);
   const [committedSelections, setCommittedSelections] = useState(() =>
     toCommittedSelections(initialBootstrap),
   );
+  const [committedOptionalReadiness, setCommittedOptionalReadiness] = useState(
+    () => toCommittedOptionalReadiness(initialBootstrap),
+  );
   const [isLoadingScope, setIsLoadingScope] = useState(false);
   const scopeAbortRef = useRef<AbortController | null>(null);
   const scopeLoadTokenRef = useRef(0);
+  const syncOptionalReadinessRef = useRef<(readiness: OptionalPhasesReadiness) => void>(
+    () => {},
+  );
+
+  // Prefetch Settings shell + default route while the operator is on Workflow.
+  useEffect(() => {
+    router.prefetch(SETTINGS_DEFAULT_ROUTE);
+    for (const item of SETTINGS_NAV_ITEMS) {
+      router.prefetch(item.href);
+    }
+  }, [router]);
 
   const unavailableReason =
     bootstrap.selectedScopeId === undefined && bootstrap.scopes.length > 0
@@ -40,6 +79,18 @@ export function WorkflowPageClient({ initialBootstrap }: WorkflowPageClientProps
     setBootstrap((current) => ({ ...current, configFingerprint: fingerprint }));
   }, []);
 
+  const reloadBootstrap = useCallback(async () => {
+    const nextBootstrap = await fetchWorkflowBootstrap({
+      sourceMode: bootstrap.sourceMode,
+      fixtureId: bootstrap.fixtureId,
+      scopeId: bootstrap.selectedScopeId,
+    });
+    setBootstrap(nextBootstrap);
+    setCommittedOptionalReadiness(toCommittedOptionalReadiness(nextBootstrap));
+    syncOptionalReadinessRef.current(toCommittedOptionalReadiness(nextBootstrap));
+    return nextBootstrap;
+  }, [bootstrap.fixtureId, bootstrap.selectedScopeId, bootstrap.sourceMode]);
+
   const handleCommittedSelectionsChange = useCallback(
     (role: RoleModelRole, selection: WorkflowModelSelection) => {
       setCommittedSelections((current) => ({ ...current, [role]: selection }));
@@ -47,9 +98,19 @@ export function WorkflowPageClient({ initialBootstrap }: WorkflowPageClientProps
     [],
   );
 
+  const handleCommittedOptionalReadinessChange = useCallback(
+    (_readiness: OptionalPhasesReadiness) => {
+      void reloadBootstrap();
+    },
+    [reloadBootstrap],
+  );
+
   const {
     plannerSelection,
     builderSelection,
+    planReviewerSelection,
+    codeReviewerSelection,
+    codeReviserSelection,
     handleModelSelect,
     handleModelParameter,
     saveStateLabel,
@@ -60,6 +121,20 @@ export function WorkflowPageClient({ initialBootstrap }: WorkflowPageClientProps
     onCommittedSelectionsChange: handleCommittedSelectionsChange,
     onBootstrapFingerprintChange: handleBootstrapFingerprintChange,
   });
+
+  const optionalPhasesSave = useWorkflowOptionalPhasesSave({
+    context: {
+      sourceMode: bootstrap.sourceMode,
+      fixtureId: bootstrap.fixtureId,
+      selectedScopeId: bootstrap.selectedScopeId,
+      configFingerprint: bootstrap.configFingerprint,
+    },
+    committedReadiness: committedOptionalReadiness,
+    onCommittedReadinessChange: handleCommittedOptionalReadinessChange,
+    onFingerprintChange: handleBootstrapFingerprintChange,
+  });
+
+  syncOptionalReadinessRef.current = optionalPhasesSave.syncCommittedReadiness;
 
   const handleScopeChange = useCallback(
     async (scopeId: string) => {
@@ -86,6 +161,9 @@ export function WorkflowPageClient({ initialBootstrap }: WorkflowPageClientProps
         }
         setBootstrap(nextBootstrap);
         setCommittedSelections(toCommittedSelections(nextBootstrap));
+        const nextOptional = toCommittedOptionalReadiness(nextBootstrap);
+        setCommittedOptionalReadiness(nextOptional);
+        optionalPhasesSave.syncCommittedReadiness(nextOptional);
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") {
           return;
@@ -101,6 +179,7 @@ export function WorkflowPageClient({ initialBootstrap }: WorkflowPageClientProps
       bootstrap.selectedScopeId,
       bootstrap.sourceMode,
       isLoadingScope,
+      optionalPhasesSave,
     ],
   );
 
@@ -126,6 +205,11 @@ export function WorkflowPageClient({ initialBootstrap }: WorkflowPageClientProps
     ...bootstrap,
     plannerSelection,
     builderSelection,
+    planReviewerSelection,
+    codeReviewerSelection,
+    codeReviserSelection,
+    planReviewReadiness: optionalPhasesSave.planReviewReadiness,
+    codeReviewReadiness: optionalPhasesSave.codeReviewReadiness,
   };
 
   return (
@@ -151,6 +235,14 @@ export function WorkflowPageClient({ initialBootstrap }: WorkflowPageClientProps
       <WorkflowCardsSection
         bootstrap={viewBootstrap}
         disabled={isLoadingScope}
+        planReviewReadiness={optionalPhasesSave.planReviewReadiness}
+        codeReviewReadiness={optionalPhasesSave.codeReviewReadiness}
+        optionalPhasesSaveLabel={optionalPhasesSave.saveStateLabel}
+        optionalPhasesSaveError={optionalPhasesSave.saveError}
+        onPlanReviewEnabledChange={optionalPhasesSave.handlePlanReviewEnabledChange}
+        onPlanReviewCycleLimitChange={optionalPhasesSave.handlePlanReviewCycleLimitChange}
+        onCodeReviewEnabledChange={optionalPhasesSave.handleCodeReviewEnabledChange}
+        onCodeReviewCycleLimitChange={optionalPhasesSave.handleCodeReviewCycleLimitChange}
         onSelectModel={handleModelSelect}
         onUpdateModelParameter={handleModelParameter}
         saveStateLabel={saveStateLabel}

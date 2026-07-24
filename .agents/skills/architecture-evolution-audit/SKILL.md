@@ -1,5 +1,6 @@
 ---
 name: architecture-evolution-audit
+skillContractVersion: "1"
 description: >-
   Conduct a report-only architecture evolution audit focused on whether the
   system's structure can safely support likely future changes without forcing

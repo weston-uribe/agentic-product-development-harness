@@ -27,6 +27,7 @@ import {
 } from "./vercel-setup-client.js";
 import { runSignedWebhookProbe } from "./vercel-webhook-probe.js";
 import { redactKnownSecretValues } from "./redact-secrets.js";
+import { reconcileVercelControlPlaneFromRemote } from "./vercel-bridge-reconcile.js";
 
 export interface VercelBridgeDiagnosticReport {
   gitSha?: string;
@@ -109,6 +110,19 @@ export interface VercelBridgeDiagnosticReport {
       state: string;
     };
     loadError?: string;
+  };
+  vercelBridgeReconcile?: {
+    status: string;
+    message: string;
+    candidateCount: number;
+    candidates: Array<{
+      projectId: string;
+      projectName: string;
+      teamId?: string;
+      hasPDevMarker: boolean;
+      requiredEnvPresent: boolean;
+    }>;
+    readinessBlockers?: string[];
   };
   linearWebhookDiagnostic?: {
     expectedWebhookUrl?: string;
@@ -497,6 +511,25 @@ export async function buildVercelBridgeDiagnosticReport(input: {
       };
     }
   }
+
+  const reconcile = await reconcileVercelControlPlaneFromRemote({
+    cwd,
+    controlPlane: state,
+    dryRun: true,
+  });
+  report.vercelBridgeReconcile = {
+    status: reconcile.status,
+    message: reconcile.message,
+    candidateCount: reconcile.candidates.length,
+    candidates: reconcile.candidates.map((candidate) => ({
+      projectId: candidate.projectId,
+      projectName: candidate.projectName,
+      teamId: candidate.teamId,
+      hasPDevMarker: candidate.hasPDevMarker,
+      requiredEnvPresent: candidate.requiredEnvPresent,
+    })),
+    readinessBlockers: reconcile.readinessBlockers,
+  };
 
   // Final guard: never emit raw secret values in JSON output.
   const serialized = JSON.stringify(report);

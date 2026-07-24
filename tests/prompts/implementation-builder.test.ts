@@ -73,5 +73,26 @@ describe("implementation prompt builder", () => {
     expect(prompt).toContain("npm run lint");
     expect(prompt).toContain("[WES-12]");
     expect(prompt).toContain("Harness run id: `run-123`");
+    expect(prompt).toContain("verified_complete");
+    expect(prompt).toContain("Behavioral acceptance verification");
+    expect(prompt).toContain("Acceptance evidence");
+    expect(prompt).toContain("Do **not** report success or handoff readiness unless Final status is `verified_complete`");
+  });
+
+  it("treats absent planning context as optional with issue-authoritative fallback", async () => {
+    const branchName = buildBranchName(issue.identifier, issue.title, config);
+    const { prompt } = await buildImplementationPrompt({
+      issue,
+      parsed,
+      resolved,
+      runId: "run-123",
+      branchName,
+      planningCommentBody: null,
+      validationCommands: ["npm run lint"],
+    });
+
+    expect(prompt).toContain("No supplemental planning context was loaded");
+    expect(prompt).toContain("authoritative work package");
+    expect(prompt).not.toContain("narrow and well-scoped");
   });
 });

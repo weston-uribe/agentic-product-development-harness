@@ -27,6 +27,39 @@ export class PlanningError extends PhaseError {
   }
 }
 
+export class PlanReviewError extends PhaseError {
+  constructor(
+    classification: NonNullable<import("../types/run.js").ErrorClassification>,
+    message: string,
+    cancelOutcome: CursorCancelOutcome | null = null,
+  ) {
+    super(classification, message, cancelOutcome);
+    this.name = "PlanReviewError";
+  }
+}
+
+export class CodeReviewError extends PhaseError {
+  constructor(
+    classification: NonNullable<import("../types/run.js").ErrorClassification>,
+    message: string,
+    cancelOutcome: CursorCancelOutcome | null = null,
+  ) {
+    super(classification, message, cancelOutcome);
+    this.name = "CodeReviewError";
+  }
+}
+
+export class CodeRevisionError extends PhaseError {
+  constructor(
+    classification: NonNullable<import("../types/run.js").ErrorClassification>,
+    message: string,
+    cancelOutcome: CursorCancelOutcome | null = null,
+  ) {
+    super(classification, message, cancelOutcome);
+    this.name = "CodeRevisionError";
+  }
+}
+
 export class ImplementationError extends PhaseError {
   constructor(
     classification: NonNullable<import("../types/run.js").ErrorClassification>,

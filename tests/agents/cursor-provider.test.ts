@@ -206,7 +206,7 @@ describe("cursorAgentProvider", () => {
       expect.anything(),
       { phase: "planning", apiKey: "key" },
     );
-    expect(observed).toEqual({
+    expect(observed).toMatchObject({
       agentId: "agent-1",
       runId: "run-1",
       assistantText: "plan output",
@@ -216,7 +216,78 @@ describe("cursorAgentProvider", () => {
         prUrl: `${TARGET_REPO}/pull/1`,
       },
       cancelOutcome: "cancelled",
+      status: "completed",
+      durationMs: null,
+      model: null,
+      usage: { cost: { costSource: "unavailable" } },
     });
+  });
+
+  it("preserves model and full usage including cache tokens", async () => {
+    const cursorAgent = mockCursorAgent();
+    factoryMocks.createPlanningCloudAgent.mockResolvedValue(cursorAgent);
+    observerMocks.sendAndObserve.mockResolvedValue({
+      agentId: "agent-1",
+      runId: "run-1",
+      requestId: "req-1",
+      result: {
+        id: "run-1",
+        status: "finished",
+        durationMs: 100,
+        model: { id: "composer-2.5" },
+        usage: {
+          inputTokens: 10,
+          outputTokens: 20,
+          totalTokens: 30,
+          cacheReadTokens: 4,
+          cacheWriteTokens: 2,
+          reasoningTokens: 1,
+        },
+      },
+      assistantText: "ok",
+      gitResult: null,
+      cancelOutcome: null,
+      eventCounts: { total: 2, byKind: {}, toolStarted: 0, toolFinished: 0, toolError: 0, toolIncomplete: 0 },
+      completeness: {
+        trace_input_present: false,
+        trace_output_present: false,
+        agent_input_present: true,
+        agent_output_present: true,
+        model_present: true,
+        usage_present: true,
+        tool_events_present: false,
+        tool_event_completion_rate: null,
+        prompt_provenance_present: true,
+        skill_provenance_present: true,
+        pm_feedback_present: null,
+      },
+    });
+
+    const handle = await cursorAgentProvider.createPlanningAgent({
+      apiKey: "key",
+      config: makeConfig(),
+      targetRepo: TARGET_REPO,
+      baseBranch: "dev",
+    });
+    const observed = await cursorAgentProvider.sendAndObserve(
+      handle,
+      "prompt",
+      "/tmp/run",
+      { log: vi.fn() } as never,
+    );
+
+    expect(observed.model?.id).toBe("composer-2.5");
+    expect(observed.requestId).toBe("req-1");
+    expect(observed.usage).toMatchObject({
+      inputTokens: 10,
+      outputTokens: 20,
+      totalTokens: 30,
+      cacheReadTokens: 4,
+      cacheWriteTokens: 2,
+      reasoningTokens: 1,
+      cost: { costSource: "pricing_registry" },
+    });
+    expect(observed.completeness?.model_present).toBe(true);
   });
 
   it("delegates disposeAgent to disposeCloudAgent", async () => {

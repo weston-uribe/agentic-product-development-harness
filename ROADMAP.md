@@ -7,10 +7,13 @@ For shipped history, see [CHANGELOG.md](CHANGELOG.md).
 ## Now
 
 - Harden post-v0.3.0 operator experience from real `p-dev` installs
+- Local GUI operator runtime reliability (immutable `next start`, atomic publication; see ADR 0005)
 - Validate a full issue lifecycle from an isolated npm-installed workspace
 - Improve cross-platform packaged launch policy beyond macOS browser auto-open
 - Continue validating the Linear → GitHub → Cursor workflow on real but private target repos
 - Operator-initiated **Update PDev runner** from Settings → Deployments (implemented on debug branch; not yet a published release milestone)
+- Linear-harness Cursor Cloud Agent provenance registry + importer registry consumption (`src/provenance/`, `provenance-scope/`, ADR 0008) — default mode still `disabled` until live rollout; historical CSV disposition `historical_scope_unrecoverable`
+- Operator provenance rollout CLI (`harness:provenance`) and GUI Provenance coverage panel on Settings → Cursor usage
 
 ## Next
 
@@ -19,6 +22,8 @@ For shipped history, see [CHANGELOG.md](CHANGELOG.md).
 - `performance-cost-audit` skill
 - Automated eval/check runners where manual rubrics are currently used
 - Stronger CI/security defaults for target repos
+- Live provenance `shadow` → `required` activation + sealed coverage + eligible official CSV Apply (code foundation landed; production mode still disabled until authorized rollout)
+- Evaluator execution and Langfuse score projection for quality/experiment dashboards (cost/speed data foundation follows sealed coverage + usage Apply)
 
 ## Later
 

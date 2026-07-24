@@ -4,6 +4,8 @@ import type {
   AcquireBuilderAgentParams,
   AcquiredBuilderAgent,
   AgentHandle,
+  CodeReviewAgentParams,
+  CodeRevisionAgentParams,
   ImplementationAgentParams,
   PlanningAgentParams,
   SendAndObserveOptions,
@@ -19,6 +21,39 @@ export function createPlanningAgent(
   params: PlanningAgentParams,
 ): Promise<AgentHandle> {
   return getAgentProvider(params.config).createPlanningAgent(params);
+}
+
+export function createPlanReviewAgent(
+  params: PlanningAgentParams,
+): Promise<AgentHandle> {
+  return getAgentProvider(params.config).createPlanReviewAgent(params);
+}
+
+export async function resumePlanReviewAgent(input: {
+  apiKey: string;
+  agentId: string;
+  config: HarnessConfig;
+}): Promise<AgentHandle> {
+  const provider = getAgentProvider(input.config);
+  if (!provider.resumePlanReviewAgent) {
+    throw new Error("Agent provider does not support Plan Review resume");
+  }
+  return provider.resumePlanReviewAgent({
+    apiKey: input.apiKey,
+    agentId: input.agentId,
+  });
+}
+
+export function createCodeReviewAgent(
+  params: CodeReviewAgentParams,
+): Promise<AgentHandle> {
+  return getAgentProvider(params.config).createCodeReviewAgent(params);
+}
+
+export function createCodeRevisionAgent(
+  params: CodeRevisionAgentParams,
+): Promise<AgentHandle> {
+  return getAgentProvider(params.config).createCodeRevisionAgent(params);
 }
 
 export function createImplementationAgent(
@@ -51,6 +86,15 @@ export function sendAndObserve(
 
 export function disposeAgent(agent: AgentHandle): Promise<void> {
   return cursorAgentProvider.disposeAgent(agent);
+}
+
+export async function downloadAgentReviewArtifacts(
+  agent: AgentHandle,
+): Promise<import("../cursor/review-artifacts.js").DownloadedReviewArtifact[]> {
+  const { downloadAgentReviewArtifacts: download } = await import(
+    "./cursor-provider.js"
+  );
+  return download(agent);
 }
 
 export type {

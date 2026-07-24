@@ -16,6 +16,9 @@ function toCommittedSelections(
   return {
     planner: bootstrap.plannerSelection,
     builder: bootstrap.builderSelection,
+    planReviewer: bootstrap.planReviewerSelection,
+    codeReviewer: bootstrap.codeReviewerSelection,
+    codeReviser: bootstrap.codeReviserSelection,
   };
 }
 
@@ -39,6 +42,9 @@ export function SettingsModelsClient({ initialBootstrap }: SettingsModelsClientP
   const {
     plannerSelection,
     builderSelection,
+    planReviewerSelection,
+    codeReviewerSelection,
+    codeReviserSelection,
     handleModelSelect,
     handleModelParameter,
     retrySave,
@@ -60,7 +66,8 @@ export function SettingsModelsClient({ initialBootstrap }: SettingsModelsClientP
       <div>
         <h2 className="text-xl font-semibold tracking-tight">Models</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Planner and Builder models share the same configuration as the Workflow page.
+          Planner, Builder, Plan Reviewer, Code Reviewer, and Code Reviser models share
+          the same configuration as the Workflow page.
         </p>
       </div>
       {catalogUnavailable ? (
@@ -69,7 +76,7 @@ export function SettingsModelsClient({ initialBootstrap }: SettingsModelsClientP
           reload this page.
         </p>
       ) : null}
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <WorkflowModelControl
           label="Planner model"
           phaseKey="planning"
@@ -77,8 +84,23 @@ export function SettingsModelsClient({ initialBootstrap }: SettingsModelsClientP
           modelCatalog={bootstrap.modelCatalog}
           modelId={plannerSelection.modelId}
           parameters={plannerSelection.parameters}
+          configurationSurface="settings"
           saveLabel={saveStateLabel("planning")}
           saveErrorDetail={saveErrorDetail("planning")}
+          onSelectModel={handleModelSelect}
+          onUpdateModelParameter={handleModelParameter}
+          onRetry={retrySave}
+        />
+        <WorkflowModelControl
+          label="Plan Reviewer model"
+          phaseKey="plan_review"
+          disabled={catalogUnavailable}
+          modelCatalog={bootstrap.modelCatalog}
+          modelId={planReviewerSelection.modelId}
+          parameters={planReviewerSelection.parameters}
+          configurationSurface="settings"
+          saveLabel={saveStateLabel("plan_review")}
+          saveErrorDetail={saveErrorDetail("plan_review")}
           onSelectModel={handleModelSelect}
           onUpdateModelParameter={handleModelParameter}
           onRetry={retrySave}
@@ -90,8 +112,37 @@ export function SettingsModelsClient({ initialBootstrap }: SettingsModelsClientP
           modelCatalog={bootstrap.modelCatalog}
           modelId={builderSelection.modelId}
           parameters={builderSelection.parameters}
+          configurationSurface="settings"
           saveLabel={saveStateLabel("implementation")}
           saveErrorDetail={saveErrorDetail("implementation")}
+          onSelectModel={handleModelSelect}
+          onUpdateModelParameter={handleModelParameter}
+          onRetry={retrySave}
+        />
+        <WorkflowModelControl
+          label="Code Reviewer model"
+          phaseKey="code_review"
+          disabled={catalogUnavailable}
+          modelCatalog={bootstrap.modelCatalog}
+          modelId={codeReviewerSelection.modelId}
+          parameters={codeReviewerSelection.parameters}
+          configurationSurface="settings"
+          saveLabel={saveStateLabel("code_review")}
+          saveErrorDetail={saveErrorDetail("code_review")}
+          onSelectModel={handleModelSelect}
+          onUpdateModelParameter={handleModelParameter}
+          onRetry={retrySave}
+        />
+        <WorkflowModelControl
+          label="Code Reviser model"
+          phaseKey="code_revision"
+          disabled={catalogUnavailable}
+          modelCatalog={bootstrap.modelCatalog}
+          modelId={codeReviserSelection.modelId}
+          parameters={codeReviserSelection.parameters}
+          configurationSurface="settings"
+          saveLabel={saveStateLabel("code_revision")}
+          saveErrorDetail={saveErrorDetail("code_revision")}
           onSelectModel={handleModelSelect}
           onUpdateModelParameter={handleModelParameter}
           onRetry={retrySave}

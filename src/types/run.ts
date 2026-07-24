@@ -1,7 +1,10 @@
 export type RunPhase =
   | "planning"
+  | "plan_review"
   | "implementation"
   | "handoff"
+  | "code_review"
+  | "code_revision"
   | "revision"
   | "merge"
   | "production_sync"
@@ -15,14 +18,24 @@ export type ErrorClassification =
   | "unknown_repo_denied"
   | "wrong_status"
   | "duplicate_phase_completed"
+  | "foreign_active_run_conflict"
+  | "active_run_already_claimed"
+  | "decision_unresolved"
   | "linear_auth_failure"
   | "cursor_api_failure"
   | "cursor_run_failed"
   | "cursor_run_timeout"
   | "linear_write_failure"
+  | "linear_comment_failure"
+  | "linear_status_transition_failure"
+  | "durable_state_unavailable"
+  | "durable_state_cas_exhausted"
+  | "langfuse_projection_failure"
+  | "invalid_machine_output"
   | "agent_policy_violation"
-  | "missing_planning_comment"
+  | "missing_plan_artifact"
   | "validation_failed"
+  | "configuration_error"
   | "pr_not_created"
   | "branch_without_pr"
   | "wrong_target_repo"
@@ -125,7 +138,7 @@ export interface RunManifest {
   evaluation?: {
     schemaVersion: 1;
     provider: "langfuse";
-    captureProfile: "metadata-v1";
+    captureProfile: "metadata-v1" | "content-v1";
     sessionId: string;
     traceId: string;
   } | null;
@@ -142,7 +155,12 @@ export type RunEventName =
   | "phase_inferred"
   | "canonical_workflow_preflight"
   | "idempotency_skip"
+  | "phase_error"
+  | "stale_eligibility_skip"
   | "planning_comment_loaded"
+  | "planning_context_absent"
+  | "plan_artifact_recovered_from_linear"
+  | "implementation_artifact_recovered_from_linear"
   | "implementation_comment_loaded"
   | "linear_status_changed"
   | "linear_comment_posted"
@@ -164,8 +182,20 @@ export type RunEventName =
   | "preview_captured"
   | "preview_not_found"
   | "handoff_comment_posted"
+  | "code_review_dispatch_attempt"
+  | "code_review_job_dispatched"
+  | "plan_review_dispatch_pending"
+  | "plan_review_job_dispatched"
+  | "plan_review_agent_reused"
+  | "plan_review_agent_resume_failed"
+  | "plan_review_agent_persisted"
+  | "plan_review_prior_run_fetch_failed"
+  | "plan_review_reparse_attempt"
+  | "plan_review_decision_extracted"
+  | "code_review_decision_extracted"
   | "handoff_comment_loaded"
   | "pm_feedback_loaded"
+  | "revision_pending_pm_feedback"
   | "revision_comment_posted"
   | "revision_pr_validated"
   | "merge_source_comment_loaded"
@@ -198,6 +228,10 @@ export type RunEventName =
   | "product_marker_loaded"
   | "product_marker_skipped"
   | "project_metadata_sync"
+  | "plan_review_setup_required"
+  | "plan_review_not_effective"
+  | "cursor_provenance_gap"
+  | "cursor_provenance_event_persisted"
   | "run_finished";
 
 export interface RunEvent {

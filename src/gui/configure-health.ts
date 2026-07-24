@@ -1,53 +1,88 @@
-export const CANONICAL_CONFIGURE_URL =
-  "http://localhost:3000/settings/configure";
+export type GuiHealthCategory =
+  | "unreachable"
+  | "http_error"
+  | "missing_static_assets"
+  | "missing_css_bundle"
+  | "invalid_css_asset"
+  | "unexpected_page_error";
 
+export interface GuiHealthResult {
+  ok: boolean;
+  category?: GuiHealthCategory;
+  reason?: string;
+  recoverableByCacheReset: boolean;
+}
+
+/** @deprecated Use GuiHealthResult */
 export interface ConfigureHealthResult {
   ok: boolean;
   reason?: string;
 }
 
-export function analyzeConfigurePageHtml(html: string): ConfigureHealthResult {
+export const CANONICAL_CONFIGURE_URL =
+  "http://localhost:3000/settings/configure";
+
+function success(): GuiHealthResult {
+  return { ok: true, recoverableByCacheReset: false };
+}
+
+function failure(
+  category: GuiHealthCategory,
+  reason: string,
+  recoverableByCacheReset = false,
+): GuiHealthResult {
+  return {
+    ok: false,
+    category,
+    reason,
+    recoverableByCacheReset,
+  };
+}
+
+export function analyzeConfigurePageHtml(html: string): GuiHealthResult {
   if (!html.includes("/_next/static/")) {
-    return {
-      ok: false,
-      reason:
-        "Page HTML is missing Next.js static asset references. The dev server may be serving a broken build or corrupt .next cache.",
-    };
+    return failure(
+      "missing_static_assets",
+      "Page HTML is missing Next.js static asset references. The dev server may be serving a broken build or corrupt .next cache.",
+      true,
+    );
   }
 
   const cssHref = extractNextCssHref(html);
   if (!cssHref) {
-    return {
-      ok: false,
-      reason:
-        "Page HTML is missing a Next.js CSS bundle link. The UI will likely render unstyled.",
-    };
+    return failure(
+      "missing_css_bundle",
+      "Page HTML is missing a Next.js CSS bundle link. The UI will likely render unstyled.",
+      true,
+    );
   }
 
-  return { ok: true };
+  return success();
 }
 
 export function validateConfigureCssAsset(input: {
   contentType: string | null;
   body: string;
   href: string;
-}): ConfigureHealthResult {
+}): GuiHealthResult {
   const contentType = input.contentType ?? "";
   if (!contentType.includes("text/css")) {
-    return {
-      ok: false,
-      reason: `CSS asset ${input.href} returned unexpected content-type: ${contentType || "(missing)"}`,
-    };
+    return failure(
+      "invalid_css_asset",
+      `CSS asset ${input.href} returned unexpected content-type: ${contentType || "(missing)"}`,
+      true,
+    );
   }
 
   if (input.body.trim().length < 100) {
-    return {
-      ok: false,
-      reason: `CSS asset ${input.href} is suspiciously small (${input.body.length} bytes).`,
-    };
+    return failure(
+      "invalid_css_asset",
+      `CSS asset ${input.href} is suspiciously small (${input.body.length} bytes).`,
+      true,
+    );
   }
 
-  return { ok: true };
+  return success();
 }
 
 export function extractNextCssHref(html: string): string | undefined {
@@ -66,25 +101,27 @@ export function extractNextCssHref(html: string): string | undefined {
   return undefined;
 }
 
-export async function checkConfigurePageHealth(
-  configureUrl = CANONICAL_CONFIGURE_URL,
-): Promise<ConfigureHealthResult> {
+export async function checkGuiPageHealth(
+  pageUrl: string,
+): Promise<GuiHealthResult> {
   let response: Response;
   try {
-    response = await fetch(configureUrl, { redirect: "follow" });
+    response = await fetch(pageUrl, { redirect: "follow" });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return {
-      ok: false,
-      reason: `Could not reach ${configureUrl}: ${message}`,
-    };
+    return failure(
+      "unreachable",
+      `Could not reach ${pageUrl}: ${message}`,
+      false,
+    );
   }
 
   if (!response.ok) {
-    return {
-      ok: false,
-      reason: `${configureUrl} returned HTTP ${response.status}`,
-    };
+    return failure(
+      "http_error",
+      `${pageUrl} returned HTTP ${response.status}`,
+      false,
+    );
   }
 
   const html = await response.text();
@@ -95,29 +132,32 @@ export async function checkConfigurePageHealth(
 
   const cssHref = extractNextCssHref(html);
   if (!cssHref) {
-    return {
-      ok: false,
-      reason: "Page HTML is missing a Next.js CSS bundle link.",
-    };
+    return failure(
+      "missing_css_bundle",
+      "Page HTML is missing a Next.js CSS bundle link.",
+      true,
+    );
   }
 
-  const cssUrl = new URL(cssHref, configureUrl).href;
+  const cssUrl = new URL(cssHref, pageUrl).href;
   let cssResponse: Response;
   try {
     cssResponse = await fetch(cssUrl);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return {
-      ok: false,
-      reason: `Could not load CSS asset ${cssHref}: ${message}`,
-    };
+    return failure(
+      "unexpected_page_error",
+      `Could not load CSS asset ${cssHref}: ${message}`,
+      false,
+    );
   }
 
   if (!cssResponse.ok) {
-    return {
-      ok: false,
-      reason: `CSS asset ${cssHref} returned HTTP ${cssResponse.status}`,
-    };
+    return failure(
+      "http_error",
+      `CSS asset ${cssHref} returned HTTP ${cssResponse.status}`,
+      false,
+    );
   }
 
   const cssBody = await cssResponse.text();
@@ -126,6 +166,16 @@ export async function checkConfigurePageHealth(
     body: cssBody,
     href: cssHref,
   });
+}
+
+export async function checkConfigurePageHealth(
+  configureUrl = CANONICAL_CONFIGURE_URL,
+): Promise<ConfigureHealthResult> {
+  const result = await checkGuiPageHealth(configureUrl);
+  return {
+    ok: result.ok,
+    reason: result.reason,
+  };
 }
 
 export async function waitForConfigureServer(
@@ -137,8 +187,13 @@ export async function waitForConfigureServer(
 
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(healthUrl, { redirect: "follow" });
-      if (response.status < 500) {
+      // Accept root redirects (307/302) as reachability. Destination health is
+      // validated separately by checkRuntimeIntegrity / checkGuiPageHealth.
+      const response = await fetch(healthUrl, { redirect: "manual" });
+      if (
+        response.status < 500 ||
+        (response.status >= 300 && response.status < 400)
+      ) {
         return;
       }
     } catch {

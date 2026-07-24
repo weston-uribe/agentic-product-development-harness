@@ -14,7 +14,10 @@ import {
   advanceMockTargetWorkflowFinalization,
   type MockWorkflowFinalizationScenario,
 } from "./mock-target-workflow-finalization.js";
-import { previewTargetWorkflowSetup } from "./target-workflow-setup.js";
+import {
+  compareTargetWorkflowContent,
+  previewTargetWorkflowSetup,
+} from "./target-workflow-setup.js";
 import {
   type HarnessDispatchRepoResolution,
 } from "./harness-dispatch-repo.js";
@@ -296,6 +299,10 @@ export interface GitHubRemoteSetupProvider {
     harnessDispatchRepo: string,
     variables: HarnessVariableWriteRequest[],
   ): Promise<HarnessVariableWriteResultEntry[]>;
+  readHarnessVariable?(
+    harnessDispatchRepo: string,
+    name: string,
+  ): Promise<{ name: string; value: string } | null>;
   applyTargetWorkflowPr(
     input: TargetWorkflowApplyInput,
   ): Promise<TargetWorkflowApplyResult>;
@@ -312,6 +319,12 @@ export interface MockGitHubRemoteSetupProviderState {
   existingOpenPrUrl?: string;
   writeHarnessSecretsResult?: HarnessSecretWriteResultEntry[];
   writeHarnessVariablesResult?: HarnessVariableWriteResultEntry[];
+  /** When set, overrides the in-memory variable store for reads. */
+  readHarnessVariableResult?: Record<string, string | null>;
+  /** When true, writeHarnessVariables throws. */
+  writeHarnessVariablesThrows?: Error | string;
+  /** When set, read returns a mismatched fingerprint after write. */
+  fingerprintReadMismatch?: string;
   applyTargetWorkflowResult?: TargetWorkflowApplyResult;
   finalizationScenario?: MockWorkflowFinalizationScenario;
   harnessDispatchRepo?: HarnessDispatchRepoResolution;
@@ -325,6 +338,7 @@ export class MockGitHubRemoteSetupProvider implements GitHubRemoteSetupProvider 
     encryptedValue: string;
   }> = [];
   private mutableWorkflowContent: string | null | undefined;
+  private readonly writtenVariables = new Map<string, string>();
 
   constructor(private readonly state: MockGitHubRemoteSetupProviderState = {}) {
     this.mutableWorkflowContent = state.existingWorkflowContent;
@@ -407,14 +421,10 @@ export class MockGitHubRemoteSetupProvider implements GitHubRemoteSetupProvider 
     });
 
     const existing = this.mutableWorkflowContent ?? this.state.existingWorkflowContent;
-    let workflowStatus: RemoteWorkflowStatus = "unknown";
-    if (existing === null || existing === undefined) {
-      workflowStatus = "missing";
-    } else if (existing === input.intendedWorkflowContent) {
-      workflowStatus = "present";
-    } else {
-      workflowStatus = "differs";
-    }
+    const workflowStatus: RemoteWorkflowStatus =
+      existing === null || existing === undefined
+        ? "missing"
+        : compareTargetWorkflowContent(existing, input.intendedWorkflowContent);
 
     return {
       repoAccess: this.state.targetRepoAccess ?? "unknown",
@@ -461,6 +471,16 @@ export class MockGitHubRemoteSetupProvider implements GitHubRemoteSetupProvider 
       args: [harnessDispatchRepo, variables.map((entry) => entry.name)],
     });
 
+    if (this.state.writeHarnessVariablesThrows) {
+      throw this.state.writeHarnessVariablesThrows instanceof Error
+        ? this.state.writeHarnessVariablesThrows
+        : new Error(this.state.writeHarnessVariablesThrows);
+    }
+
+    for (const variable of variables) {
+      this.writtenVariables.set(variable.name, variable.value);
+    }
+
     return (
       this.state.writeHarnessVariablesResult ??
       variables.map((variable) => ({
@@ -468,6 +488,37 @@ export class MockGitHubRemoteSetupProvider implements GitHubRemoteSetupProvider 
         status: "created",
       }))
     );
+  }
+
+  async readHarnessVariable(
+    harnessDispatchRepo: string,
+    name: string,
+  ): Promise<{ name: string; value: string } | null> {
+    this.calls.push({
+      method: "readHarnessVariable",
+      args: [harnessDispatchRepo, name],
+    });
+
+    if (this.state.readHarnessVariableResult) {
+      const value = this.state.readHarnessVariableResult[name];
+      if (value === null || value === undefined) {
+        return null;
+      }
+      return { name, value };
+    }
+
+    if (
+      this.state.fingerprintReadMismatch &&
+      name === "HARNESS_CONFIG_FINGERPRINT"
+    ) {
+      return { name, value: this.state.fingerprintReadMismatch };
+    }
+
+    const written = this.writtenVariables.get(name);
+    if (written === undefined) {
+      return null;
+    }
+    return { name, value: written };
   }
 
   async applyTargetWorkflowPr(

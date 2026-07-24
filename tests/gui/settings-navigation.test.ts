@@ -24,6 +24,8 @@ describe("settings navigation and routing", () => {
     expect(settingsNavigation).not.toContain("Diagnostics");
     expect(settingsNavigation).not.toContain("Advanced");
     expect(consoleLayout).toContain("SettingsShell");
+    expect(consoleLayout).toContain("classifyWorkspaceEntry");
+    expect(consoleLayout).toContain('entry.maturity === "new"');
     expect(consoleLayout).toContain("redirect(CONFIGURE_ROUTE)");
   });
 

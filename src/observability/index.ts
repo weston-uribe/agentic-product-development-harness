@@ -27,6 +27,14 @@ export type {
   TypedBreadcrumb,
 } from "./types.js";
 
+export {
+  trackFastToggleDisplayed,
+  trackFastPreferenceChanged,
+  trackModelAgentRunStarted,
+  trackModelAgentRunCompleted,
+  serializeRequestedModelParams,
+} from "./model-analytics.js";
+
 export type {
   BeginObservabilitySessionInput,
   ObservabilitySession,

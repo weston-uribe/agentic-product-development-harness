@@ -1,6 +1,12 @@
 import { z } from "zod";
 
-export const ROLE_MODEL_ROLES = ["planner", "builder"] as const;
+export const ROLE_MODEL_ROLES = [
+  "planner",
+  "builder",
+  "planReviewer",
+  "codeReviewer",
+  "codeReviser",
+] as const;
 export type RoleModelRole = (typeof ROLE_MODEL_ROLES)[number];
 
 export const modelParameterValueSchema = z.object({
@@ -28,6 +34,9 @@ export const roleModelsSchema = z
   .object({
     planner: roleModelSelectionSchema.optional(),
     builder: roleModelSelectionSchema.optional(),
+    planReviewer: roleModelSelectionSchema.optional(),
+    codeReviewer: roleModelSelectionSchema.optional(),
+    codeReviser: roleModelSelectionSchema.optional(),
   })
   .strict();
 

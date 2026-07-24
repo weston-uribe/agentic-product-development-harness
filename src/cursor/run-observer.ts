@@ -2,6 +2,16 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { Agent, CursorAgentError, type ModelSelection, type Run, type RunResult, type SDKAgent } from "@cursor/sdk";
 import type { EventLogger } from "../artifacts/events.js";
 import { getCursorRunResultPath } from "../artifacts/paths.js";
+import { buildArtifactRefFromContent } from "../evaluation/telemetry/artifact-ref.js";
+import { buildUsageRecord } from "../evaluation/telemetry/cost.js";
+import { AgentTelemetrySession } from "../evaluation/telemetry/session.js";
+import type {
+  AgentTelemetryCompleteness,
+  AgentTelemetryEventCounts,
+  ArtifactRef,
+  OnTelemetryEvent,
+  TelemetryCorrelationContext,
+} from "../evaluation/telemetry/types.js";
 import { classifyCursorError, classifyRunResultStatus } from "./errors.js";
 import { extractTargetRepoGitResult, type CapturedGitResult } from "./git-result.js";
 import { extractRevisionGitResult } from "./revision-git-result.js";
@@ -16,7 +26,10 @@ import {
 
 export type ObservePhase =
   | "planning"
+  | "plan_review"
   | "implementation"
+  | "code_review"
+  | "code_revision"
   | "revision"
   | "integration_repair";
 
@@ -28,6 +41,9 @@ export interface ObservedRunResult {
   assistantText: string;
   gitResult: CapturedGitResult | null;
   cancelOutcome: CursorCancelOutcome | null;
+  artifactRefs?: ArtifactRef[];
+  eventCounts?: AgentTelemetryEventCounts;
+  completeness?: AgentTelemetryCompleteness;
 }
 
 export interface SendAndObserveOptions {
@@ -44,6 +60,31 @@ export interface SendAndObserveOptions {
   fetchCloudRun?: typeof Agent.getRun;
   onAgentCreated?: (details: { agentId: string; runId: string }) => Promise<void>;
   onBeforeSend?: (details: { agentId: string }) => Promise<void>;
+  /**
+   * Invoked immediately after agent.send returns the provider run,
+   * before telemetry, Linear progression, or success handling.
+   */
+  onRunAcknowledged?: (details: {
+    agentId: string;
+    runId: string;
+    acknowledgedAt: string;
+    providerRunCreatedAt?: string | null;
+  }) => Promise<void>;
+  /**
+   * Invoked immediately after authoritative terminal run.wait/poll result,
+   * before classification, assistant-text validation, git policy, or phase errors.
+   */
+  onRunTerminal?: (details: {
+    agentId: string;
+    runId: string;
+    terminalStatus: string;
+    terminalAt: string;
+    providerTerminalAt?: string | null;
+    hasAuthoritativeTerminalResult: true;
+  }) => Promise<void>;
+  onTelemetryEvent?: OnTelemetryEvent;
+  telemetryCorrelation?: TelemetryCorrelationContext;
+  revisionRequiresPmFeedback?: boolean;
 }
 
 const DEFAULT_CLOUD_RUN_POLL_INTERVAL_MS = 5_000;
@@ -225,10 +266,39 @@ export async function sendAndObserve(
     );
   }
 
+  const runAcknowledgedAt = new Date().toISOString();
+  if (options.onRunAcknowledged) {
+    await options.onRunAcknowledged({
+      agentId,
+      runId: run.id,
+      acknowledgedAt: runAcknowledgedAt,
+      providerRunCreatedAt: null,
+    });
+  }
+
   await events.log("cursor_agent_created", "info", { agentId, runId: run.id });
   if (options.onAgentCreated) {
     await options.onAgentCreated({ agentId, runId: run.id });
   }
+
+  let telemetrySession: AgentTelemetrySession | null = null;
+  if (options.telemetryCorrelation) {
+    telemetrySession = new AgentTelemetrySession({
+      runDirectory,
+      correlation: {
+        ...options.telemetryCorrelation,
+        cursorAgentId: agentId,
+        cursorRunId: run.id,
+      },
+      onTelemetryEvent: options.onTelemetryEvent,
+      revisionRequiresPmFeedback: options.revisionRequiresPmFeedback,
+    });
+    await telemetrySession.emitRunStarted({
+      cursorAgentId: agentId,
+      cursorRunId: run.id,
+    });
+  }
+
   detachAbort = attachAbortHandler(options.abortSignal, ensureCancelled);
   if (options.abortSignal?.aborted) {
     await abortRun(phase, options.abortSignal, ensureCancelled);
@@ -242,6 +312,11 @@ export async function sendAndObserve(
       await events.log("cursor_event", "info", {
         type: event.type,
       });
+      if (telemetrySession) {
+        await telemetrySession.handleCursorSdkMessage(
+          event as import("../evaluation/telemetry/normalize-cursor.js").CursorSdkMessage,
+        );
+      }
     }
   } catch (error) {
     if (options.abortSignal?.aborted) {
@@ -290,28 +365,47 @@ export async function sendAndObserve(
     detachAbort?.();
   }
 
+  const terminalAt = new Date().toISOString();
+  if (options.onRunTerminal && isTerminalRunStatus(result.status)) {
+    await options.onRunTerminal({
+      agentId,
+      runId: result.id,
+      terminalStatus: result.status,
+      terminalAt,
+      providerTerminalAt: null,
+      hasAuthoritativeTerminalResult: true,
+    });
+  }
+
   if (options.abortSignal?.aborted) {
     await abortRun(phase, options.abortSignal, ensureCancelled);
   }
 
+  const runResultPath = getCursorRunResultPath(runDirectory);
+  const runResultBody = {
+    id: result.id,
+    requestId: result.requestId ?? null,
+    status: result.status,
+    durationMs: result.durationMs,
+    model: result.model,
+    git: result.git,
+    error: result.error,
+    usage: result.usage,
+    result: result.result ?? null,
+  };
   await mkdir(`${runDirectory}/cursor`, { recursive: true });
   await writeFile(
-    getCursorRunResultPath(runDirectory),
-    `${JSON.stringify(
-      {
-        id: result.id,
-        status: result.status,
-        durationMs: result.durationMs,
-        model: result.model,
-        git: result.git,
-        error: result.error,
-        usage: result.usage,
-      },
-      null,
-      2,
-    )}\n`,
+    runResultPath,
+    `${JSON.stringify(runResultBody, null, 2)}\n`,
     "utf8",
   );
+
+  const runResultRef = buildArtifactRefFromContent({
+    artifactKind: "cursor_run_result",
+    artifactPath: "cursor/run-result.json",
+    content: JSON.stringify(runResultBody, null, 2),
+    redactionStatus: "reference_only",
+  });
 
   await events.log("cursor_run_finished", "info", {
     runId: result.id,
@@ -319,8 +413,35 @@ export async function sendAndObserve(
     durationMs: result.durationMs,
   });
 
+  const resultModelParams = Array.isArray(result.model?.params)
+    ? result.model.params.map((param) => ({
+        id: String(param.id),
+        value: String(param.value),
+      }))
+    : options.model?.params?.map((param) => ({
+        id: param.id,
+        value: param.value,
+      }));
+  const resultModelId = result.model?.id ?? options.model?.id;
+  const usageForTelemetry = buildUsageRecord(
+    result.usage,
+    resultModelId,
+    resultModelParams,
+  );
+
   const failureClass = classifyRunResultStatus(result.status);
   if (failureClass) {
+    if (telemetrySession) {
+      await telemetrySession.emitRunFinished({
+        status: result.status,
+        hasAssistantOutput: false,
+        modelId: resultModelId,
+        usage: usageForTelemetry,
+        artifactRef: runResultRef,
+        error: true,
+      });
+      await telemetrySession.finalize();
+    }
     throw makePhaseError(
       phase,
       failureClass,
@@ -330,6 +451,17 @@ export async function sendAndObserve(
 
   const assistantText = result.result?.trim() ?? "";
   if (!assistantText) {
+    if (telemetrySession) {
+      await telemetrySession.emitRunFinished({
+        status: result.status,
+        hasAssistantOutput: false,
+        modelId: resultModelId,
+        usage: usageForTelemetry,
+        artifactRef: runResultRef,
+        error: true,
+      });
+      await telemetrySession.finalize();
+    }
     throw makePhaseError(
       phase,
       "cursor_run_failed",
@@ -368,6 +500,24 @@ export async function sendAndObserve(
     }
   }
 
+  let eventCounts: AgentTelemetryEventCounts | undefined;
+  let completeness: AgentTelemetryCompleteness | undefined;
+  if (telemetrySession) {
+    await telemetrySession.emitRunFinished({
+      status: result.status,
+      hasAssistantOutput: true,
+      modelId: resultModelId,
+      usage: usageForTelemetry,
+      durationMs: result.durationMs ?? null,
+      requestId: result.requestId ?? null,
+      artifactRef: runResultRef,
+      costSource: usageForTelemetry?.cost.costSource ?? "unavailable",
+    });
+    const snap = await telemetrySession.finalize();
+    eventCounts = snap.counts;
+    completeness = snap.completeness;
+  }
+
   return {
     agentId,
     runId: result.id,
@@ -376,5 +526,8 @@ export async function sendAndObserve(
     assistantText,
     gitResult,
     cancelOutcome,
+    artifactRefs: [runResultRef],
+    eventCounts,
+    completeness,
   };
 }

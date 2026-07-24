@@ -2,17 +2,24 @@ import type { HarnessConfig } from "../config/types.js";
 import { DEFAULT_MODEL_ID } from "../config/defaults.js";
 import type { RoleModelRole } from "../config/role-models.js";
 import type { ModelParameterValue, ModelSelection } from "@cursor/sdk";
+import {
+  COMPOSER_25_MODEL_ID,
+  resolveModelSelectionForRole,
+  type ModelParameterResolution,
+} from "../models/index.js";
 
 /**
- * Standard Composer 2.5 model parameters for legacy global-model resolution.
+ * Standard Composer 2.5 harness default params (PDev product default).
  *
- * When roleModels is absent, legacy configs resolve with fast:false pinned.
+ * Cursor's provider default for omitted params is Fast (`fast: true`).
+ * When stored preference is missing, resolution pins Standard via
+ * `harness_default_pin` without mutating saved configuration.
  */
 export const STANDARD_MODEL_PARAMS: readonly ModelParameterValue[] = [
   { id: "fast", value: "false" },
 ];
 
-export const LEGACY_COMPOSER_MODEL_ID = "composer-2.5";
+export const LEGACY_COMPOSER_MODEL_ID = COMPOSER_25_MODEL_ID;
 
 function resolveLegacyModelId(config: HarnessConfig): string {
   return (
@@ -20,28 +27,6 @@ function resolveLegacyModelId(config: HarnessConfig): string {
     config.defaultModel?.id ??
     DEFAULT_MODEL_ID
   );
-}
-
-function legacyParamsForModelId(modelId: string): ModelParameterValue[] {
-  if (modelId === LEGACY_COMPOSER_MODEL_ID || modelId === DEFAULT_MODEL_ID) {
-    return [...STANDARD_MODEL_PARAMS];
-  }
-  return [];
-}
-
-function resolveExplicitRoleSelection(
-  config: HarnessConfig,
-  role: RoleModelRole,
-): ModelSelection | undefined {
-  const selection = config.roleModels?.[role];
-  if (!selection?.id) {
-    return undefined;
-  }
-
-  return {
-    id: selection.id,
-    ...(selection.params?.length ? { params: [...selection.params] } : {}),
-  };
 }
 
 export function resolveModelId(config: HarnessConfig): string {
@@ -59,35 +44,53 @@ export function resolveModelIdForRole(
   return resolveLegacyModelId(config);
 }
 
-export function resolvePlannerModel(config: HarnessConfig): ModelSelection {
-  const explicit = resolveExplicitRoleSelection(config, "planner");
-  if (explicit) {
-    return explicit;
-  }
+function toSdkSelection(selection: {
+  id: string;
+  params?: ModelParameterValue[];
+}): ModelSelection {
+  return {
+    id: selection.id,
+    ...(selection.params?.length ? { params: [...selection.params] } : {}),
+  };
+}
 
-  const id = resolveLegacyModelId(config);
-  const params = legacyParamsForModelId(id);
-  return params.length ? { id, params } : { id };
+export function resolvePlannerModel(config: HarnessConfig): ModelSelection {
+  return toSdkSelection(resolveModelSelectionForRole(config, "planner"));
 }
 
 export function resolveBuilderModel(config: HarnessConfig): ModelSelection {
-  const explicit = resolveExplicitRoleSelection(config, "builder");
-  if (explicit) {
-    return explicit;
-  }
+  return toSdkSelection(resolveModelSelectionForRole(config, "builder"));
+}
 
-  const id = resolveLegacyModelId(config);
-  const params = legacyParamsForModelId(id);
-  return params.length ? { id, params } : { id };
+export function resolvePlanReviewerModel(config: HarnessConfig): ModelSelection {
+  return toSdkSelection(resolveModelSelectionForRole(config, "planReviewer"));
+}
+
+export function resolveCodeReviewerModel(config: HarnessConfig): ModelSelection {
+  return toSdkSelection(resolveModelSelectionForRole(config, "codeReviewer"));
+}
+
+export function resolveCodeReviserModel(config: HarnessConfig): ModelSelection {
+  return toSdkSelection(resolveModelSelectionForRole(config, "codeReviser"));
 }
 
 export function resolveModelForRole(
   config: HarnessConfig,
   role: RoleModelRole,
 ): ModelSelection {
-  return role === "planner"
-    ? resolvePlannerModel(config)
-    : resolveBuilderModel(config);
+  if (role === "planner") return resolvePlannerModel(config);
+  if (role === "planReviewer") return resolvePlanReviewerModel(config);
+  if (role === "codeReviewer") return resolveCodeReviewerModel(config);
+  if (role === "codeReviser") return resolveCodeReviserModel(config);
+  return resolveBuilderModel(config);
+}
+
+/** Full resolution including evidence layers (read-only; does not mutate config). */
+export function resolveModelResolutionForRole(
+  config: HarnessConfig,
+  role: RoleModelRole,
+): ModelParameterResolution {
+  return resolveModelSelectionForRole(config, role).resolution;
 }
 
 /** @deprecated Use resolveModelForRole(config, role) or role-specific helpers. */
@@ -118,11 +121,20 @@ export function manifestModelEvidence(
   model: string;
   modelRole: RoleModelRole;
   modelParams: Array<{ id: string; value: string }> | null;
+  parameterEvidenceSource: ModelParameterResolution["parameterEvidenceSource"];
+  effectiveVariant: ModelParameterResolution["effectiveVariant"];
+  providerDefaultParams: Array<{ id: string; value: string }>;
+  harnessDefaultParams: Array<{ id: string; value: string }>;
 } {
-  const selection = resolveModelForRole(config, role);
+  const resolved = resolveModelSelectionForRole(config, role);
+  const resolution = resolved.resolution;
   return {
-    model: selection.id,
+    model: resolved.id,
     modelRole: role,
-    modelParams: selection.params?.length ? [...selection.params] : null,
+    modelParams: resolved.params?.length ? [...resolved.params] : null,
+    parameterEvidenceSource: resolution.parameterEvidenceSource,
+    effectiveVariant: resolution.effectiveVariant,
+    providerDefaultParams: [...resolution.providerDefaultParams],
+    harnessDefaultParams: [...resolution.harnessDefaultParams],
   };
 }

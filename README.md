@@ -4,11 +4,19 @@
 
 ## Use the product
 
-**Easiest start for product managers:**
+**Installed or globally linked:**
+
+```bash
+p-dev
+```
+
+**Published npm install (current registry command):**
 
 ```bash
 npx --yes p-dev-harness@0.4.0
 ```
+
+PDev automatically opens Initial Harness Configuration until setup is complete, then opens the Workflow page.
 
 - Requires **Node.js 22+**
 - Starts a local guided **Configure GUI**
@@ -26,9 +34,11 @@ Contributors and maintainers clone the source repository:
 ```bash
 git clone https://github.com/weston-uribe/agentic-product-development-harness.git
 cd agentic-product-development-harness
-npm ci && npm run build
-npm run harness:configure
+npm ci
+npm run dev
 ```
+
+For a global `p-dev` command linked to this checkout, run `npm run p-dev:install` once.
 
 See [`docs/getting-started.md`](docs/getting-started.md).
 
@@ -83,11 +93,11 @@ SDK runners handle planning through merge and production sync. Linear status cha
 | Layer | Status |
 |-------|--------|
 | Product onboarding | `p-dev` guided Configure GUI (implemented) |
-| Issue intake | ChatGPT prompt + Cursor skill + validate-issue CLI |
+| Issue intake | External standalone ChatGPT skill ([`.agents/skills/issue-intake/SKILL.md`](.agents/skills/issue-intake/SKILL.md)) + validate-issue CLI for the resulting issue contract |
 | Planning / implementation / handoff / revision / merge | SDK runners (implemented) |
 | Production sync | SDK runner + optional dispatch (implemented) |
 | Auto-run from Linear status | Webhook bridge + GitHub Actions (implemented) |
-| Canonical harness skills | `issue-intake`, `code-health-audit`, `architecture-evolution-audit`, `security-audit`, `planner`, `implementation` |
+| Canonical skills | `issue-intake` (external ChatGPT copy/paste; not harness-executed), `code-health-audit`, `architecture-evolution-audit`, `security-audit`, `planner`, `implementation` |
 
 ## Configuration and portability posture
 

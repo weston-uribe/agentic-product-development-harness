@@ -1,3 +1,8 @@
+import {
+  issueKeyMatchesHarnessTeamKeys,
+  parseHarnessTeamKeys,
+} from "../setup/harness-team-keys.js";
+
 const ISSUE_KEY_FROM_URL = /\/([A-Z]+-\d+)(?:\/|$|#)/;
 
 export function extractIssueKeyFromUrl(url: string | null | undefined): string | null {
@@ -41,9 +46,8 @@ export function validateIssueKeyTeam(
   issueKey: string,
   teamKey: string | null | undefined,
 ): boolean {
-  if (!teamKey) {
-    return true;
-  }
-  const prefix = `${teamKey.toUpperCase()}-`;
-  return issueKey.toUpperCase().startsWith(prefix);
+  return issueKeyMatchesHarnessTeamKeys(
+    issueKey,
+    parseHarnessTeamKeys(teamKey),
+  );
 }

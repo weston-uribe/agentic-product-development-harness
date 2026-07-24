@@ -100,10 +100,14 @@ export async function loadTargetRepoOverviewFields(
           }
         } catch (error) {
           connectionStatus = "needs-attention";
-          connectionDetail =
+          const raw =
             error instanceof Error
               ? error.message
               : "Could not verify repository branches.";
+          connectionDetail =
+            /ghp_|github_pat_|LINEAR_API_KEY=|GITHUB_TOKEN=/i.test(raw)
+              ? "Could not verify repository branches."
+              : raw;
         }
       }
     }

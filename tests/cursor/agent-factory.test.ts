@@ -15,8 +15,10 @@ vi.mock("@cursor/sdk", () => ({
 }));
 
 import {
+  createCodeReviewCloudAgent,
   createImplementationCloudAgent,
   createIntegrationRepairCloudAgent,
+  createPlanReviewCloudAgent,
   createPlanningCloudAgent,
   createReplacementBuilderCloudAgent,
   createRevisionCloudAgent,
@@ -124,6 +126,75 @@ describe("cloud agent factories use basic Composer 2.5", () => {
     ]);
     expect(request.cloud.autoCreatePR).toBe(false);
     expect(request.cloud.skipReviewerRequest).toBe(true);
+    assertStandardComposer(request.model);
+  });
+
+  it("createPlanningCloudAgent transmits explicit Fast when roleModels request it", async () => {
+    await createPlanningCloudAgent({
+      apiKey: "key",
+      config: makeConfig({
+        roleModels: {
+          planner: {
+            id: "composer-2.5",
+            params: [{ id: "fast", value: "true" }],
+          },
+        },
+      }),
+      targetRepo: TARGET_REPO,
+      baseBranch: "dev",
+    });
+
+    const request = createMock.mock.calls[0]![0];
+    expect(request.model).toEqual({
+      id: "composer-2.5",
+      params: [{ id: "fast", value: "true" }],
+    });
+  });
+
+  it("fails closed when provider rejects model parameters", async () => {
+    createMock.mockRejectedValueOnce(new Error("Unsupported parameter fast"));
+    await expect(
+      createPlanningCloudAgent({
+        apiKey: "key",
+        config: makeConfig(),
+        targetRepo: TARGET_REPO,
+        baseBranch: "dev",
+      }),
+    ).rejects.toMatchObject({
+      code: "model_parameter_rejected",
+      modelId: "composer-2.5",
+      failureClassification: "provider_model_parameter_rejected",
+    });
+  });
+
+  it("createPlanReviewCloudAgent requests standard Composer 2.5 and agent mode", async () => {
+    await createPlanReviewCloudAgent({
+      apiKey: "key",
+      config: makeConfig(),
+      targetRepo: TARGET_REPO,
+      baseBranch: "dev",
+    });
+
+    expect(createMock).toHaveBeenCalledTimes(1);
+    const request = createMock.mock.calls[0]![0];
+    expect(request.mode).toBe("agent");
+    expect(request.cloud.autoCreatePR).toBe(false);
+    assertStandardComposer(request.model);
+  });
+
+  it("createCodeReviewCloudAgent requests standard Composer 2.5 and agent mode", async () => {
+    await createCodeReviewCloudAgent({
+      apiKey: "key",
+      config: makeConfig(),
+      targetRepo: TARGET_REPO,
+      branch: "cursor/wes-1",
+      prUrl: "https://github.com/owner/example-target-app/pull/7",
+    });
+
+    expect(createMock).toHaveBeenCalledTimes(1);
+    const request = createMock.mock.calls[0]![0];
+    expect(request.mode).toBe("agent");
+    expect(request.cloud.autoCreatePR).toBe(false);
     assertStandardComposer(request.model);
   });
 

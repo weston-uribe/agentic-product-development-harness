@@ -1,8 +1,11 @@
 export const RUN_PHASE_ARGS = [
   "auto",
   "planning",
+  "plan_review",
   "implementation",
   "handoff",
+  "code_review",
+  "code_revision",
   "revision",
   "merge",
   "dry-run",
@@ -13,8 +16,11 @@ export type RunPhaseArg = (typeof RUN_PHASE_ARGS)[number];
 export const DISPATCH_PHASE_ARGS = [
   "auto",
   "planning",
+  "plan_review",
   "implementation",
   "handoff",
+  "code_review",
+  "code_revision",
   "revision",
   "merge",
 ] as const;
@@ -25,10 +31,10 @@ export type DispatchPhaseArg = (typeof DISPATCH_PHASE_ARGS)[number];
 export type ResolveRoutePhaseArg = DispatchPhaseArg;
 
 export const RUN_PHASE_CLI_DESCRIPTION =
-  "auto, planning, implementation, handoff, revision, merge, or dry-run";
+  "auto, planning, plan_review, implementation, handoff, code_review, code_revision, revision, merge, or dry-run";
 
 export const DISPATCH_PHASE_CLI_DESCRIPTION =
-  "auto, planning, implementation, handoff, revision, merge";
+  "auto, planning, plan_review, implementation, handoff, code_review, code_revision, revision, merge";
 
 function normalizePhase(value: string): string {
   return value.trim().toLowerCase();

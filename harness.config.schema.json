@@ -121,6 +121,190 @@
                 "id"
               ],
               "additionalProperties": false
+            },
+            "planReviewer": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "params": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "value": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "value"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "id"
+              ],
+              "additionalProperties": false
+            },
+            "codeReviewer": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "params": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "value": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "value"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "id"
+              ],
+              "additionalProperties": false
+            },
+            "codeReviser": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "params": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "value": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "value"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "id"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        },
+        "promptProvider": {
+          "type": "object",
+          "properties": {
+            "provider": {
+              "type": "string",
+              "enum": [
+                "local",
+                "langfuse_with_local_fallback"
+              ],
+              "default": "local"
+            },
+            "label": {
+              "type": "string",
+              "minLength": 1
+            },
+            "version": {
+              "type": "integer",
+              "exclusiveMinimum": 0
+            },
+            "cacheTtlSeconds": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            "preferredSkillMode": {
+              "type": "string",
+              "enum": [
+                "automatic",
+                "native_when_supported",
+                "rendered_fallback"
+              ],
+              "default": "automatic"
+            }
+          },
+          "additionalProperties": false
+        },
+        "workflow": {
+          "type": "object",
+          "properties": {
+            "schemaVersion": {
+              "type": "string",
+              "minLength": 1,
+              "default": "product-development-v2"
+            },
+            "optionalPhases": {
+              "type": "object",
+              "description": "Field defaults match legacy migration (reviews off) when a workflow object is present but fields are omitted. Brand-new first-run configs persist both true via the config builder.",
+              "properties": {
+                "planReview": {
+                  "type": "boolean",
+                  "default": false
+                },
+                "codeReview": {
+                  "type": "boolean",
+                  "default": false
+                }
+              },
+              "additionalProperties": false,
+              "default": {
+                "planReview": false,
+                "codeReview": false
+              }
+            },
+            "cycleLimits": {
+              "type": "object",
+              "properties": {
+                "planReview": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "default": 4
+                },
+                "codeReview": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "default": 4
+                }
+              },
+              "additionalProperties": false,
+              "default": {
+                "planReview": 4,
+                "codeReview": 4
+              }
             }
           },
           "additionalProperties": false
@@ -357,6 +541,10 @@
                       "minLength": 1
                     },
                     "teamKey": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "teamName": {
                       "type": "string",
                       "minLength": 1
                     },

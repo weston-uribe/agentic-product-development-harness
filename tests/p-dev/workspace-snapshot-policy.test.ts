@@ -31,14 +31,37 @@ describe("workspace snapshot policy", () => {
     expect(WORKSPACE_SNAPSHOT_POLICY.requiredPaths).toContain("src");
     expect(WORKSPACE_SNAPSHOT_POLICY.requiredPaths).toContain(".agents");
     expect(WORKSPACE_SNAPSHOT_POLICY.requiredPaths).toContain("tests");
+    expect(WORKSPACE_SNAPSHOT_POLICY.requiredPaths).toContain("bin");
+    expect(WORKSPACE_SNAPSHOT_POLICY.requiredPaths).toContain(
+      "config/observability.public.json",
+    );
     expect(WORKSPACE_SNAPSHOT_POLICY.requiredPaths).toContain(".npmrc");
     expect(WORKSPACE_SNAPSHOT_POLICY.includeFiles).toContain(".npmrc");
     expect(isIncludedSnapshotPath(".npmrc")).toBe(true);
+    expect(WORKSPACE_SNAPSHOT_POLICY.requiredPaths).toContain(".nvmrc");
+    expect(WORKSPACE_SNAPSHOT_POLICY.includeFiles).toContain(".nvmrc");
+    expect(isIncludedSnapshotPath(".nvmrc")).toBe(true);
+    expect(isIncludedSnapshotPath("bin/p-dev-dev-lib.js")).toBe(true);
+    expect(isIncludedSnapshotPath("config/observability.public.json")).toBe(
+      true,
+    );
+    expect(WORKSPACE_SNAPSHOT_POLICY.includeFiles).toContain(".gitignore");
+    expect(isIncludedSnapshotPath(".gitignore")).toBe(true);
   });
 
   it("excludes the Operations live draft path from workspace snapshots", () => {
     expect(
       isForbiddenSnapshotPath(".harness/operations-workflow-draft.local.json"),
     ).toBe(true);
+  });
+
+  it("includes Langfuse diagnostic and projection-canary workflows under .github/", () => {
+    for (const workflow of [
+      ".github/workflows/evaluation-inspect-langfuse.yml",
+      ".github/workflows/evaluation-canary-langfuse-projection.yml",
+    ]) {
+      expect(isIncludedSnapshotPath(workflow)).toBe(true);
+      expect(isForbiddenSnapshotPath(workflow)).toBe(false);
+    }
   });
 });

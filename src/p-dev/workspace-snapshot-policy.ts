@@ -14,7 +14,9 @@ const REQUIRED_PATHS = [
   ".github",
   ".harness/config.example.json",
   ".env.example",
+  ".gitignore",
   ".npmrc",
+  ".nvmrc",
   "AGENTS.md",
   "ARCHITECTURE.md",
   "CHANGELOG.md",
@@ -23,6 +25,7 @@ const REQUIRED_PATHS = [
   "ROADMAP.md",
   "api",
   "apps",
+  "bin",
   "docs",
   "evals",
   "examples",
@@ -34,6 +37,7 @@ const REQUIRED_PATHS = [
   "src",
   "templates",
   "tests",
+  "config/observability.public.json",
   "harness.config.json",
   "harness.config.schema.json",
   "package.json",
@@ -49,6 +53,7 @@ const INCLUDE_PREFIXES = [
   ".harness/",
   "api/",
   "apps/",
+  "bin/",
   "docs/",
   "evals/",
   "examples/",
@@ -64,13 +69,16 @@ const INCLUDE_PREFIXES = [
 
 const INCLUDE_FILES = [
   ".env.example",
+  ".gitignore",
   ".npmrc",
+  ".nvmrc",
   "AGENTS.md",
   "ARCHITECTURE.md",
   "CHANGELOG.md",
   "LICENSE",
   "README.md",
   "ROADMAP.md",
+  "config/observability.public.json",
   "harness.config.json",
   "harness.config.schema.json",
   "package.json",
@@ -186,12 +194,27 @@ export function assertNoForbiddenSnapshotPaths(selectedPaths: string[]): void {
   }
 }
 
+/**
+ * npm pack always omits files named `.npmrc` / `.gitignore` (any depth).
+ * Store those logical snapshot paths under pack-safe aliases; provisioning
+ * still writes the logical names into managed workspaces via the manifest path.
+ */
+const SNAPSHOT_PACK_SAFE_STORAGE_ALIASES: Readonly<Record<string, string>> = {
+  ".npmrc": "npmrc.snapshot",
+  ".gitignore": "gitignore.snapshot",
+};
+
+export function toSnapshotStoragePath(snapshotPath: string): string {
+  const normalized = normalizeSnapshotPath(snapshotPath);
+  return SNAPSHOT_PACK_SAFE_STORAGE_ALIASES[normalized] ?? normalized;
+}
+
 export function resolveSnapshotOutputPath(
   snapshotRoot: string,
   snapshotPath: string,
 ): string {
-  const normalized = normalizeSnapshotPath(snapshotPath);
-  const absolute = path.resolve(snapshotRoot, "files", normalized);
+  const storagePath = toSnapshotStoragePath(snapshotPath);
+  const absolute = path.resolve(snapshotRoot, "files", storagePath);
   const filesRoot = path.resolve(snapshotRoot, "files");
   if (!absolute.startsWith(`${filesRoot}${path.sep}`) && absolute !== filesRoot) {
     throw new Error(`Snapshot output path escapes files root: ${snapshotPath}`);

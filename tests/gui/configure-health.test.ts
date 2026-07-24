@@ -16,7 +16,10 @@ describe("configure-health", () => {
       </html>
     `;
 
-    expect(analyzeConfigurePageHtml(html)).toEqual({ ok: true });
+    expect(analyzeConfigurePageHtml(html)).toEqual({
+      ok: true,
+      recoverableByCacheReset: false,
+    });
     expect(extractNextCssHref(html)).toBe(
       "/_next/static/css/app/layout.css?v=1",
     );
@@ -25,7 +28,8 @@ describe("configure-health", () => {
   it("rejects HTML without Next static assets", () => {
     const result = analyzeConfigurePageHtml("<html><body>Configure</body></html>");
     expect(result.ok).toBe(false);
-    expect(result.reason).toContain("missing Next.js static asset references");
+    expect(result.category).toBe("missing_static_assets");
+    expect(result.recoverableByCacheReset).toBe(true);
   });
 
   it("rejects HTML missing CSS bundle links", () => {
@@ -33,7 +37,8 @@ describe("configure-health", () => {
       '<html><script src="/_next/static/chunks/main.js"></script></html>',
     );
     expect(result.ok).toBe(false);
-    expect(result.reason).toContain("missing a Next.js CSS bundle link");
+    expect(result.category).toBe("missing_css_bundle");
+    expect(result.recoverableByCacheReset).toBe(true);
   });
 
   it("validates CSS asset content type and size", () => {
@@ -44,18 +49,20 @@ describe("configure-health", () => {
         body: css,
         href: "/_next/static/css/app/layout.css",
       }),
-    ).toEqual({ ok: true });
+    ).toEqual({ ok: true, recoverableByCacheReset: false });
   });
 
-  it("rejects tiny or non-css assets", () => {
-    expect(
-      validateConfigureCssAsset({
-        contentType: "text/html",
-        body: "<html></html>",
-        href: "/_next/static/css/app/layout.css",
-      }).ok,
-    ).toBe(false);
+  it("marks invalid css assets as recoverable", () => {
+    const result = validateConfigureCssAsset({
+      contentType: "text/html",
+      body: "<html></html>",
+      href: "/_next/static/css/app/layout.css",
+    });
+    expect(result.ok).toBe(false);
+    expect(result.recoverableByCacheReset).toBe(true);
+  });
 
+  it("rejects tiny css assets", () => {
     expect(
       validateConfigureCssAsset({
         contentType: "text/css",

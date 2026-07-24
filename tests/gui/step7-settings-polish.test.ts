@@ -40,6 +40,9 @@ describe("Step 7 atomic completion and finish redirect", () => {
 
     expect(experience).toContain("handleGuidedWorkflowSetupComplete");
     expect(experience).toContain('window.location.assign("/workflow")');
+    expect(experience).toContain("Could not finish initial setup");
+    expect(experience).toContain("setInitialSetupCompletionError");
+    expect(experience).toContain("unmet");
     expect(experience).not.toMatch(
       /handleGuidedWorkflowSetupComplete[\s\S]*?window\.location\.assign\("\/settings"\)/,
     );
@@ -82,14 +85,14 @@ describe("Connections settings seeded verification", () => {
         seeded.LINEAR_API_KEY,
         "",
       ),
-    ).toBe("connected");
+    ).toBe("checking");
     expect(
       resolveServiceConnectionBadgeState(
         false,
         seeded.GITHUB_TOKEN,
         "",
       ),
-    ).toBe("unchecked");
+    ).toBe("missing");
   });
 });
 
@@ -150,7 +153,7 @@ describe("Linear full team name display", () => {
     );
 
     expect(settings).toContain("formatLinearTeamLabel");
-    expect(settings).toContain("teamName: associations[0]?.teamName");
+    expect(settings).toContain("teamName: teamAssociations[0]?.teamName");
     expect(guided).toContain("formatLinearTeamLabel");
     expect(guided).not.toMatch(/\{associations\[0\]\?\.teamKey\} ·/);
   });
@@ -168,9 +171,14 @@ describe("GuidedSelect height usage in settings", () => {
       "apps/gui/components/workflow/workflow-model-control.tsx",
     );
 
-    expect(deployments).toContain("GuidedSelect");
+    const linearProvision = readSource(
+      "apps/gui/components/settings/linear-provision-form.tsx",
+    );
+
+    expect(deployments).not.toContain("GuidedSelect");
     expect(deployments).not.toContain("selectClassName");
-    expect(linear).toContain("GuidedSelect");
+    expect(linearProvision).toContain("GuidedSelect");
+    expect(linearProvision).not.toContain("selectClassName");
     expect(linear).not.toContain("selectClassName");
     expect(modelControl).toContain("GuidedSelect");
     expect(modelControl).not.toMatch(

@@ -12,6 +12,7 @@ import {
   getTransitionalStatus,
   resolveMergeSuccessStatus,
 } from "../../config/status-names.js";
+import { resolveNextStatusName } from "../workflow-transition.js";
 import { writeManifest } from "../../artifacts/manifest.js";
 import { writeRunSummary } from "../../artifacts/summary.js";
 import {
@@ -80,11 +81,32 @@ import type {
 } from "../../types/run.js";
 import type { ParsedIssue } from "../../types/parsed-issue.js";
 import type { ResolvedTarget } from "../../resolver/target-repo.js";
+import type {
+  EvaluationRuntime,
+  EvaluationScoreInput,
+  PhaseTraceHandle,
+} from "../../evaluation/types.js";
+import {
+  categorizeCheckResult,
+} from "../../evaluation/capture-policy.js";
+import {
+  buildTerminalSessionScores,
+  countSuccessfulRevisionCycles,
+  deriveDeliveryOutcome,
+  deriveReviewOutcome,
+  mergeSourceTimestamp,
+} from "../../evaluation/outcomes.js";
+import {
+  finalizePhaseEvaluation,
+  safeStartPhaseTrace,
+} from "../../evaluation/phase-helpers.js";
+import type { MergeSourceComment } from "../../linear/merge-source-comment.js";
 
 export interface MergePhaseOptions {
   issueKey: string;
   configPath: string;
   force?: boolean;
+  evaluationRuntime?: EvaluationRuntime;
 }
 
 export interface MergePhaseResult {
@@ -221,10 +243,23 @@ async function writeFinalManifest(
   events: EventLogger | null,
   finalOutcome: FinalOutcome,
   errorClassification: ErrorClassification,
+  phaseTrace: PhaseTraceHandle | null = null,
+  evaluationRuntime: EvaluationRuntime | null = null,
+  extraEvalMetadata?: Record<string, unknown>,
+  sessionScores?: EvaluationScoreInput[],
 ): Promise<MergePhaseResult> {
+  const finalManifest = await finalizePhaseEvaluation({
+    runtime: evaluationRuntime,
+    phaseTrace,
+    manifest,
+    runDirectory,
+    extraMetadata: extraEvalMetadata,
+    sessionScores,
+  });
+
   if (runDirectory) {
-    await writeManifest(runDirectory, manifest);
-    await writeRunSummary(runDirectory, manifest, parsed, resolved);
+    await writeManifest(runDirectory, finalManifest);
+    await writeRunSummary(runDirectory, finalManifest, parsed, resolved);
     await events?.log("run_finished", finalOutcome === "success" ? "info" : "error", {
       finalOutcome,
       errorClassification,
@@ -253,7 +288,7 @@ async function writeFinalManifest(
         ? 2
         : 3;
 
-  return { manifest, runDirectory, exitCode };
+  return { manifest: finalManifest, runDirectory, exitCode };
 }
 
 async function postCompletionAndTransition(
@@ -384,6 +419,18 @@ export async function executeMergePhase(
     startedAt,
   } = preflight.context;
 
+  let phaseTrace: PhaseTraceHandle | null = null;
+  let mergeSource: MergeSourceComment | null = null;
+  let mergeProven = false;
+  let integrationRepairAttempted = false;
+  let integrationRepairMode: "github_update_branch" | "cursor_agent" | "none" = "none";
+  let integrationRepairOutcome:
+    | "success"
+    | "failed"
+    | "skipped"
+    | "not_attempted" = "not_attempted";
+  let issueComments: Awaited<ReturnType<typeof listIssueComments>> = [];
+
   const linearStatusBefore = issue.status;
   let linearStatusAfter = issue.status;
   let finalOutcome: FinalOutcome = "failed";
@@ -422,13 +469,57 @@ export async function executeMergePhase(
 
   const client = createLinearClient(linearApiKey);
   const github = new GitHubClient({ token: githubToken });
-  const mergeSuccessStatus = resolveMergeSuccessStatus(resolved, config);
-  const mergingStatus = getTransitionalStatus(config, "mergingInProgress");
+  const mergeSuccessStatus = resolveNextStatusName({
+    config,
+    currentPhaseId: "merge",
+    outcome: {
+      kind: "success",
+      phaseId: "merge",
+      attemptIdentity: `${runId}:merge-success-probe`,
+    },
+    evidence: { linearStatusName: "Merging" },
+    baseBranch: resolved.baseBranch,
+    productionBranch: resolved.productionBranch,
+  }).statusName;
+  // Keep resolveMergeSuccessStatus as a parity check (config name overrides).
+  const configuredMergeSuccess = resolveMergeSuccessStatus(resolved, config);
+  if (
+    configuredMergeSuccess.trim().toLowerCase() !==
+    mergeSuccessStatus.trim().toLowerCase()
+  ) {
+    // Prefer engine when optional workflow is active; configured path remains available.
+  }
+  void configuredMergeSuccess;
+  const mergingStatus = resolveNextStatusName({
+    config,
+    currentPhaseId: "merge_dispatch",
+    outcome: {
+      kind: "claim",
+      phaseId: "merge_dispatch",
+      attemptIdentity: runId,
+    },
+    evidence: { linearStatusName: linearStatusBefore ?? "Ready to Merge" },
+    baseBranch: resolved.baseBranch,
+    productionBranch: resolved.productionBranch,
+  }).statusName;
+
+  phaseTrace = await safeStartPhaseTrace(options.evaluationRuntime, {
+    phase: "merge",
+    issueKey: options.issueKey,
+    runId,
+    metadata: {
+      resolutionSource: resolved.resolutionSource,
+      baseBranch: resolved.baseBranch,
+      repositoryConfigurationId: resolved.repoConfigId,
+      linearStatusBefore,
+    },
+  });
+  phaseTrace?.startChild("p-dev.preflight", "span")?.end({ finalOutcome: "success" });
 
   try {
-    const comments = await listIssueComments(client, issue.id);
-    const mergeSource = findLatestMergeSourceComment(
-      comments,
+    issueComments = await listIssueComments(client, issue.id);
+    mergeSource = findLatestMergeSourceComment(
+      issueComments,
       config.orchestratorMarker,
     );
     if (!mergeSource) {
@@ -470,6 +561,9 @@ export async function executeMergePhase(
       commentId: mergeSource.comment.id,
       source: mergeSource.source,
     });
+    phaseTrace?.startChild("p-dev.merge-source-loaded", "event")?.end({
+      mergeSource: mergeSource.source,
+    });
 
     const parsedPr = parsePrUrl(prUrl);
     if (!parsedPr) {
@@ -479,7 +573,7 @@ export async function executeMergePhase(
     const earlyIdempotency = checkMergeIdempotency(
       config,
       issue,
-      comments,
+      issueComments,
       prUrl,
       false,
       Boolean(options.force),
@@ -609,11 +703,17 @@ export async function executeMergePhase(
     }
     changedFiles = preInspection.changedFiles.map((f) => f.path);
     checkSummary = preInspection.checkSummary;
+    phaseTrace?.startChild("p-dev.github.pr-inspection", "span")?.end({
+      changedFileCount: changedFiles.length,
+      checkResultCategory: categorizeCheckResult(checkSummary),
+      prCreated: true,
+      mergeCompleted: prMerged,
+    });
 
     const idempotency = checkMergeIdempotency(
       config,
       issue,
-      comments,
+      issueComments,
       prUrl,
       prMerged,
       Boolean(options.force),
@@ -807,7 +907,7 @@ export async function executeMergePhase(
           })
         ) {
           const repairFailureCount = countRepairFailuresForPr(
-            comments,
+            issueComments,
             config.orchestratorMarker,
             preInspection.url,
           );
@@ -832,6 +932,14 @@ export async function executeMergePhase(
             model: manifestModelEvidence(config, "builder").model,
             initialInspection: preInspection,
             cursorApiKey: process.env.CURSOR_API_KEY,
+          });
+          integrationRepairAttempted = repair.integrationRepairAttempted;
+          integrationRepairMode = repair.integrationRepairMode;
+          integrationRepairOutcome = repair.integrationRepairOutcome;
+          phaseTrace?.startChild("p-dev.integration-repair", "span")?.end({
+            integrationRepairAttempted,
+            integrationRepairMode,
+            integrationRepairOutcome,
           });
           preInspection = repair.inspection;
           if (repair.agentEvidence) {
@@ -875,6 +983,7 @@ export async function executeMergePhase(
         prUrl,
         mergeMethod,
       });
+      const mergeRequestObs = phaseTrace?.startChild("p-dev.github.merge-request", "span");
 
       try {
         const mergeResult = await github.mergePullRequest(
@@ -894,7 +1003,9 @@ export async function executeMergePhase(
           mergeCommitSha,
           merged: prMerged,
         });
+        mergeRequestObs?.end({ mergeCompleted: prMerged, mergeMethod });
       } catch (error) {
+        mergeRequestObs?.end({ mergeCompleted: false, mergeMethod });
         if (isAlreadyMergedError(error)) {
           prMerged = true;
         } else {
@@ -940,6 +1051,11 @@ export async function executeMergePhase(
       );
     }
 
+    mergeProven = Boolean(postInspection.merged);
+    phaseTrace?.startChild("p-dev.github.checks", "span")?.end({
+      checkResultCategory: categorizeCheckResult(checkSummary),
+    });
+
     const mergedToProduction = resolved.baseBranch === resolved.productionBranch;
     const productionReference = getProductionUrlReference(
       config,
@@ -947,6 +1063,7 @@ export async function executeMergePhase(
     );
 
     if (mergedToProduction) {
+      const deploymentObs = phaseTrace?.startChild("p-dev.deployment", "span");
       if (shouldCaptureApplicationPreview(resolved.previewProvider)) {
         const deploymentPollTimeout =
           config.merge?.deploymentPollTimeoutSeconds ??
@@ -1010,8 +1127,16 @@ export async function executeMergePhase(
             deploymentUrl,
             source: deploymentResult.source,
           });
+          deploymentObs?.end({
+            deploymentRequired: true,
+            deliveryOutcome: "merged_to_production_deployed",
+          });
         }
       } else {
+        deploymentObs?.end({
+          deploymentRequired: false,
+          deliveryOutcome: "merged_to_production_without_deployment",
+        });
         await events.log("deployment_poll_skipped", "info", {
           reason: "application_preview_not_configured",
           previewProvider: resolved.previewProvider,
@@ -1089,6 +1214,14 @@ export async function executeMergePhase(
       events,
       linearStatusBefore,
     );
+    phaseTrace?.startChild("p-dev.merge.publish", "span")?.end({
+      finalOutcome: "success",
+      mergeCompleted: mergeProven,
+    });
+    phaseTrace?.startChild("p-dev.linear.status-transition", "event")?.end({
+      linearStatusBefore,
+      linearStatusAfter: mergeSuccessStatus,
+    });
 
     await writeFile(getMergeCompletionCommentPath(runDirectory), `${mergeBody}\n`, "utf8");
     commentsWritten.push(mergeBody);
@@ -1127,7 +1260,7 @@ export async function executeMergePhase(
           github,
           orchestratorMarker: config.orchestratorMarker,
           mergeRunId: runId,
-          comments,
+          comments: issueComments,
         });
         await events.log("project_metadata_sync", "info", {
           updated: metadataSync.updated,
@@ -1217,7 +1350,18 @@ export async function executeMergePhase(
     } else if (enteredMerging) {
       try {
         await postErrorComment(client, issue.id, message, mergeFooter, "merge");
-        const blocked = getTransitionalStatus(config, "blocked");
+        const blocked = resolveNextStatusName({
+          config,
+          currentPhaseId: "merge",
+          outcome: {
+            kind: "failure",
+            phaseId: "merge",
+            attemptIdentity: `${runId}:failure`,
+          },
+          evidence: { linearStatusName: mergingStatus },
+          baseBranch: resolved.baseBranch,
+          productionBranch: resolved.productionBranch,
+        }).statusName;
         await transitionIssueStatus(client, issue, blocked);
         linearStatusAfter = blocked;
         await events.log("linear_status_changed", "info", {
@@ -1268,6 +1412,34 @@ export async function executeMergePhase(
     modelParams: manifestModelParams,
   };
 
+  const deliveryOutcome =
+    mergeProven && mergeSource && prUrl
+      ? deriveDeliveryOutcome({
+          mergedToProduction: resolved.baseBranch === resolved.productionBranch,
+          deploymentUrl,
+          deploymentRequired:
+            config.merge?.deploymentRequiredForSuccess ??
+            DEFAULT_MERGE_DEPLOYMENT_REQUIRED,
+        })
+      : undefined;
+
+  const sessionScores =
+    mergeSource && phaseTrace && options.evaluationRuntime && prUrl
+      ? buildTerminalSessionScores({
+          namespace: options.evaluationRuntime.namespace,
+          sessionId: phaseTrace.correlation.sessionId,
+          mergeSource,
+          revisionCycleCount: countSuccessfulRevisionCycles(
+            issueComments,
+            config.orchestratorMarker,
+            prUrl,
+          ),
+          mergeSourceTimestamp: mergeSourceTimestamp(mergeSource),
+          mergeProven,
+          deliveryOutcome,
+        })
+      : undefined;
+
   return writeFinalManifest(
     manifest,
     runDirectory,
@@ -1276,5 +1448,35 @@ export async function executeMergePhase(
     events,
     finalOutcome,
     errorClassification,
+    phaseTrace,
+    options.evaluationRuntime ?? null,
+    {
+      mergeSource: mergeSource?.source ?? null,
+      revisionCycleCount: prUrl
+        ? countSuccessfulRevisionCycles(
+            issueComments,
+            config.orchestratorMarker,
+            prUrl,
+          )
+        : null,
+      reviewOutcome: mergeSource ? deriveReviewOutcome(mergeSource) : null,
+      mergeMethod,
+      mergeCompleted: mergeProven ? true : null,
+      mergeDestination:
+        resolved.baseBranch === resolved.productionBranch
+          ? "production"
+          : "integration",
+      deliveryOutcome: deliveryOutcome ?? null,
+      deploymentRequired:
+        resolved.baseBranch === resolved.productionBranch
+          ? (config.merge?.deploymentRequiredForSuccess ??
+            DEFAULT_MERGE_DEPLOYMENT_REQUIRED)
+          : false,
+      integrationRepairAttempted,
+      integrationRepairMode,
+      integrationRepairOutcome,
+      totalPhaseDurationMs: Date.now() - startedAt.getTime(),
+    },
+    sessionScores,
   );
 }

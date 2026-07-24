@@ -43,6 +43,9 @@ export interface VercelBridgeEnvInput {
   GITHUB_DISPATCH_REPOSITORY?: string;
   GITHUB_DISPATCH_EVENT_TYPE?: string;
   LINEAR_WEBHOOK_TIMESTAMP_TOLERANCE_MS?: string;
+  P_DEV_WORKFLOW_STATE_REPOSITORY?: string;
+  P_DEV_JOB_REQUEST_REPOSITORY?: string;
+  P_DEV_WORKFLOW_STATE_BRANCH?: string;
 }
 
 export interface VercelBridgeTeamInput {
@@ -202,6 +205,40 @@ export function diffVercelBridgePreviewFingerprintInputs(
     }
   }
   return differingKeys;
+}
+
+/**
+ * After apply writes env vars and triggers redeploy, reconstructed preview
+ * fingerprints often drift on envWritePlan / derived token fields even when
+ * the same team/project/token identity is intact. Allow that expected drift
+ * so poll can continue verify-only apply.
+ */
+export function isAcceptableRedeployFingerprintDrift(input: {
+  original: import("./control-plane-types.js").VercelBridgePreviewFingerprintInputs;
+  reconstructed: import("./control-plane-types.js").VercelBridgePreviewFingerprintInputs;
+}): boolean {
+  if (input.original.projectId !== input.reconstructed.projectId) {
+    return false;
+  }
+  if ((input.original.teamId ?? "") !== (input.reconstructed.teamId ?? "")) {
+    return false;
+  }
+  if (input.original.vercelTokenToken !== input.reconstructed.vercelTokenToken) {
+    return false;
+  }
+
+  const differing = diffVercelBridgePreviewFingerprintInputs(
+    input.original,
+    input.reconstructed,
+  );
+  const allowed = new Set([
+    "envWritePlan",
+    "githubDispatchTokenToken",
+    "harnessTeamKey",
+    "allowExistingProjectBridgeInstall",
+    "linearWebhookSecretToken",
+  ]);
+  return differing.every((key) => allowed.has(key));
 }
 
 export function buildDeploymentRequiredDetail(input: {

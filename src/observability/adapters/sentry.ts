@@ -95,6 +95,20 @@ function buildApprovedEvent(
       duration_bucket: input.durationBucket,
       retry_count_bucket: input.retryCountBucket,
       rate_limit_pause_count_bucket: input.rateLimitPauseCountBucket,
+      agent_role: input.agentRole ?? context.agent_role,
+      base_model_id: input.baseModelId ?? context.base_model_id,
+      fast_enabled:
+        (input.fastEnabled ?? context.fast_enabled) === undefined
+          ? undefined
+          : String(input.fastEnabled ?? context.fast_enabled),
+      parameter_evidence_source:
+        input.parameterEvidenceSource ?? context.parameter_evidence_source,
+      capability_registry_version:
+        input.capabilityRegistryVersion ?? context.capability_registry_version,
+      failure_classification:
+        input.failureClassification ?? context.failure_classification,
+      requested_model_params:
+        input.requestedModelParams ?? context.requested_model_params,
     }),
   );
 

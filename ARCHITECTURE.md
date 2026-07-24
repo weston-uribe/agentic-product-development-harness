@@ -28,6 +28,7 @@ Details: [`docs/p-dev.md`](docs/p-dev.md)
 V0.3 is **Cursor-first**. Key assumptions:
 
 - **Runner phases import `src/agents/` for agent lifecycle operations.** The internal provider seam exists (`src/agents/cursor-provider.ts`); Cursor SDK calls remain in `src/cursor/`. No second adapter is implemented.
+- **Production Linear-harness launches use `src/agents/production.ts` → `LinearHarnessAgentProvider`** for Cursor Cloud Agent provenance capture (`src/provenance/`). Generic factory/canary paths remain provenance-free. See [`docs/decisions/0008-cursor-cloud-agent-provenance-registry.md`](docs/decisions/0008-cursor-cloud-agent-provenance-registry.md). Default writer mode is `disabled`; live `shadow`/`required` require a separate operator rollout.
 - **`agentProvider` config makes Cursor explicit** (`id: "cursor"` only today). Model resolution prefers `agentProvider.model.id` and falls back to `defaultModel.id`.
 - **GitHub and Linear are explicit V0.3 assumptions** — GitHub is the SCM/PR provider and cloud runner (GitHub Actions), and Linear is the product/control system.
 - **Vercel is the only implemented preview provider** when preview capture is enabled; other repos use `previewProvider: "none"`.
@@ -37,7 +38,7 @@ Details: [`docs/provider-portability.md`](docs/provider-portability.md) and [`do
 
 ### Setup core
 
-**Status:** **Implemented** — Shared local setup services in [`src/setup/`](src/setup/) power `harness:operator:init` and the local Product Development Harness GUI Settings / Configure screen (`npm run harness:gui`).
+**Status:** **Implemented** — Shared local setup services in [`src/setup/`](src/setup/) power `harness:operator:init` and the local Product Development Harness GUI Settings / Configure screen (`p-dev` / `npm start` for operator mode; `npm run dev` for developer hot reload). See [`docs/decisions/0005-operator-gui-local-runtime.md`](docs/decisions/0005-operator-gui-local-runtime.md).
 
 **Purpose:** Generate and write local operator config (`.env.local`, `.harness/config.local.json`), classify setup actions by permission scope, produce manual GitHub Actions / target-repo instructions, and summarize doctor/model settings without changing runtime harness phase behavior.
 
@@ -92,13 +93,13 @@ Planning is **optional** in the target Linear workflow. Low-risk issues may bypa
 
 ### Issue intake
 
-**Purpose:** Capture product intent in a structured, reviewable issue before any code is written.
+**Purpose:** External product-discovery and technical-scoping workflow that creates harness-compatible Linear issues before planning or implementation runs.
 
-**Status:** **Implemented** — Canonical ChatGPT prompt at [`prompts/issue-intake-chatgpt.md`](prompts/issue-intake-chatgpt.md) for PM intake; [`.agents/skills/issue-intake/SKILL.md`](.agents/skills/issue-intake/SKILL.md) for Cursor drafting; [`templates/linear-issue.md`](templates/linear-issue.md) aligned to parser contract; `harness validate-issue` for read-only validation with route-specific `--intended-phase`. Deferred Custom GPT package at [`gpt/issue-intake/`](gpt/issue-intake/). Skill system: [`docs/skills/skill-architecture.md`](docs/skills/skill-architecture.md).
+**Status:** **Implemented** as a **standalone ChatGPT skill** at [`.agents/skills/issue-intake/SKILL.md`](.agents/skills/issue-intake/SKILL.md) (operator manually copies the file into a normal ChatGPT conversation). The harness does **not** execute or observe intake. [`templates/linear-issue.md`](templates/linear-issue.md) remains aligned to the parser contract; `harness validate-issue` validates the resulting issue contract (not intake conversation behavior). [`prompts/issue-intake-chatgpt.md`](prompts/issue-intake-chatgpt.md) and [`gpt/issue-intake/`](gpt/issue-intake/) are compatibility pointers only (Custom GPT path deprecated). Operator guide: [`docs/issue-intake.md`](docs/issue-intake.md). Skill system: [`docs/skills/skill-architecture.md`](docs/skills/skill-architecture.md).
 
-**Inputs:** Problem statement, user context, acceptance criteria, out-of-scope boundaries.
+**Inputs:** Product idea, problem, or desired outcome (investigated by the intake agent via connected tools).
 
-**Outputs:** A single issue artifact that an implementation plan or direct build can reference. Routing is the **Linear status field** (Ready for Planning, Ready for Build), not a description section.
+**Outputs:** One or more Linear issues (default **Backlog**), each targeting exactly one repository and one PR-sized outcome. The human later moves status to Ready for Planning or Ready for Build. Routing is the **Linear status field**, not a description section.
 
 **Labels (operational):** `requires-plan` — should go through planning; `skip-plan` — may go directly to Ready for Build. Runner does not read labels today.
 
@@ -156,7 +157,7 @@ Planning is **optional** in the target Linear workflow. Low-risk issues may bypa
 
 **Implemented (Milestone 4):** SDK handoff runner — GitHub PR inspect, Vercel preview capture, PM handoff comment, Linear transition to **PM Review**. See [`docs/milestones/m4-handoff-phase.md`](docs/milestones/m4-handoff-phase.md).
 
-**Inputs:** Linear issue; plan comment if `requires-plan`; otherwise issue body and acceptance criteria.
+**Inputs:** Linear issue body and acceptance criteria (authoritative); optional planning comment as supplemental context when present.
 
 **Outputs:** Code/doc changes in a feature branch; PR opened; no merge without human gate.
 
@@ -252,7 +253,7 @@ Planning is **optional** in the target Linear workflow. Low-risk issues may bypa
 
 **Implemented (Milestone 8):** Event-driven auto-runner — Vercel webhook bridge verifies Linear signatures, filters to dispatch allowlist statuses, and triggers GitHub Actions via `repository_dispatch`. See [`docs/milestones/m8-linear-watcher.md`](docs/milestones/m8-linear-watcher.md).
 
-**Implemented (skills):** Canonical operator-invoked and runner/agent phase skills — `issue-intake`, `code-health-audit`, `architecture-evolution-audit`, `security-audit`, `planner`, and `implementation` at [`.agents/skills/`](.agents/skills/). See [`docs/skills/skill-architecture.md`](docs/skills/skill-architecture.md).
+**Implemented (skills):** Canonical skills at [`.agents/skills/`](.agents/skills/) — external standalone ChatGPT intake (`issue-intake`), operator-invoked audits (`code-health-audit`, `architecture-evolution-audit`, `security-audit`), and runner/agent phase skills (`planner`, `implementation`). `issue-intake` is not harness-executed. See [`docs/skills/skill-architecture.md`](docs/skills/skill-architecture.md).
 
 **Still deferred:** Additional audit skill (`performance-cost-audit`), skill registry/package manager, skill manifests, provider/client adapters, and runner-skill prompt integration. SDK runners continue to use [`src/prompts/`](src/prompts/) today.
 
@@ -346,26 +347,29 @@ Full role contracts: [`docs/architecture/linear-automation-state-machine.md`](do
 
 ## Cursor model policy
 
-Every Cursor Cloud agent launched by this harness (planning, implementation,
-revision, and any future phase) uses **standard / basic Composer 2.5**.
+Planner and Builder (and future role) models are configured via Workflow and
+Settings using the same shared control. Fast is a **parameter of the same model**
+(not a separate catalog entry such as “Composer 2.5 Fast”).
 
-- **Fast and Max modes are intentionally avoided** to control Cursor usage cost.
-  The harness must never request the Fast variant, Max mode, or high/max
-  reasoning.
-- Model selection is **centralized** in [`src/cursor/model.ts`](src/cursor/model.ts).
-  `Cursor.models.list()` reports that `composer-2.5`'s **default variant is
-  `fast: true`**, so omitting model params makes the cloud server launch the Fast
-  variant. To prevent this, the harness pins `id: "composer-2.5"` with
-  `params: [{ id: "fast", value: "false" }]`, forcing standard Composer 2.5. The
-  model exposes no `max_mode`/reasoning parameter, so no Max/high-reasoning
-  variant can be (or is) requested.
-- Changing model or mode must be a **deliberate config/code change** (via
-  `defaultModel` in `harness.config.json` or `src/cursor/model.ts`) — never an
-  accidental default.
-- **Preferred future policy** is `Auto` if/when Cursor Automations support it as
-  a model setting (see ADR 0003); until then, standard Composer 2.5 is the only
-  allowed setting.
-- Reports should mention the model setting used when relevant.
+- **Capability discovery** prefers `Cursor.models.list()` ([`src/models/`](src/models/)),
+  with a versioned fallback registry only when Cursor omits fields.
+- **Defaults stay distinct:** Cursor’s provider default for omitted Composer
+  params may be Fast (`providerDefaultParams`). PDev’s product default remains
+  Standard (`harnessDefaultParams` → `fast: false`).
+- **Omit → Standard at resolve time:** when saved config has no Fast preference,
+  display and execution resolve `fast: false` with
+  `parameterEvidenceSource: harness_default_pin`. This does **not** write config
+  on Workflow/Settings/bootstrap GET (no write-on-read).
+- **Persist Fast only on deliberate writes:** user toggles Fast, selects/resaves
+  a model, or a versioned configuration migration transaction runs.
+- **Execution always sends explicit params** for supported Composer Fast
+  (`params: [{ id: "fast", value: "true" | "false" }]`). Provider rejection fails
+  before agent create; the harness does not silently fall back to a more
+  expensive variant.
+- Resolution is centralized in [`src/cursor/model.ts`](src/cursor/model.ts) /
+  [`src/models/`](src/models/).
+- **Preferred future policy** remains `Auto` if/when Cursor Automations support
+  it (ADR 0003). Reports should mention the effective model + variant when relevant.
 
 ---
 
@@ -399,4 +403,4 @@ Agents must not advance Linear status unless the required durable artifact exist
 3. **Honest maturity labels** — distinguish implemented vs planned in every doc.
 4. **Human gates by default** — automation augments review; it does not replace it.
 5. **Router before fan-out** — one status-triggered automation that exits early beats many overlapping triggers.
-6. **Standard Composer 2.5 only** — Fast and Max modes are intentionally avoided to control usage cost; `Auto` is the preferred future policy (ADR 0003).
+6. **Explicit model variants** — Composer defaults to Standard when Fast is omitted; Fast is opt-in via Workflow/Settings; `Auto` remains the preferred future policy (ADR 0003).

@@ -1,16 +1,27 @@
 import {
+  createCodeReviewCloudAgent,
+  createCodeRevisionCloudAgent,
   createImplementationCloudAgent,
+  createPlanReviewCloudAgent,
   createPlanningCloudAgent,
   disposeCloudAgent,
+  resumePlanReviewCloudAgent,
 } from "../cursor/agent-factory.js";
 import { resolveModelId as cursorResolveModelId } from "../cursor/model.js";
 import { sendAndObserve as cursorSendAndObserve } from "../cursor/run-observer.js";
+import {
+  downloadReviewArtifacts,
+  type DownloadedReviewArtifact,
+} from "../cursor/review-artifacts.js";
 import { acquireBuilderAgent as acquireBuilderAgentImpl } from "../runner/builder-thread-acquire.js";
+import { unavailableCost, buildUsageRecord } from "../evaluation/telemetry/cost.js";
 import type {
   AcquiredBuilderAgent,
   AcquireBuilderAgentParams,
   AgentHandle,
   AgentProvider,
+  CodeReviewAgentParams,
+  CodeRevisionAgentParams,
   ImplementationAgentParams,
   ObservedAgentRun,
   PlanningAgentParams,
@@ -37,10 +48,27 @@ function unwrapCursorAgent(handle: AgentHandle): CursorCloudAgent {
   return agent;
 }
 
+/** Provenance-only: resolve agentId from an opaque handle without send. */
+export function peekCursorAgentId(handle: AgentHandle): string {
+  return unwrapCursorAgent(handle).agentId;
+}
+
 function mapObservedRun(
   observed: Awaited<ReturnType<typeof cursorSendAndObserve>>,
 ): ObservedAgentRun {
-  const usage = observed.result?.usage;
+  const model = observed.result?.model;
+  const modelParams =
+    model && typeof model.id === "string" && Array.isArray(model.params)
+      ? model.params.map((p) => ({
+          id: String(p.id),
+          value: String(p.value),
+        }))
+      : undefined;
+  const modelId =
+    model && typeof model.id === "string" ? model.id : undefined;
+  const usageRaw = observed.result?.usage;
+  // Cost must use resolved model + params (Fast vs Standard), not base ID alone.
+  const usage = buildUsageRecord(usageRaw, modelId, modelParams);
   return {
     agentId: observed.agentId,
     runId: observed.runId,
@@ -50,26 +78,17 @@ function mapObservedRun(
     cancelOutcome: observed.cancelOutcome,
     status: observed.result?.status,
     durationMs: observed.result?.durationMs ?? null,
-    usage:
-      usage && typeof usage === "object"
+    model:
+      model && typeof model.id === "string"
         ? {
-            inputTokens:
-              typeof (usage as { inputTokens?: unknown }).inputTokens ===
-              "number"
-                ? (usage as { inputTokens: number }).inputTokens
-                : undefined,
-            outputTokens:
-              typeof (usage as { outputTokens?: unknown }).outputTokens ===
-              "number"
-                ? (usage as { outputTokens: number }).outputTokens
-                : undefined,
-            totalTokens:
-              typeof (usage as { totalTokens?: unknown }).totalTokens ===
-              "number"
-                ? (usage as { totalTokens: number }).totalTokens
-                : undefined,
+            id: model.id,
+            params: modelParams,
           }
         : null,
+    usage: usage ?? { cost: unavailableCost() },
+    artifactRefs: observed.artifactRefs,
+    eventCounts: observed.eventCounts,
+    completeness: observed.completeness,
   };
 }
 
@@ -82,6 +101,33 @@ export const cursorAgentProvider: AgentProvider = {
 
   async createPlanningAgent(params: PlanningAgentParams): Promise<AgentHandle> {
     const agent = await createPlanningCloudAgent(params);
+    return wrapCursorAgent(agent);
+  },
+
+  async createPlanReviewAgent(params: PlanningAgentParams): Promise<AgentHandle> {
+    const agent = await createPlanReviewCloudAgent(params);
+    return wrapCursorAgent(agent);
+  },
+
+  async resumePlanReviewAgent(input: {
+    apiKey: string;
+    agentId: string;
+  }): Promise<AgentHandle> {
+    const agent = await resumePlanReviewCloudAgent(input);
+    return wrapCursorAgent(agent);
+  },
+
+  async createCodeReviewAgent(
+    params: CodeReviewAgentParams,
+  ): Promise<AgentHandle> {
+    const agent = await createCodeReviewCloudAgent(params);
+    return wrapCursorAgent(agent);
+  },
+
+  async createCodeRevisionAgent(
+    params: CodeRevisionAgentParams,
+  ): Promise<AgentHandle> {
+    const agent = await createCodeRevisionCloudAgent(params);
     return wrapCursorAgent(agent);
   },
 
@@ -128,3 +174,14 @@ export const cursorAgentProvider: AgentProvider = {
     await disposeCloudAgent(cursorAgent);
   },
 };
+
+/** Best-effort review artifact download from a live AgentHandle. */
+export async function downloadAgentReviewArtifacts(
+  agent: AgentHandle,
+): Promise<DownloadedReviewArtifact[]> {
+  const cursorAgent = cursorAgents.get(agent);
+  if (!cursorAgent) {
+    return [];
+  }
+  return downloadReviewArtifacts(cursorAgent);
+}

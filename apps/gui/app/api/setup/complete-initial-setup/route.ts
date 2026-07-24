@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { resolveHarnessWorkspaceDir } from "@harness/gui/repo-root";
-import { completeInitialSetupFromServer } from "@harness/setup/initial-setup-lifecycle";
+import {
+  completeInitialSetupFromServer,
+  formatCompletionEvidenceFailureMessage,
+} from "@harness/setup/initial-setup-lifecycle";
 import { loadRemoteSetupSummary, loadSetupSummary } from "@/lib/setup-server";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +27,9 @@ export async function POST() {
         {
           completed: false,
           evidence: result.evidence,
-          error: "Initial setup completion evidence is not satisfied.",
+          unmet: result.reasons.map((reason) => reason.field),
+          reasons: result.reasons,
+          error: formatCompletionEvidenceFailureMessage(result.reasons),
         },
         { status: 422 },
       );

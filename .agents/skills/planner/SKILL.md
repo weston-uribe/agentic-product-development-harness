@@ -1,5 +1,6 @@
 ---
 name: planner
+skillContractVersion: "1"
 description: >-
   Convert approved product intent or audit findings into implementation-ready
   plans and reviewable PR slices. Use when planning feature work or audit
@@ -24,10 +25,11 @@ Convert approved product intent, Linear issues, product requests, or audit repor
 
 - Read the available source of intent: Linear issue, product request, prior plan, or audit report
 - Decide whether the work should be one PR or multiple PR slices
-- Produce reviewable, implementation-ready slices with scope, acceptance criteria, validation, dependencies, and ordering
+- Produce reviewable, implementation-ready slices with scope, acceptance criteria, an **Acceptance Verification Plan**, dependencies, and ordering
 - Preserve out-of-scope boundaries from the source artifacts
 - For audit remediation, prioritize Critical / High / Medium findings and usually exclude Low / Info unless explicitly requested
 - Produce durable markdown suitable for a Linear plan comment or operator review
+- Design verification strategy only — never claim that verification has already passed
 
 ### Must not do
 
@@ -36,6 +38,82 @@ Convert approved product intent, Linear issues, product requests, or audit repor
 - Over-specify low-level code changes unless needed to preserve intent, constraints, or safety
 - Invent product requirements or architecture direction beyond the input artifacts
 - Duplicate implementation-agent responsibilities
+- Claim behavioral acceptance verification passed (planning only)
+
+## Behavioral acceptance verification
+
+**Behavioral acceptance verification** means directly exercising the implemented behavior in a representative runnable environment and collecting objective evidence that acceptance criteria are satisfied. It is distinct from static inspection, typecheck, lint, compilation, or unit tests alone.
+
+Those checks remain necessary where applicable, but they do not replace behavioral acceptance verification when the issue changes observable runtime behavior.
+
+### Completion principle (for implementation agents)
+
+Implementation is not complete when code has been written. It is complete when every in-scope acceptance criterion has objective passing evidence in the most representative safe environment available. The planner must encode this expectation in every slice’s Acceptance Verification Plan.
+
+### Environment strategy (priority order)
+
+Choose the smallest representative safe environment. Do **not** mandate Docker or invent containers merely to satisfy the contract.
+
+1. Existing repo-provided development/test environment
+2. Existing preview or sandbox
+3. Ephemeral local environment
+4. Emulator/mock only when it preserves the behavior being tested
+5. Human-gated external environment when no safe automated alternative exists
+
+| Work type | Expected verification environment |
+|-----------|-----------------------------------|
+| Pure functions or libraries | Executable focused tests plus consumer-level example when appropriate |
+| CLI | Run the actual command with representative inputs and inspect outputs/exit codes |
+| Web UI | Run the application and exercise it with a browser or browser automation |
+| API/backend | Start the service and issue representative requests |
+| Integration | Available sandbox, test project, emulator, mock server, or non-production environment |
+| Deployment/configuration | Preview, staging, ephemeral infrastructure, or safe provider test surface |
+| Bug fix | Reproduce the original failure first when feasible, then prove it no longer occurs |
+| Data migration/destructive work | Fixtures, disposable data, dry-run, snapshot, or explicitly approved non-production environment |
+
+Identify limitations where the selected environment is less representative than production.
+
+## Acceptance Verification Plan (required per slice)
+
+For every implementation slice (single-PR and multi-slice), replace free-text “Validation expectations” with a concrete **Acceptance Verification Plan** containing:
+
+### Automated verification
+
+- Existing focused tests
+- Build/typecheck/lint where relevant
+- Broader regression suite only when justified
+
+### Behavioral acceptance verification
+
+For each acceptance criterion:
+
+- Behavior to exercise
+- Representative environment
+- Setup/preconditions
+- Exact interaction or request
+- Observable expected result
+- Evidence to capture
+
+### Failure and repair expectations
+
+Instruct the implementation agent to:
+
+- Reproduce the original defect first when feasible
+- Run the implemented behavior
+- Diagnose and fix in-scope failures encountered
+- Rerun from the failing step
+- Repeat until all required verification passes
+- Avoid papering over failures or weakening assertions
+
+Bounded repair loop: `implement → validate → run → exercise → observe → diagnose → fix → rerun`
+
+### Environment strategy
+
+Apply the priority order above and note limitations vs production.
+
+### Evidence requirements
+
+Specify evidence appropriate to the change: test output, command output and exit code, HTTP request/response summary, browser interaction result, screenshot when visual state matters, preview URL, before/after reproduction evidence, relevant logs without secrets.
 
 ## Relationship to other roles
 
@@ -74,8 +152,8 @@ PR slicing is **not** a standalone planner mode. Apply it inside feature plannin
 
 When slicing:
 
-- Focus on dependency order, independently reviewable scope, and validation per slice
-- Each slice must have clear reviewer value and be independently testable
+- Focus on dependency order, independently reviewable scope, and an Acceptance Verification Plan per slice
+- Each slice must have clear reviewer value and be independently verifiable (automated + behavioral acceptance verification)
 - Preserve ordering and dependencies explicitly
 - Avoid broad "refactor everything" slices
 
@@ -97,7 +175,7 @@ Ask for or infer:
 - Prefer **one PR** when the work is narrow, low-risk, and reviewable as one change
 - **Split** when the work crosses subsystems, mixes product and refactor work, has independent validation boundaries, or would produce a hard-to-review diff
 - Each slice must have a clear user/reviewer value or maintenance outcome
-- Each slice must be independently testable
+- Each slice must be independently verifiable via its Acceptance Verification Plan
 - Do not mix unrelated cleanup with feature work unless the cleanup is necessary for that slice
 - Avoid "prep PR" slices unless they reduce real review risk and have observable value
 - Preserve ordering and dependencies explicitly
@@ -165,7 +243,12 @@ Use the format matching the planner mode:
 - Acceptance criteria:
 - Expected files / areas:
 - Explicitly out of scope:
-- Validation expectations:
+- Acceptance Verification Plan:
+  - Automated verification:
+  - Behavioral acceptance verification (per AC: behavior, environment, setup, interaction, expected result, evidence):
+  - Failure and repair expectations:
+  - Environment strategy (and limitations vs production):
+  - Evidence requirements:
 - Implementation-agent handoff notes:
 
 ## Risks / Open Questions
@@ -179,6 +262,8 @@ Use the format matching the planner mode:
 - Explicitly not authorized: publish, tag, deploy, or create GitHub/npm releases
 
 ## Overall Validation Plan
+
+Include the same Acceptance Verification Plan structure at plan level (automated, behavioral, failure/repair, environment, evidence), covering cross-slice regression expectations.
 
 ## Rollback / Revert Considerations
 ```
@@ -211,7 +296,12 @@ For a single-PR plan, include one slice. For multi-PR work, include ordered slic
 - Acceptance criteria:
 - Expected files / areas:
 - Explicitly out of scope:
-- Validation expectations:
+- Acceptance Verification Plan:
+  - Automated verification:
+  - Behavioral acceptance verification (per AC):
+  - Failure and repair expectations:
+  - Environment strategy:
+  - Evidence requirements:
 - Dependencies / ordering:
 - Implementation-agent handoff notes:
 
@@ -234,23 +324,23 @@ For each slice, include:
 - Goal and acceptance criteria
 - Expected files or areas (advisory — not rigid code edits)
 - Explicit out-of-scope paths or behaviors
-- Validation commands/checks
+- Full Acceptance Verification Plan (automated, behavioral, failure/repair, environment, evidence)
 - Known risks and open questions
 
-The planner does **not** create implementation branches or PRs. The implemented [`.agents/skills/implementation/SKILL.md`](../implementation/SKILL.md) should consume one selected slice and perform code changes.
+The planner does **not** create implementation branches or PRs. The implemented [`.agents/skills/implementation/SKILL.md`](../implementation/SKILL.md) should consume one selected slice and perform code changes until `verified_complete`.
 
 ## Planning process
 
 1. Confirm source artifact and infer planner mode if not specified
 2. Read repo instructions and relevant durable artifacts (`AGENTS.md`, issue body, audit report, prior plans)
 3. Assess whether the work fits one PR or needs PR slicing
-4. Produce scope boundaries, acceptance criteria, and validation per slice
+4. Produce scope boundaries, acceptance criteria, and Acceptance Verification Plan per slice
 5. For audit remediation, prioritize findings and defer Low/Info unless requested
 6. Output the plan package and confirm no files were changed
 
 ## Relationship to runner prompts
 
-[`src/prompts/planning.md`](../../../src/prompts/planning.md) is the SDK runner implementation detail for cloud planning phases today. It is **not** the canonical harness skill. This skill defines the durable planner workflow contract; runner prompt migration is future work.
+[`src/prompts/planning.md`](../../../src/prompts/planning.md) is the SDK runner implementation detail for cloud planning phases today. It is **not** the canonical harness skill, but it must embody the same Acceptance Verification Plan contract when these changes are integrated.
 
 ## References
 

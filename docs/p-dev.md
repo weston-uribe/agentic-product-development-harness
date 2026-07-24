@@ -27,15 +27,28 @@ It does **not** replace the source repository for harness development or contrib
 | Control plane | **Linear + GitHub + GitHub Actions + Vercel** (supported stack) |
 | Maturity | Early-stage operator tool — **not** production SaaS |
 
-On non-macOS platforms, use `--no-open` and open the printed Configure URL manually. Browser auto-launch is not validated outside macOS.
+On non-macOS platforms, use `--no-open` and open the printed URL manually. Browser opening is best-effort on macOS, Windows, and Linux.
 
 ## Install and launch
 
-Pinned release:
+**Canonical command name:** `p-dev`
+
+**Currently on npm (v0.4.0):** the registry command is still `p-dev-harness`. A future package release will also expose `p-dev` as a bin alias in the manifest.
+
+Source contributors can link the local command:
+
+```bash
+npm run p-dev:install
+p-dev
+```
+
+Published pinned release:
 
 ```bash
 npx --yes p-dev-harness@0.4.0
 ```
+
+PDev automatically opens Initial Harness Configuration until setup is complete, then opens the Workflow page.
 
 Latest channel:
 

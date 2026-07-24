@@ -9,6 +9,13 @@ const APPROVED_PRODUCT_ERROR_MESSAGES: Record<string, string> = {
   p_dev_launch_failed: "The p-dev launcher failed during startup.",
   harness_repo_provisioning_route_failed:
     "Harness workspace provisioning failed.",
+  remote_prompt_fetch_failure: "Remote prompt fetch failed.",
+  prompt_schema_mismatch: "Remote prompt schema did not match the local contract.",
+  prompt_compile_failure: "Prompt compilation failed.",
+  skill_packaging_invalid: "A canonical skill package failed validation.",
+  native_skill_capability_contradiction:
+    "Native skill capability state contradicted runtime policy.",
+  native_skill_invocation_failure: "Native skill invocation failed.",
 };
 
 export function approvedProductErrorMessage(productErrorCode: string): string {

@@ -7,7 +7,12 @@ const repoRoot = path.resolve(
   "../..",
 );
 
+const operatorDistDir = process.env.P_DEV_DIST_DIR?.trim();
+
 const nextConfig: NextConfig = {
+  // Operator launches set P_DEV_DIST_DIR to an isolated snapshot/staging path.
+  // Developer `next dev` leaves this unset and uses the default `.next`.
+  ...(operatorDistDir ? { distDir: operatorDistDir } : {}),
   serverExternalPackages: ["@cursor/sdk", "@linear/sdk", "@sentry/node"],
   // GitHub Codespaces / forwarded dev URLs use *.app.github.dev as the browser Host.
   allowedDevOrigins: ["*.app.github.dev"],

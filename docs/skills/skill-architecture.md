@@ -1,6 +1,6 @@
 # Skill architecture
 
-**Status:** Implemented — architecture artifact and canonical path. Operator-invoked skills: `issue-intake`, `code-health-audit`, `architecture-evolution-audit`, and `security-audit` are implemented. Runner/agent phase skills: `planner` and `implementation` are implemented.
+**Status:** Implemented — architecture artifact and canonical path. External standalone ChatGPT skill: `issue-intake` (manual copy/paste; not harness-executed). Operator-invoked audit skills: `code-health-audit`, `architecture-evolution-audit`, and `security-audit`. Runner/agent phase skills: `planner` and `implementation`.
 
 This document defines the harness skill system. It does **not** create the full skill set.
 
@@ -72,6 +72,12 @@ Skill creation and promotion are **human-owned** product/architecture decisions.
 
 ## Skill categories
 
+### External standalone skills
+
+| Skill | Purpose |
+|-------|---------|
+| `issue-intake` | Standalone ChatGPT product-discovery and technical-scoping agent. Operator copies [`.agents/skills/issue-intake/SKILL.md`](../../.agents/skills/issue-intake/SKILL.md) into a normal ChatGPT conversation. Creates Linear issues; harness begins afterward. Not executed by the harness runtime. |
+
 ### Operator-invoked skills
 
 Used directly by the operator in an agent client (Cursor, future clients). The operator chooses when to invoke the skill.
@@ -80,7 +86,6 @@ Used directly by the operator in an agent client (Cursor, future clients). The o
 
 | Skill | Purpose |
 |-------|---------|
-| `issue-intake` | Turn a fuzzy product idea into a harness-compatible Linear issue |
 | `code-health-audit` | Report-only inspection of code health |
 | `architecture-evolution-audit` | Report-only inspection of architecture evolution and future-change readiness |
 | `security-audit` | Report-only security risk inspection |
@@ -95,7 +100,7 @@ Used directly by the operator in an agent client (Cursor, future clients). The o
 
 Reusable workflow contracts aligned with harness phases and cloud agent runs. They describe what an agent should do when planning or implementing work; they are distinct from operator-invoked skills.
 
-Runner/agent phase skills are **workflow contracts only** today. They are **not** wired as runner prompt integration — SDK runners continue to use [`src/prompts/*.md`](../src/prompts/). Status routing and Linear transitions remain runner-owned.
+Runner/agent phase skills are durable workflow contracts. SDK runners use [`src/prompts/*.md`](../../src/prompts/) and, for planning / implementation / revision / integration-repair, **render** the matching canonical `SKILL.md` into the phase prompt (`rendered_into_prompt`) from [`.agents/skills/`](../../.agents/skills/). Native Cursor skill invocation for SDK Cloud Agents remains **unproven** — see [instruction architecture](instruction-architecture.md) and [ADR 0006](../decisions/0006-agent-instruction-and-prompt-authority.md). Status routing and Linear transitions remain runner-owned.
 
 **Implemented:**
 
@@ -152,7 +157,7 @@ Some cross-cutting concerns are embedded in skill boundaries rather than promote
 |---------|--------|
 | **PR slicing** | Implemented as a shared planner capability — not a standalone skill |
 | **Scope control** | Embedded in planner and implementation skill boundaries |
-| **Validation expectations** | Embedded by role — audit and planner skills are read-only; implementation performs validation and reports results |
+| **Validation expectations / behavioral acceptance verification** | Embedded by role — **external intake** (ChatGPT skill) defines observable success and expected proof in the Linear issue; **planner** designs the Acceptance Verification Plan (automated + behavioral + repair loop + environment + evidence); **implementation** (initial-build, revision, integration-repair) executes the strategy and repairs until `verified_complete`; **handoff** independently inspects PR/evidence. Audit skills remain read-only. Docker is not universally required. |
 | **UI/design standards** | Planned future implementation reference — not a standalone skill and not implemented in this PR |
 
 ## Relationship to runner prompts
@@ -161,11 +166,11 @@ SDK runner prompts in [`src/prompts/`](../src/prompts/) are **implementation det
 
 | Layer | Location | Status |
 |-------|----------|--------|
-| Canonical skills | `.agents/skills/<skill-name>/SKILL.md` | `issue-intake`, `code-health-audit`, `architecture-evolution-audit`, `security-audit`, `planner`, `implementation` implemented |
+| Canonical skills | `.agents/skills/<skill-name>/SKILL.md` | `issue-intake` (external ChatGPT), `code-health-audit`, `architecture-evolution-audit`, `security-audit`, `planner`, `implementation` implemented |
 | Runner prompts | `src/prompts/*.md` | Implemented for SDK phases |
 | Client adapters | `.cursor/skills`, etc. | Manual install/export only |
 
-Runner prompt contracts may be absorbed or referenced by canonical skills over time, but that migration is not part of this architecture artifact.
+Canonical delivery skills define the durable contract. Runner prompts in `src/prompts/planning.md`, `implementation.md`, `revision.md`, and `integration-repair.md` must stay aligned with those skills on Acceptance Verification Plans, behavioral acceptance verification, the repair loop, and result states (`verified_complete` only advances toward handoff or merge).
 
 ## Current implemented state
 
@@ -173,7 +178,7 @@ After this document and the accompanying migration:
 
 | Item | Status |
 |------|--------|
-| `issue-intake` | **Implemented** at [`.agents/skills/issue-intake/SKILL.md`](../../.agents/skills/issue-intake/SKILL.md) |
+| `issue-intake` | **Implemented** as external standalone ChatGPT skill at [`.agents/skills/issue-intake/SKILL.md`](../../.agents/skills/issue-intake/SKILL.md) (not harness-executed) |
 | `code-health-audit` | **Implemented** at [`.agents/skills/code-health-audit/SKILL.md`](../../.agents/skills/code-health-audit/SKILL.md) |
 | `planner` | **Implemented** at [`.agents/skills/planner/SKILL.md`](../../.agents/skills/planner/SKILL.md) |
 | `implementation` | **Implemented** at [`.agents/skills/implementation/SKILL.md`](../../.agents/skills/implementation/SKILL.md) |
@@ -182,8 +187,8 @@ After this document and the accompanying migration:
 | `performance-cost-audit` | Planned architecture concept only |
 | Skill registry / package manager | Not implemented — intentionally deferred |
 | Skill manifests | Not implemented — intentionally deferred |
-| Runner-skill / prompt integration | Not implemented — `src/prompts/*.md` remain runner implementation details |
-| Provider/client adapters | Not implemented — documented as future work |
+| Runner-skill / prompt integration | **Implemented** as `rendered_into_prompt` from `.agents/skills` (not native invocation) |
+| Provider/client adapters | Not implemented as production generators — `.cursor/skills` remains a canary candidate only until Cloud Agent evidence |
 
 ## Compatibility
 

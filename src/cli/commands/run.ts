@@ -3,13 +3,17 @@ import {
   buildFallbackRunManifest,
   writeJsonOutManifest,
 } from "../../artifacts/write-json-out-manifest.js";
+import { PublicSafeLogger } from "../../public-execution/logger.js";
+import { isPublicRunnerMode } from "../../public-execution/mode.js";
 import { resolveRunGeneration } from "../../runner/run-generation.js";
 import { runOrchestrator, type RunPhaseArg } from "../../runner/orchestrator.js";
 import { createEvaluationRuntime } from "../../evaluation/runtime.js";
 import type { RunManifest } from "../../types/run.js";
+import { resolveIssueKeyFromRequestId } from "./claim-job-request.js";
 
 export interface RunCommandOptions {
-  issueKey: string;
+  issueKey?: string;
+  requestId?: string;
   configPath: string;
   dryRun?: boolean;
   fixturePath?: string;
@@ -27,8 +31,24 @@ async function writeRunJsonOut(
 }
 
 export async function runRunCommand(options: RunCommandOptions): Promise<number> {
-  if (!options.issueKey) {
-    console.error("--issue <KEY> is required.");
+  const requestId = options.requestId?.trim();
+  const issueKeyInput = options.issueKey?.trim();
+  if (!requestId && !issueKeyInput) {
+    console.error("Either --request-id or --issue <KEY> is required.");
+    return EXIT_CONFIG;
+  }
+  if (requestId && issueKeyInput) {
+    console.error("Use only one of --request-id or --issue.");
+    return EXIT_CONFIG;
+  }
+
+  let issueKey: string;
+  try {
+    issueKey = requestId
+      ? await resolveIssueKeyFromRequestId(requestId)
+      : issueKeyInput!;
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
     return EXIT_CONFIG;
   }
 
@@ -45,7 +65,7 @@ export async function runRunCommand(options: RunCommandOptions): Promise<number>
   try {
     try {
       result = await runOrchestrator({
-        issueKey: options.issueKey,
+        issueKey,
         configPath: options.configPath,
         dryRun: options.dryRun,
         fixturePath: options.fixturePath,
@@ -56,7 +76,7 @@ export async function runRunCommand(options: RunCommandOptions): Promise<number>
     } catch (error) {
       if (options.jsonOut) {
         const fallback = buildFallbackRunManifest({
-          issueKey: options.issueKey,
+          issueKey,
           errorClassification: "run_crash",
           message: error instanceof Error ? error.message : String(error),
           deliveryId,
@@ -78,7 +98,7 @@ export async function runRunCommand(options: RunCommandOptions): Promise<number>
         });
       } else {
         const fallback = buildFallbackRunManifest({
-          issueKey: options.issueKey,
+          issueKey,
           errorClassification: "run_crash",
           message: "Harness run finished without a manifest",
           deliveryId,
@@ -88,7 +108,14 @@ export async function runRunCommand(options: RunCommandOptions): Promise<number>
       }
     }
 
-    if (options.json && manifest) {
+    if (isPublicRunnerMode()) {
+      new PublicSafeLogger().log({
+        requestId: requestId ?? undefined,
+        phase: manifest?.phase,
+        outcome: result.exitCode === 0 ? "success" : "failure",
+        errorCode: manifest?.errorClassification ?? undefined,
+      });
+    } else if (options.json && manifest) {
       console.log(JSON.stringify(manifest, null, 2));
     } else if (manifest && typeof manifest === "object") {
       const label = manifest.dryRun ? "Dry run" : "Run";

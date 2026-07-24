@@ -1,29 +1,65 @@
-import { readInitialSetupRoutingState } from "./initial-setup-lifecycle.js";
+import { classifyWorkspaceEntry } from "./workspace-entry.js";
+import type { PDevBridgeHealthStatus, WorkspaceMaturity } from "./workspace-health.js";
+import {
+  CONFIGURE_ROUTE,
+  CONNECTIONS_VERCEL_REPAIR_ROUTE,
+  WORKFLOW_ROUTE,
+} from "./gui-routes.js";
 
-export const CONFIGURE_ROUTE = "/settings/configure";
-export const WORKFLOW_ROUTE = "/workflow";
-export const SETTINGS_ROUTE = "/settings";
-export const DEFAULT_PACKAGED_ROUTE = "/";
+export {
+  CONFIGURE_ROUTE,
+  CONNECTIONS_ROUTE,
+  CONNECTIONS_VERCEL_REPAIR_ROUTE,
+  DEFAULT_PACKAGED_ROUTE,
+  SETTINGS_ROUTE,
+  WORKFLOW_ROUTE,
+} from "./gui-routes.js";
 
 export type PackagedDefaultRouteEvidence =
   | "initial-setup-complete"
-  | "initial-setup-incomplete";
+  | "initial-setup-incomplete"
+  | "first-run"
+  | "established-ready"
+  | "established-needs-repair-vercel";
 
 export type PackagedDefaultRouteDecision = {
-  route: typeof CONFIGURE_ROUTE | typeof WORKFLOW_ROUTE;
+  route:
+    | typeof CONFIGURE_ROUTE
+    | typeof WORKFLOW_ROUTE
+    | typeof CONNECTIONS_VERCEL_REPAIR_ROUTE;
   evidence: PackagedDefaultRouteEvidence;
+  maturity: WorkspaceMaturity;
+  bridgeHealth: PDevBridgeHealthStatus;
 };
 
 /**
- * Resolve the default GUI route from durable local initialSetup status only.
+ * Resolve the default GUI route from durable local workspace evidence only.
  * Does not perform live Linear, GitHub, Vercel, or Cursor requests.
  */
 export async function resolvePackagedDefaultRoute(
   cwd?: string,
 ): Promise<PackagedDefaultRouteDecision> {
-  const { complete } = await readInitialSetupRoutingState(cwd);
-  if (complete) {
-    return { route: WORKFLOW_ROUTE, evidence: "initial-setup-complete" };
+  const decision = await classifyWorkspaceEntry(cwd);
+  if (decision.maturity === "new") {
+    return {
+      route: CONFIGURE_ROUTE,
+      evidence: "first-run",
+      maturity: "new",
+      bridgeHealth: decision.bridgeHealth,
+    };
   }
-  return { route: CONFIGURE_ROUTE, evidence: "initial-setup-incomplete" };
+  if (decision.repair === "vercel") {
+    return {
+      route: CONNECTIONS_VERCEL_REPAIR_ROUTE,
+      evidence: "established-needs-repair-vercel",
+      maturity: "established",
+      bridgeHealth: decision.bridgeHealth,
+    };
+  }
+  return {
+    route: WORKFLOW_ROUTE,
+    evidence: "established-ready",
+    maturity: "established",
+    bridgeHealth: decision.bridgeHealth,
+  };
 }

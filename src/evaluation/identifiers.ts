@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 export const SESSION_SEED_PREFIX = "p-dev:issue-session:v1";
 export const TRACE_SEED_PREFIX = "p-dev:phase-trace:v1";
+export const SCORE_SEED_PREFIX = "p-dev:score:v1";
 
 export function buildSessionSeed(
   namespace: string,
@@ -33,4 +34,23 @@ export function isValidLangfuseSessionId(sessionId: string): boolean {
     sessionId.length <= 200 &&
     /^[0-9a-f]{64}$/.test(sessionId)
   );
+}
+
+export function buildScoreSeed(
+  namespace: string,
+  targetType: "trace" | "session",
+  targetId: string,
+  scoreName: string,
+): string {
+  return `${SCORE_SEED_PREFIX}:${namespace}:${targetType}:${targetId}:${scoreName}`;
+}
+
+/** Deterministic score ID: SHA-256 hex of the versioned seed (64 chars). */
+export function deriveScoreId(
+  namespace: string,
+  targetType: "trace" | "session",
+  targetId: string,
+  scoreName: string,
+): string {
+  return hashSessionId(buildScoreSeed(namespace, targetType, targetId, scoreName));
 }

@@ -24,7 +24,7 @@ describe("target-workflow-setup", () => {
     expect(yaml).toContain("branches: [main]");
   });
 
-  it("compares workflow content as present, missing, or differs", () => {
+  it("compares workflow content including stale archived dispatch and contract version", () => {
     const intended = generateTargetWorkflowYaml({
       harnessDispatchRepo: "owner/harness",
       repoConfigId: "target-app",
@@ -34,7 +34,43 @@ describe("target-workflow-setup", () => {
 
     expect(compareTargetWorkflowContent(null, intended)).toBe("missing");
     expect(compareTargetWorkflowContent(intended, intended)).toBe("present");
-    expect(compareTargetWorkflowContent("different", intended)).toBe("differs");
+    expect(compareTargetWorkflowContent("different", intended)).toBe(
+      "contract_outdated",
+    );
+
+    const archived = intended.replaceAll(
+      "owner/harness",
+      "weston-uribe/p-dev-harness",
+    );
+    expect(compareTargetWorkflowContent(archived, intended)).toBe(
+      "stale_dispatch_target",
+    );
+    expect(intended).toContain("p-dev-target-workflow-contract:v3");
+    expect(intended).toMatch(/^# p-dev-target-workflow-contract:v3$/m);
+    expect(intended).not.toContain("<!--");
+  });
+
+  it("classifies installed HTML-prefixed v2 workflows as contract_outdated needing upgrade", () => {
+    const intended = generateTargetWorkflowYaml({
+      harnessDispatchRepo: "weston-uribe/p-dev-harness-runner",
+      repoConfigId: "weston-uribe-portfolio",
+      targetRepoSlug: "weston-uribe/weston-uribe-portfolio",
+      productionBranch: "main",
+    });
+    const invalidV2 = [
+      "<!-- p-dev-target-workflow-contract:v2",
+      "contract_version: 2",
+      "harness_dispatch_repo: weston-uribe/p-dev-harness-runner",
+      "repo_config_id: weston-uribe-portfolio",
+      "production_branch: main",
+      "-->",
+      intended.split("\n").slice(6).join("\n"),
+    ].join("\n");
+
+    expect(compareTargetWorkflowContent(invalidV2, intended)).toBe(
+      "contract_outdated",
+    );
+    expect(compareTargetWorkflowContent(intended, intended)).toBe("present");
   });
 
   it("builds branch/PR preview without direct production branch writes", () => {

@@ -166,6 +166,8 @@ export interface VercelBridgeSelection {
   deploymentRedeployRequired?: boolean;
   appliedFingerprint?: string;
   appliedAt?: string;
+  /** Set when control-plane vercel was restored from an existing verified deployment. */
+  reconciledFromExistingDeployment?: boolean;
   manualComplete?: boolean;
   redeployVerification?: VercelBridgeRedeployVerification;
 }
@@ -180,6 +182,22 @@ export interface ControlPlaneSetupState {
     configFingerprint: string;
     harnessRepository: string;
     syncedAt: string;
+  };
+  /** Bounded evidence from optional review status provisioning (no secrets). */
+  optionalReviewProvisioning?: {
+    allTeamsReady: boolean;
+    conflict: boolean;
+    partial: boolean;
+    retryable: boolean;
+    message: string;
+    recordedAt: string;
+    teams: Array<{
+      teamId: string;
+      status: string;
+      created: string[];
+      verifiedStatuses?: Array<{ name: string; id: string; category: string }>;
+      error?: string;
+    }>;
   };
   runnerUpgrade?: {
     appliedSnapshotContentId?: string;

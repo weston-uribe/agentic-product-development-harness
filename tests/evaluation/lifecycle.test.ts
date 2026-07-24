@@ -35,6 +35,9 @@ function createRecordingRuntime(): {
 
   const runtime: EvaluationRuntime = {
     enabled: true,
+    namespace: "test-ns",
+    recordScore() {},
+    async recordAcknowledgedScore() {},
     async startPhaseTrace(input) {
       traceCounter += 1;
       const traceId = `${String(traceCounter).padStart(32, "0")}`;

@@ -32,7 +32,10 @@ export type CanonicalActorRole =
 
 export type CanonicalAgentPhaseKey =
   | "planning"
+  | "plan-review"
   | "implementation"
+  | "code-review"
+  | "code-revision"
   | "revision"
   | "merge-integration-repair";
 
@@ -40,9 +43,12 @@ export type CanonicalStatusKey =
   | "backlog"
   | "ready-for-planning"
   | "planning"
+  | "plan-review"
   | "ready-for-build"
   | "building"
   | "pr-open"
+  | "code-review"
+  | "code-revision"
   | "pm-review"
   | "engineering-review"
   | "needs-revision"
@@ -80,6 +86,8 @@ export interface CanonicalStatusDefinition {
   inProgressStatusKey?: CanonicalStatusKey;
   suggestedPosition: CanonicalGraphPosition;
   graphGroup: "intake" | "planning" | "build" | "review" | "merge" | "terminal";
+  /** Optional phase statuses are not required in Linear preflight when absent. */
+  optionalPhase?: boolean;
 }
 
 export interface CanonicalTransition {
@@ -126,12 +134,12 @@ export const DUPLICATE_STATUS_CONTRACT = {
   validateWhenPresent: true,
 };
 
-export const DEPRECATED_CANONICAL_STATUS_NAMES = ["Plan Review"] as const;
+export const DEPRECATED_CANONICAL_STATUS_NAMES = [] as const;
 
+/** Human-owned Linear entry statuses that may create bridge job requests. */
 export const CANONICAL_DISPATCH_TRIGGER_STATUS_NAMES = [
   "Ready for Planning",
   "Ready for Build",
-  "PR Open",
   "Needs Revision",
   "Ready to Merge",
 ] as const;
@@ -177,6 +185,20 @@ export const CANONICAL_STATUSES: readonly CanonicalStatusDefinition[] = [
     graphGroup: "planning",
   },
   {
+    key: "plan-review",
+    name: "Plan Review",
+    category: "started",
+    role: "transitional",
+    creatable: true,
+    systemManaged: false,
+    automationTrigger: false,
+    actorRole: "planner-agent",
+    agentPhaseKey: "plan-review",
+    suggestedPosition: { x: 700, y: 0 },
+    graphGroup: "planning",
+    optionalPhase: true,
+  },
+  {
     key: "ready-for-build",
     name: "Ready for Build",
     category: "unstarted",
@@ -207,13 +229,41 @@ export const CANONICAL_STATUSES: readonly CanonicalStatusDefinition[] = [
     key: "pr-open",
     name: "PR Open",
     category: "started",
-    role: "dispatch-trigger",
+    role: "transitional",
     creatable: true,
     systemManaged: false,
-    automationTrigger: true,
+    automationTrigger: false,
     actorRole: "handoff-runner",
     suggestedPosition: { x: 1400, y: 0 },
     graphGroup: "build",
+  },
+  {
+    key: "code-review",
+    name: "Code Review",
+    category: "started",
+    role: "transitional",
+    creatable: true,
+    systemManaged: false,
+    automationTrigger: false,
+    actorRole: "implementation-agent",
+    agentPhaseKey: "code-review",
+    suggestedPosition: { x: 1540, y: 0 },
+    graphGroup: "build",
+    optionalPhase: true,
+  },
+  {
+    key: "code-revision",
+    name: "Code Revision",
+    category: "started",
+    role: "transitional",
+    creatable: true,
+    systemManaged: false,
+    automationTrigger: false,
+    actorRole: "implementation-agent",
+    agentPhaseKey: "code-revision",
+    suggestedPosition: { x: 1540, y: 120 },
+    graphGroup: "build",
+    optionalPhase: true,
   },
   {
     key: "pm-review",
@@ -534,9 +584,15 @@ export function getCreatableCanonicalStatuses(): CanonicalStatusDefinition[] {
 }
 
 export function getPreflightRequiredCanonicalStatuses(): CanonicalStatusDefinition[] {
-  return CANONICAL_STATUSES.filter(
-    (status) => status.key !== "duplicate" || DUPLICATE_STATUS_CONTRACT.requiredForPreflight,
-  );
+  return CANONICAL_STATUSES.filter((status) => {
+    if (status.optionalPhase) {
+      return false;
+    }
+    if (status.key === "duplicate") {
+      return DUPLICATE_STATUS_CONTRACT.requiredForPreflight;
+    }
+    return true;
+  });
 }
 
 export function resolveMergePathVariant(input: {

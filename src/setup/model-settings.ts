@@ -3,13 +3,15 @@ import { DEFAULT_MODEL_ID } from "../config/defaults.js";
 import {
   resolveModel,
   resolveModelId,
+  resolveModelResolutionForRole,
   STANDARD_MODEL_PARAMS,
 } from "../cursor/model.js";
 
 export type CursorModelConfigSource =
   | "agentProvider.model.id"
   | "defaultModel.id"
-  | "code-default";
+  | "code-default"
+  | "roleModels";
 
 export interface CursorModelSettingsSummary {
   providerId: "cursor";
@@ -17,7 +19,10 @@ export interface CursorModelSettingsSummary {
   configuredModelId?: string;
   source: CursorModelConfigSource;
   pinnedParams: ReadonlyArray<{ id: string; value: string }>;
+  /** True when params come only from harness pin / code defaults (no stored roleModels params). */
   paramsControlledInCode: boolean;
+  parameterEvidenceSource: string;
+  effectiveVariant: string;
   policyNote: string;
 }
 
@@ -27,11 +32,20 @@ export function summarizeCursorModelSettings(
   const resolvedConfig = config ?? emptyConfig();
   const resolvedModelId = resolveModelId(resolvedConfig);
   const resolvedModel = resolveModel(resolvedConfig);
+  const plannerResolution = resolveModelResolutionForRole(
+    resolvedConfig,
+    "planner",
+  );
 
   let source: CursorModelConfigSource = "code-default";
   let configuredModelId: string | undefined;
 
-  if (resolvedConfig.agentProvider?.model?.id) {
+  if (resolvedConfig.roleModels?.planner?.id || resolvedConfig.roleModels?.builder?.id) {
+    source = "roleModels";
+    configuredModelId =
+      resolvedConfig.roleModels.planner?.id ??
+      resolvedConfig.roleModels.builder?.id;
+  } else if (resolvedConfig.agentProvider?.model?.id) {
     source = "agentProvider.model.id";
     configuredModelId = resolvedConfig.agentProvider.model.id;
   } else if (resolvedConfig.defaultModel?.id) {
@@ -39,15 +53,22 @@ export function summarizeCursorModelSettings(
     configuredModelId = resolvedConfig.defaultModel.id;
   }
 
+  const hasStoredRoleParams = Boolean(
+    resolvedConfig.roleModels?.planner?.params?.length ||
+      resolvedConfig.roleModels?.builder?.params?.length,
+  );
+
   return {
     providerId: "cursor",
     resolvedModelId,
     configuredModelId,
     source,
     pinnedParams: resolvedModel.params ?? [...STANDARD_MODEL_PARAMS],
-    paramsControlledInCode: true,
+    paramsControlledInCode: !hasStoredRoleParams,
+    parameterEvidenceSource: plannerResolution.parameterEvidenceSource,
+    effectiveVariant: plannerResolution.effectiveVariant,
     policyNote:
-      "Model ids are Cursor cloud agent selections. fast:false is pinned in code for cost control and is not user-editable in config.",
+      "Planner/Builder models are configured in Workflow and Settings. Fast is a parameter of the same model. When Fast is omitted from saved config, PDev resolves Standard (fast:false) at read/exec time without writing config. Cursor's provider default may still be Fast if params were omitted at the API.",
   };
 }
 

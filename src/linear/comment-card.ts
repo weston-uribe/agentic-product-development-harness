@@ -5,6 +5,10 @@ export interface HarnessCommentLink {
 
 export interface HarnessCommentCardInput {
   phaseLabel: string;
+  /** When set, rendered as **Outcome:** after Phase. */
+  outcomeLabel?: string;
+  /** When set, rendered as **Reason:** after Outcome/Phase. */
+  reasonLabel?: string;
   pmSection?: string[];
   engineerSection?: string[];
   footer: string;
@@ -19,9 +23,14 @@ export function buildHarnessComment(input: HarnessCommentCardInput): string {
     "# Comment from harness",
     "",
     `**Phase:** ${input.phaseLabel}`,
-    "",
-    "## For the PM",
   ];
+  if (input.outcomeLabel) {
+    lines.push(`**Outcome:** ${input.outcomeLabel}`);
+  }
+  if (input.reasonLabel) {
+    lines.push(`**Reason:** ${input.reasonLabel}`);
+  }
+  lines.push("", "## For the PM");
 
   if (input.pmSection && input.pmSection.length > 0) {
     lines.push(...input.pmSection);
@@ -62,11 +71,6 @@ export function buildMinimalHarnessComment(
     lines.push("", input.footer);
   }
   return lines.join("\n");
-}
-
-/** Strips HTML comments so tests can assert visible markdown only. */
-export function getVisibleCommentBody(body: string): string {
-  return body.replace(/<!--[\s\S]*?-->/g, "").trim();
 }
 
 export function formatBulletList(items: string[]): string[] {

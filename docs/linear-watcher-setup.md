@@ -59,9 +59,18 @@ In repo **Settings → Secrets and variables → Actions**:
 |--------|---------|
 | `LINEAR_API_KEY` | All live harness phases |
 | `CURSOR_API_KEY` | planning, implementation, revision, merge repair fallback |
-| `HARNESS_GITHUB_TOKEN` | handoff, revision, merge — mapped to runtime `GITHUB_TOKEN` in the workflow |
+| `HARNESS_GITHUB_TOKEN` | handoff, revision, merge — mapped to runtime `GITHUB_TOKEN` in the workflow; also aliased to `GITHUB_DISPATCH_TOKEN` on `run-harness` and reconcile jobs |
 
-`HARNESS_GITHUB_TOKEN` must be a PAT with access to **target repos** used by the harness (e.g. target-app), including classic `repo` scope or equivalent fine-grained permissions for PR read, checks, merge, and PR branch repair. Fine-grained PATs need **Contents: Read and write** plus **Pull requests: Read and write** on target repos.
+`HARNESS_GITHUB_TOKEN` must be a PAT with access to **target repos** used by the harness (e.g. target-app), including classic `repo` scope or equivalent fine-grained permissions for PR read, checks, merge, and PR branch repair. Fine-grained PATs need **Contents: Read and write** plus **Pull requests: Read and write** on target repos. The same PAT must also be able to call `repository_dispatch` on the managed execution repo (Contents: write), because in-runner handoff dispatches the code-review job via that credential.
+
+Managed-runner wiring (no new secret):
+
+```yaml
+GITHUB_DISPATCH_TOKEN: ${{ secrets.HARNESS_GITHUB_TOKEN }}
+GITHUB_DISPATCH_REPOSITORY: ${{ github.repository }}
+```
+
+This alias is required on the `run-harness` job in `harness-auto-runner.yml` (and already present on the reconcile workflow). Opaque dispatch resolves `GITHUB_DISPATCH_TOKEN ?? HARNESS_GITHUB_TOKEN` and does **not** fall back to env `GITHUB_TOKEN`.
 
 Run `npm run harness:doctor -- --profile merge` with `GITHUB_TOKEN` set before enabling merge automation. Doctor verifies target base branches and token write permission used by integration repair.
 
@@ -79,17 +88,14 @@ Do **not** name the Actions secret `GITHUB_TOKEN` — GitHub reserves that name 
 
 ### Dispatch allowlist (bridge filter)
 
-The webhook **only dispatches GitHub Actions** when the issue's **current status** is:
+The webhook **only dispatches GitHub Actions** when the issue's **current status** is a human-owned entry point:
 
 - Ready for Planning
 - Ready for Build
-- PR Open
 - Needs Revision
 - Ready to Merge
 
-All other statuses return HTTP 200 with `{ "accepted": false, "reason": "ignored_status" }` and **do not** start GHA. This includes transitional statuses the harness sets itself (Planning, Building, PM Review, Merging, Merged / Deployed).
-
-Harness-initiated **Building → PR Open** still dispatches because `PR Open` is allowlisted.
+All other statuses return HTTP 200 with `{ "accepted": false, "reason": "ignored_status" }` and **do not** start GHA. This includes harness-owned intermediates (Planning, Building, PR Open, Code Review, PM Review, Merging, Merged / Deployed). Post-build Code Review is started by durable job handoff from the implementation/orchestration path, not by a PR Open webhook.
 
 ---
 

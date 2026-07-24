@@ -9,10 +9,18 @@ Operator guide for the Product Development Harness.
 ### Product managers — use p-dev (recommended)
 
 ```bash
+p-dev
+```
+
+Or the current published npm command:
+
+```bash
 npx --yes p-dev-harness@0.4.0
 ```
 
-- Node.js **22+** required
+PDev automatically opens Initial Harness Configuration until setup is complete, then opens the Workflow page.
+
+- Node.js **22+** required (canonical pin: **22.23.1** / npm **10.9.8** via `.nvmrc`)
 - Starts the guided Configure GUI
 - Stores operator state under `~/.p-dev` (or `P_DEV_HOME` / `--workspace`)
 - macOS validated for browser auto-launch; use `--no-open` elsewhere
@@ -25,10 +33,10 @@ Full guide: [`docs/p-dev.md`](p-dev.md)
 git clone https://github.com/weston-uribe/agentic-product-development-harness.git
 cd agentic-product-development-harness
 npm ci
-npm run build
-npm test
-npm run harness:configure
+npm run dev
 ```
+
+To link a global `p-dev` command to this checkout: `npm run p-dev:install`
 
 GitHub Codespaces is supported for source-based development. See [`docs/gui-local.md`](gui-local.md) and [`docs/gui-remote-setup.md`](gui-remote-setup.md).
 
@@ -97,9 +105,10 @@ npm run harness:doctor
 
 ## PM issue intake
 
-1. Copy [`prompts/issue-intake-chatgpt.md`](../prompts/issue-intake-chatgpt.md) into ChatGPT, **or**
-2. Use [`.agents/skills/issue-intake/SKILL.md`](../.agents/skills/issue-intake/SKILL.md) in Cursor
-3. Validate: `npm run harness:validate-issue`
+1. Copy the entire [`.agents/skills/issue-intake/SKILL.md`](../.agents/skills/issue-intake/SKILL.md) into a normal ChatGPT conversation (standalone skill; harness does not run intake)
+2. Review the proposed Linear issue set; approve creation (default status: Backlog)
+3. Move each issue to Ready for Planning or Ready for Build when ready
+4. Optionally validate the resulting issue contract: `npm run harness:validate-issue`
 
 ---
 

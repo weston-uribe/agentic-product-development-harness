@@ -5,6 +5,11 @@ import {
   DEFAULT_ORCHESTRATOR_MARKER,
 } from "./defaults.js";
 import { roleModelsSchema } from "./role-models.js";
+import {
+  DEFAULT_CYCLE_LIMITS,
+  LEGACY_WORKFLOW_MIGRATION_DEFAULTS,
+  WORKFLOW_SCHEMA_VERSION,
+} from "../workflow/definition/product-development.v2.js";
 
 const githubRepoUrl = z
   .string()
@@ -111,6 +116,70 @@ const agentProviderSchema = z.object({
   model: z.object({ id: z.string() }).optional(),
 });
 
+const promptProviderConfigSchema = z
+  .object({
+    provider: z
+      .enum(["local", "langfuse_with_local_fallback"])
+      .default("local"),
+    /** Approved label such as dogfood — never "latest" */
+    label: z.string().min(1).optional(),
+    version: z.number().int().positive().optional(),
+    cacheTtlSeconds: z.number().positive().optional(),
+    /**
+     * Preferred skill mode. Native execution is not available while Cloud Agent
+     * capability is unproven — runtime always renders from .agents/skills.
+     */
+    preferredSkillMode: z
+      .enum(["automatic", "native_when_supported", "rendered_fallback"])
+      .default("automatic"),
+  })
+  .strict()
+  .refine(
+    (value) =>
+      value.label == null || value.label.trim().toLowerCase() !== "latest",
+    { message: 'promptProvider.label must not be "latest"' },
+  );
+
+const workflowConfigSchema = z
+  .object({
+    schemaVersion: z.string().min(1).default(WORKFLOW_SCHEMA_VERSION),
+    optionalPhases: z
+      .object({
+        // Zod defaults apply only when the workflow object is present but a
+        // field is omitted. Absent workflow sections use LEGACY migration.
+        planReview: z
+          .boolean()
+          .default(LEGACY_WORKFLOW_MIGRATION_DEFAULTS.planReview),
+        codeReview: z
+          .boolean()
+          .default(LEGACY_WORKFLOW_MIGRATION_DEFAULTS.codeReview),
+      })
+      .strict()
+      .default({
+        planReview: LEGACY_WORKFLOW_MIGRATION_DEFAULTS.planReview,
+        codeReview: LEGACY_WORKFLOW_MIGRATION_DEFAULTS.codeReview,
+      }),
+    cycleLimits: z
+      .object({
+        planReview: z
+          .number()
+          .int()
+          .positive()
+          .default(DEFAULT_CYCLE_LIMITS.plan_review_cycles),
+        codeReview: z
+          .number()
+          .int()
+          .positive()
+          .default(DEFAULT_CYCLE_LIMITS.code_review_cycles),
+      })
+      .strict()
+      .default({
+        planReview: DEFAULT_CYCLE_LIMITS.plan_review_cycles,
+        codeReview: DEFAULT_CYCLE_LIMITS.code_review_cycles,
+      }),
+  })
+  .strict();
+
 export const harnessConfigSchema = z
   .object({
     version: z.literal(1),
@@ -119,6 +188,17 @@ export const harnessConfigSchema = z
     agentProvider: agentProviderSchema.optional(),
     defaultModel: z.object({ id: z.string() }).optional(),
     roleModels: roleModelsSchema.optional(),
+    promptProvider: promptProviderConfigSchema.optional(),
+    /**
+     * Versioned workflow knobs. New workspaces persist reviews on via the
+     * config builder; legacy configs without this section migrate to off.
+     */
+    workflow: workflowConfigSchema.optional(),
+    /**
+     * Issue-scoped validation-run snapshots for dogfood/synthetic gates.
+     * Never enables shared workflow.optionalPhases; cloud-syncable for managed runners.
+     */
+    validationRuns: z.array(z.record(z.unknown())).optional(),
     linear: linearConfigSchema.optional(),
     planning: planningConfigSchema.optional(),
     implementation: implementationConfigSchema.optional(),
@@ -144,3 +224,4 @@ export const harnessConfigSchema = z
 
 export type HarnessConfig = z.infer<typeof harnessConfigSchema>;
 export type RepoMapping = z.infer<typeof repoMappingSchema>;
+export type WorkflowConfig = z.infer<typeof workflowConfigSchema>;

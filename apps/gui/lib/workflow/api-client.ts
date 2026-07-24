@@ -33,7 +33,7 @@ export async function fetchWorkflowBootstrap(input?: {
 }
 
 export async function saveWorkflowModel(input: {
-  role: "planner" | "builder";
+  role: "planner" | "builder" | "planReviewer" | "codeReviewer" | "codeReviser";
   modelId: string;
   params: Array<{ id: string; value: string }>;
   expectedConfigFingerprint: string;
@@ -80,5 +80,55 @@ export async function saveWorkflowModel(input: {
     configFingerprint: payload.configFingerprint,
     savedAt: payload.savedAt ?? new Date().toISOString(),
     sequenceId: input.sequenceId,
+  };
+}
+
+export async function saveWorkflowOptionalPhases(input: {
+  planReviewEnabled: boolean;
+  planReviewCycleLimit: number;
+  codeReviewEnabled: boolean;
+  codeReviewCycleLimit: number;
+  expectedConfigFingerprint: string;
+  sourceMode?: string;
+  fixtureId?: string;
+  scopeId?: string;
+}): Promise<{
+  configFingerprint: string;
+  savedAt: string;
+}> {
+  const response = await fetch(
+    `/api/workflow/optional-phases${buildQuery(input)}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        planReviewEnabled: input.planReviewEnabled,
+        planReviewCycleLimit: input.planReviewCycleLimit,
+        codeReviewEnabled: input.codeReviewEnabled,
+        codeReviewCycleLimit: input.codeReviewCycleLimit,
+        expectedConfigFingerprint: input.expectedConfigFingerprint,
+        sourceMode: input.sourceMode,
+        fixtureId: input.fixtureId,
+        scopeId: input.scopeId,
+      }),
+    },
+  );
+  const payload = (await response.json()) as {
+    saved?: boolean;
+    configFingerprint?: string;
+    savedAt?: string;
+    error?: string;
+    code?: string;
+  };
+  if (!response.ok || !payload.saved || !payload.configFingerprint) {
+    const error = new Error(payload.error ?? "Couldn't save workflow settings.") as Error & {
+      code?: string;
+    };
+    error.code = payload.code;
+    throw error;
+  }
+  return {
+    configFingerprint: payload.configFingerprint,
+    savedAt: payload.savedAt ?? new Date().toISOString(),
   };
 }

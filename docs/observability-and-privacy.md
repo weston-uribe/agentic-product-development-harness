@@ -74,6 +74,15 @@ Allowed events:
 - `p_dev_workspace_provision_completed`
 - `p_dev_workspace_provision_failed`
 - `p_dev_setup_completed`
+- `p_dev_model_fast_toggle_displayed`
+- `p_dev_model_fast_preference_changed`
+- `p_dev_model_agent_run_started`
+- `p_dev_model_agent_run_completed`
+
+Model events may include only bounded properties: `agent_role`, `base_model_id`,
+`fast_enabled`, `capability_source`, `configuration_surface`,
+`parameter_evidence_source`, and `outcome` (for run completed). No prompts,
+outputs, code, credentials, or Linear content.
 
 Consent preference events are intentionally excluded.
 

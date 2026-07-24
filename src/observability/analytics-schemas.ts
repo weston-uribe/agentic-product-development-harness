@@ -86,10 +86,51 @@ const setupCompletedSchema = z
   })
   .strict();
 
+const capabilitySourceSchema = z.enum([
+  "cursor-live",
+  "fixture",
+  "fallback-registry",
+  "unknown",
+]);
+
+const configurationSurfaceSchema = z.enum(["workflow", "settings"]);
+
+const parameterEvidenceSourceSchema = z.enum([
+  "stored",
+  "harness_default_pin",
+  "unsupported",
+  "provider_default",
+]);
+
+const modelAnalyticsCommon = {
+  agentRole: z.string().min(1).max(64),
+  baseModelId: z.string().min(1).max(128),
+  capabilitySource: capabilitySourceSchema,
+  configurationSurface: configurationSurfaceSchema,
+  parameterEvidenceSource: parameterEvidenceSourceSchema,
+};
+
+const fastToggleDisplayedSchema = z
+  .object({
+    type: z.literal("p_dev_model_fast_toggle_displayed"),
+    ...modelAnalyticsCommon,
+  })
+  .strict();
+
+const fastPreferenceChangedSchema = z
+  .object({
+    type: z.literal("p_dev_model_fast_preference_changed"),
+    ...modelAnalyticsCommon,
+    fastEnabled: z.boolean(),
+  })
+  .strict();
+
 const clientAnalyticsEventSchema = z.union([
   stepViewedSchema,
   stepCompletedSchema,
   setupCompletedSchema,
+  fastToggleDisplayedSchema,
+  fastPreferenceChangedSchema,
 ]);
 
 export type ClientAnalyticsEvent = z.infer<typeof clientAnalyticsEventSchema>;
@@ -144,6 +185,27 @@ export function toAnalyticsEvent(event: ClientAnalyticsEvent): AnalyticsEvent {
       revisited: event.revisited,
       durationBucket: event.durationBucket as DurationBucket,
       completionOutcome: event.completionOutcome as CompletionOutcome,
+    };
+  }
+  if (event.type === "p_dev_model_fast_toggle_displayed") {
+    return {
+      type: event.type,
+      agentRole: event.agentRole,
+      baseModelId: event.baseModelId,
+      capabilitySource: event.capabilitySource,
+      configurationSurface: event.configurationSurface,
+      parameterEvidenceSource: event.parameterEvidenceSource,
+    };
+  }
+  if (event.type === "p_dev_model_fast_preference_changed") {
+    return {
+      type: event.type,
+      agentRole: event.agentRole,
+      baseModelId: event.baseModelId,
+      fastEnabled: event.fastEnabled,
+      capabilitySource: event.capabilitySource,
+      configurationSurface: event.configurationSurface,
+      parameterEvidenceSource: event.parameterEvidenceSource,
     };
   }
   return { type: "p_dev_setup_completed" };

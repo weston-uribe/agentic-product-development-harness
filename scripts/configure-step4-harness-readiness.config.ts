@@ -104,15 +104,14 @@ export default defineConfig({
   webServer: {
     command: [
       `P_DEV_HOME=${workspaceDir}`,
-      "P_DEV_RUNTIME_MODE=source",
       "P_DEV_OBSERVABILITY_DISABLED=1",
       "CONFIGURE_BROWSER_SKIP_DISCLOSURE=1",
-      "npx tsx src/gui/start-gui.ts --port 3110 --route /settings/configure",
+      "node bin/p-dev-dev.js --port 3110 --no-open",
     ].join(" "),
     cwd: repoRoot,
-    url: "http://localhost:3110/settings/configure",
+    url: "http://localhost:3110/",
     reuseExistingServer: false,
-    timeout: 180_000,
+    timeout: 300_000,
   },
   outputDir: "/tmp/configure-step4-readiness/playwright-results",
 });

@@ -1,16 +1,16 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { packCurrentTarballIfNeededAsync } from "./helpers/async-package-pack.js";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "../..",
 );
 const packageDir = path.join(repoRoot, "packages", "p-dev");
-const packagePackLockPath = path.join(os.tmpdir(), "p-dev-package-pack.lockdir");
 let tarballPath = "";
 
 const GENERATED_PACKAGE_OUTPUT_PREFIXES = [
@@ -39,63 +39,13 @@ function isCleanEnoughForPackagePack(): boolean {
     .every((line) => isIgnorableDirtyPackagePath(line.slice(3).trim()));
 }
 
-function sleepSync(ms: number): void {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
-
-function acquirePackagePackLock(): () => void {
-  while (true) {
-    try {
-      mkdirSync(packagePackLockPath);
-      return () => rmSync(packagePackLockPath, { recursive: true, force: true });
-    } catch {
-      sleepSync(250);
-    }
-  }
-}
-
-function tarballSourceCommit(): string | null {
-  if (!existsSync(tarballPath)) {
-    return null;
-  }
-  try {
-    const raw = execFileSync(
-      "tar",
-      ["-xOf", tarballPath, "package/workspace-snapshot/manifest.json"],
-      { encoding: "utf8" },
-    );
-    return (JSON.parse(raw) as { sourceCommit?: string }).sourceCommit ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function packCurrentTarballIfNeeded(): void {
-  const packageJson = JSON.parse(
-    readFileSync(path.join(packageDir, "package.json"), "utf8"),
-  ) as { version: string };
-  tarballPath = path.join(packageDir, `p-dev-harness-${packageJson.version}.tgz`);
-  const head = execFileSync("git", ["rev-parse", "HEAD"], {
-    cwd: repoRoot,
-    encoding: "utf8",
-  }).trim();
-  const releaseLock = acquirePackagePackLock();
-  try {
-    if (tarballSourceCommit() === head) {
-      return;
-    }
-    execFileSync("npm", ["run", "package:p-dev:pack"], {
-      cwd: repoRoot,
-      stdio: "pipe",
-    });
-  } finally {
-    releaseLock();
-  }
-}
 
 describe.skipIf(!isCleanEnoughForPackagePack())("p-dev packed artifact", () => {
-  beforeAll(() => {
-    packCurrentTarballIfNeeded();
+  beforeAll(async () => {
+    tarballPath = await packCurrentTarballIfNeededAsync({
+      repoRoot,
+      packageDir,
+    });
   }, 180_000);
 
   afterAll(() => {
@@ -120,6 +70,71 @@ describe.skipIf(!isCleanEnoughForPackagePack())("p-dev packed artifact", () => {
     expect(listing).toContain(
       "package/workspace-snapshot/files/apps/gui/components/workflow/workflow-page-client.tsx",
     );
+    expect(listing).toContain(
+      "package/workspace-snapshot/files/apps/gui/app/settings/(console)/cursor-usage/page.tsx",
+    );
+    expect(listing).toContain(
+      "package/workspace-snapshot/files/apps/gui/app/api/settings/cursor-usage/preflight/route.ts",
+    );
+    expect(listing).toContain(
+      "package/workspace-snapshot/files/apps/gui/app/api/settings/cursor-usage/apply/route.ts",
+    );
+    expect(listing).toContain(
+      "package/workspace-snapshot/files/apps/gui/app/api/settings/cursor-usage/analytics/route.ts",
+    );
+    expect(listing).toContain(
+      "package/workspace-snapshot/files/apps/gui/app/api/settings/cursor-usage/status/route.ts",
+    );
+    expect(listing).toContain(
+      "package/workspace-snapshot/files/apps/gui/app/api/settings/cursor-usage/config/route.ts",
+    );
+    expect(listing).toContain(
+      "package/workspace-snapshot/files/src/evaluation/cursor-usage-import/service.ts",
+    );
+    expect(listing).toContain(
+      "package/workspace-snapshot/files/src/evaluation/cursor-usage-import/sources/csv.ts",
+    );
+    expect(listing).toContain(
+      "package/workspace-snapshot/files/src/evaluation/cursor-usage-import/sources/admin-api.ts",
+    );
+    expect(listing).toContain(
+      "package/workspace-snapshot/files/src/evaluation/cursor-usage-import/staging.ts",
+    );
+    expect(listing).toContain(
+      "package/workspace-snapshot/files/src/evaluation/cursor-usage-import/import-lock.ts",
+    );
+    expect(listing).toContain(
+      "package/workspace-snapshot/files/src/evaluation/cursor-usage-import-canary/run.ts",
+    );
+    expect(listing).toContain(
+      "package/workspace-snapshot/files/src/cli/commands/evaluation-canary-cursor-usage-import.ts",
+    );
+    expect(listing).toContain(
+      "package/workspace-snapshot/files/src/provenance/canary-issue.ts",
+    );
+    expect(listing).toContain(
+      "package/workspace-snapshot/files/src/provenance/canary-observe.ts",
+    );
+    expect(listing).toContain(
+      "package/workspace-snapshot/files/src/provenance/key-recoverability.ts",
+    );
+    expect(listing).toContain(
+      "package/workspace-snapshot/files/src/provenance/committed-envelope-validation.ts",
+    );
+    expect(listing).toContain(
+      "package/workspace-snapshot/files/.github/workflows/harness-auto-runner.yml",
+    );
+    const workflowRaw = execFileSync(
+      "tar",
+      [
+        "-xOf",
+        tarballPath,
+        "package/workspace-snapshot/files/.github/workflows/harness-auto-runner.yml",
+      ],
+      { encoding: "utf8" },
+    );
+    expect(workflowRaw).toContain("harness:doctor -- --profile agent");
+    expect(workflowRaw).toContain("harness:doctor -- --profile merge");
     expect(listing).not.toContain("operations-canvas.tsx");
     expect(listing).not.toMatch(/@xyflow\/react/);
     expect(listing).not.toMatch(/\.env\.local/);

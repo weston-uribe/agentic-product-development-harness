@@ -30,9 +30,12 @@ describe("evaluation runtime configuration", () => {
   it("creates Langfuse runtime when config is valid via injected factory", async () => {
     const fake: EvaluationRuntime = {
       enabled: true,
+      namespace: "weston-dogfood",
       async startPhaseTrace() {
         return null;
       },
+      recordScore() {},
+      async recordAcknowledgedScore() {},
       async flushAndShutdown() {},
     };
     setLangfuseRuntimeFactoryForTests(async () => fake);
@@ -87,6 +90,19 @@ describe("evaluation runtime configuration", () => {
     });
     expect(runtime.enabled).toBe(false);
     expect(warn).toHaveBeenCalled();
+  });
+
+  it("accepts content-v1 capture profile for Langfuse projection", () => {
+    const resolved = resolveEvaluationConfig({
+      P_DEV_EVALUATION_PROVIDER: "langfuse",
+      P_DEV_EVALUATION_CAPTURE_PROFILE: "content-v1",
+      LANGFUSE_PUBLIC_KEY: "pk",
+      LANGFUSE_SECRET_KEY: "sk",
+    });
+    expect(resolved.ok).toBe(true);
+    if (resolved.ok) {
+      expect(resolved.config.captureProfile).toBe("content-v1");
+    }
   });
 
   it("createNoopRuntime never enables tracing", async () => {

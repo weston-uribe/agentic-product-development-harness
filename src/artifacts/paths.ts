@@ -12,6 +12,10 @@ export function getManifestPath(runDirectory: string): string {
   return path.join(runDirectory, "manifest.json");
 }
 
+export function getRuntimeProvenancePath(runDirectory: string): string {
+  return path.join(runDirectory, "evaluation", "runtime-provenance.json");
+}
+
 export function getEventsPath(runDirectory: string): string {
   return path.join(runDirectory, "events.jsonl");
 }
@@ -34,6 +38,34 @@ export function getPlanningPromptPath(runDirectory: string): string {
 
 export function getPlanningResultPath(runDirectory: string): string {
   return path.join(runDirectory, "outputs", "planning-result.md");
+}
+
+export function getPlanReviewPromptPath(runDirectory: string): string {
+  return path.join(runDirectory, "prompts", "plan-review-agent.md");
+}
+
+export function getPlanReviewResultPath(runDirectory: string): string {
+  return path.join(runDirectory, "outputs", "plan-review-result.md");
+}
+
+export function getCodeReviewPromptPath(runDirectory: string): string {
+  return path.join(runDirectory, "prompts", "code-review-agent.md");
+}
+
+export function getCodeReviewResultPath(runDirectory: string): string {
+  return path.join(runDirectory, "outputs", "code-review-result.md");
+}
+
+export function getCodeRevisionPromptPath(runDirectory: string): string {
+  return path.join(runDirectory, "prompts", "code-revision-agent.md");
+}
+
+export function getCodeRevisionResultPath(runDirectory: string): string {
+  return path.join(runDirectory, "outputs", "code-revision-result.md");
+}
+
+export function getPlanArtifactIdentityPath(runDirectory: string): string {
+  return path.join(runDirectory, "workflow", "plan-artifact.json");
 }
 
 export function getImplementationPromptPath(runDirectory: string): string {
@@ -140,6 +172,76 @@ export function getMergeRecoveryPath(runDirectory: string): string {
   return path.join(runDirectory, "outputs", "merge-recovery.json");
 }
 
+export function getEvaluationOutcomesPath(runDirectory: string): string {
+  return path.join(runDirectory, "evaluation", "outcomes.json");
+}
+
+export function getAgentTelemetryPath(runDirectory: string): string {
+  return path.join(runDirectory, "evaluation", "agent-telemetry.jsonl");
+}
+
+export function getTelemetryCompletenessPath(runDirectory: string): string {
+  return path.join(runDirectory, "evaluation", "telemetry-completeness.json");
+}
+
 export function getErrorPath(runDirectory: string): string {
   return path.join(runDirectory, "errors", "error.json");
+}
+
+/** Session-scoped evaluation store under runs/<issueKey>/evaluation/. */
+export function getIssueEvaluationDirectory(
+  logDirectory: string,
+  issueKey: string,
+): string {
+  return path.join(logDirectory, issueKey, "evaluation");
+}
+
+export function getEvaluationSubjectsPath(evaluationDirectory: string): string {
+  return path.join(evaluationDirectory, "subjects.jsonl");
+}
+
+export function getSubjectExtractionReportPath(
+  evaluationDirectory: string,
+): string {
+  return path.join(evaluationDirectory, "subject-extraction-report.json");
+}
+
+export function getEvaluationAnnotationsPath(
+  evaluationDirectory: string,
+): string {
+  return path.join(evaluationDirectory, "annotations.jsonl");
+}
+
+export function getAnnotationCoveragePath(
+  evaluationDirectory: string,
+): string {
+  return path.join(evaluationDirectory, "annotation-coverage.json");
+}
+
+export function getDatasetReadinessPath(evaluationDirectory: string): string {
+  return path.join(evaluationDirectory, "dataset-readiness.json");
+}
+
+export function getAnnotationBundlesDirectory(
+  evaluationDirectory: string,
+): string {
+  return path.join(evaluationDirectory, "annotation-bundles");
+}
+
+export function getCorrectedOutputsDirectory(
+  evaluationDirectory: string,
+): string {
+  return path.join(evaluationDirectory, "corrected-outputs");
+}
+
+export function getEvaluatorResultsPath(evaluationDirectory: string): string {
+  return path.join(evaluationDirectory, "evaluator-results.jsonl");
+}
+
+export function getEvaluatorRunReportPath(evaluationDirectory: string): string {
+  return path.join(evaluationDirectory, "evaluator-run-report.json");
+}
+
+export function getEvaluatorSummaryPath(evaluationDirectory: string): string {
+  return path.join(evaluationDirectory, "evaluator-summary.json");
 }

@@ -1,8 +1,7 @@
 import { access } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import path from "node:path";
-import type { BrowserOpener } from "./browser.js";
-import { defaultBrowserOpener } from "./browser.js";
+import { defaultBrowserOpener, type BrowserOpener } from "../gui/browser-opener.js";
 import type { PDevCliOptions } from "./cli.js";
 import { parsePDevCliOptions } from "./cli.js";
 import { assertNodeVersion } from "./node-version.js";
@@ -14,10 +13,8 @@ import {
 } from "./package-paths.js";
 import { createShutdownController } from "./shutdown.js";
 import { resolveNextBin } from "./next-bin.js";
-import {
-  checkConfigurePageHealth,
-  waitForConfigureServer,
-} from "../gui/configure-health.js";
+import { waitForConfigureServer } from "../gui/configure-health.js";
+import { checkRuntimeIntegrity } from "../gui/runtime-integrity.js";
 import { resolveAvailableGuiPort } from "../gui/port.js";
 import {
   P_DEV_PACKAGE_VERSION_ENV,
@@ -199,7 +196,16 @@ export async function launchPDev(
 
   const baseUrl = `http://${host}:${port}`;
   await waitForConfigureServer(baseUrl, STARTUP_TIMEOUT_MS);
-  const health = await checkConfigurePageHealth(url);
+  const health = await checkRuntimeIntegrity({
+    baseUrl,
+    verifyConnectionsApi: true,
+    expected: {
+      snapshotId: "packaged",
+      sourceRoot: packageRoot,
+      workspaceDir: workspace.workspaceDir,
+      runtimeMode: "packaged",
+    },
+  });
   if (!health.ok) {
     captureProductError({
       lifecyclePhase: "gui_startup",

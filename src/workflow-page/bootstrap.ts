@@ -1,10 +1,10 @@
 import type { HarnessConfig } from "../config/types.js";
 import type { RoleModelRole } from "../config/role-models.js";
 import {
-  resolveBuilderModel,
-  resolvePlannerModel,
+  resolveModelResolutionForRole,
   summarizeRoleModelSource,
 } from "../cursor/model.js";
+import { formatModelVariantSummary } from "../models/index.js";
 import {
   validateCanonicalLinearWorkflow,
   type CanonicalValidationResult,
@@ -17,12 +17,20 @@ import type {
   WorkflowScope,
   WorkflowSourceContext,
 } from "./types.js";
-import { buildModelSaveReadiness } from "./catalog-validation.js";
+import {
+  evaluatePlanReviewReadiness,
+  type PlanReviewReadinessResult,
+} from "../workflow/plan-review-readiness.js";
+import {
+  evaluateCodeReviewReadiness,
+  type CodeReviewReadinessResult,
+} from "../workflow/code-review-readiness.js";
 import { dataSourceLabel } from "./source-context.js";
 import { getFixtureDefinition } from "./fixtures/index.js";
 import { getFixtureWorkflowScopes } from "./fixtures/workflow-scopes.js";
 import { emptyHarnessConfig } from "./model-catalog.js";
 import { lookupModelInCatalog } from "./model-catalog-lookup.js";
+import { buildModelSaveReadiness } from "./catalog-validation.js";
 import { hashWorkflowFingerprint } from "./fingerprint.js";
 import { buildLiveWorkflowScopes, validateRequestedScopeId } from "./workflow-scopes.js";
 import { enrichWorkflowScopes } from "./scope-branches.js";
@@ -58,16 +66,54 @@ function buildWorkflowModelSelection(
   role: RoleModelRole,
   modelCatalog: WorkflowModelCatalogEntry[],
 ): WorkflowModelSelection {
-  const resolved = role === "planner" ? resolvePlannerModel(config) : resolveBuilderModel(config);
-  const catalogEntry = lookupModelInCatalog(modelCatalog, resolved.id);
-  return {
-    modelId: resolved.id,
-    displayName: catalogEntry?.displayName ?? resolved.id,
-    parameters: resolved.params?.map((parameter) => ({
+  // Read-only resolution: never mutates saved configuration.
+  const resolution = resolveModelResolutionForRole(config, role);
+  const catalogEntry = lookupModelInCatalog(modelCatalog, resolution.modelId);
+  const displayName = catalogEntry?.displayName ?? resolution.displayName;
+  const stored =
+    config.roleModels?.[role]?.params?.map((parameter) => ({
       id: parameter.id,
       value: parameter.value,
-    })) ?? [],
+    })) ?? [];
+  return {
+    modelId: resolution.modelId,
+    displayName,
+    parameters: resolution.effectiveRequestedParams.map((parameter) => ({
+      id: parameter.id,
+      value: parameter.value,
+    })),
+    storedParameters: stored,
     source: summarizeRoleModelSource(config, role),
+    parameterEvidenceSource: resolution.parameterEvidenceSource,
+    effectiveVariant: resolution.effectiveVariant,
+    variantSummary: formatModelVariantSummary(
+      displayName,
+      resolution.effectiveVariant,
+    ),
+  };
+}
+
+function toPlanReviewReadinessView(
+  readiness: PlanReviewReadinessResult,
+): WorkflowBootstrapPayload["planReviewReadiness"] {
+  return {
+    requestedEnabled: readiness.requestedEnabled,
+    effectiveEnabled: readiness.effectiveEnabled,
+    uiState: readiness.uiState,
+    missingRequirementMessages: [...readiness.missingRequirementMessages],
+    cycleLimit: readiness.cycleLimit,
+  };
+}
+
+function toCodeReviewReadinessView(
+  readiness: CodeReviewReadinessResult,
+): WorkflowBootstrapPayload["codeReviewReadiness"] {
+  return {
+    requestedEnabled: readiness.requestedEnabled,
+    effectiveEnabled: readiness.configuredReady,
+    uiState: readiness.uiState,
+    missingRequirementMessages: [...readiness.missingRequirementMessages],
+    cycleLimit: readiness.cycleLimit,
   };
 }
 
@@ -122,11 +168,11 @@ export async function buildWorkflowBootstrap(
   const scopeResolution = validateRequestedScopeId(context.scopeId, allowlist);
 
   if (context.rejectionReason) {
-    return rejectedPayload(context, scopes, warnings);
+    return await rejectedPayload(context, scopes, warnings);
   }
 
   if (scopeResolution.error || !scopeResolution.scope) {
-    return rejectedPayload(
+    return await rejectedPayload(
       {
         ...context,
         rejectionReason: scopeResolution.error ?? "Workflow scope is required.",
@@ -185,9 +231,44 @@ export async function buildWorkflowBootstrap(
     "builder",
     modelCatalog,
   );
+  const planReviewerSelection = buildWorkflowModelSelection(
+    effectiveConfig,
+    "planReviewer",
+    modelCatalog,
+  );
+  const codeReviewerSelection = buildWorkflowModelSelection(
+    effectiveConfig,
+    "codeReviewer",
+    modelCatalog,
+  );
+  const codeReviserSelection = buildWorkflowModelSelection(
+    effectiveConfig,
+    "codeReviser",
+    modelCatalog,
+  );
+  const linearStatusSnapshots = linearStatuses.map((status) => ({
+    name: status.name,
+    type: status.type,
+    id: status.id,
+  }));
+  const planReviewReadiness = toPlanReviewReadinessView(
+    await evaluatePlanReviewReadiness({
+      config: effectiveConfig,
+      linearStatuses: linearStatusSnapshots,
+    }),
+  );
+  const codeReviewReadiness = toCodeReviewReadinessView(
+    await evaluateCodeReviewReadiness({
+      config: effectiveConfig,
+      linearStatuses: linearStatusSnapshots,
+    }),
+  );
   const modelSaveReadiness = buildModelSaveReadiness({
     plannerSelection,
     builderSelection,
+    planReviewerSelection,
+    codeReviewerSelection,
+    codeReviserSelection,
     modelCatalog,
     catalogLoaded: catalogLoadMetadata.modelCatalog === "loaded",
   });
@@ -210,6 +291,11 @@ export async function buildWorkflowBootstrap(
     catalogLoadMetadata,
     plannerSelection,
     builderSelection,
+    planReviewerSelection,
+    codeReviewerSelection,
+    codeReviserSelection,
+    planReviewReadiness,
+    codeReviewReadiness,
     configFingerprint:
       deps.configFingerprint ?? buildConfigFingerprint(config),
     modelSaveReadiness,
@@ -231,14 +317,35 @@ export async function buildWorkflowBootstrap(
   };
 }
 
-function rejectedPayload(
+async function rejectedPayload(
   context: WorkflowSourceContext,
   scopes: WorkflowScope[],
   warnings: string[],
-): WorkflowBootstrapPayload {
+): Promise<WorkflowBootstrapPayload> {
   const emptyConfig = emptyHarnessConfig();
   const plannerSelection = buildWorkflowModelSelection(emptyConfig, "planner", []);
   const builderSelection = buildWorkflowModelSelection(emptyConfig, "builder", []);
+  const planReviewerSelection = buildWorkflowModelSelection(
+    emptyConfig,
+    "planReviewer",
+    [],
+  );
+  const codeReviewerSelection = buildWorkflowModelSelection(
+    emptyConfig,
+    "codeReviewer",
+    [],
+  );
+  const codeReviserSelection = buildWorkflowModelSelection(
+    emptyConfig,
+    "codeReviser",
+    [],
+  );
+  const planReviewReadiness = toPlanReviewReadinessView(
+    await evaluatePlanReviewReadiness({ config: emptyConfig, linearStatuses: [] }),
+  );
+  const codeReviewReadiness = toCodeReviewReadinessView(
+    await evaluateCodeReviewReadiness({ config: emptyConfig, linearStatuses: [] }),
+  );
 
   return {
     sourceMode: context.mode,
@@ -256,10 +363,18 @@ function rejectedPayload(
     },
     plannerSelection,
     builderSelection,
+    planReviewerSelection,
+    codeReviewerSelection,
+    codeReviserSelection,
+    planReviewReadiness,
+    codeReviewReadiness,
     configFingerprint: buildConfigFingerprint(undefined),
     modelSaveReadiness: buildModelSaveReadiness({
       plannerSelection,
       builderSelection,
+      planReviewerSelection,
+      codeReviewerSelection,
+      codeReviserSelection,
       modelCatalog: [],
       catalogLoaded: false,
     }),

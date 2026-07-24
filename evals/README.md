@@ -18,17 +18,31 @@ PDev can optionally emit privacy-safe Langfuse traces for implementation and han
 
 Automated evals are only useful when the criteria are stable. v0.1 runs against real issues (starting with the target repo) will reveal which criteria repeat and which are one-offs.
 
+## Structured evaluation contract (v1 — implemented)
+
+Provider-neutral subjects, versioned rubrics, and append-only human annotations
+are defined in
+[`docs/evaluation/evaluation-contract-v1.md`](../docs/evaluation/evaluation-contract-v1.md).
+
+Offline CLI: `npm run harness:eval:*` (subjects, annotation bundles, annotate,
+coverage, dataset-readiness, Langfuse export prep). Manual markdown scorecards
+remain valid for lightweight human review.
+
 ## Future direction (planned / deferred)
 
 | Capability | Status |
 |---|---|
 | Manual rubrics in markdown | Implemented |
 | Online Langfuse traces (implementation/handoff, metadata-v1) | Milestone 1 (maintainer-only) |
-| Scores / score configs | Deferred |
-| LLM judges / human annotation queues | Deferred |
-| Datasets / offline experiments / benchmark runners | Deferred |
+| Revision/merge traces + deterministic outcome scores | Milestone 2 (maintainer-only) |
+| Scores / score configs | M2 scores implemented; Langfuse score configs deferred |
+| Evaluation subjects + human annotation foundation | Implemented (v1 contract) |
+| Deterministic evaluator execution engine | Implemented (v1; offline CLI) |
+| LLM judges | Deferred |
+| Datasets / offline experiments / benchmark runners | Deferred (readiness fields prepared) |
 | Release gates tied to eval scores | Deferred |
 | Full issue/prompt/response capture | Deferred |
+| Installed-package rubric asset validation (tarball) | Checkpoint later |
 
 ## What belongs here
 

@@ -23,10 +23,13 @@ import {
   type VercelBridgeSetupBlocked,
 } from "./vercel-setup-apply.js";
 import {
+  buildVercelBridgePreviewFingerprintInput,
+  isAcceptableRedeployFingerprintDrift,
   normalizeVercelBridgePlanInput,
   previewVercelBridgeSetup,
 } from "./vercel-setup-plan.js";
 import { logVercelBridgeEvent } from "./vercel-bridge-structured-log.js";
+import { deriveHarnessTeamKeyFromControlPlane } from "./derive-harness-team-key.js";
 import {
   buildVerificationClaim,
   classifySignedProbeFailure,
@@ -96,6 +99,12 @@ export async function buildPollVerifyPlanInputFromPersistedState(input: {
   const teamId = input.pending.teamId ?? vercel.teamId;
   const projectId = input.pending.projectId;
   const projectName = input.pending.projectName;
+  const linearTeamId =
+    input.state.linearWorkspace?.teams[0]?.teamId ??
+    input.state.linear?.teamId;
+  const derivedHarnessTeamKey =
+    input.pending.fingerprintInputs?.harnessTeamKey?.trim() ||
+    deriveHarnessTeamKeyFromControlPlane(input.state);
 
   const savedWebhookSecret = await loadSecretFromEnvLocal({
     cwd: input.cwd,
@@ -122,8 +131,8 @@ export async function buildPollVerifyPlanInputFromPersistedState(input: {
       projectId,
       projectName,
     },
-    linearTeamId: input.state.linear?.teamId,
-    derivedHarnessTeamKey: input.state.linear?.teamKey,
+    linearTeamId,
+    derivedHarnessTeamKey,
     derivedGithubDispatchToken:
       dispatchEligibility.eligible && githubToken ? githubToken : undefined,
     willGenerateLinearWebhookSecret: preserveGeneratedFingerprint
@@ -131,9 +140,50 @@ export async function buildPollVerifyPlanInputFromPersistedState(input: {
       : !savedWebhookSecret?.trim(),
     verificationLinearWebhookSecret: savedWebhookSecret,
     preserveGeneratedWebhookSecretFingerprint: preserveGeneratedFingerprint,
+    allowExistingProjectBridgeInstall: true,
   });
 
   return { ok: true, plan, vercelToken };
+}
+
+function pollFingerprintAcceptable(input: {
+  pending: VercelBridgeRedeployVerification;
+  plan: VercelBridgePlanInput;
+  preview: Awaited<ReturnType<typeof previewVercelBridgeSetup>>;
+  vercelToken: string;
+}): boolean {
+  if (input.preview.fingerprint === input.pending.fingerprint) {
+    return true;
+  }
+  const original = input.pending.fingerprintInputs;
+  if (!original) {
+    return false;
+  }
+  const normalized = normalizeVercelBridgePlanInput(input.plan);
+  const reconstructed = buildVercelBridgePreviewFingerprintInput({
+    teamId: input.pending.teamId ?? normalized.teamId,
+    teamMode: normalized.team?.mode,
+    teamSlug: normalized.team?.teamSlug,
+    projectId: input.pending.projectId,
+    projectMode: normalized.project?.mode,
+    projectName: input.pending.projectName,
+    envWritePlan: input.preview.envWritePlan,
+    willGenerateLinearWebhookSecret:
+      normalized.willGenerateLinearWebhookSecret ??
+      !normalized.envInput?.LINEAR_WEBHOOK_SECRET?.trim(),
+    linearWebhookSecretFromEnv: normalized.envInput?.LINEAR_WEBHOOK_SECRET,
+    githubDispatchTokenFromEnv: normalized.envInput?.GITHUB_DISPATCH_TOKEN,
+    derivedGithubDispatchToken: normalized.derivedGithubDispatchToken,
+    harnessTeamKey: normalized.envInput?.HARNESS_TEAM_KEY,
+    derivedHarnessTeamKey: normalized.derivedHarnessTeamKey,
+    vercelToken: input.vercelToken,
+    allowExistingProjectBridgeInstall:
+      normalized.allowExistingProjectBridgeInstall,
+  });
+  return isAcceptableRedeployFingerprintDrift({
+    original,
+    reconstructed,
+  });
 }
 
 export async function reconstructPollVerifyPreviewForDiagnostics(input: {
@@ -156,12 +206,18 @@ export async function reconstructPollVerifyPreviewForDiagnostics(input: {
   }
 
   const preview = await previewVercelBridgeSetup(built.plan);
+  const fingerprintMatch = pollFingerprintAcceptable({
+    pending: input.pending,
+    plan: built.plan,
+    preview,
+    vercelToken: built.vercelToken,
+  });
   return {
     ok: true,
     plan: built.plan,
     vercelToken: built.vercelToken,
     preview,
-    fingerprintMatch: preview.fingerprint === input.pending.fingerprint,
+    fingerprintMatch,
   };
 }
 
@@ -170,7 +226,13 @@ export async function buildPollVerifyPlanFromPersistedState(input: {
   state: ControlPlaneSetupState;
   pending: VercelBridgeRedeployVerification;
 }): Promise<
-  | { ok: true; plan: VercelBridgePlanInput; vercelToken: string }
+  | {
+      ok: true;
+      plan: VercelBridgePlanInput;
+      vercelToken: string;
+      /** Fingerprint for verify-only apply after acceptable post-write drift. */
+      applyFingerprint: string;
+    }
   | { ok: false; setupBlocked: VercelBridgeSetupBlocked }
 > {
   const built = await buildPollVerifyPlanInputFromPersistedState(input);
@@ -179,7 +241,13 @@ export async function buildPollVerifyPlanFromPersistedState(input: {
   }
 
   const preview = await previewVercelBridgeSetup(built.plan);
-  if (preview.fingerprint !== input.pending.fingerprint) {
+  const fingerprintMatch = pollFingerprintAcceptable({
+    pending: input.pending,
+    plan: built.plan,
+    preview,
+    vercelToken: built.vercelToken,
+  });
+  if (!fingerprintMatch) {
     logVercelBridgeEvent({
       phase: "poll_reconstruct",
       actionId: input.pending.actionId,
@@ -196,7 +264,25 @@ export async function buildPollVerifyPlanFromPersistedState(input: {
     };
   }
 
-  return { ok: true, plan: built.plan, vercelToken: built.vercelToken };
+  if (preview.fingerprint !== input.pending.fingerprint) {
+    logVercelBridgeEvent({
+      phase: "poll_reconstruct",
+      actionId: input.pending.actionId,
+      expectedFingerprint: input.pending.fingerprint,
+      reconstructedFingerprint: preview.fingerprint,
+      fingerprintMatch: true,
+      projectId: input.pending.projectId,
+      projectName: input.pending.projectName,
+      teamId: input.pending.teamId,
+    });
+  }
+
+  return {
+    ok: true,
+    plan: built.plan,
+    vercelToken: built.vercelToken,
+    applyFingerprint: preview.fingerprint,
+  };
 }
 
 function buildSetupBlockedForPostRedeployVerificationFailure(input?: {
@@ -895,7 +981,7 @@ export async function pollVercelBridgeRedeployVerification(input: {
   const retryResult = await applyVercelBridgeSetup({
     plan: persistedPlan.plan,
     confirmed: true,
-    fingerprint: pending.fingerprint,
+    fingerprint: persistedPlan.applyFingerprint,
     verifyOnly: true,
     cwd: input.cwd,
   });

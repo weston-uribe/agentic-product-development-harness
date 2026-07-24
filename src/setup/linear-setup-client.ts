@@ -1,5 +1,6 @@
 import { LinearClient } from "@linear/sdk";
 import type { Connection } from "@linear/sdk";
+import { HARNESS_WEBHOOK_RESOURCE_TYPES } from "../webhook/harness-webhook-resources.js";
 import type { RequiredWorkflowStatus } from "./linear-status-contract.js";
 
 export interface LinearTeamSummary {
@@ -291,7 +292,7 @@ export async function createLinearIssueWebhook(
   const payload = await client.createWebhook({
     url: input.url,
     label: input.label ?? "Harness webhook bridge",
-    resourceTypes: ["Issue"],
+    resourceTypes: [...HARNESS_WEBHOOK_RESOURCE_TYPES],
     teamId: input.teamId,
     allPublicTeams: input.teamId ? undefined : true,
     ...(input.secret ? { secret: input.secret } : {}),
@@ -308,7 +309,7 @@ export async function createLinearIssueWebhook(
     id: webhook.id,
     url: webhook.url ?? input.url,
     enabled: webhook.enabled ?? true,
-    resourceTypes: webhook.resourceTypes ?? ["Issue"],
+    resourceTypes: webhook.resourceTypes ?? [...HARNESS_WEBHOOK_RESOURCE_TYPES],
     teamId: webhook.teamId ?? input.teamId,
     secret,
   };
@@ -326,7 +327,7 @@ export async function updateLinearIssueWebhook(
   const payload = await client.updateWebhook(input.webhookId, {
     url: input.url,
     label: input.label ?? "Harness webhook bridge",
-    resourceTypes: ["Issue"],
+    resourceTypes: [...HARNESS_WEBHOOK_RESOURCE_TYPES],
     secret: input.secret,
     enabled: true,
   });
@@ -338,7 +339,7 @@ export async function updateLinearIssueWebhook(
     id: webhook.id,
     url: webhook.url ?? input.url,
     enabled: webhook.enabled ?? true,
-    resourceTypes: webhook.resourceTypes ?? ["Issue"],
+    resourceTypes: webhook.resourceTypes ?? [...HARNESS_WEBHOOK_RESOURCE_TYPES],
     teamId: webhook.teamId ?? undefined,
     secret: webhook.secret ?? input.secret,
   };
@@ -357,7 +358,7 @@ export async function getLinearOrganizationSummary(
   const organization = await client.organization;
   return {
     id: organization.id,
-    name: organization.name?.trim() || "Linear workspace",
+    name: organization.name?.trim() || "",
   };
 }
 

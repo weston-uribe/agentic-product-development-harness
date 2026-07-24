@@ -19,6 +19,8 @@ import type { WorkflowFixtureId } from "@harness/workflow-page/constants";
 import { buildCatalogUnavailableEntry } from "@harness/workflow-page/model-catalog-utils";
 import { loadSecretFromEnvLocal } from "@harness/setup/service-verification";
 import { readControlPlaneSetupState } from "@harness/setup/control-plane-setup-state";
+import { resolveAuthoritativeLinearTeamIds } from "@harness/config/resolve-linear-team";
+import { OPTIONAL_REVIEW_STATUSES } from "@harness/setup/linear-optional-status-migrate";
 import {
   WorkflowModelSyncError,
   type WorkflowModelSaveRequest,
@@ -33,10 +35,20 @@ import {
   saveFixtureRoleModel,
 } from "@harness/workflow-page/fixture-role-models";
 import {
+  applyFixtureOptionalPhasesToConfig,
+  saveFixtureOptionalPhases,
+} from "@harness/workflow-page/fixture-optional-phases";
+import {
+  saveWorkflowOptionalPhases as persistWorkflowOptionalPhases,
+  type WorkflowOptionalPhasesSaveRequest,
+  type WorkflowOptionalPhasesSaveResult,
+} from "@harness/setup/workflow-optional-phases-sync";
+import {
   isWorkflowCloudConfigSynchronized,
   readWorkflowModelsSyncEvidence,
 } from "@harness/setup/workflow-models-sync-evidence";
 import { isRoleModelRole } from "@harness/config/role-models";
+import { toPublicWorkflowBootstrap } from "@harness/gui/public-client-payload";
 
 function isDebugEnabled(): boolean {
   return (
@@ -72,7 +84,12 @@ export async function loadWorkflowBootstrap(
   }
 
   const setupState = await readControlPlaneSetupState(cwd);
-  const teamId = setupState?.linear?.teamId;
+  const teamIds = config
+    ? resolveAuthoritativeLinearTeamIds(config)
+    : setupState?.linear?.teamId
+      ? [setupState.linear.teamId]
+      : [];
+  const teamId = teamIds[0] ?? setupState?.linear?.teamId;
   const teamKey = setupState?.linear?.teamKey ?? config?.linear?.teamKey;
 
   let linearStatuses: Awaited<ReturnType<typeof loadLiveLinearStatuses>>["statuses"] =
@@ -94,28 +111,59 @@ export async function loadWorkflowBootstrap(
           "Validation limitation: LINEAR_API_KEY is not configured, so live Linear statuses could not be loaded.",
         );
       }
-    } else if (!teamId) {
+    } else if (teamIds.length === 0) {
       if (debugEnabled) {
         warnings.push(
-          "Validation limitation: Linear team is not configured in control-plane setup state.",
+          "Validation limitation: No configured Linear teams found for status readiness.",
         );
       }
     } else {
-      const result = await loadLiveLinearStatuses({
-        apiKey: linearApiKey,
-        teamId,
+      const perTeam: Array<
+        Awaited<ReturnType<typeof loadLiveLinearStatuses>>["statuses"]
+      > = [];
+      let loadState: "loaded" | "unavailable" = "loaded";
+      for (const id of teamIds) {
+        const result = await loadLiveLinearStatuses({
+          apiKey: linearApiKey,
+          teamId: id,
+        });
+        if (result.loadState !== "loaded") {
+          loadState = "unavailable";
+        }
+        perTeam.push(result.statuses);
+        if (debugEnabled && result.warning) {
+          warnings.push("Linear status load reported a non-fatal warning.");
+        }
+        if (debugEnabled && result.error) {
+          warnings.push("Linear status load failed.");
+        }
+      }
+      // Union of all statuses for display, but only treat optional review
+      // statuses as present when every configured team has them.
+      const byName = new Map<string, (typeof linearStatuses)[number]>();
+      for (const statuses of perTeam) {
+        for (const status of statuses) {
+          byName.set(status.name.trim().toLowerCase(), status);
+        }
+      }
+      const reviewNames = new Set(
+        OPTIONAL_REVIEW_STATUSES.map((s) => s.name.trim().toLowerCase()),
+      );
+      linearStatuses = [...byName.values()].filter((status) => {
+        const key = status.name.trim().toLowerCase();
+        if (!reviewNames.has(key)) return true;
+        return perTeam.every((teamStatuses) =>
+          teamStatuses.some(
+            (s) =>
+              s.name.trim().toLowerCase() === key &&
+              s.type.trim().toLowerCase() === "started",
+          ),
+        );
       });
-      linearStatuses = result.statuses;
       catalogLoadMetadata = {
         ...catalogLoadMetadata,
-        statusCatalog: result.loadState,
+        statusCatalog: loadState,
       };
-      if (debugEnabled && result.warning) {
-        warnings.push(result.warning);
-      }
-      if (debugEnabled && result.error) {
-        warnings.push(`Linear status load failed: ${result.error}`);
-      }
     }
 
     const cursorApiKey = await loadSecretFromEnvLocal({
@@ -157,10 +205,13 @@ export async function loadWorkflowBootstrap(
     modelCatalog = fixture.modelCatalog;
     catalogLoadMetadata = { statusCatalog: "loaded", modelCatalog: "loaded" };
     linearStatuses = fixture.statuses;
-    const fixtureRoleModels = getFixtureRoleModels(
-      context.fixtureId,
-      context.scopeId ?? effectiveConfig.repos[0]?.id ?? "default",
-    );
+    const scopeId = context.scopeId ?? effectiveConfig.repos[0]?.id ?? "default";
+    effectiveConfig = applyFixtureOptionalPhasesToConfig({
+      fixtureId: context.fixtureId,
+      scopeId,
+      baseConfig: effectiveConfig,
+    });
+    const fixtureRoleModels = getFixtureRoleModels(context.fixtureId, scopeId);
     if (fixtureRoleModels) {
       effectiveConfig = { ...effectiveConfig, roleModels: fixtureRoleModels };
     }
@@ -193,7 +244,18 @@ export async function loadWorkflowBootstrap(
     }
   }
 
-  return payload;
+  const knownSecrets = (
+    await Promise.all([
+      loadSecretFromEnvLocal({ cwd, key: "LINEAR_API_KEY" }),
+      loadSecretFromEnvLocal({ cwd, key: "CURSOR_API_KEY" }),
+      loadSecretFromEnvLocal({ cwd, key: "GITHUB_TOKEN" }),
+      loadSecretFromEnvLocal({ cwd, key: "VERCEL_TOKEN" }),
+      loadSecretFromEnvLocal({ cwd, key: "LINEAR_WEBHOOK_SECRET" }),
+    ])
+  ).filter((value): value is string => Boolean(value));
+
+  // Explicit public DTO boundary — never return internal loader state.
+  return toPublicWorkflowBootstrap(payload, { knownSecrets });
 }
 
 export async function saveWorkflowModel(
@@ -302,6 +364,57 @@ export async function saveWorkflowModel(
     request: input,
     provider,
   }).then((outcome) => outcome.result);
+}
+
+export async function saveWorkflowOptionalPhases(
+  input: WorkflowOptionalPhasesSaveRequest & {
+    sourceMode: "live" | "fixture";
+    fixtureId?: string;
+    scopeId?: string;
+  },
+): Promise<WorkflowOptionalPhasesSaveResult> {
+  const cwd = resolveHarnessWorkspaceDir();
+  loadHarnessDotenv(cwd);
+
+  if (input.sourceMode === "fixture") {
+    if (!input.fixtureId || !input.scopeId) {
+      throw new WorkflowModelSyncError(
+        "workflow_model_validation_failed",
+        "Fixture saves require fixture and scope identifiers.",
+      );
+    }
+    const fixture = getFixtureDefinition(input.fixtureId as WorkflowFixtureId);
+    const saved = saveFixtureOptionalPhases({
+      fixtureId: input.fixtureId,
+      scopeId: input.scopeId,
+      baseConfig: fixture.config ?? FALLBACK_CONFIG,
+      planReviewEnabled: input.planReviewEnabled,
+      planReviewCycleLimit: input.planReviewCycleLimit,
+      codeReviewEnabled: input.codeReviewEnabled,
+      codeReviewCycleLimit: input.codeReviewCycleLimit,
+    });
+    return {
+      saved: true,
+      configFingerprint: saved.configFingerprint,
+      localConfigUpdated: true,
+      cloudConfigUpdated: true,
+      savedAt: new Date().toISOString(),
+    };
+  }
+
+  const githubToken = await loadSecretFromEnvLocal({
+    cwd,
+    key: "GITHUB_TOKEN",
+  });
+  const provider = githubToken
+    ? createLiveGitHubRemoteSetupProvider(githubToken)
+    : undefined;
+
+  return persistWorkflowOptionalPhases({
+    cwd,
+    request: input,
+    provider,
+  });
 }
 
 export { WorkflowModelSyncError };

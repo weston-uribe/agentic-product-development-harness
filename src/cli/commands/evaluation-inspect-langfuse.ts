@@ -1,0 +1,119 @@
+import path from "node:path";
+import { EXIT_CONFIG, EXIT_SUCCESS } from "../exit-codes.js";
+import { runLangfuseInspect } from "../../evaluation/langfuse-inspect/run.js";
+import { PublicSafeLogger } from "../../public-execution/logger.js";
+import { isPublicRunnerMode } from "../../public-execution/mode.js";
+import { readPrivateIssueKey } from "../../public-execution/private-runtime-context.js";
+import { resolveLogDirectory, resolveNamespace } from "./eval-shared.js";
+
+export async function runEvaluationInspectLangfuse(options: {
+  issueKey?: string;
+  configPath?: string;
+  namespace?: string;
+  logDirectory?: string;
+  out?: string;
+  safeContent?: boolean;
+  json?: boolean;
+  expectedPhases?: string;
+}): Promise<number> {
+  try {
+    const issueKey =
+      options.issueKey?.trim() || readPrivateIssueKey()?.trim() || "";
+    if (!issueKey) {
+      process.stderr.write(
+        "evaluation:inspect-langfuse requires --issue or private runtime context.\n",
+      );
+      return EXIT_CONFIG;
+    }
+
+    const logDirectory = await resolveLogDirectory({
+      configPath: options.configPath,
+      logDirectory: options.logDirectory,
+    });
+    const namespace = resolveNamespace(options.namespace);
+    const outPath =
+      options.out ??
+      path.join(
+        logDirectory,
+        "evaluation-reports",
+        isPublicRunnerMode()
+          ? `public-inspect-${process.env.GITHUB_RUN_ID ?? "local"}.json`
+          : `${issueKey}-langfuse-inspect.json`,
+      );
+
+    const expectedPhases = options.expectedPhases
+      ?.split(",")
+      .map((p) => p.trim())
+      .filter(Boolean);
+
+    const { report, publicSummary, exitCode } = await runLangfuseInspect({
+      issueKey,
+      namespace,
+      logDirectory,
+      outPath,
+      safeContent: options.safeContent === true,
+      expectedPhases,
+    });
+
+    if (isPublicRunnerMode()) {
+      new PublicSafeLogger().log({
+        phase: "langfuse_inspect",
+        outcome:
+          publicSummary?.acceptance.complete === true ? "success" : "failure",
+        errorCode:
+          publicSummary?.acceptance.complete === true
+            ? undefined
+            : "langfuse_incomplete",
+        publicEventType: "langfuse_inspect",
+        blockers: report.acceptance.errorGapCount,
+      });
+    } else if (options.json) {
+      process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    } else {
+      process.stdout.write(
+        [
+          `Langfuse inspect: ${report.issueKey}`,
+          `sessionId: ${report.sessionId}`,
+          `traces: ${report.traces.length}`,
+          `scores: ${report.scores.length}`,
+          `gaps: ${report.gaps.length}`,
+          `coreComplete: ${report.acceptance.coreComplete}`,
+          `generationCostComplete: ${report.acceptance.generationCostComplete}`,
+          `requiredGenerations: ${report.acceptance.requiredGenerationCount}`,
+          `planningTrace: ${report.acceptance.hasPlanningTrace}`,
+          `plannerAgent: ${report.acceptance.hasPlannerAgent}`,
+          `planReviewTrace: ${report.acceptance.hasPlanReviewTrace}`,
+          `planReviewerAgent: ${report.acceptance.hasPlanReviewerAgent}`,
+          `report: ${outPath}`,
+          "",
+        ].join("\n"),
+      );
+      for (const gap of report.gaps.slice(0, 20)) {
+        process.stdout.write(`- [${gap.severity}] ${gap.code}: ${gap.message}\n`);
+      }
+      for (const t of report.traces) {
+        process.stdout.write(
+          `trace: ${t.name ?? t.id} issue=${t.linearIssueKey ?? "MISSING"} phase=${t.phase ?? "?"}\n`,
+        );
+      }
+    }
+
+    return exitCode === 0 ? EXIT_SUCCESS : EXIT_CONFIG;
+  } catch (error) {
+    if (isPublicRunnerMode()) {
+      new PublicSafeLogger().log({
+        phase: "langfuse_inspect",
+        outcome: "failure",
+        errorCode: "langfuse_inspect_failed",
+        publicEventType: "langfuse_inspect",
+      });
+    } else {
+      process.stderr.write(
+        `evaluation:inspect-langfuse failed: ${
+          error instanceof Error ? error.message : String(error)
+        }\n`,
+      );
+    }
+    return EXIT_CONFIG;
+  }
+}

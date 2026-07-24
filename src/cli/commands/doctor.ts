@@ -23,16 +23,44 @@ import {
 import { GitHubClient, pingGitHub } from "../../github/client.js";
 import { pingLinear } from "../../linear/client.js";
 import { detectNoncanonicalConfigOverrides } from "../../workflow/canonical-workflow-validation.js";
+import { PublicSafeLogger } from "../../public-execution/logger.js";
+import { isPublicRunnerMode } from "../../public-execution/mode.js";
 import {
   doctorChecksFailed,
+  doctorChecksDegraded,
   formatDoctorCheckLine,
+  sanitizeDoctorFailedChecks,
+  summarizeDoctorChecksBySeverity,
   type DoctorCheckResult,
+  type DoctorCheckSeverity,
 } from "../../setup/doctor-summary.js";
+import { createLiveGitHubRemoteSetupProvider } from "../../setup/github-remote-setup-live.js";
+import { previewTargetWorkflowSetup } from "../../setup/target-workflow-setup.js";
+import { workflowStatusNeedsUpgrade } from "../../setup/target-workflow-contract.js";
+import {
+  classifyVercelProductionCredential,
+  verifyVercelProductionCredentialAuth,
+} from "../../setup/vercel-production-credential.js";
 import { EXIT_CONFIG, EXIT_SUCCESS } from "../exit-codes.js";
+
+export type DoctorProfile =
+  | "full"
+  | "merge"
+  | "reconciler"
+  | "production"
+  | "agent";
 
 export interface DoctorOptions {
   configPath: string;
-  profile?: "full" | "merge";
+  profile?: DoctorProfile;
+}
+
+function reconcileHealthSeverity(
+  profile: DoctorProfile,
+): DoctorCheckSeverity {
+  return profile === "reconciler" || profile === "production"
+    ? "critical"
+    : "degraded";
 }
 
 export async function runDoctor(options: DoctorOptions): Promise<number> {
@@ -187,6 +215,8 @@ export async function runDoctor(options: DoctorOptions): Promise<number> {
     checks.push({
       label: "harness.config.json valid",
       ok: false,
+      severity: "critical",
+      classification: "invalid_harness_config",
       detail: error instanceof Error ? error.message : String(error),
     });
   }
@@ -203,6 +233,8 @@ export async function runDoctor(options: DoctorOptions): Promise<number> {
       checks.push({
         label: "LINEAR_API_KEY set",
         ok: false,
+        severity: "critical",
+        classification: "linear_auth_failure",
         detail: error instanceof Error ? error.message : String(error),
       });
     }
@@ -210,6 +242,8 @@ export async function runDoctor(options: DoctorOptions): Promise<number> {
     checks.push({
       label: "LINEAR_API_KEY set",
       ok: false,
+      severity: "critical",
+      classification: "missing_linear_api_key",
       detail: "required for live planning runs",
     });
   }
@@ -269,17 +303,29 @@ export async function runDoctor(options: DoctorOptions): Promise<number> {
         detail: `warn: ${error instanceof Error ? error.message : String(error)}`,
       });
     }
-  } else if (profile === "merge") {
+  } else if (
+    profile === "merge" ||
+    profile === "reconciler" ||
+    profile === "production"
+  ) {
     checks.push({
       label: "CURSOR_API_KEY set",
       ok: true,
       skipped: true,
-      detail: "required only when merge integration repair needs a Cursor agent",
+      severity: "informational",
+      detail:
+        profile === "merge"
+          ? "required only when merge integration repair needs a Cursor agent"
+          : profile === "production"
+            ? "not required for production-sync health profile"
+            : "not required for reconciler health profile",
     });
   } else {
     checks.push({
       label: "CURSOR_API_KEY set",
       ok: false,
+      severity: "critical",
+      classification: "missing_cursor_api_key",
       detail: "required for live planning runs",
     });
   }
@@ -296,6 +342,8 @@ export async function runDoctor(options: DoctorOptions): Promise<number> {
       checks.push({
         label: "GITHUB_TOKEN set",
         ok: false,
+        severity: "critical",
+        classification: "github_auth_failure",
         detail: error instanceof Error ? error.message : String(error),
       });
     }
@@ -341,13 +389,314 @@ export async function runDoctor(options: DoctorOptions): Promise<number> {
     checks.push({
       label: "GITHUB_TOKEN set",
       ok: false,
+      severity: "critical",
+      classification: "missing_github_token",
       detail: "required for handoff runs (Milestone 4+)",
     });
   }
 
-  for (const check of checks) {
-    console.log(formatDoctorCheckLine(check));
+  {
+    const dispatchToken =
+      process.env.GITHUB_DISPATCH_TOKEN?.trim() ||
+      process.env.HARNESS_GITHUB_TOKEN?.trim();
+    checks.push({
+      label: "GITHUB_DISPATCH_TOKEN (or HARNESS_GITHUB_TOKEN) set",
+      ok: Boolean(dispatchToken),
+      severity: "critical",
+      classification: dispatchToken
+        ? "dispatch_token_present"
+        : "missing_dispatch_token",
+      detail: dispatchToken
+        ? "dispatch token available for opaque repository_dispatch"
+        : "required for Plan Review / Code Review / reconcile opaque dispatch",
+    });
   }
 
-  return doctorChecksFailed(checks) ? EXIT_CONFIG : EXIT_SUCCESS;
+  try {
+    const { inspectReconcileWorkflowSource, RECONCILE_WORKFLOW_RELATIVE_PATH } =
+      await import("../../workflow/reconcile-health.js");
+    const { loadReconcileHeartbeat } = await import(
+      "../../workflow/reconcile-heartbeat-store.js"
+    );
+    const { evaluateReconcileHeartbeatHealth } = await import(
+      "../../workflow/reconcile-health.js"
+    );
+    const fs = await import("node:fs/promises");
+    const workflowPath = path.join(
+      process.cwd(),
+      RECONCILE_WORKFLOW_RELATIVE_PATH,
+    );
+    let workflowContent = "";
+    try {
+      workflowContent = await fs.readFile(workflowPath, "utf8");
+    } catch {
+      workflowContent = "";
+    }
+    const workflowInspect = inspectReconcileWorkflowSource(workflowContent);
+    const reconcileOk =
+      Boolean(workflowContent) &&
+      workflowInspect.hasSchedule &&
+      workflowInspect.hasRequiredCron &&
+      workflowInspect.invokesReconcileCommand;
+    const reconcileSeverity = reconcileHealthSeverity(profile);
+    checks.push({
+      label: "Reconcile workflow present and scheduled",
+      ok: reconcileOk,
+      severity: reconcileOk ? "informational" : reconcileSeverity,
+      classification: reconcileOk
+        ? "reconcile_workflow_ok"
+        : "reconcile_workflow_incomplete",
+      detail: workflowContent
+        ? workflowInspect.detail
+        : `Missing ${RECONCILE_WORKFLOW_RELATIVE_PATH}`,
+    });
+
+    const heartbeat = await loadReconcileHeartbeat();
+    const heartbeatHealth = evaluateReconcileHeartbeatHealth(heartbeat);
+    const ageMinutes =
+      heartbeatHealth.ageMs != null
+        ? Math.round(heartbeatHealth.ageMs / 60000)
+        : null;
+    const heartbeatSkipped =
+      !process.env.P_DEV_STATE_GITHUB_TOKEN && !heartbeat;
+    const heartbeatSeverity = reconcileHealthSeverity(profile);
+    const lastRunId =
+      heartbeat?.lastWorkflowRunId ?? heartbeat?.workflowRunId ?? null;
+    const recoveryHint =
+      "Run npm run harness:reconcile-workflow (or dispatch Harness Reconcile Stranded Issues). Primary webhook phases continue when critical deps are healthy.";
+    checks.push({
+      label: "Reconcile heartbeat fresh",
+      ok: heartbeatHealth.ok,
+      skipped: heartbeatSkipped,
+      severity: heartbeatSkipped
+        ? "informational"
+        : heartbeatHealth.ok
+          ? "informational"
+          : heartbeatSeverity,
+      classification: heartbeatHealth.ok
+        ? "reconcile_heartbeat_fresh"
+        : heartbeatHealth.reason === "stale"
+          ? "reconcile_heartbeat_stale"
+          : heartbeatHealth.reason === "missing"
+            ? "reconcile_heartbeat_missing"
+            : "reconcile_heartbeat_invalid",
+      detail: heartbeatHealth.ok
+        ? `Heartbeat age ${ageMinutes}m; lastSuccessfulScanAt=${heartbeat?.lastSuccessfulScanAt ?? heartbeat?.finishedAt}; lastWorkflowRunId=${lastRunId ?? "?"}; dispatchEnabled=${heartbeat?.dispatchEnabled ?? "?"}; outcome=${heartbeat?.lastOutcome ?? heartbeat?.outcome ?? "success"}`
+        : `${heartbeatHealth.detail}${lastRunId ? ` lastWorkflowRunId=${lastRunId}` : ""}${heartbeat?.lastFailure ? ` lastFailure=${heartbeat.lastFailure}` : ""}${heartbeat?.lastSuccessfulScanAt ? ` lastSuccessfulScanAt=${heartbeat.lastSuccessfulScanAt}` : ""}. ${recoveryHint}`,
+    });
+    if (config) {
+      const { resolveAuthoritativeLinearTeamIdFromConfig, resolveAuthoritativeLinearTeamIds } =
+        await import("../../config/resolve-linear-team.js");
+      const { resolveLinearAssociationsFromConfig } = await import(
+        "../../config/resolve-linear-workspace.js"
+      );
+      const associations = resolveLinearAssociationsFromConfig(config);
+      const authoritative = resolveAuthoritativeLinearTeamIdFromConfig(config);
+      const allTeams = resolveAuthoritativeLinearTeamIds(config);
+      if (associations.length > 1 && authoritative) {
+        const first = associations[0];
+        checks.push({
+          label: "Multi-team workflow-state association path",
+          ok: true,
+          severity: "informational",
+          detail: `Writers use config-authoritative team path first (${authoritative}${first?.teamKey ? ` / ${first.teamKey}` : ""}). Issues on other configured teams (${allTeams.filter((t) => t !== authoritative).join(", ") || "none"}) reuse that path via candidate search; do not expect a per-issue-team duplicate record.`,
+        });
+      }
+    }
+  } catch (error) {
+    checks.push({
+      label: "Reconcile health checks",
+      ok: false,
+      severity: reconcileHealthSeverity(profile),
+      classification: "reconcile_health_check_error",
+      detail: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  if (config) {
+    const cwd = path.dirname(path.resolve(options.configPath));
+    const dispatchRepo = await resolveHarnessDispatchRepo({ cwd });
+    if (dispatchRepo.resolved && dispatchRepo.repo) {
+      const token = process.env.GITHUB_TOKEN ?? process.env.HARNESS_GITHUB_TOKEN;
+      const provider = token
+        ? createLiveGitHubRemoteSetupProvider(token)
+        : null;
+
+      for (const repo of config.repos) {
+        if (repo.baseBranch === repo.productionBranch) {
+          continue;
+        }
+        const preview = previewTargetWorkflowSetup({
+          repoConfigId: repo.id,
+          targetRepo: repo.targetRepo,
+          productionBranch: repo.productionBranch,
+          harnessDispatchRepo: dispatchRepo,
+        });
+        let status = preview.plan.workflowStatus;
+        if (provider && !preview.validationError) {
+          try {
+            const remote = await provider.checkTargetWorkflowStatus({
+              targetRepoSlug: preview.plan.targetRepoSlug,
+              productionBranch: repo.productionBranch,
+              workflowPath: preview.plan.workflowPath,
+              intendedWorkflowContent: preview.workflowContent,
+            });
+            status = remote.workflowStatus;
+          } catch (error) {
+            checks.push({
+              label: `${repo.id} target workflow`,
+              ok: false,
+              detail: error instanceof Error ? error.message : String(error),
+            });
+            continue;
+          }
+        } else if (!provider) {
+          status = "unknown";
+        }
+
+        const needsUpgrade = workflowStatusNeedsUpgrade(status);
+        checks.push({
+          label: `${repo.id} target workflow`,
+          ok:
+            status !== "stale_dispatch_target" &&
+            status !== "missing" &&
+            status !== "unknown",
+          skipped: status === "unknown",
+          detail:
+            status === "unknown"
+              ? "GITHUB_TOKEN required for live audit"
+              : needsUpgrade
+                ? `${status} — run harness:upgrade-target-workflows`
+                : status,
+        });
+      }
+    }
+  }
+
+  if (config && (profile === "production" || profile === "full" || profile === "reconciler")) {
+    const presence = classifyVercelProductionCredential({
+      repos: config.repos,
+      env: process.env,
+    });
+    if (presence.required) {
+      const token = process.env.VERCEL_TOKEN?.trim() ?? "";
+      const verified =
+        token.length > 0
+          ? await verifyVercelProductionCredentialAuth({
+              repos: config.repos,
+              vercelToken: token,
+            })
+          : presence;
+      const severity: DoctorCheckSeverity =
+        profile === "production" || profile === "reconciler"
+          ? "critical"
+          : verified.ok
+            ? "informational"
+            : "critical";
+      checks.push({
+        label: "VERCEL_TOKEN production deployment verification",
+        ok: verified.ok,
+        severity,
+        classification: verified.classification,
+        detail: JSON.stringify({
+          checkName: verified.checkName,
+          affectedRepoIds: verified.affectedRepoIds,
+          provider: verified.provider,
+          severity: verified.severity,
+          missingEnvironmentVariable: verified.missingEnvironmentVariable,
+          productionProjectionBlocked: verified.productionProjectionBlocked,
+          classification: verified.classification,
+          detail: verified.detail,
+        }),
+      });
+    } else if (profile === "production") {
+      checks.push({
+        label: "VERCEL_TOKEN production deployment verification",
+        ok: true,
+        skipped: true,
+        severity: "informational",
+        classification: "not_required",
+        detail: presence.detail,
+      });
+    }
+  } else if (config && profile === "agent") {
+    checks.push({
+      label: "VERCEL_TOKEN production deployment verification",
+      ok: true,
+      skipped: true,
+      severity: "informational",
+      classification: "not_applicable_agent_profile",
+      detail:
+        "not required for agent-phase Doctor profile (planning, Plan Review, implementation, revision, code-review); production deploy credential is validated by sync-production / production profile",
+    });
+  }
+
+  // Runner startup / config validation for provenance (not Cursor CSV preflight).
+  {
+    const { checkProvenanceStoreHealthReadOnly } = await import(
+      "../../provenance/production-bootstrap.js"
+    );
+    const provenanceHealth = await checkProvenanceStoreHealthReadOnly({
+      env: process.env,
+    });
+    const provenanceOk =
+      provenanceHealth.mode === "disabled" || provenanceHealth.healthy;
+    checks.push({
+      label: "Cursor provenance writer config",
+      ok: provenanceOk,
+      severity:
+        provenanceHealth.mode === "required" && !provenanceHealth.healthy
+          ? "critical"
+          : "informational",
+      classification: provenanceOk
+        ? "provenance_config_ok"
+        : "provenance_config_incomplete",
+      detail: `mode=${provenanceHealth.mode}; writer=${provenanceHealth.writerVersion}; manifestDigest=${provenanceHealth.launchSurfacesManifestDigest.slice(0, 12)}; initialized=${provenanceHealth.successfullyInitialized}; checks=${provenanceHealth.checks
+        .map((c) => `${c.name}:${c.ok ? "ok" : "fail"}`)
+        .join(",")}`,
+    });
+  }
+
+  const tallies = summarizeDoctorChecksBySeverity(checks);
+  const criticalFailed = doctorChecksFailed(checks);
+  const degraded = doctorChecksDegraded(checks);
+  const sanitizedFailures = sanitizeDoctorFailedChecks(checks);
+
+  if (isPublicRunnerMode()) {
+    new PublicSafeLogger().log({
+      phase: "doctor",
+      outcome: criticalFailed ? "failure" : "success",
+      errorCode: criticalFailed
+        ? "doctor_checks_failed"
+        : degraded
+          ? "doctor_degraded"
+          : undefined,
+      retryCount: tallies.passed,
+      noops: tallies.skipped,
+      blockers: tallies.critical,
+      success: !criticalFailed,
+    });
+    if (sanitizedFailures.length > 0) {
+      // Sanitized labels only — no secrets/details in public mode.
+      console.log(
+        JSON.stringify({
+          phase: "doctor",
+          publicEventType: "doctor_failed_checks",
+          failedChecks: sanitizedFailures,
+          degraded: tallies.degraded,
+        }),
+      );
+    }
+  } else {
+    for (const check of checks) {
+      console.log(formatDoctorCheckLine(check));
+    }
+    if (degraded && !criticalFailed) {
+      console.log(
+        `⚠ Doctor health degraded (${tallies.degraded} check(s)); phase execution not blocked.`,
+      );
+    }
+  }
+
+  return criticalFailed ? EXIT_CONFIG : EXIT_SUCCESS;
 }

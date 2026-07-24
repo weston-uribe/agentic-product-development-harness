@@ -20,6 +20,7 @@ import {
   findPhaseStartMarker,
 } from "./comments.js";
 import { getGitHubActionsRunUrl } from "../github/actions-url.js";
+import { toPublicProviderIdentityHashes } from "./provider-identity-public.js";
 
 export interface LinearCommentRecord {
   id: string;
@@ -43,6 +44,34 @@ export async function listIssueComments(
   }));
 }
 
+export async function transitionIssueStatusById(
+  client: LinearClient,
+  issue: LinearIssueSnapshot,
+  stateId: string,
+): Promise<void> {
+  const linearIssue = await client.issue(issue.id);
+  if (!linearIssue) {
+    throw new Error(`Linear issue not found: ${issue.id}`);
+  }
+  try {
+    const payload = await linearIssue.update({ stateId });
+    if (!payload.success) {
+      throw new Error(`Failed to transition issue to state ${stateId}`);
+    }
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.startsWith("Failed to transition issue")
+    ) {
+      throw error;
+    }
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Failed to transition issue to state ${stateId}: ${detail}`,
+    );
+  }
+}
+
 export async function transitionIssueStatus(
   client: LinearClient,
   issue: LinearIssueSnapshot,
@@ -60,9 +89,22 @@ export async function transitionIssueStatus(
   if (!linearIssue) {
     throw new Error(`Linear issue not found: ${issue.id}`);
   }
-  const payload = await linearIssue.update({ stateId });
-  if (!payload.success) {
-    throw new Error(`Failed to transition issue to ${statusName}`);
+  try {
+    const payload = await linearIssue.update({ stateId });
+    if (!payload.success) {
+      throw new Error(`Failed to transition issue to ${statusName}`);
+    }
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.startsWith("Failed to transition issue")
+    ) {
+      throw error;
+    }
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Failed to transition issue to ${statusName}: ${detail}`,
+    );
   }
 }
 
@@ -95,8 +137,9 @@ export async function postPlanningComment(
   issueId: string,
   planBody: string,
   footer: HarnessCommentFooterInput,
+  options?: { planReviewNext?: boolean; planningOnlyTerminal?: boolean },
 ): Promise<string> {
-  const body = formatPlanningComment(planBody, footer);
+  const body = formatPlanningComment(planBody, footer, options);
   return postIssueComment(client, issueId, body);
 }
 
@@ -180,6 +223,12 @@ export async function postPhaseStartCommentIfNeeded(
   }
 
   const githubActionsRunUrl = getGitHubActionsRunUrl();
+  const identityHashes = toPublicProviderIdentityHashes({
+    cursorAgentId: input.cursorAgentId,
+    cursorRunId: input.cursorRunId,
+    builderAgentId: input.builderAgentId,
+    previousBuilderAgentId: input.previousBuilderAgentId,
+  });
   const bodyInput: PhaseStartCommentBodyInput = {
     issueKey: input.issueKey,
     targetRepo: input.targetRepo,
@@ -187,20 +236,15 @@ export async function postPhaseStartCommentIfNeeded(
     branch: input.branch,
     prUrl: input.prUrl,
     githubActionsRunUrl,
-    cursorAgentId: input.cursorAgentId,
-    cursorRunId: input.cursorRunId,
   };
   const body = formatPhaseStartComment(input.phase, bodyInput, {
     orchestratorMarker: input.orchestratorMarker,
     runId: input.runId,
-    cursorAgentId: input.cursorAgentId,
-    cursorRunId: input.cursorRunId,
-    builderAgentId: input.builderAgentId,
+    ...identityHashes,
     builderThreadGeneration: input.builderThreadGeneration,
     builderThreadAction: input.builderThreadAction,
     builderOriginRunId: input.builderOriginRunId,
     builderThreadIdempotencyKey: input.builderThreadIdempotencyKey,
-    previousBuilderAgentId: input.previousBuilderAgentId,
     builderThreadReplacementReason: input.builderThreadReplacementReason,
     model: input.model,
     promptVersion: input.promptVersion,
@@ -218,7 +262,16 @@ export async function postErrorComment(
   issueId: string,
   message: string,
   footer: MergeCommentFooterInput,
-  phase: "planning" | "implementation" | "handoff" | "revision" | "merge" | "production_sync" = "planning",
+  phase:
+    | "planning"
+    | "plan_review"
+    | "implementation"
+    | "handoff"
+    | "code_review"
+    | "code_revision"
+    | "revision"
+    | "merge"
+    | "production_sync" = "planning",
   options?: {
     errorClassification?: string;
   },

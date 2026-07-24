@@ -12,6 +12,12 @@ import {
 } from "./remote-actions.js";
 import { computeTargetWorkflowFingerprint } from "./remote-preview-fingerprint.js";
 import { targetRepoSlugFromUrl } from "./harness-secret-setup.js";
+import {
+  buildTargetWorkflowContractComment,
+  classifyTargetWorkflowAgainstContract,
+  TARGET_WORKFLOW_CONTRACT_VERSION,
+} from "./target-workflow-contract.js";
+import { assertValidGeneratedTargetWorkflow } from "./target-workflow-validation.js";
 
 export interface TargetWorkflowGenerationInput {
   harnessDispatchRepo: string;
@@ -24,21 +30,26 @@ export function buildTargetWorkflowBranchName(repoConfigId: string): string {
   return `harness/setup-production-sync-${repoConfigId}`;
 }
 
-export function buildTargetWorkflowPrTitle(): string {
-  return "Install harness production sync workflow";
+export function buildTargetWorkflowPrTitle(upgrade = false): string {
+  return upgrade
+    ? "Upgrade harness production sync workflow"
+    : "Install harness production sync workflow";
 }
 
 export function buildTargetWorkflowPrBody(input: {
   repoConfigId: string;
   productionBranch: string;
   harnessDispatchRepo: string;
+  upgrade?: boolean;
 }): string {
+  const verb = input.upgrade ? "Upgrade" : "Install";
   return [
-    "Install the harness production sync workflow via Product Development Harness setup.",
+    `${verb} the harness production sync workflow via Product Development Harness setup.`,
     "",
     `- Repo config id: ${input.repoConfigId}`,
     `- Production branch watched: ${input.productionBranch}`,
     `- Harness dispatch repo: ${input.harnessDispatchRepo}`,
+    `- Target workflow contract: v${TARGET_WORKFLOW_CONTRACT_VERSION}`,
     "",
     "This workflow dispatches `production_promoted` to the harness repo after production branch pushes.",
     "It does not run harness planning, implementation, handoff, revision, or merge phases.",
@@ -46,6 +57,7 @@ export function buildTargetWorkflowPrBody(input: {
     "Required target repo secret: `HARNESS_DISPATCH_TOKEN` (dispatch-only PAT scoped to the harness repo).",
     "",
     `<!-- p-dev-workflow-install:${input.repoConfigId} -->`,
+    `<!-- ${"p-dev-target-workflow-contract"}:v${TARGET_WORKFLOW_CONTRACT_VERSION} -->`,
   ].join("\n");
 }
 
@@ -53,8 +65,15 @@ export function generateTargetWorkflowYaml(
   input: TargetWorkflowGenerationInput,
 ): string {
   const dispatchUrl = buildRepositoryDispatchUrl(input.harnessDispatchRepo);
+  const contractComment = buildTargetWorkflowContractComment({
+    contractVersion: TARGET_WORKFLOW_CONTRACT_VERSION,
+    harnessDispatchRepo: input.harnessDispatchRepo,
+    repoConfigId: input.repoConfigId,
+    productionBranch: input.productionBranch,
+  });
 
-  return [
+  const content = [
+    contractComment,
     "name: Trigger harness production sync",
     "",
     "on:",
@@ -88,6 +107,16 @@ export function generateTargetWorkflowYaml(
     `              '{event_type:"production_promoted", client_payload:{repo:$repo, productionBranch:$branch, sourceRepo:$source, after:$after, ref:$ref, githubRunId:$run_id, receivedAt:$received}}')"`,
     "",
   ].join("\n");
+
+  assertValidGeneratedTargetWorkflow({
+    content,
+    expectedProductionBranch: input.productionBranch,
+    expectedDispatchRepo: input.harnessDispatchRepo,
+    expectedRepoConfigId: input.repoConfigId,
+    expectedTargetRepoSlug: input.targetRepoSlug,
+  });
+
+  return content;
 }
 
 export function hashWorkflowContent(content: string): string {
@@ -98,13 +127,20 @@ export function compareTargetWorkflowContent(
   existingContent: string | null | undefined,
   intendedContent: string,
 ): RemoteWorkflowStatus {
-  if (!existingContent) {
-    return "missing";
-  }
-  if (hashWorkflowContent(existingContent) === hashWorkflowContent(intendedContent)) {
-    return "present";
-  }
-  return "differs";
+  const intendedDispatchRepo =
+    intendedContent.match(
+      /https:\/\/api\.github\.com\/repos\/([^/\s]+)\/([^/\s]+)\/dispatches/,
+    );
+  const intendedRepo = intendedDispatchRepo
+    ? `${intendedDispatchRepo[1]}/${intendedDispatchRepo[2]}`
+    : "";
+
+  return classifyTargetWorkflowAgainstContract({
+    existingContent,
+    intendedContent,
+    intendedDispatchRepo: intendedRepo,
+    intendedContractVersion: TARGET_WORKFLOW_CONTRACT_VERSION,
+  });
 }
 
 export function buildTargetWorkflowPrPlan(input: {

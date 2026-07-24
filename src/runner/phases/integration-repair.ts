@@ -12,7 +12,9 @@ import {
   acquireBuilderAgent,
   disposeAgent,
   sendAndObserve,
-} from "../../agents/index.js";
+} from "../../agents/production.js";
+import { buildPhaseLaunchContext } from "../provenance-launch-context.js";
+import type { LinearHarnessLaunchContext } from "../../provenance/launch-context.js";
 import { evaluateChecksForMerge } from "../../github/check-policy.js";
 import type { GitHubClient } from "../../github/client.js";
 import { GitHubApiError } from "../../github/client.js";
@@ -27,10 +29,21 @@ import {
 } from "../../github/pr-inspector.js";
 import type { ParsedPrUrl } from "../../github/pr-url.js";
 import { formatHarnessCommentFooter } from "../../linear/comments.js";
+import { toPublicProviderIdentityHashes } from "../../linear/provider-identity-public.js";
 import type { LinearIssueSnapshot } from "../../linear/client.js";
 import { postIssueComment } from "../../linear/writer.js";
 import { inferVercelReadyFromComments } from "../../preview/production-from-merge.js";
 import { buildIntegrationRepairPrompt } from "../../prompts/integration-repair-builder.js";
+import { buildTelemetryCorrelation } from "../../evaluation/telemetry/correlation.js";
+import {
+  buildPromptProvenance,
+  buildSkillProvenance,
+  PHASE_ELIGIBLE_SKILLS,
+} from "../../evaluation/telemetry/provenance.js";
+import {
+  emitPromptProvenanceEvent,
+  emitSkillProvenanceEvent,
+} from "../../evaluation/telemetry/phase-emit.js";
 import type { ResolvedTarget } from "../../resolver/target-repo.js";
 import type { ParsedIssue } from "../../types/parsed-issue.js";
 import { manifestModelEvidence, resolveBuilderModel } from "../../cursor/model.js";
@@ -41,6 +54,7 @@ import {
   builderMarkerEvidenceFromResolution,
 } from "../builder-thread-evidence.js";
 import { MergeError } from "../errors.js";
+import { loadWorkflowStateForIssue } from "../../workflow/resolve-implementation-subject.js";
 
 const DETERMINISTIC_UPDATE_ATTEMPTS = 2;
 const AGENT_REPAIR_ATTEMPTS = 1;
@@ -64,6 +78,9 @@ export interface IntegrationRepairResult {
   inspection: PrInspectionResult;
   validationSummary: string | null;
   agentEvidence?: IntegrationRepairAgentEvidence;
+  integrationRepairAttempted: boolean;
+  integrationRepairMode: "github_update_branch" | "cursor_agent" | "none";
+  integrationRepairOutcome: "success" | "failed" | "skipped" | "not_attempted";
 }
 
 export interface IntegrationRepairOptions {
@@ -94,6 +111,22 @@ interface RepairReport {
   merge_commit_sha?: string;
   validation_summary?: string;
   touched_files?: RepairReportTouchedFile[];
+}
+
+function withRepairEvidence(
+  result: Pick<
+    IntegrationRepairResult,
+    "inspection" | "validationSummary" | "agentEvidence"
+  >,
+  mode: IntegrationRepairResult["integrationRepairMode"],
+  outcome: IntegrationRepairResult["integrationRepairOutcome"],
+): IntegrationRepairResult {
+  return {
+    ...result,
+    integrationRepairAttempted: mode !== "none",
+    integrationRepairMode: mode,
+    integrationRepairOutcome: outcome,
+  };
 }
 
 function repairTriggerReason(inspection: PrInspectionResult): "behind" | "dirty" {
@@ -153,14 +186,16 @@ async function postRepairComment(
     touchedFiles: joinMarkerList(input.touchedFiles ?? []),
     mergeCommitSha: input.mergeCommitSha,
     repairCycleId: input.repairCycleId,
-    cursorAgentId: input.cursorAgentId,
-    cursorRunId: input.cursorRunId,
-    builderAgentId: input.builderAgentId,
+    ...toPublicProviderIdentityHashes({
+      cursorAgentId: input.cursorAgentId,
+      cursorRunId: input.cursorRunId,
+      builderAgentId: input.builderAgentId,
+      previousBuilderAgentId: input.previousBuilderAgentId,
+    }),
     builderThreadGeneration: input.builderThreadGeneration,
     builderThreadAction: input.builderThreadAction,
     builderOriginRunId: input.builderOriginRunId,
     builderThreadIdempotencyKey: input.builderThreadIdempotencyKey,
-    previousBuilderAgentId: input.previousBuilderAgentId,
     builderThreadReplacementReason: input.builderThreadReplacementReason,
   });
   await postIssueComment(
@@ -176,7 +211,7 @@ async function postRepairComment(
 async function waitForRepairChecks(
   options: IntegrationRepairOptions,
   inspection: PrInspectionResult,
-): Promise<{ inspection: PrInspectionResult; validationSummary: string | null }> {
+): Promise<IntegrationRepairResult> {
   const checkPollTimeout =
     options.config.merge?.checkPollTimeoutSeconds ??
     DEFAULT_MERGE_CHECK_POLL_TIMEOUT_SECONDS;
@@ -207,11 +242,15 @@ async function waitForRepairChecks(
       checkPolicy.classification === "checks_unknown") &&
     inferVercelReadyFromComments(latest.comments)
   ) {
-    return {
-      inspection: latest,
-      validationSummary:
-        "GitHub checks inconclusive; proceeding because Vercel deployment comment reports Ready",
-    };
+      return withRepairEvidence(
+        {
+          inspection: latest,
+          validationSummary:
+            "GitHub checks inconclusive; proceeding because Vercel deployment comment reports Ready",
+        },
+        "github_update_branch",
+        "success",
+      );
   }
 
   if (checkPolicy.decision === "block") {
@@ -221,11 +260,15 @@ async function waitForRepairChecks(
     );
   }
 
-  return {
-    inspection: latest,
-    validationSummary:
-      checkPolicy.warnings.length > 0 ? checkPolicy.warnings.join("; ") : null,
-  };
+  return withRepairEvidence(
+    {
+      inspection: latest,
+      validationSummary:
+        checkPolicy.warnings.length > 0 ? checkPolicy.warnings.join("; ") : null,
+    },
+    "github_update_branch",
+    "success",
+  );
 }
 
 function extractJsonReport(text: string): RepairReport {
@@ -408,7 +451,7 @@ async function attemptAgentRepair(
     (repo) => repo.id === options.resolved.repoConfigId,
   );
   const validationCommands = repoConfig?.validation?.commands ?? [];
-  const { prompt } = await buildIntegrationRepairPrompt({
+  const { prompt: basePrompt } = await buildIntegrationRepairPrompt({
     issue: options.issue,
     parsed: options.parsedIssue,
     resolved: options.resolved,
@@ -420,12 +463,80 @@ async function attemptAgentRepair(
     baseBranchDelta: [],
     validationCommands,
   });
+  const { assembleAgentPrompt } = await import("../../prompts/assemble.js");
+  const { promptNameForPhase } = await import("../../prompts/skill-inject.js");
+  const skillInjection = await assembleAgentPrompt({
+    phase: "integration_repair",
+    localCompiledPrompt: basePrompt,
+  });
+  const prompt = skillInjection.prompt;
 
   await mkdir(`${options.runDirectory}/prompts`, { recursive: true });
-  await writeFile(
-    `${options.runDirectory}/prompts/integration-repair-agent.md`,
-    `${prompt}\n`,
-    "utf8",
+  const repairPromptPath = `${options.runDirectory}/prompts/integration-repair-agent.md`;
+  await writeFile(repairPromptPath, `${prompt}\n`, "utf8");
+  const telemetryCorrelation = buildTelemetryCorrelation({
+    namespace: "default",
+    issueKey: options.issue.identifier,
+    harnessRunId: options.runId,
+    phase: "integration_repair",
+  });
+  const promptProvenance = await buildPromptProvenance({
+    runDirectory: options.runDirectory,
+    promptContractVersion: INTEGRATION_REPAIR_PROMPT_VERSION,
+    promptTemplatePath: "src/prompts/integration-repair.md",
+    renderedPromptAbsolutePath: repairPromptPath,
+  });
+  const declaredSkills = skillInjection.skillsUsed.map((s) => ({
+    skillId: s.skillId,
+    sourcePath: s.sourcePath,
+    role: s.role,
+  }));
+  const skillProvenance = await buildSkillProvenance({
+    eligible: PHASE_ELIGIBLE_SKILLS.integration_repair ?? [],
+    declared: declaredSkills,
+    observed: declaredSkills,
+  });
+  await emitPromptProvenanceEvent(
+    options.runDirectory,
+    telemetryCorrelation,
+    {
+      ...promptProvenance,
+      promptName: promptNameForPhase("integration_repair"),
+      promptAssemblySchemaVersion: 1,
+      promptProvider: skillInjection.assembly.provider,
+      promptSource: skillInjection.assembly.source,
+      providerPromptVersion: skillInjection.assembly.providerPromptVersion,
+      providerLabel: skillInjection.assembly.providerLabel,
+      providerTemplateSha256: skillInjection.assembly.providerTemplateSha256,
+      localTemplateSha256: skillInjection.assembly.localTemplateSha256,
+      fallbackUsed: skillInjection.assembly.fallbackUsed,
+      fallbackReason: skillInjection.assembly.fallbackReason,
+      skillInvocationMode: skillInjection.assembly.skillInvocationMode,
+      langfusePromptLinked: skillInjection.assembly.langfusePromptLinked,
+      langfusePromptJson: skillInjection.langfusePromptLinkJson,
+      nativeCapabilityState: skillInjection.assembly.nativeCapabilityState,
+      componentOrdering: skillInjection.assembly.componentOrdering,
+      variablesUsed: skillInjection.assembly.variablesUsed,
+    },
+  );
+  await emitSkillProvenanceEvent(
+    options.runDirectory,
+    telemetryCorrelation,
+    {
+      ...skillProvenance,
+      skillsUsed: skillInjection.skillsUsed.map((s) => ({
+        skillId: s.skillId,
+        sourcePath: s.sourcePath,
+        role: s.role,
+        contentSha256: s.contentSha256,
+        inclusionMethod: s.inclusionMethod,
+        discovered: s.discovered,
+        invoked: s.invoked,
+        evidenceSource: s.evidenceSource,
+        fallbackReason: s.fallbackReason,
+      })),
+      skillProvenanceStatus: skillInjection.skillProvenanceStatus,
+    },
   );
 
   let inspectionBeforeAgent = await inspectPullRequestForMerge(
@@ -434,6 +545,11 @@ async function attemptAgentRepair(
     options.markerTargetRepo,
   );
   const comments = await listIssueComments(options.linearClient, options.issue.id);
+  const { state: repairWorkflowState } = await loadWorkflowStateForIssue({
+    config: options.config,
+    issueKey: options.issue.identifier,
+    issueTeamId: options.issue.teamId,
+  });
   const repairIdempotencyKey = buildIntegrationRepairIdempotencyKey({
     issueKey: options.issue.identifier,
     prUrl: inspectionBeforeAgent.url,
@@ -456,13 +572,61 @@ async function attemptAgentRepair(
       idempotencyKey: repairIdempotencyKey,
       comments,
       orchestratorMarker: options.config.orchestratorMarker,
+      workflowState: repairWorkflowState
+        ? {
+            builderAgentId: repairWorkflowState.builderAgentId,
+            builderRunId: repairWorkflowState.builderRunId,
+            issueKey: options.issue.identifier,
+          }
+        : null,
     },
+    buildLaunchContext: (info) =>
+      buildPhaseLaunchContext({
+        config: options.config,
+        linearIssueId: options.issue.id,
+        linearIssueKey: options.issue.identifier,
+        phase: "integration_repair",
+        phaseExecutionId: options.runId,
+        harnessRunId: options.runId,
+        agentRole: "builder",
+        action: info.action,
+        generation: info.generation,
+        priorAgentId: info.priorAgentId,
+        targetRepository: options.markerTargetRepo,
+        startingRef: inspectionBeforeAgent.branch,
+        prUrl: inspectionBeforeAgent.url,
+        launchSurface: info.launchSurface,
+      }),
   });
   const builderEvidence = builderMarkerEvidenceFromResolution(
     acquired.continuity,
     repairIdempotencyKey,
   );
   const agent = acquired.agent;
+  const repairAction =
+    acquired.continuity.action === "resumed"
+      ? ("resume" as const)
+      : ("replacement" as const);
+  const repairLaunchContext: LinearHarnessLaunchContext =
+    buildPhaseLaunchContext({
+      config: options.config,
+      linearIssueId: options.issue.id,
+      linearIssueKey: options.issue.identifier,
+      phase: "integration_repair",
+      phaseExecutionId: options.runId,
+      harnessRunId: options.runId,
+      agentRole: "builder",
+      action: repairAction,
+      generation: acquired.continuity.reference.generation,
+      priorAgentId: acquired.continuity.previousAgentId,
+      targetRepository: options.markerTargetRepo,
+      startingRef: inspectionBeforeAgent.branch,
+      prUrl: inspectionBeforeAgent.url,
+      launchSurface:
+        repairAction === "resume"
+          ? "integration_repair.resume"
+          : "integration_repair.replacement",
+    });
 
   try {
     let observed;
@@ -482,6 +646,9 @@ async function attemptAgentRepair(
         options.events,
         {
           phase: "integration_repair",
+          launchContext: repairLaunchContext,
+          sendSurface: "integration_repair.send",
+          sendOrdinal: 1,
           targetRepo: options.markerTargetRepo,
           expectedBranch: inspectionBeforeAgent.branch,
           expectedPrUrl: inspectionBeforeAgent.url,
@@ -489,6 +656,7 @@ async function attemptAgentRepair(
           model: resolveBuilderModel(options.config),
           mode: "agent",
           idempotencyKey: repairIdempotencyKey,
+          telemetryCorrelation,
           onBeforeSend: async ({ agentId }) => {
             repairAgentId = agentId;
             await postRepairComment(options, {
@@ -605,30 +773,34 @@ async function attemptAgentRepair(
       previousBuilderAgentId: builderEvidence.previousBuilderAgentId,
       builderThreadReplacementReason: builderEvidence.builderThreadReplacementReason,
     });
-    return {
-      inspection: checked.inspection,
-      validationSummary:
-        report.validation_summary ?? checked.validationSummary ?? observed.assistantText,
-      ...(repairAgentId && repairRunId
-        ? {
-            agentEvidence: {
-              model: builderModelEvidence.model,
-              modelRole: "builder" as const,
-              modelParams: builderModelEvidence.modelParams,
-              cursorAgentId: repairAgentId,
-              cursorRunId: repairRunId,
-              builderAgentId: acquired.continuity.reference.agentId,
-              builderThreadAction: acquired.continuity.action,
-              builderThreadGeneration: acquired.continuity.reference.generation,
-              builderOriginRunId: acquired.continuity.reference.originHarnessRunId,
-              previousBuilderAgentId: acquired.continuity.previousAgentId ?? null,
-              builderThreadReplacementReason:
-                acquired.continuity.replacementReason ?? null,
-              cursorRequestId: repairRequestId,
-            },
-          }
-        : {}),
-    };
+    return withRepairEvidence(
+      {
+        inspection: checked.inspection,
+        validationSummary:
+          report.validation_summary ?? checked.validationSummary ?? observed.assistantText,
+        ...(repairAgentId && repairRunId
+          ? {
+              agentEvidence: {
+                model: builderModelEvidence.model,
+                modelRole: "builder" as const,
+                modelParams: builderModelEvidence.modelParams,
+                cursorAgentId: repairAgentId,
+                cursorRunId: repairRunId,
+                builderAgentId: acquired.continuity.reference.agentId,
+                builderThreadAction: acquired.continuity.action,
+                builderThreadGeneration: acquired.continuity.reference.generation,
+                builderOriginRunId: acquired.continuity.reference.originHarnessRunId,
+                previousBuilderAgentId: acquired.continuity.previousAgentId ?? null,
+                builderThreadReplacementReason:
+                  acquired.continuity.replacementReason ?? null,
+                cursorRequestId: repairRequestId,
+              },
+            }
+          : {}),
+      },
+      "cursor_agent",
+      "success",
+    );
   } catch (error) {
     await options.events.log("repair_failed", "error", {
       message: error instanceof Error ? error.message : String(error),
@@ -692,7 +864,7 @@ export async function attemptIntegrationRepair(
         repairCycleId,
         prUrl: deterministic.inspection.url,
       });
-      return deterministic;
+      return withRepairEvidence(deterministic, "github_update_branch", "success");
     }
 
     const agentResult = await attemptAgentRepair(options, repairCycleId, conflictFiles);
@@ -704,7 +876,7 @@ export async function attemptIntegrationRepair(
       repairCycleId,
       prUrl: agentResult.inspection.url,
     });
-    return agentResult;
+    return withRepairEvidence(agentResult, "cursor_agent", "success");
   } catch (error) {
     await options.events.log("repair_failed", "error", {
       repairCycleId,

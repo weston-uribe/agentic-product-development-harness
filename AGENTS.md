@@ -6,9 +6,9 @@ Instructions for AI agents working in **agentic-product-development-harness**. R
 
 v0.4.0 harness repo: SDK runners (M1–M8), templates, eval contracts, event-driven Linear auto-run, guided Configure GUI, and public `p-dev-harness` npm package. Read this before making changes.
 
-The harness has **M1–M8 SDK runners and tooling** (planning through merge, issue intake validation, and event-driven auto-run via Linear webhook + GitHub Actions).
+The harness has **M1–M8 SDK runners and tooling** (planning through merge, issue contract validation, and event-driven auto-run via Linear webhook + GitHub Actions).
 
-For new harness work intake, use [`.agents/skills/issue-intake/SKILL.md`](.agents/skills/issue-intake/SKILL.md) and validate with `npm run harness:validate-issue`.
+Issue intake is an **external ChatGPT workflow**, not a harness execution subsystem. For new work, copy [`.agents/skills/issue-intake/SKILL.md`](.agents/skills/issue-intake/SKILL.md) into a normal ChatGPT conversation; after Linear issues exist, optionally validate the issue contract with `npm run harness:validate-issue`.
 
 Status changes on allowlisted Linear statuses trigger cloud harness runs automatically — see [`docs/linear-watcher-setup.md`](docs/linear-watcher-setup.md).
 
@@ -48,20 +48,31 @@ When working on or simulating harness automations:
 - **Do not advance Linear status** unless the required durable artifact exists (plan comment, PR link, revision summary, etc.).
 - **Preserve state in Linear/GitHub artifacts** — comments, PRs, commits, preview URLs — not hidden session memory.
 - **Do not rely on hidden session memory** as source of truth; a fresh agent must reconstruct context from durable artifacts.
-- **Integration repair is merge-owned** — keep the issue in **Merging**, repair only the PR branch, preserve issue acceptance criteria plus already-merged base behavior, and return directly to merge only after validation/checks pass.
-- **Planning is optional** — respect `requires-plan` and `skip-plan` labels per [`docs/architecture/linear-automation-state-machine.md`](docs/architecture/linear-automation-state-machine.md).
+- **Integration repair is merge-owned** — keep the issue in **Merging**, repair only the PR branch, preserve issue acceptance criteria plus already-merged base behavior, and return directly to merge only after required verification passes (`verified_complete`), including behavioral acceptance verification when acceptance criteria describe observable behavior.
+- **Planning is optional** — **Ready for Build** is status-authoritative and does not require a planning comment. Labels (`requires-plan`, `skip-plan`) are operational hints only; see [`docs/architecture/linear-automation-state-machine.md`](docs/architecture/linear-automation-state-machine.md).
 - **Plan Review is deprecated** in the default workflow — do not route work to it.
 
 ## Agent reporting contract
 
 Cursor agents working in or through this harness should report **concise, factual** status—not strategic recommendations.
 
+### Completion principle (implementation-agent modes)
+
+Implementation is not complete when code has been written. It is complete when every in-scope acceptance criterion has objective passing evidence in the most representative safe environment available.
+
+**Behavioral acceptance verification** means directly exercising the implemented behavior in a representative runnable environment and collecting objective evidence that acceptance criteria are satisfied. Static checks remain necessary where applicable; they do not replace behavioral acceptance verification when observable runtime behavior changes.
+
+Implementation-agent modes (`initial-build`, `revision`, `integration-repair`) must end in one of: `verified_complete` | `blocked_external` | `requires_product_judgment` | `verification_failed`. Only `verified_complete` may be described as complete / handoff-ready, or advance toward handoff or merge. Completion does not imply PR approval, merge authorization, production deployment, release readiness, npm publishing, or tag creation.
+
 **Include in every run report:**
 
-- **Objective evidence** — links, command output, screenshots, diff summaries, preview URLs
+- **Objective evidence** — links, command output, screenshots, diff summaries, preview URLs, request/response summaries, before/after reproduction evidence
 - **Completed actions** — what was actually done (files edited, commands run, PR opened)
-- **Validation results** — pass / fail / not run per check, with evidence
-- **Blockers** — anything that stopped or limited progress
+- **Validation results** — pass / fail / not run per automated check, with evidence
+- **Acceptance evidence** — for implementation-agent modes: each acceptance criterion mapped to method, environment, result, and evidence
+- **Repair loop** — failures discovered, root causes, fixes applied, verification rerun, final result (when applicable)
+- **Result state** — for implementation-agent modes: one of the four states above
+- **Blockers** — anything that stopped or limited progress (never describe blocked work as complete)
 - **Changed files** — explicit list of paths touched
 - **Repair evidence** — for integration repair, include deterministic update result or agent conflict-resolution summary, touched-file rationale, validation, and final PR branch SHA
 - **Model setting** — state the actual configured model when relevant (currently **Composer 2.5** for automations)
@@ -119,7 +130,7 @@ docs/decisions/     → Architecture decision records
 docs/research/      → Workflow research notes
 templates/          → Issue, plan, readiness, eval templates
 evals/              → Eval rubric contracts (manual first)
-.agents/skills/     → Canonical harness skills (issue-intake, code-health-audit, architecture-evolution-audit, security-audit, planner, implementation)
+.agents/skills/     → Canonical skills (issue-intake is external ChatGPT copy/paste; code-health-audit, architecture-evolution-audit, security-audit, planner, implementation)
 docs/skills/        → Skill system architecture
 skills/             → Compatibility pointers only
 examples/           → Example runs
@@ -131,11 +142,13 @@ Write for hiring managers and technical reviewers: clear, honest, structured. Ea
 
 ## Cursor Cloud specific instructions
 
-Standard dev commands are documented in [`README.md`](README.md) and [`docs/getting-started.md`](docs/getting-started.md) (`npm ci`, `npm run build`, `npm test`, `npm run harness:configure`). Non-obvious caveats:
+Standard dev commands are documented in [`README.md`](README.md) and [`docs/getting-started.md`](docs/getting-started.md) (`npm ci`, `npm run build`, `npm test`, `npm run dev`). Non-obvious caveats:
 
-- **Node 22+ ESM/TypeScript project.** The CLI runs TS directly via `tsx`. `npm run build` runs `tsc` plus the Configure GUI build.
+- **Node 22+ ESM/TypeScript project** (canonical validation pin: **Node 22.23.1 / npm 10.9.8** via [`.nvmrc`](.nvmrc); CI/canary/runner workflows use `node-version-file: .nvmrc`). The CLI runs TS directly via `tsx`. `npm run build` runs `tsc` plus the Configure GUI build.
 - **No repo-level lint tooling.** There is no ESLint/Prettier/Biome config at the root and no `npm run lint` script for this repo (the `lint` command in `harness.config.json` runs against *target* repos, not here). The effective static check for this repo is the TypeScript typecheck run as part of `npm run build`.
-- **Configure GUI:** `npm run harness:configure:stable` pins to `http://localhost:3000/settings/configure` and cleans `apps/gui/.next` on start; `npm run harness:configure` auto-selects a free port instead. If the page renders unstyled, stop and re-run the `:stable` command.
+- **Configure GUI:** Operator mode is `p-dev` or `npm start` (immutable `next build`/`next start` under `apps/gui/.p-dev-runtime/`). Developer hot reload is `npm run dev` / `npm run gui:dev` (`next dev`, `apps/gui/.next`). Do not use `dev` as the operator runtime. See [`docs/gui-local.md`](docs/gui-local.md) and ADR 0005.
 - **Tests and the GUI run fully offline.** The vitest suite uses fixtures/mocks and needs no credentials. `LINEAR_API_KEY`, `CURSOR_API_KEY`, and `GITHUB_TOKEN` are only needed for *live* harness runs; `npm run harness:doctor` reporting them as missing is expected offline.
+- **Hermetic full suite.** `npm test` (alias `npm run test:full`) bootstraps isolated `HOME` / `TMPDIR` via `tests/setup/hermetic-env.ts`, clears inherited `P_DEV_HOME` / `HARNESS_CONFIG_PATH` / live credentials, and restores harness env keys between tests. Do not depend on local `.env.local`, `.harness/config.local.json`, or `runs/` artifact caches. Use `npm run test:clean` for an explicit sanitized wrapper, and `npm run validate:checkpoint` for the Checkpoint gate.
+- **Live tests are opt-in.** `npm run test:live` fails closed unless `P_DEV_ALLOW_LIVE_TESTS=1`.
 - **Exercise the orchestrator offline** with a dry run: `npm run harness:run -- --issue WES-FIXTURE --dry-run --fixture tests/fixtures/issues/valid-target-app.md` (writes to the gitignored `runs/` dir).
 - **Slow tests:** `tests/p-dev/installed-tarball-loopback.test.ts` and `tests/p-dev/package-packed-artifact.test.ts` pack and install the `p-dev` package, so a full `npm test` can take about a minute.

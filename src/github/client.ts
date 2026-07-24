@@ -61,7 +61,7 @@ export interface GitHubPullRequest {
   mergeable_state?: string | null;
   rebaseable?: boolean | null;
   head: { ref: string; sha: string };
-  base: { ref: string };
+  base: { ref: string; sha: string };
 }
 
 export interface GitHubRepository {
@@ -129,6 +129,14 @@ export interface GitHubGitCommit {
   parents: Array<{ sha: string }>;
 }
 
+export interface GitHubCommitDetail {
+  sha: string;
+  commit: {
+    author?: { date?: string | null } | null;
+    committer?: { date?: string | null } | null;
+  };
+}
+
 export interface GitHubCreateRepositoryFromTemplateInput {
   templateOwner: string;
   templateRepo: string;
@@ -190,7 +198,7 @@ export interface GitHubPullRequestListItem {
   body?: string | null;
   merged_at?: string | null;
   head: { ref: string; sha: string };
-  base: { ref: string };
+  base: { ref: string; sha: string };
 }
 
 export interface GitHubCompareResult {
@@ -950,6 +958,37 @@ export class GitHubClient {
       name: response.name,
       display_title: response.display_title,
     };
+  }
+
+  async listCommits(
+    owner: string,
+    repo: string,
+    options: {
+      sha?: string;
+      path?: string;
+      perPage?: number;
+    } = {},
+  ): Promise<Array<{ sha: string }>> {
+    const params = new URLSearchParams();
+    params.set("per_page", String(options.perPage ?? 1));
+    if (options.sha) {
+      params.set("sha", options.sha);
+    }
+    if (options.path) {
+      params.set("path", options.path);
+    }
+    const response = await this.request<Array<{ sha: string }>>(
+      `/repos/${owner}/${repo}/commits?${params.toString()}`,
+    );
+    return response ?? [];
+  }
+
+  async getCommit(
+    owner: string,
+    repo: string,
+    sha: string,
+  ): Promise<GitHubCommitDetail> {
+    return this.request<GitHubCommitDetail>(`/repos/${owner}/${repo}/commits/${sha}`);
   }
 
   async listWorkflowRuns(

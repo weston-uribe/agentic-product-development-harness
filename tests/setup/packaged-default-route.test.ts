@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   CONFIGURE_ROUTE,
+  CONNECTIONS_VERCEL_REPAIR_ROUTE,
   WORKFLOW_ROUTE,
   resolvePackagedDefaultRoute,
 } from "../../src/setup/packaged-default-route.js";
@@ -23,10 +24,11 @@ describe("resolvePackagedDefaultRoute", () => {
   it("routes fresh workspaces to Configure", async () => {
     const decision = await resolvePackagedDefaultRoute(tempRoot);
     expect(decision.route).toBe(CONFIGURE_ROUTE);
-    expect(decision.evidence).toBe("initial-setup-incomplete");
+    expect(decision.evidence).toBe("first-run");
+    expect(decision.maturity).toBe("new");
   });
 
-  it("routes incomplete workspaces to Configure even when local files exist", async () => {
+  it("routes established workspaces with local config and missing bridge to Connections repair", async () => {
     await writeFile(
       path.join(tempRoot, ".harness", "config.local.json"),
       JSON.stringify(
@@ -50,16 +52,27 @@ describe("resolvePackagedDefaultRoute", () => {
     );
 
     const decision = await resolvePackagedDefaultRoute(tempRoot);
-    expect(decision.route).toBe(CONFIGURE_ROUTE);
-    expect(decision.evidence).toBe("initial-setup-incomplete");
+    expect(decision.maturity).toBe("established");
+    expect(decision.route).toBe(CONNECTIONS_VERCEL_REPAIR_ROUTE);
+    expect(decision.evidence).toBe("established-needs-repair-vercel");
   });
 
-  it("routes durable initial-setup-complete workspaces to Workflow", async () => {
+  it("routes durable verified bridge workspaces to Workflow", async () => {
     await writeFile(
       path.join(tempRoot, ".harness", "control-plane-setup.json"),
       JSON.stringify(
         {
           version: 1,
+          vercel: {
+            projectId: "prj_bridge",
+            projectName: "p-dev-bridge",
+            productionUrl: "https://bridge.example",
+            webhookUrl: "https://bridge.example/api/linear-webhook",
+            endpointReachable: true,
+            envVarPresence: {},
+            linearWebhookVerified: true,
+            signedProbeVerified: true,
+          },
           initialSetup: {
             status: "complete",
             completedAt: new Date().toISOString(),
@@ -80,6 +93,7 @@ describe("resolvePackagedDefaultRoute", () => {
 
     const decision = await resolvePackagedDefaultRoute(tempRoot);
     expect(decision.route).toBe(WORKFLOW_ROUTE);
-    expect(decision.evidence).toBe("initial-setup-complete");
+    expect(decision.evidence).toBe("established-ready");
+    expect(decision.maturity).toBe("established");
   });
 });

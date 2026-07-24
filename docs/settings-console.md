@@ -36,9 +36,13 @@ Commit A/B types remain limited to the single-connection model actually implemen
 
 | Concern | Rule |
 |---------|------|
-| Ordinary routing | Read only durable `initialSetup.status` |
-| Incomplete setup | `/settings` redirects to `/settings/configure` |
-| Complete setup | `/settings/configure` redirects to `/settings` |
-| Packaged default `/` | Incomplete → `/settings/configure`; complete → `/workflow` |
+| Workspace maturity | Local durable evidence only (`classifyWorkspaceEntry`) — no live Vercel API on `GET /` |
+| New (first-run) | `/settings/configure` (Initial Harness Configuration) |
+| Established + missing/unhealthy durable bridge | `/settings/connections?repair=vercel` |
+| Established + verified durable bridge | `/workflow` |
+| Settings access | Established workspaces may always enter Settings; first-run still redirects to Configure |
+| Credential health | Live verify after Connections loads (Missing / Checking → Connected / Unauthorized / Unable to verify) |
 
-Health drift after completion does not reopen the wizard or change route selection.
+A revoked Vercel token alone does not force repair routing when a previously verified bridge remains in durable control-plane evidence. Workflow may open with a connection-health warning linking to Connections repair.
+
+Separate models: workspace maturity, Vercel credential health, and PDev bridge health — do not collapse them.

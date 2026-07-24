@@ -30,6 +30,7 @@ describe("p-dev package manifest", () => {
     expect(manifest.private).toBeUndefined();
     expect(manifest.license).toBe("MIT");
     expect(manifest.bin["p-dev-harness"]).toBe("./bin/p-dev.js");
+    expect(manifest.bin["p-dev"]).toBe("./bin/p-dev.js");
     expect(manifest.engines.node).toBe(">=22");
     expect(manifest.publishConfig.access).toBe("public");
     expect(manifest.repository.directory).toBe("packages/p-dev");

@@ -8,6 +8,14 @@ import type { ChildProcess } from "node:child_process";
 vi.mock("../../src/gui/configure-health.js", () => ({
   waitForConfigureServer: vi.fn(async () => undefined),
   checkConfigurePageHealth: vi.fn(async () => ({ ok: true })),
+  checkGuiPageHealth: vi.fn(async () => ({ ok: true, recoverableByCacheReset: false })),
+}));
+
+vi.mock("../../src/gui/runtime-integrity.js", () => ({
+  checkRuntimeIntegrity: vi.fn(async () => ({
+    ok: true,
+    recoverableByRuntimeReset: false,
+  })),
 }));
 
 vi.mock("../../src/p-dev/next-bin.js", () => ({

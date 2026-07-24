@@ -1,5 +1,4 @@
 import path from "node:path";
-import { readFile } from "node:fs/promises";
 import { harnessConfigSchema, type HarnessConfig } from "./schema.js";
 import { normalizeRepoUrl } from "../resolver/normalize-repo.js";
 import {
@@ -7,6 +6,8 @@ import {
   resolveConfigSource,
   type ResolvedConfigSource,
 } from "./resolve-config.js";
+import { readTextFileSyncIfExists } from "../setup/rsc-safe-fs.js";
+import { migrateWorkflowConfigSection } from "./migrate-workflow-config.js";
 
 export class ConfigError extends Error {
   constructor(message: string) {
@@ -36,8 +37,12 @@ function parseConfigRaw(raw: string, sourceLabel: string): HarnessConfig {
     throw new ConfigError(`Invalid harness config: ${details}`);
   }
 
-  validateRepoClosure(result.data);
-  return result.data;
+  // In-memory migration only — config reads must not write.
+  const workflow = migrateWorkflowConfigSection(result.data);
+  const config: HarnessConfig = { ...result.data, workflow };
+
+  validateRepoClosure(config);
+  return config;
 }
 
 export async function loadHarnessConfig(options?: {
@@ -53,11 +58,8 @@ export async function loadHarnessConfig(options?: {
 /** Load config from an explicit file path (tests and direct file reads). */
 export async function loadConfig(configPath: string): Promise<HarnessConfig> {
   const absolutePath = path.resolve(configPath);
-  let raw: string;
-
-  try {
-    raw = await readFile(absolutePath, "utf8");
-  } catch {
+  const raw = readTextFileSyncIfExists(absolutePath);
+  if (raw === null) {
     throw new ConfigError(`Config file not found: ${absolutePath}`);
   }
 

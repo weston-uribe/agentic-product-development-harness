@@ -27,7 +27,10 @@ export type WorkflowModelSyncErrorCode =
   | "workflow_model_local_write_failed"
   | "workflow_model_remote_write_failed"
   | "workflow_model_sync_partial_failure"
-  | "workflow_model_sync_unknown";
+  | "workflow_model_sync_unknown"
+  | "workflow_review_status_conflict"
+  | "workflow_review_status_setup_required"
+  | "workflow_review_status_preflight_failed";
 
 export class WorkflowModelSyncError extends Error {
   constructor(

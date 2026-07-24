@@ -5,6 +5,7 @@ import {
   WorkflowModelSyncError,
 } from "@/lib/workflow-server";
 import { isRoleModelRole } from "@harness/config/role-models";
+import { toPublicApiError } from "@harness/gui/public-client-payload";
 
 const saveRequestSchema = z.object({
   role: z.string().min(1),
@@ -66,19 +67,28 @@ export async function PUT(request: Request) {
     return NextResponse.json(result);
   } catch (error) {
     if (error instanceof WorkflowModelSyncError) {
+      const publicError = toPublicApiError(error, {
+        fallbackCode: error.code,
+        fallbackMessage: "Couldn't save model settings.",
+      });
       return NextResponse.json(
         {
           saved: false,
-          error: error.message,
-          code: error.code,
+          error: publicError.message,
+          code: publicError.code,
         },
         { status: 422 },
       );
     }
+    const publicError = toPublicApiError(error, {
+      fallbackCode: "workflow_model_save_failed",
+      fallbackMessage: "Couldn't save model settings.",
+    });
     return NextResponse.json(
       {
         saved: false,
-        error: error instanceof Error ? error.message : "Couldn't save model settings.",
+        error: publicError.message,
+        code: publicError.code,
       },
       { status: 500 },
     );

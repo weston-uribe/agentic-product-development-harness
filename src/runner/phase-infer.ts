@@ -6,12 +6,16 @@ const PLANNING_STATUSES = new Set([
   "planning",
 ]);
 
+const PLAN_REVIEW_STATUSES = new Set(["plan review"]);
+
 const IMPLEMENTATION_STATUSES = new Set([
   "ready for build",
   "building",
 ]);
 
 const HANDOFF_STATUSES = new Set(["pr open"]);
+const CODE_REVIEW_STATUSES = new Set(["code review"]);
+const CODE_REVISION_STATUSES = new Set(["code revision"]);
 const REVISION_STATUSES = new Set(["needs revision"]);
 const MERGE_STATUSES = new Set(["ready to merge"]);
 
@@ -44,8 +48,20 @@ export function inferPhaseFromStatus(
     return { phase: "planning", statusLabel: status };
   }
 
+  if (PLAN_REVIEW_STATUSES.has(normalized)) {
+    return { phase: "plan_review", statusLabel: status };
+  }
+
   if (handoffStatuses.includes(normalized) || HANDOFF_STATUSES.has(normalized)) {
     return { phase: "handoff", statusLabel: status };
+  }
+
+  if (CODE_REVIEW_STATUSES.has(normalized)) {
+    return { phase: "code_review", statusLabel: status };
+  }
+
+  if (CODE_REVISION_STATUSES.has(normalized)) {
+    return { phase: "code_revision", statusLabel: status };
   }
 
   if (revisionStatuses.includes(normalized) || REVISION_STATUSES.has(normalized)) {

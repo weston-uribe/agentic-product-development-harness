@@ -7,11 +7,14 @@ import type { RemoteSetupSummary } from "../../src/setup/remote-setup-summary.js
 import { HARNESS_ACTIONS_SECRET_NAMES } from "../../src/setup/remote-actions.js";
 import {
   assessCompletionEvidence,
+  buildCompletionEvidenceReasons,
   completeInitialSetupFromServer,
+  formatCompletionEvidenceFailureMessage,
   isCompletionEvidenceSatisfied,
   isInitialSetupComplete,
   migrateExistingCompletedWorkspace,
   readInitialSetupRoutingState,
+  reconcileInitialSetupCompletion,
 } from "../../src/setup/initial-setup-lifecycle.js";
 import { readControlPlaneSetupState } from "../../src/setup/control-plane-setup-state.js";
 import {
@@ -57,6 +60,7 @@ function completeRemoteSummary(): RemoteSetupSummary {
     harnessDispatchRepoResolved: true,
     harnessDispatchRepoSource: "explicit-config",
     harnessRepoAccess: "available",
+    requireVercelProductionToken: false,
     harnessSecretStatuses: HARNESS_ACTIONS_SECRET_NAMES.map((name) => ({
       name,
       status: "present" as const,
@@ -71,7 +75,11 @@ function completeRemoteSummary(): RemoteSetupSummary {
         harnessDispatchRepo: "owner/harness-repo",
       },
     ],
-    staleSmokeDiagnostics: [],
+    staleSmokeDiagnostics: {
+      hasStaleConfig: false,
+      findings: [],
+      staleTargetRepos: [],
+    },
   };
 }
 
@@ -182,16 +190,26 @@ describe("initial-setup-lifecycle", () => {
     expect(isInitialSetupComplete(migrated)).toBe(true);
   });
 
-  it("routes packaged default from durable marker only", async () => {
+  it("routes packaged default from durable workspace evidence", async () => {
     const incomplete = await resolvePackagedDefaultRoute(tempRoot);
     expect(incomplete.route).toBe(CONFIGURE_ROUTE);
-    expect(incomplete.evidence).toBe("initial-setup-incomplete");
+    expect(incomplete.evidence).toBe("first-run");
 
     await writeFile(
       path.join(tempRoot, ".harness", "control-plane-setup.json"),
       JSON.stringify(
         {
           version: 1,
+          vercel: {
+            projectId: "prj_bridge",
+            projectName: "p-dev-bridge",
+            productionUrl: "https://bridge.example",
+            webhookUrl: "https://bridge.example/api/linear-webhook",
+            endpointReachable: true,
+            envVarPresence: {},
+            linearWebhookVerified: true,
+            signedProbeVerified: true,
+          },
           initialSetup: {
             status: "complete",
             completedAt: new Date().toISOString(),
@@ -212,9 +230,227 @@ describe("initial-setup-lifecycle", () => {
 
     const complete = await resolvePackagedDefaultRoute(tempRoot);
     expect(complete.route).toBe(WORKFLOW_ROUTE);
-    expect(complete.evidence).toBe("initial-setup-complete");
+    expect(complete.evidence).toBe("established-ready");
 
     const routing = await readInitialSetupRoutingState(tempRoot);
     expect(routing.complete).toBe(true);
+  });
+
+  it("returns reason codes for unmet completion evidence", () => {
+    const evidence = assessCompletionEvidence({
+      setupSummary: completeSummary(),
+      remoteSummary: {
+        ...completeRemoteSummary(),
+        harnessSecretStatuses: [],
+        targetRepos: [],
+      },
+      controlPlane: { version: 1 },
+    });
+
+    const reasons = buildCompletionEvidenceReasons({
+      evidence,
+      remoteSummary: {
+        ...completeRemoteSummary(),
+        harnessSecretStatuses: [],
+        targetRepos: [],
+      },
+    });
+
+    expect(evidence.linearConfigured).toBe(false);
+    expect(evidence.vercelConfigured).toBe(false);
+    expect(evidence.cloudSecretsVerified).toBe(false);
+    expect(evidence.targetWorkflowsVerified).toBe(false);
+    expect(reasons.map((reason) => reason.code)).toEqual(
+      expect.arrayContaining([
+        "linear_control_plane_missing",
+        "vercel_project_missing",
+        "cloud_secrets_unverified",
+        "target_workflows_unverified",
+      ]),
+    );
+    expect(formatCompletionEvidenceFailureMessage(reasons)).toContain(
+      "vercelConfigured (vercel_project_missing)",
+    );
+  });
+
+  it("reconciles Linear control-plane evidence from config associations", async () => {
+    await writeFile(
+      path.join(tempRoot, ".harness", "config.local.json"),
+      JSON.stringify(
+        {
+          version: 1,
+          orchestratorMarker: "harness-orchestrator-v1",
+          logDirectory: "runs",
+          repos: [
+            {
+              id: "target-app",
+              targetRepo: "https://github.com/owner/example-target-app",
+              baseBranch: "main",
+              productionBranch: "main",
+              linearAssociations: [
+                {
+                  workspaceId: "workspace-1",
+                  teamId: "team-1",
+                  teamKey: "TEAM",
+                  teamName: "Team",
+                  projectId: "project-1",
+                  projectName: "Project",
+                },
+              ],
+            },
+          ],
+          allowedTargetRepos: ["https://github.com/owner/example-target-app"],
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+    await writeFile(
+      path.join(tempRoot, ".harness", "control-plane-setup.json"),
+      JSON.stringify(
+        {
+          version: 1,
+          vercel: { projectId: "vercel-1", projectName: "vercel-project" },
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    const result = await reconcileInitialSetupCompletion({
+      cwd: tempRoot,
+      setupSummary: completeSummary(),
+      remoteSummary: completeRemoteSummary(),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.wroteMarker).toBe(true);
+    expect(result.evidence.linearConfigured).toBe(true);
+    const state = await readControlPlaneSetupState(tempRoot);
+    expect(state?.linearWorkspace?.teams[0]?.teamId).toBe("team-1");
+    expect(state?.linearWorkspace?.teams[0]?.projects[0]?.projectId).toBe(
+      "project-1",
+    );
+    expect(isInitialSetupComplete(state)).toBe(true);
+  });
+
+  it("reports vercel_token_missing when remote bridge cannot be verified", async () => {
+    await writeFile(
+      path.join(tempRoot, ".env.local"),
+      "LINEAR_API_KEY=test\nGITHUB_TOKEN=test\n",
+      "utf8",
+    );
+    await writeFile(
+      path.join(tempRoot, ".harness", "config.local.json"),
+      JSON.stringify(
+        {
+          version: 1,
+          orchestratorMarker: "harness-orchestrator-v1",
+          logDirectory: "runs",
+          repos: [
+            {
+              id: "target-app",
+              targetRepo: "https://github.com/owner/example-target-app",
+              baseBranch: "main",
+              productionBranch: "main",
+              linearAssociations: [
+                {
+                  workspaceId: "workspace-1",
+                  teamId: "team-1",
+                  teamKey: "TEAM",
+                  teamName: "Team",
+                  projectId: "project-1",
+                  projectName: "Project",
+                },
+              ],
+            },
+          ],
+          allowedTargetRepos: ["https://github.com/owner/example-target-app"],
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+    await writeFile(
+      path.join(tempRoot, ".harness", "control-plane-setup.json"),
+      JSON.stringify({ version: 1 }, null, 2),
+      "utf8",
+    );
+
+    const result = await reconcileInitialSetupCompletion({
+      cwd: tempRoot,
+      setupSummary: completeSummary(),
+      remoteSummary: completeRemoteSummary(),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.evidence.linearConfigured).toBe(true);
+    expect(result.evidence.vercelConfigured).toBe(false);
+    expect(result.reasons.map((reason) => reason.code)).toContain(
+      "vercel_token_missing",
+    );
+    expect(isInitialSetupComplete(result.state)).toBe(false);
+  });
+
+  it("does not write the marker when Vercel evidence remains unmet", async () => {
+    await writeFile(
+      path.join(tempRoot, ".harness", "config.local.json"),
+      JSON.stringify(
+        {
+          version: 1,
+          orchestratorMarker: "harness-orchestrator-v1",
+          logDirectory: "runs",
+          repos: [
+            {
+              id: "target-app",
+              targetRepo: "https://github.com/owner/example-target-app",
+              baseBranch: "main",
+              productionBranch: "main",
+              linearAssociations: [
+                {
+                  workspaceId: "workspace-1",
+                  teamId: "team-1",
+                  teamKey: "TEAM",
+                  teamName: "Team",
+                  projectId: "project-1",
+                  projectName: "Project",
+                },
+              ],
+            },
+          ],
+          allowedTargetRepos: ["https://github.com/owner/example-target-app"],
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+    await writeFile(
+      path.join(tempRoot, ".harness", "control-plane-setup.json"),
+      JSON.stringify({ version: 1 }, null, 2),
+      "utf8",
+    );
+
+    const result = await completeInitialSetupFromServer({
+      cwd: tempRoot,
+      setupSummary: completeSummary(),
+      remoteSummary: completeRemoteSummary(),
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("expected unmet vercel evidence");
+    }
+    expect(result.evidence.linearConfigured).toBe(true);
+    expect(result.evidence.vercelConfigured).toBe(false);
+    expect(result.reasons.map((reason) => reason.code)).toContain(
+      "vercel_token_missing",
+    );
+    const state = await readControlPlaneSetupState(tempRoot);
+    expect(isInitialSetupComplete(state)).toBe(false);
+    expect(state?.linearWorkspace?.teams[0]?.teamId).toBe("team-1");
   });
 });

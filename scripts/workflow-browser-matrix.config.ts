@@ -1,4 +1,5 @@
 // Prerequisite: npx playwright install chromium
+// Operator runtime: same launcher as `p-dev` / `npm start` (immutable next start).
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "@playwright/test";
@@ -17,11 +18,11 @@ export default defineConfig({
   },
   webServer: {
     command:
-      "P_DEV_OBSERVABILITY_DISABLED=1 P_DEV_OPERATIONS_FIXTURES=1 npx tsx src/gui/start-gui.ts --port 3100",
+      "P_DEV_OBSERVABILITY_DISABLED=1 P_DEV_OPERATIONS_FIXTURES=1 node bin/p-dev-dev.js --port 3100 --no-open",
     cwd: repoRoot,
-    url: "http://localhost:3100/workflow?source=fixture&fixture=branching-pr-review&scope=harness-repo",
+    url: "http://localhost:3100/",
     reuseExistingServer: false,
-    timeout: 180_000,
+    timeout: 420_000,
   },
   outputDir: "/tmp/workflow-validation/playwright-results",
 });

@@ -1,5 +1,6 @@
 ---
 name: security-audit
+skillContractVersion: "1"
 description: >-
   Conduct a report-only security audit focused on avoidable security risk from
   secrets handling, trust boundaries, input validation, integration surfaces,
