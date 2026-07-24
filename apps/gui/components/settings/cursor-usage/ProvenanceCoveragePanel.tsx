@@ -3,6 +3,7 @@
 export interface ProvenanceCoveragePublicStatus {
   provenanceConfigured: boolean;
   mode: string;
+  status: string;
   activeEpochId: string | null;
   earliestEligibleCsvUtc: string | null;
   latestSealedCompleteUtc: string | null;
@@ -42,6 +43,10 @@ export function ProvenanceCoveragePanel({ status }: Props) {
         <div>
           <dt>Mode</dt>
           <dd>{status.mode}</dd>
+        </div>
+        <div>
+          <dt>Verification status</dt>
+          <dd>{status.status}</dd>
         </div>
         <div>
           <dt>Active epoch</dt>

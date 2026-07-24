@@ -63,7 +63,10 @@ import {
   duplicateIncidentRemotePath,
   epochInvalidationRemotePath,
 } from "./paths.js";
-import type { ProvenanceLifecycleStore } from "./lifecycle-store.js";
+import type {
+  LifecycleWritePolicy,
+  ProvenanceLifecycleStore,
+} from "./lifecycle-store.js";
 import type { ProvenanceEventStore } from "./store.js";
 
 export interface CoverageLifecycleServiceOptions {
@@ -74,6 +77,7 @@ export interface CoverageLifecycleServiceOptions {
   repo: string;
   branch: string;
   stateRepository: string;
+  writePolicy?: LifecycleWritePolicy;
 }
 
 export interface LifecycleWriteResult {
@@ -120,7 +124,20 @@ export interface SealToTipEnumeration {
 }
 
 export class CoverageLifecycleService {
-  constructor(private readonly options: CoverageLifecycleServiceOptions) {}
+  constructor(private readonly options: CoverageLifecycleServiceOptions) {
+    if (options.writePolicy) {
+      const store =
+        "configuredWritePolicy" in options.lifecycleStore
+          ? options.lifecycleStore.configuredWritePolicy
+          : null;
+      if (store && store !== options.writePolicy) {
+        throw new CursorProvenanceError(
+          "cursor_provenance_config_invalid",
+          `Lifecycle store policy mismatch (expected ${options.writePolicy}, got ${store}).`,
+        );
+      }
+    }
+  }
 
   async writeActivation(input: {
     epochId: string;

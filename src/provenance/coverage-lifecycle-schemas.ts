@@ -43,11 +43,32 @@ function stableStringify(value: unknown): string {
     .join(",")}}`;
 }
 
+function assertTimestamp(value: string, label: string): void {
+  if (!Number.isFinite(Date.parse(value))) {
+    throw new Error(`${label} must be a valid UTC ISO timestamp`);
+  }
+}
+
+function assertSha256Digest(value: string, label: string): void {
+  if (!/^[0-9a-f]{64}$/.test(value)) {
+    throw new Error(`${label} must be a lowercase 64-char hex digest`);
+  }
+}
+
+function assertCommitSha(value: string, label: string): void {
+  if (!/^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(value)) {
+    throw new Error(`${label} must be a git commit SHA`);
+  }
+}
+
 export const EPOCH_INVALIDATION_SCHEMA_KIND =
   "p-dev.cursor-cloud-agent-epoch-invalidation.v1" as const;
 
 export const DUPLICATE_OPERATION_INCIDENT_SCHEMA_KIND =
   "p-dev.cursor-cloud-agent-duplicate-operation-incident.v1" as const;
+
+export const ACTIVATION_READINESS_SCHEMA_KIND =
+  "p-dev.cursor-cloud-agent-activation-readiness.v1" as const;
 
 export interface ImproperPriorSealPin {
   sealCommitSha: string;
@@ -86,6 +107,80 @@ export interface DuplicateOperationIncidentRecord {
   priorOperationId: string;
   recordedAt: string;
   incidentDigest: string;
+}
+
+export interface ActivationReadinessRecord {
+  kind: typeof ACTIVATION_READINESS_SCHEMA_KIND;
+  version: "1";
+  epochId: string;
+  activationCommitSha: string;
+  activatedAt: string;
+  cutoff: string;
+  verifiedMode: "required";
+  modeVerifiedAt: string;
+  isolationEvidenceDigest: string;
+  verificationObservedAt: string;
+  contractVersion: string;
+  readinessDigest: string;
+}
+
+export function activationReadinessRecordDigest(
+  record: Omit<ActivationReadinessRecord, "readinessDigest">,
+): string {
+  return createHash("sha256")
+    .update(stableStringify(record), "utf8")
+    .digest("hex");
+}
+
+export function buildActivationReadinessRecord(input: {
+  epochId: string;
+  activationCommitSha: string;
+  activatedAt: string;
+  cutoff: string;
+  verifiedMode: "required";
+  modeVerifiedAt: string;
+  isolationEvidenceDigest: string;
+  verificationObservedAt: string;
+  contractVersion?: string;
+}): ActivationReadinessRecord {
+  assertCommitSha(input.activationCommitSha, "activationCommitSha");
+  assertTimestamp(input.activatedAt, "activatedAt");
+  assertTimestamp(input.cutoff, "cutoff");
+  assertTimestamp(input.modeVerifiedAt, "modeVerifiedAt");
+  assertTimestamp(input.verificationObservedAt, "verificationObservedAt");
+  assertSha256Digest(input.isolationEvidenceDigest, "isolationEvidenceDigest");
+
+  const partial: Omit<ActivationReadinessRecord, "readinessDigest"> = {
+    kind: ACTIVATION_READINESS_SCHEMA_KIND,
+    version: "1",
+    epochId: input.epochId,
+    activationCommitSha: input.activationCommitSha,
+    activatedAt: input.activatedAt,
+    cutoff: input.cutoff,
+    verifiedMode: input.verifiedMode,
+    modeVerifiedAt: input.modeVerifiedAt,
+    isolationEvidenceDigest: input.isolationEvidenceDigest,
+    verificationObservedAt: input.verificationObservedAt,
+    contractVersion: input.contractVersion ?? "1",
+  };
+  const readinessDigest = activationReadinessRecordDigest(partial);
+  return { ...partial, readinessDigest };
+}
+
+export function parseActivationReadinessRecord(
+  bytes: string | object,
+): ActivationReadinessRecord {
+  const parsed = (
+    typeof bytes === "string" ? JSON.parse(bytes) : bytes
+  ) as ActivationReadinessRecord;
+  if (parsed.kind !== ACTIVATION_READINESS_SCHEMA_KIND || parsed.version !== "1") {
+    throw new Error("invalid activation readiness record");
+  }
+  const recomputed = buildActivationReadinessRecord(parsed);
+  if (recomputed.readinessDigest !== parsed.readinessDigest) {
+    throw new Error("activation readiness digest mismatch");
+  }
+  return parsed;
 }
 
 export interface PersistedCoverageSnapshotEnvelope {
@@ -381,7 +476,13 @@ export function parseCoverageSupersessionRecord(
   ) {
     throw new Error("invalid coverage supersession record");
   }
-  const recomputed = buildCoverageSupersessionRecord(parsed);
+  const recomputed = buildCoverageSupersessionRecord({
+    priorSealCommitSha: parsed.priorSealCommitSha,
+    priorSealDigest: parsed.priorSealDigest,
+    reason: parsed.reason,
+    overlappingEvidenceDigest: parsed.overlappingEvidenceDigest,
+    newEpochId: parsed.newEpochId,
+  });
   if (recomputed.supersessionDigest !== parsed.supersessionDigest) {
     throw new Error("coverage supersession digest mismatch");
   }
@@ -397,7 +498,7 @@ export function persistedActivationRecordDigest(
   ) {
     throw new Error("invalid activation record schema");
   }
-  return record.canonicalPayloadDigest;
+  return activationPayloadDigest(record.payload);
 }
 
 export function buildActivationHistoryProofRecord(input: {
@@ -544,7 +645,15 @@ export function parseDuplicateOperationIncidentRecord(
   ) {
     throw new Error("invalid duplicate operation incident record");
   }
-  const recomputed = buildDuplicateOperationIncidentRecord(parsed);
+  const recomputed = buildDuplicateOperationIncidentRecord({
+    epochId: parsed.epochId,
+    recoveryOperationId: parsed.recoveryOperationId,
+    stage: parsed.stage,
+    attemptOrdinal: parsed.attemptOrdinal,
+    duplicateOperationId: parsed.duplicateOperationId,
+    priorOperationId: parsed.priorOperationId,
+    recordedAt: parsed.recordedAt,
+  });
   if (recomputed.incidentDigest !== parsed.incidentDigest) {
     throw new Error("duplicate operation incident digest mismatch");
   }

@@ -1914,11 +1914,12 @@ export async function applyCsvImport(
     }
   }
 
-  if (
-    applyRegistrySnapshot &&
-    stagedProvenanceManifest?.sealedInterval &&
-    params.deps?.listLateEvidence
-  ) {
+  // Authoritative state-backed late-evidence enumeration is required before
+  // score-client creation. Env pins / GUI status are never sufficient.
+  if (applyRegistrySnapshot && stagedProvenanceManifest?.sealedInterval) {
+    if (!params.deps?.listLateEvidence) {
+      throw new Error("late_evidence_enumeration_unavailable");
+    }
     const lateItems = await params.deps.listLateEvidence({
       pin: registryPin!,
       sealCommitSha: stagedProvenanceManifest.pin.coverageSealCommitSha,
@@ -1929,8 +1930,12 @@ export async function applyCsvImport(
       tipCommitSha: registryPin!.registrySnapshotCommitSha,
       sealedInterval: stagedProvenanceManifest.sealedInterval,
       items: lateItems,
+      // listLateEvidence must throw if it cannot fully enumerate seal→tip.
       enumerationComplete: true,
     });
+    if (!lateScan.enumerationComplete) {
+      throw new Error("late_evidence_enumeration_incomplete");
+    }
     assertApplyLateEvidenceClean(lateScan);
   }
 

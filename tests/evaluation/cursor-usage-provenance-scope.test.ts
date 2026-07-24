@@ -291,6 +291,7 @@ describe("cursor usage provenance scope", () => {
       "Historical scope unrecoverable",
     );
     expect(status.mode).toBe("disabled");
+    expect(status.status).toBe("unknown");
   });
 
   it("blocks staging when epoch invalidation is present", () => {

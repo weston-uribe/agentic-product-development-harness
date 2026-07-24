@@ -20,6 +20,9 @@ export const CANARY_ATTEMPT_ROOT_SCHEMA_KIND =
 export const CANARY_ATTEMPT_TRANSITION_SCHEMA_KIND =
   "p-dev.cursor-cloud-agent-canary-attempt-transition.v1" as const;
 
+export const CANARY_ATTEMPT_TRANSITION_V2_SCHEMA_KIND =
+  "p-dev.cursor-cloud-agent-canary-attempt-transition.v2" as const;
+
 export type CanaryAttemptTransitionKind =
   | "issue_create_intent"
   | "issue_created"
@@ -29,6 +32,19 @@ export type CanaryAttemptTransitionKind =
   | "observe_terminal_failure"
   | "replacement_authorized"
   | "duplicate_incident";
+
+export type CanaryAttemptTransitionKindV2 =
+  | "issue_create_intent"
+  | "issue_created"
+  | "issue_validated"
+  | "trigger_intent"
+  | "trigger_acknowledged"
+  | "workflow_bound"
+  | "provider_operation_bound"
+  | "terminal_success"
+  | "terminal_failure"
+  | "duplicate_incident"
+  | "replacement_authorized";
 
 export interface CanaryStageRootRecord {
   kind: typeof CANARY_STAGE_ROOT_SCHEMA_KIND;
@@ -65,6 +81,24 @@ export interface CanaryAttemptTransitionRecord {
   recordedAt: string;
   payloadDigest: string;
   transitionDigest: string;
+}
+
+export interface CanaryAttemptTransitionV2Record {
+  kind: typeof CANARY_ATTEMPT_TRANSITION_V2_SCHEMA_KIND;
+  version: "2";
+  recoveryOperationId: string;
+  epochId: string;
+  stage: string;
+  ordinal: number;
+  transitionId: string;
+  transitionKind: CanaryAttemptTransitionKindV2;
+  previousTransitionId: string | null;
+  previousTransitionDigest: string | null;
+  recordedAt: string;
+  publicSafePayload: Record<string, unknown>;
+  payloadDigest: string;
+  transitionDigest: string;
+  contractVersion: string;
 }
 
 function stableStringify(value: unknown): string {
@@ -171,12 +205,53 @@ export function buildCanaryAttemptTransitionRecord(input: {
   return { ...partial, transitionDigest };
 }
 
+export function buildCanaryAttemptTransitionV2Record(input: {
+  recoveryOperationId: string;
+  epochId: string;
+  stage: string;
+  ordinal: number;
+  transitionId: string;
+  transitionKind: CanaryAttemptTransitionKindV2;
+  previousTransitionId: string | null;
+  previousTransitionDigest: string | null;
+  recordedAt: string;
+  publicSafePayload: Record<string, unknown>;
+  contractVersion?: string;
+}): CanaryAttemptTransitionV2Record {
+  const payloadDigest = createHash("sha256")
+    .update(stableStringify(input.publicSafePayload), "utf8")
+    .digest("hex");
+  const partial: Omit<CanaryAttemptTransitionV2Record, "transitionDigest"> = {
+    kind: CANARY_ATTEMPT_TRANSITION_V2_SCHEMA_KIND,
+    version: "2",
+    recoveryOperationId: input.recoveryOperationId,
+    epochId: input.epochId,
+    stage: input.stage,
+    ordinal: input.ordinal,
+    transitionId: input.transitionId,
+    transitionKind: input.transitionKind,
+    previousTransitionId: input.previousTransitionId,
+    previousTransitionDigest: input.previousTransitionDigest,
+    recordedAt: input.recordedAt,
+    publicSafePayload: input.publicSafePayload,
+    payloadDigest,
+    contractVersion: input.contractVersion ?? "2",
+  };
+  const transitionDigest = createHash("sha256")
+    .update(stableStringify(partial), "utf8")
+    .digest("hex");
+  return { ...partial, transitionDigest };
+}
+
 export function parseCanaryStageRootRecord(
   bytes: string | object,
 ): CanaryStageRootRecord {
   const parsed = (
     typeof bytes === "string" ? JSON.parse(bytes) : bytes
   ) as CanaryStageRootRecord;
+  if (parsed.kind !== CANARY_STAGE_ROOT_SCHEMA_KIND || parsed.version !== "1") {
+    throw new Error("invalid canary stage root record");
+  }
   const recomputed = buildCanaryStageRootRecord(parsed);
   if (recomputed.stageRootDigest !== parsed.stageRootDigest) {
     throw new Error("canary stage root digest mismatch");
@@ -190,6 +265,9 @@ export function parseCanaryAttemptRootRecord(
   const parsed = (
     typeof bytes === "string" ? JSON.parse(bytes) : bytes
   ) as CanaryAttemptRootRecord;
+  if (parsed.kind !== CANARY_ATTEMPT_ROOT_SCHEMA_KIND || parsed.version !== "1") {
+    throw new Error("invalid canary attempt root record");
+  }
   const recomputed = buildCanaryAttemptRootRecord(parsed);
   if (recomputed.attemptRootDigest !== parsed.attemptRootDigest) {
     throw new Error("canary attempt root digest mismatch");
@@ -203,9 +281,34 @@ export function parseCanaryAttemptTransitionRecord(
   const parsed = (
     typeof bytes === "string" ? JSON.parse(bytes) : bytes
   ) as CanaryAttemptTransitionRecord;
+  if (
+    parsed.kind !== CANARY_ATTEMPT_TRANSITION_SCHEMA_KIND ||
+    parsed.version !== "1"
+  ) {
+    throw new Error("invalid canary attempt transition record");
+  }
   const recomputed = buildCanaryAttemptTransitionRecord(parsed);
   if (recomputed.transitionDigest !== parsed.transitionDigest) {
     throw new Error("canary attempt transition digest mismatch");
+  }
+  return parsed;
+}
+
+export function parseCanaryAttemptTransitionV2Record(
+  bytes: string | object,
+): CanaryAttemptTransitionV2Record {
+  const parsed = (
+    typeof bytes === "string" ? JSON.parse(bytes) : bytes
+  ) as CanaryAttemptTransitionV2Record;
+  if (
+    parsed.kind !== CANARY_ATTEMPT_TRANSITION_V2_SCHEMA_KIND ||
+    parsed.version !== "2"
+  ) {
+    throw new Error("invalid canary attempt transition v2 record");
+  }
+  const recomputed = buildCanaryAttemptTransitionV2Record(parsed);
+  if (recomputed.transitionDigest !== parsed.transitionDigest) {
+    throw new Error("canary attempt transition v2 digest mismatch");
   }
   return parsed;
 }

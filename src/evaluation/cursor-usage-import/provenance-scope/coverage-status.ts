@@ -5,6 +5,7 @@
 
 import { resolveProvenanceMode } from "../../../provenance/mode.js";
 import { COVERAGE_SCHEMA_KIND } from "../../../provenance/coverage.js";
+import type { AuthoritativeCoverageStatus } from "../../../provenance/authoritative-coverage-inspect.js";
 import { HISTORICAL_UNRECOVERABLE_SOURCE_DIGEST } from "../disposition/registry.js";
 import {
   CURSOR_USAGE_COVERAGE_EXCLUSION_CONTRACT_VERSION,
@@ -12,9 +13,15 @@ import {
 } from "./contracts.js";
 import { resolveRegistryPinFromEnv } from "./resolve.js";
 
+export type ProvenanceCoverageVerificationStatus =
+  | AuthoritativeCoverageStatus
+  | "unverified"
+  | "unknown";
+
 export interface ProvenanceCoveragePublicStatus {
   provenanceConfigured: boolean;
   mode: string;
+  status: ProvenanceCoverageVerificationStatus;
   activeEpochId: string | null;
   earliestEligibleCsvUtc: string | null;
   latestSealedCompleteUtc: string | null;
@@ -36,6 +43,7 @@ function prefix12(value: string | null | undefined): string | null {
 
 export function resolveProvenanceCoveragePublicStatus(
   env: Record<string, string | undefined> = process.env,
+  input?: { authoritativeStatus?: AuthoritativeCoverageStatus | null },
 ): ProvenanceCoveragePublicStatus {
   const mode = resolveProvenanceMode(env);
   const pinResolution = resolveRegistryPinFromEnv(env);
@@ -43,9 +51,13 @@ export function resolveProvenanceCoveragePublicStatus(
   const earliest = env.P_DEV_PROVENANCE_EARLIEST_ELIGIBLE_CSV_UTC?.trim() || null;
   const latest = env.P_DEV_PROVENANCE_LATEST_SEALED_UTC?.trim() || null;
   const epochId = env.P_DEV_PROVENANCE_ACTIVE_EPOCH_ID?.trim() || null;
-  const absenceAuthorized =
-    env.P_DEV_PROVENANCE_ABSENCE_EXCLUSION_AUTHORIZED?.trim() === "1" ||
-    (Boolean(earliest) && Boolean(latest) && Boolean(pin?.coverageSealCommitSha));
+  const authoritative = input?.authoritativeStatus ?? null;
+  const status: ProvenanceCoverageVerificationStatus = authoritative
+    ? authoritative
+    : pin
+      ? "unverified"
+      : "unknown";
+  const absenceAuthorized = status === "sealed_complete";
 
   let exportGuidance: string | null = null;
   if (earliest && latest) {
@@ -58,6 +70,7 @@ export function resolveProvenanceCoveragePublicStatus(
   return {
     provenanceConfigured: mode !== "disabled" || pin != null,
     mode,
+    status,
     activeEpochId: epochId,
     earliestEligibleCsvUtc: earliest,
     latestSealedCompleteUtc: latest,

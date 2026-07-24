@@ -246,7 +246,7 @@ export function createProgram(): Command {
     )
     .argument(
       "<action>",
-      "readiness | quiet-window | activate | inspect-coverage | finalize | enumerate-seal-to-tip | recovery-root-create | invalidate-epoch | report-duplicate-incident | generate-key | install-key | set-mode | shred-local-key-dir | canary-create | canary-validate | canary-trigger | canary-observe | key-recoverability | ensure-key",
+      "readiness | quiet-window | activation-prepare | activation-confirm-required | activate | inspect-coverage | finalize | enumerate-seal-to-tip | recovery-root-create | invalidate-epoch | report-duplicate-incident | generate-key | install-key | set-mode | shred-local-key-dir | canary-create | canary-validate | canary-trigger | canary-observe | key-recoverability | ensure-key",
     )
     .option("--issue <key>", "Linear issue key for canary/observe actions")
     .option(
@@ -270,8 +270,17 @@ export function createProgram(): Command {
       false,
     )
     .option("--epoch-id <id>", "Coverage epoch id for activate/finalize/inspect")
+    .option("--activated-at <iso>", "Activation effective timestamp (ISO UTC)")
     .option("--coverage-start <iso>", "Coverage interval start (ISO UTC)")
     .option("--coverage-end <iso>", "Coverage interval end (ISO UTC)")
+    .option(
+      "--min-guard-duration-ms <n>",
+      "Minimum guard window (ms) before activatedAt",
+    )
+    .option(
+      "--finalization-policy-json <json>",
+      "Optional finalization policy override JSON (activation-prepare only)",
+    )
     .option(
       "--capture-source-sha <sha>",
       "Production capture producer source SHA",
@@ -284,6 +293,11 @@ export function createProgram(): Command {
     .option(
       "--operator-tool-source-sha <sha>",
       "Operator tool source SHA for finalize",
+    )
+    .option(
+      "--verify-existing-only",
+      "Finalize in verify_existing_only mode (no writes; fail closed if missing/divergent)",
+      false,
     )
     .option(
       "--poll-gap-seconds <n>",
@@ -306,6 +320,12 @@ export function createProgram(): Command {
     .option(
       "--planned-stage <stage>",
       "Planned canary stage (e.g. required_canary)",
+    )
+    .option("--stage <stage>", "Canary stage for recovery canary-create")
+    .option("--attempt-ordinal <n>", "Canary attempt ordinal for recovery canary-create")
+    .option(
+      "--attempt-operation-id <uuid>",
+      "Attempt operation UUID for recovery canary-create",
     )
     .option(
       "--activation-schedule-identity <id>",
@@ -378,12 +398,16 @@ export function createProgram(): Command {
         shadowValidated: opts.shadowValidated,
         json: opts.json,
         epochId: opts.epochId,
+        activatedAt: opts.activatedAt,
         coverageStart: opts.coverageStart,
         coverageEnd: opts.coverageEnd,
         captureSourceSha: opts.captureSourceSha,
         runnerSha: opts.runnerSha,
         eventSnapshotSha: opts.eventSnapshotSha,
         operatorToolSourceSha: opts.operatorToolSourceSha,
+        minGuardDurationMs: opts.minGuardDurationMs,
+        finalizationPolicyJson: opts.finalizationPolicyJson,
+        verifyExistingOnly: opts.verifyExistingOnly,
         pollGapSeconds,
         priorObservationJson: opts.priorObservationJson,
         priorEpochId: opts.priorEpochId,
@@ -391,6 +415,9 @@ export function createProgram(): Command {
         recoveryOperationId: opts.recoveryOperationId,
         newEpochId: opts.newEpochId,
         plannedStage: opts.plannedStage,
+        stage: opts.stage,
+        attemptOrdinal: opts.attemptOrdinal,
+        attemptOperationId: opts.attemptOperationId,
         activationScheduleIdentity: opts.activationScheduleIdentity,
         creatorSessionId: opts.creatorSessionId,
         invalidationReasons: opts.invalidationReasons,

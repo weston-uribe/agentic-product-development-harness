@@ -64,6 +64,10 @@ export function activationHistoryProofRemotePath(epochId: string): string {
   return `${PROVENANCE_ROOT}/activations/${safeEpochId(epochId)}/history-proof.json`;
 }
 
+export function activationReadinessRemotePath(epochId: string): string {
+  return `${PROVENANCE_ROOT}/activations/${safeEpochId(epochId)}/activation-readiness.json`;
+}
+
 export function coverageSnapshotRemotePath(epochId: string): string {
   return `${PROVENANCE_ROOT}/activations/${safeEpochId(epochId)}/coverage-snapshot.json`;
 }
