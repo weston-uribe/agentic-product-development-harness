@@ -62,6 +62,7 @@ import {
   coverageSupersessionRemotePath,
   duplicateIncidentRemotePath,
   epochInvalidationRemotePath,
+  provenanceEventsRootPrefix,
 } from "./paths.js";
 import type {
   LifecycleWritePolicy,
@@ -547,26 +548,119 @@ export class CoverageLifecycleService {
     tipCommitSha: string;
     sealedInterval: CoverageInterval;
   }): Promise<SealToTipEnumeration> {
-    const tipRecords = await this.enumerateEvents(input.tipCommitSha);
-    const sealRecords = await this.enumerateEvents(input.sealCommitSha);
-    const sealPaths = new Set(sealRecords.map((record) => record.path));
-
     const items: PostSealEvidenceItem[] = [];
-    for (const record of tipRecords) {
-      if (sealPaths.has(record.path)) {
-        continue;
+    let fullyEnumerated = true;
+
+    // Prefer GitHub compare for seal→tip commit enumeration (O(delta), not
+    // full event-tree materialization at tip). In-memory/test clients fall back.
+    const compare = this.options.client?.compareCommits?.bind(
+      this.options.client,
+    );
+    if (typeof compare === "function") {
+      const comparison = await this.options.client.compareCommits(
+        this.options.owner,
+        this.options.repo,
+        input.sealCommitSha,
+        input.tipCommitSha,
+      );
+      if (comparison.status === "behind" || comparison.status === "diverged") {
+        fullyEnumerated = false;
+      } else if (comparison.status === "identical") {
+        fullyEnumerated = true;
+      } else {
+        // ahead: GitHub compare returns at most 250 commits / 300 files.
+        if (comparison.ahead_by > comparison.commits.length) {
+          fullyEnumerated = false;
+        }
+        const eventsPrefix = `${provenanceEventsRootPrefix()}/`;
+        const changed = comparison.files ?? [];
+        for (const file of changed) {
+          const path = file.filename;
+          if (!path) continue;
+          if (path.startsWith(eventsPrefix) && path.endsWith(".json")) {
+            const content = await this.options.client.getRepositoryContent(
+              this.options.owner,
+              this.options.repo,
+              path,
+              input.tipCommitSha,
+            );
+            if (!content) {
+              fullyEnumerated = false;
+              continue;
+            }
+            const body = this.options.client.decodeRepositoryContent(content);
+            let event: ProvenanceEventRecord["event"];
+            try {
+              event = JSON.parse(body) as ProvenanceEventRecord["event"];
+            } catch {
+              fullyEnumerated = false;
+              continue;
+            }
+            const record: ProvenanceEventRecord = { path, event };
+            items.push({
+              kind:
+                event.eventType === "reconciliation_resolution"
+                  ? "reconciliation_resolution"
+                  : "provenance_event",
+              path,
+              commitSha: input.tipCommitSha,
+              overlapsSealedInterval: eventOverlapsInterval(
+                record,
+                input.sealedInterval,
+              ),
+              summary: event.eventType,
+            });
+          }
+          if (path.includes("/gaps/")) {
+            items.push({
+              kind: "gap_record",
+              path,
+              commitSha: input.tipCommitSha,
+              overlapsSealedInterval: true,
+              summary: "coverage_gap",
+            });
+          }
+          if (path.includes("/supersessions/")) {
+            items.push({
+              kind: "supersession_record",
+              path,
+              commitSha: input.tipCommitSha,
+              overlapsSealedInterval: true,
+              summary: "coverage_supersession",
+            });
+          }
+          if (path.endsWith("/invalidation.json")) {
+            items.push({
+              kind: "invalidation_record",
+              path,
+              commitSha: input.tipCommitSha,
+              overlapsSealedInterval: true,
+              summary: "epoch_invalidation",
+            });
+          }
+        }
       }
-      const overlaps = eventOverlapsInterval(record, input.sealedInterval);
-      items.push({
-        kind:
-          record.event.eventType === "reconciliation_resolution"
-            ? "reconciliation_resolution"
-            : "provenance_event",
-        path: record.path,
-        commitSha: input.tipCommitSha,
-        overlapsSealedInterval: overlaps,
-        summary: record.event.eventType,
-      });
+    } else {
+      // In-memory / test stores: diff full event snapshots.
+      const tipRecords = await this.enumerateEvents(input.tipCommitSha);
+      const sealRecords = await this.enumerateEvents(input.sealCommitSha);
+      const sealPaths = new Set(sealRecords.map((record) => record.path));
+      for (const record of tipRecords) {
+        if (sealPaths.has(record.path)) {
+          continue;
+        }
+        const overlaps = eventOverlapsInterval(record, input.sealedInterval);
+        items.push({
+          kind:
+            record.event.eventType === "reconciliation_resolution"
+              ? "reconciliation_resolution"
+              : "provenance_event",
+          path: record.path,
+          commitSha: input.tipCommitSha,
+          overlapsSealedInterval: overlaps,
+          summary: record.event.eventType,
+        });
+      }
     }
 
     const gapAndSupersessionItems =
@@ -586,7 +680,7 @@ export class CoverageLifecycleService {
     return {
       sealCommitSha: input.sealCommitSha,
       tipCommitSha: input.tipCommitSha,
-      fullyEnumerated: true,
+      fullyEnumerated,
       items,
       overlappingRawEvidenceCount,
       explicitInvalidationCount,

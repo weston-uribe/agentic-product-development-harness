@@ -7,7 +7,10 @@ import {
   verifyActivationHistoryProof,
   type VerifiedActivationHistoryProof,
 } from "./activation-history-proof.js";
-import { loadGitHubCommitGraph } from "./commit-graph.js";
+import {
+  isCommitAncestorViaCompare,
+  loadGitHubCommitGraph,
+} from "./commit-graph.js";
 import {
   parsePersistedCoverageSnapshotEnvelope,
   parseCoverageSealRecord,
@@ -114,6 +117,7 @@ export async function verifySealedArtifactsAtPinnedCommits(
   }
   const proofRecord = parseActivationHistoryProofRecord(proofBody);
 
+  // Load only the sealed artifact ancestry chain — never walk tip→root.
   const graph = await loadGitHubCommitGraph({
     client: ctx.client as any,
     owner: ctx.owner,
@@ -121,12 +125,12 @@ export async function verifySealedArtifactsAtPinnedCommits(
     branch: ctx.stateBranch,
     anchorShas: [
       input.sealCommitSha,
-      input.tipCommitSha,
       seal.activationCommitSha,
       seal.eventSnapshotCommitSha,
       seal.activationHistoryProofCommitSha,
       seal.coverageSnapshotCommitSha,
     ],
+    stopAtShas: [seal.activationCommitSha],
   });
 
   if (!graph.isEqualOrDescendant(seal.activationCommitSha, seal.eventSnapshotCommitSha)) {
@@ -141,7 +145,31 @@ export async function verifySealedArtifactsAtPinnedCommits(
       "Event snapshot commit is not an ancestor of seal commit.",
     );
   }
-  if (!graph.isEqualOrDescendant(input.sealCommitSha, input.tipCommitSha)) {
+  let tipIsDescendant = false;
+  if (typeof (ctx.client as { compareCommits?: unknown }).compareCommits === "function") {
+    tipIsDescendant = await isCommitAncestorViaCompare({
+      client: ctx.client as any,
+      owner: ctx.owner,
+      repo: ctx.repo,
+      ancestorSha: input.sealCommitSha,
+      descendantSha: input.tipCommitSha,
+    });
+  } else {
+    // Test/in-memory clients: load tip ancestry stopping at seal.
+    const tipGraph = await loadGitHubCommitGraph({
+      client: ctx.client as any,
+      owner: ctx.owner,
+      repo: ctx.repo,
+      branch: ctx.stateBranch,
+      anchorShas: [input.tipCommitSha],
+      stopAtShas: [input.sealCommitSha],
+    });
+    tipIsDescendant = tipGraph.isEqualOrDescendant(
+      input.sealCommitSha,
+      input.tipCommitSha,
+    );
+  }
+  if (!tipIsDescendant) {
     throw new CursorProvenanceError(
       "cursor_provenance_coverage_integrity_error",
       "Seal commit is not an ancestor of tip commit.",
