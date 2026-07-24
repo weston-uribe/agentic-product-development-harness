@@ -31,15 +31,21 @@ import {
   buildCoverageGapRecord,
   buildCoverageSealRecord,
   buildCoverageSupersessionRecord,
+  buildDuplicateOperationIncidentRecord,
+  buildEpochInvalidationRecord,
   buildPersistedCoverageSnapshotEnvelope,
   parseCoverageGapRecord,
   parseCoverageSealRecord,
   parseCoverageSupersessionRecord,
+  parseDuplicateOperationIncidentRecord,
+  parseEpochInvalidationRecord,
   parsePersistedCoverageSnapshotEnvelope,
   persistedActivationRecordDigest,
   type CoverageGapRecord,
   type CoverageSealRecord,
   type CoverageSupersessionRecord,
+  type DuplicateOperationIncidentRecord,
+  type EpochInvalidationRecord,
   type PersistedCoverageSnapshotEnvelope,
 } from "./coverage-lifecycle-schemas.js";
 import { CursorProvenanceError } from "./errors.js";
@@ -54,6 +60,8 @@ import {
   coverageSealRemotePath,
   coverageSnapshotRemotePath,
   coverageSupersessionRemotePath,
+  duplicateIncidentRemotePath,
+  epochInvalidationRemotePath,
 } from "./paths.js";
 import type { ProvenanceLifecycleStore } from "./lifecycle-store.js";
 import type { ProvenanceEventStore } from "./store.js";
@@ -204,6 +212,7 @@ export class CoverageLifecycleService {
     activationHistoryProofCommitSha: string;
     activationHistoryProofDigest: string;
     snapshot: CoverageSnapshot;
+    finalizationPolicyDigest?: string;
     commitMessage?: string;
   }): Promise<
     LifecycleWriteResult & { envelope: PersistedCoverageSnapshotEnvelope }
@@ -236,6 +245,7 @@ export class CoverageLifecycleService {
     epochId: string;
     operatorToolSourceSha: string;
     finalizationEvidenceDigest: string;
+    finalizationPolicyDigest?: string;
     coverageSnapshotCommitSha?: string;
     commitMessage?: string;
   }): Promise<LifecycleWriteResult & { seal: CoverageSealRecord }> {
@@ -326,6 +336,8 @@ export class CoverageLifecycleService {
       coverageSnapshotDigest: envelope.envelopeDigest,
       finalizationEvidenceDigest: input.finalizationEvidenceDigest,
       operatorToolSourceSha: input.operatorToolSourceSha,
+      finalizationPolicyDigest:
+        input.finalizationPolicyDigest ?? envelope.finalizationPolicyDigest,
     });
 
     const path = coverageSealRemotePath(input.epochId);
@@ -438,6 +450,79 @@ export class CoverageLifecycleService {
         input.commitMessage ?? "p-dev: coverage interval supersession",
     });
     return { ...result, path, supersession };
+  }
+
+  async reportDuplicateOperationIncident(input: {
+    epochId: string;
+    recoveryOperationId: string;
+    stage: string;
+    attemptOrdinal: number;
+    duplicateOperationId: string;
+    priorOperationId: string;
+    recordedAt: string;
+    commitMessage?: string;
+  }): Promise<
+    LifecycleWriteResult & { incident: DuplicateOperationIncidentRecord }
+  > {
+    const incident = buildDuplicateOperationIncidentRecord(input);
+    const path = duplicateIncidentRemotePath(
+      input.epochId,
+      incident.incidentDigest,
+    );
+    const body = `${JSON.stringify(incident, null, 2)}\n`;
+    const result = await this.options.lifecycleStore.persistImmutableRecord({
+      path,
+      body,
+      canonicalDigest: incident.incidentDigest,
+      commitMessage:
+        input.commitMessage ??
+        `p-dev: duplicate operation incident ${input.epochId}`,
+    });
+    return { ...result, path, incident };
+  }
+
+  async invalidateNeverSealedEpoch(input: {
+    epochId: string;
+    activationCommitSha: string;
+    invalidInterval: CoverageInterval;
+    reasons: string[];
+    publicCanaryIdentities?: string[];
+    workflowRunIds?: string[];
+    eventCommitRange: {
+      startCommitSha: string;
+      endCommitSha: string;
+    };
+    gapId?: string | null;
+    incidentId?: string | null;
+    operatorToolSourceSha: string;
+    improperPriorSeal?: {
+      sealCommitSha: string;
+      sealDigest: string;
+      treatedAsValidCompleteSeal: false;
+    };
+    commitMessage?: string;
+  }): Promise<LifecycleWriteResult & { invalidation: EpochInvalidationRecord }> {
+    const invalidation = buildEpochInvalidationRecord(input);
+    const path = epochInvalidationRemotePath(input.epochId);
+    const body = `${JSON.stringify(invalidation, null, 2)}\n`;
+    const result = await this.options.lifecycleStore.persistImmutableRecord({
+      path,
+      body,
+      canonicalDigest: invalidation.invalidationDigest,
+      commitMessage:
+        input.commitMessage ??
+        `p-dev: epoch invalidation ${input.epochId}`,
+    });
+    return { ...result, path, invalidation };
+  }
+
+  async loadEpochInvalidation(
+    epochId: string,
+  ): Promise<EpochInvalidationRecord | null> {
+    const path = epochInvalidationRemotePath(epochId);
+    const body = await this.options.lifecycleStore.loadRecord(path);
+    if (!body) return null;
+    return parseEpochInvalidationRecord(body);
   }
 
   async enumerateSealToTip(input: {
@@ -569,6 +654,17 @@ export class CoverageLifecycleService {
           summary: "coverage_supersession",
         });
       }
+      if (path.endsWith("/invalidation.json")) {
+        const body = await store.loadRecord(path);
+        if (!body) continue;
+        items.push({
+          kind: "invalidation_record",
+          path,
+          commitSha: store.commitShaForPath?.(path) ?? "unknown",
+          overlapsSealedInterval: true,
+          summary: "epoch_invalidation",
+        });
+      }
     }
     return items;
   }
@@ -619,4 +715,6 @@ export {
   parseCoverageGapRecord,
   parseCoverageSealRecord,
   parseCoverageSupersessionRecord,
+  parseDuplicateOperationIncidentRecord,
+  parseEpochInvalidationRecord,
 };

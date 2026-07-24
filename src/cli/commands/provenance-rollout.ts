@@ -30,6 +30,8 @@ import {
   finalizeEpoch,
   inspectEpoch,
 } from "../../provenance/operator-coverage.js";
+import { createOrAdoptRecoveryRoot } from "../../provenance/recovery-operation.js";
+import { activationRecordRemotePath } from "../../provenance/paths.js";
 import {
   DEFAULT_QUIET_WINDOW_POLL_GAP_MS,
   waitAndInspectQuietWindow,
@@ -71,6 +73,27 @@ export async function runProvenanceRolloutCommand(options: {
   operatorToolSourceSha?: string;
   priorObservationJson?: string;
   pollGapSeconds?: number;
+  priorEpochId?: string;
+  recoveryContractVersion?: string;
+  recoveryOperationId?: string;
+  newEpochId?: string;
+  plannedStage?: string;
+  activationScheduleIdentity?: string;
+  creatorSessionId?: string;
+  invalidationReasons?: string;
+  publicCanaryIdentities?: string;
+  workflowRunIds?: string;
+  eventCommitStartSha?: string;
+  eventCommitEndSha?: string;
+  gapId?: string;
+  incidentId?: string;
+  improperSealCommitSha?: string;
+  improperSealDigest?: string;
+  duplicateRecoveryOperationId?: string;
+  duplicateStage?: string;
+  duplicateAttemptOrdinal?: string;
+  duplicateOperationId?: string;
+  priorOperationId?: string;
 }): Promise<number> {
   const action = options.action.trim().toLowerCase();
 
@@ -518,8 +541,139 @@ export async function runProvenanceRolloutCommand(options: {
       return result.ok ? 0 : 1;
     }
 
+    if (action === "recovery-root-create") {
+      if (
+        !options.priorEpochId ||
+        !options.recoveryOperationId ||
+        !options.newEpochId ||
+        !options.plannedStage ||
+        !options.activationScheduleIdentity
+      ) {
+        throw new Error(
+          "recovery-root-create requires --prior-epoch-id, --recovery-operation-id, --new-epoch-id, --planned-stage, --activation-schedule-identity",
+        );
+      }
+      const ctx = createOperatorCoverageContext();
+      const result = await createOrAdoptRecoveryRoot(ctx.lifecycleStore, {
+        priorEpochId: options.priorEpochId,
+        contractVersion: options.recoveryContractVersion,
+        recoveryOperationId: options.recoveryOperationId,
+        newEpochId: options.newEpochId,
+        plannedStage: options.plannedStage,
+        activationScheduleIdentity: options.activationScheduleIdentity,
+        creatorSessionId: options.creatorSessionId ?? "cli-session",
+      });
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(
+          `recoveryRoot adopted=${result.adopted} path=${result.path} newEpoch=${result.record.newEpochId}`,
+        );
+      }
+      return 0;
+    }
+
+    if (action === "invalidate-epoch") {
+      if (
+        !options.epochId ||
+        !options.operatorToolSourceSha ||
+        !options.coverageStart ||
+        !options.coverageEnd ||
+        !options.eventCommitStartSha ||
+        !options.eventCommitEndSha
+      ) {
+        throw new Error(
+          "invalidate-epoch requires --epoch-id, --operator-tool-source-sha, --coverage-start, --coverage-end, --event-commit-start-sha, --event-commit-end-sha",
+        );
+      }
+      const ctx = createOperatorCoverageContext();
+      const activationPath = activationRecordRemotePath(options.epochId);
+      const activationCommitSha =
+        await ctx.service.resolveLatestCommitForPath(activationPath);
+      if (!activationCommitSha) {
+        throw new Error("activation record commit could not be resolved");
+      }
+      const reasons = (options.invalidationReasons ?? "coverage_start_precedes_activation")
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean);
+      const result = await ctx.service.invalidateNeverSealedEpoch({
+        epochId: options.epochId,
+        activationCommitSha,
+        invalidInterval: {
+          coverageStart: options.coverageStart,
+          coverageEnd: options.coverageEnd,
+        },
+        reasons,
+        publicCanaryIdentities: options.publicCanaryIdentities
+          ?.split(",")
+          .map((value) => value.trim())
+          .filter(Boolean),
+        workflowRunIds: options.workflowRunIds
+          ?.split(",")
+          .map((value) => value.trim())
+          .filter(Boolean),
+        eventCommitRange: {
+          startCommitSha: options.eventCommitStartSha,
+          endCommitSha: options.eventCommitEndSha,
+        },
+        gapId: options.gapId ?? null,
+        incidentId: options.incidentId ?? null,
+        operatorToolSourceSha: options.operatorToolSourceSha,
+        improperPriorSeal:
+          options.improperSealCommitSha && options.improperSealDigest
+            ? {
+                sealCommitSha: options.improperSealCommitSha,
+                sealDigest: options.improperSealDigest,
+                treatedAsValidCompleteSeal: false,
+              }
+            : undefined,
+      });
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(
+          `invalidated epoch=${options.epochId} digestPrefix=${result.invalidation.invalidationDigest.slice(0, 12)}`,
+        );
+      }
+      return 0;
+    }
+
+    if (action === "report-duplicate-incident") {
+      if (
+        !options.epochId ||
+        !options.duplicateRecoveryOperationId ||
+        !options.duplicateStage ||
+        !options.duplicateAttemptOrdinal ||
+        !options.duplicateOperationId ||
+        !options.priorOperationId
+      ) {
+        throw new Error(
+          "report-duplicate-incident requires --epoch-id, --duplicate-recovery-operation-id, --duplicate-stage, --duplicate-attempt-ordinal, --duplicate-operation-id, --prior-operation-id",
+        );
+      }
+      const ctx = createOperatorCoverageContext();
+      const result = await ctx.service.reportDuplicateOperationIncident({
+        epochId: options.epochId,
+        recoveryOperationId: options.duplicateRecoveryOperationId,
+        stage: options.duplicateStage,
+        attemptOrdinal: Number.parseInt(options.duplicateAttemptOrdinal, 10),
+        duplicateOperationId: options.duplicateOperationId,
+        priorOperationId: options.priorOperationId,
+        recordedAt: new Date().toISOString(),
+      });
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(
+          `duplicateIncident epoch=${options.epochId} digestPrefix=${result.incident.incidentDigest.slice(0, 12)}`,
+        );
+      }
+      return 0;
+    }
+
     console.error(
-      "Unknown action. Use: readiness | quiet-window | activate | inspect-coverage | finalize | enumerate-seal-to-tip | generate-key | install-key | set-mode | shred-local-key-dir | canary-create | canary-validate | canary-trigger | canary-observe | key-recoverability | ensure-key",
+      "Unknown action. Use: readiness | quiet-window | activate | inspect-coverage | finalize | enumerate-seal-to-tip | recovery-root-create | invalidate-epoch | report-duplicate-incident | generate-key | install-key | set-mode | shred-local-key-dir | canary-create | canary-validate | canary-trigger | canary-observe | key-recoverability | ensure-key",
     );
     return 1;
   } catch (error) {

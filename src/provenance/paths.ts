@@ -91,6 +91,51 @@ export function coverageIntervalInvalidationRemotePath(
   return coverageSupersessionRemotePath(supersessionDigest);
 }
 
+export function recoveryOperationRootRemotePath(
+  priorEpochId: string,
+  contractVersion: string,
+): string {
+  return `${PROVENANCE_ROOT}/recovery-operations/${safeEpochId(priorEpochId)}/${safeLifecycleSegment(contractVersion, "contractVersion")}/root.json`;
+}
+
+export function recoveryStageRootRemotePath(input: {
+  recoveryOpId: string;
+  epochId: string;
+  stage: string;
+}): string {
+  return `${PROVENANCE_ROOT}/recovery-operations/${safeLifecycleSegment(input.recoveryOpId, "recoveryOpId")}/epochs/${safeEpochId(input.epochId)}/stages/${safeLifecycleSegment(input.stage, "stage")}/stage-root.json`;
+}
+
+export function recoveryAttemptRootRemotePath(input: {
+  recoveryOpId: string;
+  epochId: string;
+  stage: string;
+  ordinal: number;
+}): string {
+  return `${PROVENANCE_ROOT}/recovery-operations/${safeLifecycleSegment(input.recoveryOpId, "recoveryOpId")}/epochs/${safeEpochId(input.epochId)}/stages/${safeLifecycleSegment(input.stage, "stage")}/attempts/${input.ordinal}/attempt-root.json`;
+}
+
+export function recoveryAttemptTransitionRemotePath(input: {
+  recoveryOpId: string;
+  epochId: string;
+  stage: string;
+  ordinal: number;
+  transitionId: string;
+}): string {
+  return `${PROVENANCE_ROOT}/recovery-operations/${safeLifecycleSegment(input.recoveryOpId, "recoveryOpId")}/epochs/${safeEpochId(input.epochId)}/stages/${safeLifecycleSegment(input.stage, "stage")}/attempts/${input.ordinal}/transitions/${safeLifecycleSegment(input.transitionId, "transitionId")}.json`;
+}
+
+export function duplicateIncidentRemotePath(
+  epochId: string,
+  incidentDigest: string,
+): string {
+  return `${PROVENANCE_ROOT}/activations/${safeEpochId(epochId)}/incidents/${incidentDigest}.json`;
+}
+
+export function epochInvalidationRemotePath(epochId: string): string {
+  return `${PROVENANCE_ROOT}/activations/${safeEpochId(epochId)}/invalidation.json`;
+}
+
 /** Deterministic identity digest for lifecycle record paths (public-safe). */
 export function lifecycleRecordIdentityDigest(input: {
   recordKind: string;

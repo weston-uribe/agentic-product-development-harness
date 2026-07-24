@@ -246,7 +246,7 @@ export function createProgram(): Command {
     )
     .argument(
       "<action>",
-      "readiness | quiet-window | activate | inspect-coverage | finalize | enumerate-seal-to-tip | generate-key | install-key | set-mode | shred-local-key-dir | canary-create | canary-validate | canary-trigger | canary-observe | key-recoverability | ensure-key",
+      "readiness | quiet-window | activate | inspect-coverage | finalize | enumerate-seal-to-tip | recovery-root-create | invalidate-epoch | report-duplicate-incident | generate-key | install-key | set-mode | shred-local-key-dir | canary-create | canary-validate | canary-trigger | canary-observe | key-recoverability | ensure-key",
     )
     .option("--issue <key>", "Linear issue key for canary/observe actions")
     .option(
@@ -293,6 +293,72 @@ export function createProgram(): Command {
       "--prior-observation-json <json>",
       "Optional prior quiet-window observation JSON for a single resume sample",
     )
+    .option("--prior-epoch-id <id>", "Prior epoch id for recovery-root-create")
+    .option(
+      "--recovery-contract-version <version>",
+      "Recovery contract version (default 1)",
+    )
+    .option(
+      "--recovery-operation-id <uuid>",
+      "Recovery operation UUID for recovery-root-create",
+    )
+    .option("--new-epoch-id <id>", "Replacement epoch id for recovery-root-create")
+    .option(
+      "--planned-stage <stage>",
+      "Planned canary stage (e.g. required_canary)",
+    )
+    .option(
+      "--activation-schedule-identity <id>",
+      "Activation schedule identity for recovery root",
+    )
+    .option(
+      "--creator-session-id <id>",
+      "Creator session id (evidence only; not in path uniqueness)",
+    )
+    .option(
+      "--invalidation-reasons <csv>",
+      "Comma-separated invalidation reasons for invalidate-epoch",
+    )
+    .option(
+      "--public-canary-identities <csv>",
+      "Comma-separated public canary identities (e.g. TT-18,TT-19)",
+    )
+    .option("--workflow-run-ids <csv>", "Comma-separated workflow run ids")
+    .option(
+      "--event-commit-start-sha <sha>",
+      "Event commit range start for invalidate-epoch",
+    )
+    .option(
+      "--event-commit-end-sha <sha>",
+      "Event commit range end for invalidate-epoch",
+    )
+    .option("--gap-id <id>", "Optional gap id to pin in invalidation")
+    .option("--incident-id <id>", "Optional incident id to pin in invalidation")
+    .option(
+      "--improper-seal-commit-sha <sha>",
+      "Optional improper prior seal commit sha",
+    )
+    .option(
+      "--improper-seal-digest <digest>",
+      "Optional improper prior seal digest",
+    )
+    .option(
+      "--duplicate-recovery-operation-id <uuid>",
+      "Recovery operation id for report-duplicate-incident",
+    )
+    .option("--duplicate-stage <stage>", "Stage for report-duplicate-incident")
+    .option(
+      "--duplicate-attempt-ordinal <n>",
+      "Attempt ordinal for report-duplicate-incident",
+    )
+    .option(
+      "--duplicate-operation-id <uuid>",
+      "Duplicate operation id for report-duplicate-incident",
+    )
+    .option(
+      "--prior-operation-id <uuid>",
+      "Prior operation id for report-duplicate-incident",
+    )
     .option("--json", "Print public-safe JSON", false)
     .action(async (action, opts) => {
       const configPath = program.opts<{ config: string }>().config;
@@ -320,6 +386,27 @@ export function createProgram(): Command {
         operatorToolSourceSha: opts.operatorToolSourceSha,
         pollGapSeconds,
         priorObservationJson: opts.priorObservationJson,
+        priorEpochId: opts.priorEpochId,
+        recoveryContractVersion: opts.recoveryContractVersion,
+        recoveryOperationId: opts.recoveryOperationId,
+        newEpochId: opts.newEpochId,
+        plannedStage: opts.plannedStage,
+        activationScheduleIdentity: opts.activationScheduleIdentity,
+        creatorSessionId: opts.creatorSessionId,
+        invalidationReasons: opts.invalidationReasons,
+        publicCanaryIdentities: opts.publicCanaryIdentities,
+        workflowRunIds: opts.workflowRunIds,
+        eventCommitStartSha: opts.eventCommitStartSha,
+        eventCommitEndSha: opts.eventCommitEndSha,
+        gapId: opts.gapId,
+        incidentId: opts.incidentId,
+        improperSealCommitSha: opts.improperSealCommitSha,
+        improperSealDigest: opts.improperSealDigest,
+        duplicateRecoveryOperationId: opts.duplicateRecoveryOperationId,
+        duplicateStage: opts.duplicateStage,
+        duplicateAttemptOrdinal: opts.duplicateAttemptOrdinal,
+        duplicateOperationId: opts.duplicateOperationId,
+        priorOperationId: opts.priorOperationId,
       });
       process.exitCode = exitCode;
     });

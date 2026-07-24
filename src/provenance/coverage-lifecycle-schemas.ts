@@ -43,6 +43,51 @@ function stableStringify(value: unknown): string {
     .join(",")}}`;
 }
 
+export const EPOCH_INVALIDATION_SCHEMA_KIND =
+  "p-dev.cursor-cloud-agent-epoch-invalidation.v1" as const;
+
+export const DUPLICATE_OPERATION_INCIDENT_SCHEMA_KIND =
+  "p-dev.cursor-cloud-agent-duplicate-operation-incident.v1" as const;
+
+export interface ImproperPriorSealPin {
+  sealCommitSha: string;
+  sealDigest: string;
+  treatedAsValidCompleteSeal: false;
+}
+
+export interface EpochInvalidationRecord {
+  kind: typeof EPOCH_INVALIDATION_SCHEMA_KIND;
+  version: "1";
+  epochId: string;
+  activationCommitSha: string;
+  invalidInterval: CoverageInterval;
+  reasons: string[];
+  publicCanaryIdentities: string[];
+  workflowRunIds: string[];
+  eventCommitRange: {
+    startCommitSha: string;
+    endCommitSha: string;
+  };
+  gapId: string | null;
+  incidentId: string | null;
+  operatorToolSourceSha: string;
+  improperPriorSeal?: ImproperPriorSealPin;
+  invalidationDigest: string;
+}
+
+export interface DuplicateOperationIncidentRecord {
+  kind: typeof DUPLICATE_OPERATION_INCIDENT_SCHEMA_KIND;
+  version: "1";
+  epochId: string;
+  recoveryOperationId: string;
+  stage: string;
+  attemptOrdinal: number;
+  duplicateOperationId: string;
+  priorOperationId: string;
+  recordedAt: string;
+  incidentDigest: string;
+}
+
 export interface PersistedCoverageSnapshotEnvelope {
   kind: typeof PERSISTED_COVERAGE_SNAPSHOT_ENVELOPE_KIND;
   version: "1";
@@ -53,6 +98,7 @@ export interface PersistedCoverageSnapshotEnvelope {
   activationHistoryProofDigest: string;
   snapshot: CoverageSnapshot;
   envelopeDigest: string;
+  finalizationPolicyDigest?: string;
 }
 
 export interface CoverageSealRecord {
@@ -69,6 +115,7 @@ export interface CoverageSealRecord {
   coverageSnapshotDigest: string;
   finalizationEvidenceDigest: string;
   operatorToolSourceSha: string;
+  finalizationPolicyDigest?: string;
   sealDigest: string;
 }
 
@@ -136,6 +183,7 @@ export function buildPersistedCoverageSnapshotEnvelope(input: {
   activationHistoryProofCommitSha: string;
   activationHistoryProofDigest: string;
   snapshot: CoverageSnapshot;
+  finalizationPolicyDigest?: string;
 }): PersistedCoverageSnapshotEnvelope {
   if (input.snapshot.kind !== COVERAGE_SCHEMA_KIND) {
     throw new Error("coverage snapshot schema kind mismatch");
@@ -149,6 +197,9 @@ export function buildPersistedCoverageSnapshotEnvelope(input: {
     activationHistoryProofCommitSha: input.activationHistoryProofCommitSha,
     activationHistoryProofDigest: input.activationHistoryProofDigest,
     snapshot: input.snapshot,
+    ...(input.finalizationPolicyDigest
+      ? { finalizationPolicyDigest: input.finalizationPolicyDigest }
+      : {}),
   };
   const envelopeDigest = createHash("sha256")
     .update(stableStringify(partial), "utf8")
@@ -175,6 +226,7 @@ export function parsePersistedCoverageSnapshotEnvelope(
     activationHistoryProofCommitSha: parsed.activationHistoryProofCommitSha,
     activationHistoryProofDigest: parsed.activationHistoryProofDigest,
     snapshot: parsed.snapshot,
+    finalizationPolicyDigest: parsed.finalizationPolicyDigest,
   });
   if (recomputed.envelopeDigest !== parsed.envelopeDigest) {
     throw new Error("persisted coverage snapshot envelope digest mismatch");
@@ -194,6 +246,7 @@ export function buildCoverageSealRecord(input: {
   coverageSnapshotDigest: string;
   finalizationEvidenceDigest: string;
   operatorToolSourceSha: string;
+  finalizationPolicyDigest?: string;
 }): CoverageSealRecord {
   const partial: Omit<CoverageSealRecord, "sealDigest"> = {
     kind: COVERAGE_SEAL_SCHEMA_KIND,
@@ -209,6 +262,9 @@ export function buildCoverageSealRecord(input: {
     coverageSnapshotDigest: input.coverageSnapshotDigest,
     finalizationEvidenceDigest: input.finalizationEvidenceDigest,
     operatorToolSourceSha: input.operatorToolSourceSha,
+    ...(input.finalizationPolicyDigest
+      ? { finalizationPolicyDigest: input.finalizationPolicyDigest }
+      : {}),
   };
   const sealDigest = createHash("sha256")
     .update(stableStringify(partial), "utf8")
@@ -379,3 +435,118 @@ export function buildActivationHistoryProofRecord(input: {
 }
 
 export { activationPayloadDigest, type CanonicalActivationPayload };
+
+export function buildEpochInvalidationRecord(input: {
+  epochId: string;
+  activationCommitSha: string;
+  invalidInterval: CoverageInterval;
+  reasons: string[];
+  publicCanaryIdentities?: string[];
+  workflowRunIds?: string[];
+  eventCommitRange: {
+    startCommitSha: string;
+    endCommitSha: string;
+  };
+  gapId?: string | null;
+  incidentId?: string | null;
+  operatorToolSourceSha: string;
+  improperPriorSeal?: ImproperPriorSealPin;
+}): EpochInvalidationRecord {
+  const partial: Omit<EpochInvalidationRecord, "invalidationDigest"> = {
+    kind: EPOCH_INVALIDATION_SCHEMA_KIND,
+    version: "1",
+    epochId: input.epochId,
+    activationCommitSha: input.activationCommitSha,
+    invalidInterval: input.invalidInterval,
+    reasons: [...input.reasons].sort(),
+    publicCanaryIdentities: [...(input.publicCanaryIdentities ?? [])].sort(),
+    workflowRunIds: [...(input.workflowRunIds ?? [])].sort(),
+    eventCommitRange: input.eventCommitRange,
+    gapId: input.gapId ?? null,
+    incidentId: input.incidentId ?? null,
+    operatorToolSourceSha: input.operatorToolSourceSha,
+    ...(input.improperPriorSeal
+      ? { improperPriorSeal: input.improperPriorSeal }
+      : {}),
+  };
+  const invalidationDigest = createHash("sha256")
+    .update(stableStringify(partial), "utf8")
+    .digest("hex");
+  return { ...partial, invalidationDigest };
+}
+
+export function parseEpochInvalidationRecord(
+  bytes: string | object,
+): EpochInvalidationRecord {
+  const parsed = (
+    typeof bytes === "string" ? JSON.parse(bytes) : bytes
+  ) as EpochInvalidationRecord;
+  if (
+    parsed.kind !== EPOCH_INVALIDATION_SCHEMA_KIND ||
+    parsed.version !== "1"
+  ) {
+    throw new Error("invalid epoch invalidation record");
+  }
+  const recomputed = buildEpochInvalidationRecord(parsed);
+  if (recomputed.invalidationDigest !== parsed.invalidationDigest) {
+    throw new Error("epoch invalidation digest mismatch");
+  }
+  return parsed;
+}
+
+export function duplicateIncidentIdentityDigest(input: {
+  epochId: string;
+  recoveryOperationId: string;
+  stage: string;
+  attemptOrdinal: number;
+  duplicateOperationId: string;
+  priorOperationId: string;
+  recordedAt: string;
+}): string {
+  return createHash("sha256")
+    .update(stableStringify(input), "utf8")
+    .digest("hex");
+}
+
+export function buildDuplicateOperationIncidentRecord(input: {
+  epochId: string;
+  recoveryOperationId: string;
+  stage: string;
+  attemptOrdinal: number;
+  duplicateOperationId: string;
+  priorOperationId: string;
+  recordedAt: string;
+}): DuplicateOperationIncidentRecord {
+  const incidentDigest = duplicateIncidentIdentityDigest(input);
+  return {
+    kind: DUPLICATE_OPERATION_INCIDENT_SCHEMA_KIND,
+    version: "1",
+    epochId: input.epochId,
+    recoveryOperationId: input.recoveryOperationId,
+    stage: input.stage,
+    attemptOrdinal: input.attemptOrdinal,
+    duplicateOperationId: input.duplicateOperationId,
+    priorOperationId: input.priorOperationId,
+    recordedAt: input.recordedAt,
+    incidentDigest,
+  };
+}
+
+export function parseDuplicateOperationIncidentRecord(
+  bytes: string | object,
+): DuplicateOperationIncidentRecord {
+  const parsed = (
+    typeof bytes === "string" ? JSON.parse(bytes) : bytes
+  ) as DuplicateOperationIncidentRecord;
+  if (
+    parsed.kind !== DUPLICATE_OPERATION_INCIDENT_SCHEMA_KIND ||
+    parsed.version !== "1"
+  ) {
+    throw new Error("invalid duplicate operation incident record");
+  }
+  const recomputed = buildDuplicateOperationIncidentRecord(parsed);
+  if (recomputed.incidentDigest !== parsed.incidentDigest) {
+    throw new Error("duplicate operation incident digest mismatch");
+  }
+  return parsed;
+}

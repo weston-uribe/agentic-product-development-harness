@@ -19,6 +19,10 @@ import type {
 import { mapAllHarnessOwnedTraces } from "./trace-map.js";
 import { buildProvenanceScopeManifest } from "./manifest.js";
 import { scanLateEvidence, type LateEvidenceScanInput } from "./late-evidence.js";
+import {
+  assertEpochNotInvalidatedBeforeStaging,
+  blockedReasonForInvalidatedRegistry,
+} from "./invalidation-guard.js";
 
 export interface ProvenanceScopePipelineResult {
   registry: RegistryReadResult | null;
@@ -71,6 +75,7 @@ export function runProvenanceScopePipeline(input: {
   }
 
   if (!input.registry.integrityOk) {
+    const invalidationReason = blockedReasonForInvalidatedRegistry(input.registry);
     return {
       registry: input.registry,
       ownership: [],
@@ -79,7 +84,26 @@ export function runProvenanceScopePipeline(input: {
       worstOwnership: "registry_integrity_failure",
       dispositionDigest,
       sourceScopeBlockedReason:
-        input.registry.integrityFailures[0]?.code ?? "registry_integrity_failure",
+        invalidationReason ??
+        input.registry.integrityFailures[0]?.code ??
+        "registry_integrity_failure",
+      registryIntegrityFailure: true,
+    };
+  }
+
+  const stagingGuard = assertEpochNotInvalidatedBeforeStaging({
+    epochId: input.registry.activationEpochId,
+    invalidation: input.registry.epochInvalidation,
+  });
+  if (stagingGuard.blocked) {
+    return {
+      registry: input.registry,
+      ownership: [],
+      traceMappings: [],
+      manifest: null,
+      worstOwnership: "registry_integrity_failure",
+      dispositionDigest,
+      sourceScopeBlockedReason: stagingGuard.reasonCode,
       registryIntegrityFailure: true,
     };
   }

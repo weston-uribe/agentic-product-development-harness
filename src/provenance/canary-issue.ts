@@ -389,11 +389,21 @@ export async function canaryCreateOrAdopt(input: {
   linearApiKey: string;
   operationId?: string;
   replacementForIssueKey?: string | null;
+  recoveryStageContext?: {
+    recoveryOperationId: string;
+    epochId: string;
+    stage: string;
+    attemptOrdinal?: number;
+    attemptOperationId?: string;
+  } | null;
   now?: () => string;
   client?: LinearClient;
 }): Promise<CanaryCreateResult> {
   const now = input.now ?? (() => new Date().toISOString());
-  const operationId = input.operationId?.trim() || randomUUID();
+  const operationId =
+    input.recoveryStageContext?.attemptOperationId?.trim() ||
+    input.operationId?.trim() ||
+    randomUUID();
   const opMarker = marker(operationId);
 
   const client = input.client ?? createLinearClient(input.linearApiKey);

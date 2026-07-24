@@ -310,6 +310,12 @@ function digestRecordBody(body: string): string {
       "gapDigest",
       "supersessionDigest",
       "evidenceDigest",
+      "rootDigest",
+      "stageRootDigest",
+      "attemptRootDigest",
+      "transitionDigest",
+      "invalidationDigest",
+      "incidentDigest",
     ] as const;
     for (const key of digestKeys) {
       const value = parsed[key];

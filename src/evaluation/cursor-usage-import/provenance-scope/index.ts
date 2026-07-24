@@ -7,3 +7,4 @@ export * from "./manifest.js";
 export * from "./resolve.js";
 export * from "./pipeline.js";
 export * from "./coverage-status.js";
+export * from "./invalidation-guard.js";

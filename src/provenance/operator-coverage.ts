@@ -35,6 +35,18 @@ import {
 } from "./lifecycle-store.js";
 import { buildLiveActivationPayload } from "./live-activation.js";
 import {
+  activationGuardExpiredAt,
+  validateActivationGuard,
+} from "./activation-guard.js";
+import {
+  DEFAULT_FINALIZATION_POLICY,
+  finalizePolicyDigest,
+  operatorFinalizeEvidenceDigest,
+  pinFinalizationPolicy,
+  quietWindowEvidenceDigest,
+  type FinalizationPolicy,
+} from "./finalization-policy.js";
+import {
   activationHistoryProofRemotePath,
   activationRecordRemotePath,
   coverageSealRemotePath,
@@ -64,19 +76,6 @@ export interface OperatorCoverageContext {
 
 function digestPrefix(digest: string): string {
   return digest.slice(0, 12);
-}
-
-function finalizationEvidenceDigest(input: {
-  epochId: string;
-  operatorToolSourceSha: string;
-  eventSnapshotCommitSha: string;
-}): string {
-  return createHash("sha256")
-    .update(
-      `p-dev.finalization-evidence.v1|${input.epochId}|${input.operatorToolSourceSha}|${input.eventSnapshotCommitSha}`,
-      "utf8",
-    )
-    .digest("hex");
 }
 
 export function createOperatorCoverageContext(input?: {
@@ -143,6 +142,12 @@ export async function activateEpoch(
     captureProducerSourceSha: string;
     productionRunnerSha: string;
     activatedAt?: string;
+    requireFutureEffective?: boolean;
+    activationCommitTimestamp?: string;
+    requiredModeVerifiedAt?: string | null;
+    isolationCheckCompletedAt?: string | null;
+    minGuardDurationMs?: number;
+    finalizationPolicy?: FinalizationPolicy;
   },
 ): Promise<{
   epochId: string;
@@ -150,6 +155,28 @@ export async function activateEpoch(
   payloadDigestPrefix: string;
 }> {
   const activatedAt = input.activatedAt ?? new Date().toISOString();
+  const minGuardDurationMs = input.minGuardDurationMs ?? 0;
+
+  if (input.requireFutureEffective) {
+    const guard = validateActivationGuard({
+      activationCommitTimestamp:
+        input.activationCommitTimestamp ?? new Date().toISOString(),
+      activatedAt,
+      requiredModeVerifiedAt: input.requiredModeVerifiedAt,
+      isolationCheckCompletedAt: input.isolationCheckCompletedAt,
+      minGuardDurationMs,
+    });
+    if (guard.expired) {
+      throw new CursorProvenanceError(
+        "cursor_provenance_coverage_incomplete",
+        `Activation guard expired before write: ${guard.reasons.join(",")}`,
+      );
+    }
+  }
+
+  const policyPin = pinFinalizationPolicy(
+    input.finalizationPolicy ?? DEFAULT_FINALIZATION_POLICY,
+  );
   const payload = buildLiveActivationPayload({
     epochId: input.epochId,
     activatedAt,
@@ -162,16 +189,40 @@ export async function activateEpoch(
     stateRepository: ctx.stateRepository,
     stateBranch: ctx.stateBranch,
   });
+  payload.finalizationPolicy = policyPin;
   const record = buildPersistedActivationRecord(payload);
   const result = await ctx.service.writeActivation({
     epochId: input.epochId,
     payload,
   });
+
+  if (input.activationCommitTimestamp) {
+    const commitSha =
+      result.commitSha ??
+      (await ctx.service.resolveLatestCommitForPath(
+        activationRecordRemotePath(input.epochId),
+      ));
+    const guard = validateActivationGuard({
+      activationCommitTimestamp: input.activationCommitTimestamp,
+      activatedAt,
+      requiredModeVerifiedAt: input.requiredModeVerifiedAt,
+      isolationCheckCompletedAt: input.isolationCheckCompletedAt,
+      minGuardDurationMs,
+    });
+    if (!guard.ok) {
+      throw new CursorProvenanceError(
+        "cursor_provenance_coverage_incomplete",
+        `Activation guard failed after write: ${guard.reasons.join(",")} commit=${commitSha ?? "unknown"}`,
+      );
+    }
+  }
+
   const activationCommitSha =
     result.commitSha ??
     (await ctx.service.resolveLatestCommitForPath(
       activationRecordRemotePath(input.epochId),
     ));
+  void activationGuardExpiredAt(activatedAt, minGuardDurationMs);
   return {
     epochId: input.epochId,
     activationCommitSha,
@@ -235,6 +286,11 @@ export async function finalizeEpoch(
     eventSnapshotCommitSha?: string;
     operatorToolSourceSha: string;
     finalizationEvidenceDigest?: string;
+    finalizationPolicy?: FinalizationPolicy;
+    quietWindowObservations?: Array<{
+      observedAt: string;
+      activeRunIds: number[];
+    }>;
   },
 ): Promise<
   | {
@@ -284,6 +340,20 @@ export async function finalizeEpoch(
     );
   }
   const activationRecord = parsePersistedActivationRecord(activationBody);
+  const policy =
+    input.finalizationPolicy ??
+    DEFAULT_FINALIZATION_POLICY;
+  const policyDigest =
+    activationRecord.payload.finalizationPolicy?.digest ??
+    finalizePolicyDigest(policy);
+
+  if (!input.quietWindowObservations || input.quietWindowObservations.length < policy.quietPollCount) {
+    throw new CursorProvenanceError(
+      "cursor_provenance_coverage_incomplete",
+      `Quiet-window evidence requires at least ${policy.quietPollCount} observations.`,
+    );
+  }
+
   const activationSource: RetrievedActivationSource = {
     stateRepository: ctx.stateRepository,
     stateBranch: ctx.stateBranch,
@@ -298,6 +368,31 @@ export async function finalizeEpoch(
     activationCommitSha,
     eventSnapshotCommitSha,
   );
+
+  const records = await ctx.service.enumerateEvents(eventSnapshotCommitSha);
+  const hasNonEmptyEvidence =
+    records.length > 0 ||
+    (await (async () => {
+      const inspection = await ctx.service.inspectProvisionalCoverage({
+        epochId: input.epochId,
+        eventSnapshotCommitSha,
+        activationRecord,
+        activationSource: {
+          stateRepository: ctx.stateRepository,
+          stateBranch: ctx.stateBranch,
+          activationRecordPath: activationPath,
+          immutableCommitSha: activationCommitSha,
+        },
+      });
+      return inspection.eventCount > 0;
+    })());
+
+  if (hasNonEmptyEvidence && claimedRelationship === "equal") {
+    throw new CursorProvenanceError(
+      "cursor_provenance_coverage_integrity_error",
+      "Non-empty coverage requires strict descendant history proof (not equal tip).",
+    );
+  }
 
   const proofWrite = await ctx.service.writeHistoryProof({
     epochId: input.epochId,
@@ -318,7 +413,7 @@ export async function finalizeEpoch(
   }
   const proofDigest = activationHistoryProofRecordDigest(proofWrite.record);
 
-  const records = await ctx.service.enumerateEvents(eventSnapshotCommitSha);
+  const recordsForSnapshot = await ctx.service.enumerateEvents(eventSnapshotCommitSha);
   const graph = await loadGitHubCommitGraph({
     client: ctx.client,
     owner: ctx.owner,
@@ -341,7 +436,7 @@ export async function finalizeEpoch(
 
   const snapshot = buildCoverageSnapshot({
     interval: activationRecord.payload.interval,
-    records,
+    records: recordsForSnapshot,
     eventSnapshotSource: {
       stateRepository: ctx.stateRepository,
       stateBranch: ctx.stateBranch,
@@ -359,6 +454,7 @@ export async function finalizeEpoch(
     activationHistoryProofCommitSha: proofCommitSha,
     activationHistoryProofDigest: proofDigest,
     snapshot,
+    finalizationPolicyDigest: policyDigest,
   });
   const snapshotCommitSha =
     snapshotWrite.commitSha ??
@@ -401,18 +497,25 @@ export async function finalizeEpoch(
     };
   }
 
+  const quietDigest = quietWindowEvidenceDigest({
+    observations: input.quietWindowObservations,
+    policyDigest,
+  });
   const finalDigest =
     input.finalizationEvidenceDigest ??
-    finalizationEvidenceDigest({
+    operatorFinalizeEvidenceDigest({
       epochId: input.epochId,
       operatorToolSourceSha: input.operatorToolSourceSha,
       eventSnapshotCommitSha,
+      finalizationPolicyDigest: policyDigest,
+      quietWindowEvidenceDigest: quietDigest,
     });
 
   const seal = await ctx.service.sealCoverage({
     epochId: input.epochId,
     operatorToolSourceSha: input.operatorToolSourceSha,
     finalizationEvidenceDigest: finalDigest,
+    finalizationPolicyDigest: policyDigest,
     coverageSnapshotCommitSha: snapshotCommitSha ?? undefined,
   });
 
